@@ -12,7 +12,7 @@
  */
 import type { AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DEFAULT_ORCHESTRATOR_LIMITS } from './orchestrator.js';
 import { tmpdir } from 'node:os';
@@ -27,6 +27,7 @@ import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
+import { pluginLogFolder, recordFileName } from './run-records.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
 import { pluginInvocationAccess } from '../plugin/fill-access.js';
 import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
@@ -57,6 +58,12 @@ export interface PluginTurnWiring {
   readonly contract: GraphContract;
   /** The release closures trusted without approval; the build's own unless a test names its own. */
   readonly releaseHashes?: readonly string[];
+  /**
+   * The store's `traces` folder (madarch-64o5.88): every unit's plugin standard error is kept there beside the run's
+   * trace, under `<run>.plugins/`, so the logs page reads it after the unit's scratch folder is gone. Left out, the
+   * plugin's log stays only as long as the unit's scratch folder.
+   */
+  readonly traces?: string;
   /**
    * The kinds this fill was asked for (decision 0035, items 11 and 31; madarch-stm0.6): their turns only, in this
    * dependency order, and with a vertex, the one entity of that kind's unit whose answer is published. Absent, the
@@ -405,6 +412,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes
   const author = `${unit.plugin.id}@${unit.lock.version}`;
   /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */
   let journaled = false;
+  /** The plugin's standard error, once the unit ended: kept with the run, so a reader finds it after its scratch is gone. */
+  let pluginStderr: string | undefined;
   try {
     const session = await host.open();
     const cancel = (): void => { void session.cancel(); };
@@ -535,6 +544,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes
       }
     } finally {
       signal?.removeEventListener('abort', cancel);
+      const stderr = session.stderr();
+      if (stderr.file !== '') pluginStderr = stderr.file;
       await withSpan('plugin.close', { 'madarch.plugin.id': unit.plugin.id }, async () => await session.close());
     }
     // The unit's spend goes to the store whatever the unit published: a bound that crossed is the unit's end, and the
@@ -550,6 +561,18 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
+    // The plugin's own output goes with the run (madarch-64o5.88): the unit's scratch folder is temporary, and its log is
+    // the only place a plugin's own words stand.
+    if (pluginStderr !== undefined && wiring.traces !== undefined && runId !== undefined && existsSync(pluginStderr)) {
+      try {
+        const folder = pluginLogFolder(wiring.traces, runId);
+        mkdirSync(folder, { recursive: true });
+        copyFileSync(pluginStderr, join(folder, recordFileName(unit.id, 'log')));
+      } catch {
+        // The log is evidence, not the work: a folder that cannot be written must not fail the unit.
+      }
+    }
+    withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => rmSync(workRoot, { recursive: true, force: true }));
     withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => rmSync(workRoot, { recursive: true, force: true }))));
   }
 }

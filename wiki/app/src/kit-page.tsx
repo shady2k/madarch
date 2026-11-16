@@ -4,6 +4,7 @@
  * page is the whole kit's one list: a component that is not here is not the kit's.
  */
 import { useState, type ReactElement } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { ArrowRightIcon, CircleHelpIcon } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
@@ -12,6 +13,8 @@ import {
   Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from './components/ui/breadcrumb.js';
 import { Button } from './components/ui/button.js';
+import { ChoiceMenu } from './components/ui/choice-menu.js';
+import { DateTimeField, DateTimePanel, type DateTimeLabels } from './components/ui/date-time-field.js';
 import {
   ActivityCalendar, ChartBar, ChartCalendar, ChartHeatmap, ChartSparkline, ChartStackedBar, ChartSunburst, ChartTreemap,
   type ChartDay, type ChartNode,
@@ -37,6 +40,7 @@ import { Figure, FigureCaption } from './components/ui/figure.js';
 import { FilterBar, FilterField, FilterResults, PaginationBar, PaginationSummary } from './components/ui/filter-bar.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
+import { LogViewer, type LogViewerEntry, type LogViewerFilters, type LogViewerLabels } from './components/ui/log-viewer.js';
 import { KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
 import { MetadataLine } from './components/ui/metadata-line.js';
 import {
@@ -51,7 +55,7 @@ import {
   SearchContainer, SearchGroupTitle, SearchResultLink, SearchResults,
 } from './components/ui/search-results.js';
 import { SegmentedChoice } from './components/ui/segmented-choice.js';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select.js';
+
 import {
   ShellAnswersCount, ShellAnswersLink, ShellAnswersWords, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellIconLink,
   ShellTab, ShellTabClose, ShellTabTrigger, ShellTabs,
@@ -76,6 +80,18 @@ import {
 } from './components/ui/typography.js';
 
 const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label: 'Forms' }];
+
+/** The entries the kit's log viewer is shown with: worded engine events, one quoted outside line, and their context. */
+function logSample(t: TFunction): readonly LogViewerEntry[] {
+  const detail = 'src/index.ts:3: the fixture plugin refused the unit';
+  return [
+    { id: 'sample-1', at: '2026-11-15T09:41:02.114Z', level: 'info', source: t('logs.source.fill'), run: 'fill-sample', unit: 'disk:code.file', message: t('logs.event.unit-extracted'), quoted: false, detail: null, fields: { attempt: '1', fence: '3' } },
+    { id: 'sample-2', at: '2026-11-15T09:41:02.480Z', level: 'warn', source: t('logs.source.plugin'), run: 'fill-sample', unit: 'disk:code.file', message: 'the plugin read a file whose language its parser does not know', quoted: true, detail: null, fields: { path: 'repos/app/src/notes.txt' } },
+    { id: 'sample-3', at: '2026-11-15T09:41:07.007Z', level: 'error', source: t('logs.source.fill'), run: 'fill-sample', unit: 'disk:code.repository', message: t('logs.event.plugin-session-failed', { detail }), raw: `the plugin session failed: ${detail}`, quoted: false, detail: 'Error: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)', fields: { code: 'plugin-closure', file: 'madarch/plugins.lock', path: 'plugins/disk/plugin.json' } },
+    { id: 'sample-4', at: '2026-11-15T09:41:07.240Z', level: 'info', source: t('logs.source.store'), run: null, unit: null, message: 'database system is ready to accept connections', quoted: true, detail: null, fields: {} },
+    { id: 'sample-5', at: '2026-11-15T09:41:08.902Z', level: 'debug', source: t('logs.source.agent'), run: 'fill-sample', unit: 'agent-fill:doc.term', message: t('logs.event.agent-tool-call', { text: 'Read docs/terms.md (completed)' }), quoted: false, detail: null, fields: {} },
+  ];
+}
 
 // The figures' data: a repository by bytes, a catalogue by kinds, fill outcomes by day, and ninety days of fills. Fixed
 // numbers, so the page reads the same on every run and a shot can be compared with the one before it.
@@ -121,7 +137,7 @@ function weekdaysOf(language: string): string[] {
 
 export function KitPage(): ReactElement {
   const { t, i18n } = useTranslation();
-  const language = i18n.resolvedLanguage ?? 'en';
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const weekdays = weekdaysOf(language);
   const groups = groupsOf(language);
   const stacked = [t('knowledge.fillRun.state.published'), t('knowledge.fillRun.state.failed'), t('knowledge.fillRun.state.blocked')].map((name, at) => ({ name, data: STACKED_VALUES[at]! }));
@@ -130,6 +146,25 @@ export function KitPage(): ReactElement {
   const [choice, setChoice] = useState('one');
   const [segment, setSegment] = useState('one');
   const [toggled, setToggled] = useState(false);
+  const [logFilters, setLogFilters] = useState<LogViewerFilters>({ source: '', level: '', run: '', from: '', to: '', query: '' });
+  const [logLive, setLogLive] = useState(false);
+  const [, setMenuChoice] = useState('all');
+  const [moment, setMoment] = useState('2026-11-15T12:22:19.850Z');
+  const dateTimeLabels: DateTimeLabels = {
+    none: t('logs.dateTime.none'), title: t('logs.dateTime.title'), clear: t('logs.dateTime.clear'), done: t('logs.dateTime.done'),
+    hour: t('logs.dateTime.hour'), minute: t('logs.dateTime.minute'), second: t('logs.dateTime.second'),
+    previous: t('logs.dateTime.previous'), next: t('logs.dateTime.next'), close: t('logs.dateTime.close'),
+  };
+  const logLabels: LogViewerLabels = {
+    source: t('logs.filters.source'), level: t('logs.filters.level'), run: t('logs.filters.run'),
+    from: t('logs.filters.from'), to: t('logs.filters.to'), search: t('logs.filters.search'), all: t('logs.filters.all'),
+    older: t('logs.filters.older'), empty: t('logs.empty'), loading: t('logs.loading'),
+    follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
+    context: t('logs.filters.context'), details: t('logs.filters.details'), quoted: t('logs.quoted'),
+    dateTime: dateTimeLabels,
+    levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
+  };
+
   return (
     <KitPageLayout title={state('title')} description={state('intro')}>
       <Alert><AlertTitle>{state('approvalTitle')}</AlertTitle><AlertDescription>{state('approval')}</AlertDescription></Alert>
@@ -162,8 +197,7 @@ export function KitPage(): ReactElement {
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label={state('fieldLabel')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select defaultValue="one"><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem><SelectItem value="two">{state('description')}</SelectItem></SelectContent></Select></Form></KitState>
-        <KitState label={`Select — ${state('disabled')}`}><Select defaultValue="one" disabled><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem></SelectContent></Select></KitState>
+        <KitState label={state('fieldLabel')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel></Form></KitState>
       </KitSection>
 
       <KitSection title="Checkbox / Radio / Switch / Toggle">
@@ -200,10 +234,10 @@ export function KitPage(): ReactElement {
           <TableHeader><TableRow><TableHead>{state('name')}</TableHead><TableHead>{state('description')}</TableHead></TableRow></TableHeader>
           <TableBody><TableRow><TableCell>{state('sample')}</TableCell><TableCell>{state('content')}</TableCell></TableRow></TableBody>
         </Table>
-        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
       </KitSection>
 
       <KitSection title="FilterBar">
@@ -211,6 +245,34 @@ export function KitPage(): ReactElement {
           <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
         </FilterResults>
         <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label={state('next')}><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+      </KitSection>
+
+      <KitSection title={state('choiceMenuTitle')}>
+        <KitState label={state('closed')}>
+          <ChoiceMenu label={t('logs.filters.source')} value="" options={[{ value: '', label: t('logs.filters.all') }, { value: 'fill', label: t('logs.source.fill') }]} onChange={setMenuChoice} testId="kit-choice-menu" />
+        </KitState>
+        <KitState label={state('chosen')}>
+          <ChoiceMenu label={t('logs.filters.source')} value="fill" options={[{ value: '', label: t('logs.filters.all') }, { value: 'fill', label: t('logs.source.fill') }]} onChange={setMenuChoice} testId="kit-choice-chosen" />
+        </KitState>
+        <KitState label={state('open')}>
+          {/* The open state is a picture of the menu inside its own sample: the kit's menu itself opens over the page. */}
+          <Stack className="w-56 rounded-lg border border-line bg-page p-1 text-ink shadow" data-testid="kit-choice-open" aria-hidden="true">
+            <Metadata>{t('logs.filters.source')}</Metadata>
+            <Stack className="rounded bg-chrome px-2 py-1.5 text-small">{t('logs.filters.all')}</Stack>
+            <Stack className="px-2 py-1.5 text-small">{t('logs.source.fill')}</Stack>
+          </Stack>
+        </KitState>
+        <KitState label={state('closed')}>
+          <DateTimeField label={t('logs.filters.from')} value={moment} onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment" />
+        </KitState>
+        <KitState label={state('empty')}>
+          <DateTimeField label={t('logs.filters.from')} value="" onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment-empty" />
+        </KitState>
+        <KitState label={state('open')}>
+          <DialogPreview title={t('logs.filters.from')} description={t('logs.dateTime.title')}>
+            <DateTimePanel value={moment} locale={language} labels={dateTimeLabels} onCommit={setMoment} onClear={() => { setMoment(''); }} />
+          </DialogPreview>
+        </KitState>
       </KitSection>
 
       <KitSection title="Tabs">
@@ -300,6 +362,24 @@ export function KitPage(): ReactElement {
           <SearchResultLink active href="/#kit-intro">{state('sample')}</SearchResultLink>
           <SearchResultLink active={false} href="/#kit-forms">{state('content')}</SearchResultLink>
         </SearchResults>
+      </KitSection>
+
+      <KitSection title={state('logsTitle')} description={t('logs.intro')}>
+        <KitState label={state('default')}>
+          <LogViewer entries={logSample(t)} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary={t('logs.summary', { shown: 5, scanned: 5 })} locale={language} />
+        </KitState>
+        <KitState label={state('error')}>
+          <LogViewer entries={logSample(t)} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary={t('logs.summary', { shown: 1, scanned: 5 })} locale={language} />
+        </KitState>
+        <KitState label={state('empty')}>
+          <LogViewer entries={[]} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
+        </KitState>
+        <KitState label={state('loading')}>
+          <LogViewer entries={[]} loading filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
+        </KitState>
+        <KitState label={state('logsLive')}>
+          <LogViewer entries={logSample(t).slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} locale={language} />
+        </KitState>
       </KitSection>
 
       <KitSection title={state('charts')} description={state('chartsNote')}>

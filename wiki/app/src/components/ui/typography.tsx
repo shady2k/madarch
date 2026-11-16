@@ -50,6 +50,8 @@ export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAncho
 
 /** Shared semantic layout for reading pages and form fields. */
 const stackLayouts = {
+  // A command page's sections: one column, a gap between the cards.
+  page: 'grid min-w-0 gap-4',
   fill: 'grid min-w-0 gap-6 lg:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]',
   graph: 'max-h-[32rem] overflow-auto',
   catalogue: 'grid min-w-0 items-start gap-6 wide:grid-cols-[minmax(0,1fr)_200px]',
@@ -63,7 +65,10 @@ const stackLayouts = {
 export function Stack({ layout, className, ...props }: HTMLAttributes<HTMLDivElement> & { layout?: keyof typeof stackLayouts }) { return <div className={cn(layout && stackLayouts[layout], className)} {...props} />; }
 export function Text(props: HTMLAttributes<HTMLSpanElement>) { return <span {...props} />; }
 export function PageArticle(props: HTMLAttributes<HTMLElement>) { return <article {...props} />; }
-export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) { return <dl className={cn(columns && 'm-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small', className)} {...props} />; }
+export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) {
+  // Two columns where the width is there, one below: a long term or a path never widens a phone's page.
+  return <dl className={cn(columns && 'm-0 grid grid-cols-1 gap-x-4 gap-y-1 text-small md:grid-cols-[max-content_minmax(0,1fr)]', className)} {...props} />;
+}
 export function DefinitionTerm(props: HTMLAttributes<HTMLElement>) { return <dt {...props} />; }
 export function DefinitionValue(props: HTMLAttributes<HTMLElement>) { return <dd {...props} />; }
 export function PlainList({ className, ...props }: HTMLAttributes<HTMLUListElement>) { return <ul className={cn('ui-plain-list list-none', className)} {...props} />; }

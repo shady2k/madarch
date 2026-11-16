@@ -15,6 +15,8 @@ import { withSpanSync } from '../obs/trace.js';
 import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
+import { readRunAgentExchanges } from '../fill/agent-exchange.js';
+import { logsAnswer, type LogPage, type LogQuery } from './logs.js';
 import { cancelRun, pauseRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
@@ -30,6 +32,7 @@ import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
+import { MANIFESTS_GUIDE } from '../product/guides.js';
 import { productRepositoryId } from '../product/identity.js';
 import { catalogueFileTextRole } from './file-text-kind.js';
 import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
@@ -99,6 +102,7 @@ import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../graph/manifest-publication.js';
 import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
+import { Kind, parse, valueFromASTUntyped, type DocumentNode } from 'graphql';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
@@ -550,12 +554,55 @@ export class KnowledgeProduct {
    * Runs one GraphQL operation against this product's graph (decision 0036, section 2): the manifest the start
    * published, the one executor the wiki and MCP share, and the schema its published manifest derives.
    */
-  async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }): Promise<{ readonly status: number; readonly body: MessageBody }> {
+  async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }, service: { readonly products?: () => unknown } = {}): Promise<{ readonly status: number; readonly body: MessageBody }> {
     try {
-      return await readWorker(this.readDescriptor().then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
+      const answer = await readWorker(this.readDescriptor().then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
+      return await this.fillServiceFields(operation, answer, service);
     } catch (error) {
       return { status: 200, body: { errors: [{ message: error instanceof Error ? error.message : String(error), extensions: { code: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED' } }] } };
     }
+  }
+
+  /**
+   * The service's own fields of one operation (madarch-64o5.136 restore): `products`, `fillStatus`, `fillRuns` and
+   * `fillPlan` are the layer that owns the state, not the graph's — the one read API answers them here, where the
+   * product and the server's product list live, and the response keys the operation asked for carry them.
+   */
+  private async fillServiceFields(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>> }, answer: { readonly status: number; readonly body: MessageBody }, service: { readonly products?: () => unknown }): Promise<{ readonly status: number; readonly body: MessageBody }> {
+    const body = answer.body as Record<string, unknown>;
+    if (answer.status !== 200 || body['errors'] !== undefined) return answer;
+    let document: DocumentNode;
+    try { document = parse(operation.query); } catch { return answer; }
+    const definition = document.definitions.find((one) => one.kind === Kind.OPERATION_DEFINITION);
+    if (definition === undefined || definition.kind !== Kind.OPERATION_DEFINITION) return answer;
+    const data = (body['data'] === null || typeof body['data'] !== 'object' ? {} : body['data']) as Record<string, unknown>;
+    let filled = false;
+    for (const selection of definition.selectionSet.selections) {
+      if (selection.kind !== Kind.FIELD) continue;
+      const name = selection.name.value;
+      const key = selection.alias?.value ?? name;
+      const argument = (wanted: string): unknown => {
+        const held = selection.arguments?.find((one) => one.name.value === wanted);
+        if (held === undefined) return undefined;
+        return held.value.kind === Kind.VARIABLE ? operation.variables?.[held.value.name.value] : valueFromASTUntyped(held.value);
+      };
+      if (name === 'products') { data[key] = service.products === undefined ? null : service.products(); filled = true; continue; }
+      if (name === 'fillStatus') { data[key] = await this.status(); filled = true; continue; }
+      if (name === 'fillRuns') {
+        const run = argument('run');
+        data[key] = await this.fillRuns(typeof run === 'string' && run !== '' ? run : undefined);
+        filled = true;
+        continue;
+      }
+      if (name === 'fillPlan') {
+        const selected = argument('selected');
+        const pluginsOnly = argument('pluginsOnly');
+        const kinds = Array.isArray(selected) ? selected.filter((one): one is string => typeof one === 'string') : [];
+        data[key] = this.fillPlan(kinds, pluginsOnly === true);
+        filled = true;
+      }
+    }
+    return filled ? { status: answer.status, body: { ...body, data } } : answer;
   }
 
   /**
@@ -2008,6 +2055,7 @@ export class KnowledgeProduct {
       // it into the graph yet (`not-filled`), or the graph holds it (`ok`).
       manifest: read.present ? 'not-filled' : existsSync(manifestFile) ? 'not-filled' : 'no-manifest',
       manifestFile,
+      manifestGuide: MANIFESTS_GUIDE,
       language: read.present ? read.manifest.language ?? 'en' : 'en',
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
@@ -2120,7 +2168,7 @@ export class KnowledgeProduct {
     const file = join(product.folder, KINDS_FILE);
     return {
       product: { name: product.name, id: product.id },
-      manifest: existsSync(file) ? 'not-filled' : 'no-manifest', manifestFile: file,
+      manifest: existsSync(file) ? 'not-filled' : 'no-manifest', manifestFile: file, manifestGuide: MANIFESTS_GUIDE,
       language: 'en', kinds: [], groups: [],
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: false })),
       filled: false, incomplete: false, fill: this.fill, writer: this.writerOf(),
@@ -2318,8 +2366,21 @@ export class KnowledgeProduct {
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
-      return (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      // One run's agent exchanges are read only for a page that names that run (madarch-64o5.88): the history lists
+      // runs and reads no folder for them. A run whose trace was trimmed, or whose agent never ran, kept none.
+      const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
+      return { ...detail, agentExchanges: exchanges };
     }));
+  }
+
+  /**
+   * One page of every log madarch keeps for this product (madarch-64o5.88): the server's records under the knowledge
+   * root, this product's fills, plugins, agent units and store, and the spans of its runs. The read opens no database
+   * and reads no product file: it is the machine's evidence, filtered and paged.
+   */
+  logs(query: LogQuery): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
+    return logsAnswer({ store: this.storeFolder(), knowledgeRoot: this.options.storeRoot }, query);
   }
 
   /** A scoped control never targets mutable latest-run fields. */

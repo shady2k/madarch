@@ -14,7 +14,8 @@ import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js
 import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
 import { DIAGRAM_DEPTH, DIAGRAM_AGGREGATE_ABOVE, DIAGRAM_MAX_BYTES, type DiagramAnswer } from '../render/diagram-render.js';
-import type { ReadWork } from '../render/read-worker.js';
+import type { ReadDescriptor, ReadWork } from '../render/read-worker.js';
+import { LOG_LEVELS, LOG_SOURCES, logsAnswer } from '../knowledge/logs.js';
 
 declare const self: Worker;
 const stage = (name: string): void => self.postMessage({ kind: 'stage', stage: name });
@@ -62,13 +63,48 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
   pictures.set(key, answer);
   return answer;
 }
+/**
+ * The logs page's read inside the read worker (madarch-64o5.88): the same page of every log the product keeps, filtered
+ * by the operation's arguments. It opens no database and reads no product file.
+ */
+function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<string, unknown>>) => unknown) | undefined {
+  if (descriptor.store === undefined || descriptor.knowledgeRoot === undefined) return undefined;
+  const paths = { store: descriptor.store, knowledgeRoot: descriptor.knowledgeRoot };
+  return (asked) => {
+    const sources = Array.isArray(asked['sources']) ? asked['sources'] : [];
+    for (const name of sources) {
+      if (typeof name !== 'string' || !(LOG_SOURCES as readonly string[]).includes(name)) throw new Error(`${import.meta.path}:1: "sources" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}`);
+    }
+    const level = asked['level'];
+    if (level !== undefined && (typeof level !== 'string' || !(LOG_LEVELS as readonly string[]).includes(level))) throw new Error(`${import.meta.path}:1: "level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}`);
+    const whole = (key: string): number | undefined => {
+      const held = asked[key];
+      return typeof held === 'number' && Number.isFinite(held) && held >= 0 ? Math.floor(held) : undefined;
+    };
+    const from = whole('from');
+    const before = whole('before');
+    const limit = whole('limit');
+    const run = typeof asked['run'] === 'string' && asked['run'] !== '' ? asked['run'] : undefined;
+    const text = typeof asked['q'] === 'string' ? asked['q'] : undefined;
+    return logsAnswer(paths, {
+      ...(sources.length === 0 ? {} : { sources: sources as import('../knowledge/logs.js').LogSourceName[] }),
+      ...(level === undefined ? {} : { level: level as import('../knowledge/logs.js').LogLevel }),
+      ...(run === undefined ? {} : { run }),
+      ...(text === undefined ? {} : { q: text }),
+      ...(from === undefined ? {} : { since: from }),
+      ...(before === undefined ? {} : { before }),
+      ...(limit === undefined ? {} : { limit }),
+    });
+  };
+}
+
 self.onmessage = async (event: MessageEvent<ReadWork>) => {
   let owner: DatabaseOwner | undefined;
   try {
     const asked = event.data;
     if (asked.descriptor !== undefined) owner = await createPostgresDatabaseOwner(asked.descriptor.connection);
     const answer = asked.kind === 'graphql'
-      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder) }, asked.operation)
+      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder), logs: logsReaderOf(asked.descriptor) }, asked.operation)
       : await diagram(asked, owner);
     await owner?.close();
     self.postMessage({ kind: 'answer', answer });

@@ -234,3 +234,25 @@ test('native app serves a fill run as a template page with its run in the addres
     expect(part.app('/fill/runs/id/unrelated')?.response.status).toBe(404);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
+
+test('one run reads the agent exchanges madarch kept beside its trace', async () => {
+  const store = mkdtempSync(join(tmpdir(), 'madarch-run-exchanges-'));
+  try {
+    await createRun(owner, { runId: 'agent-run', product: 'shop', at: 6100 });
+    const { AgentExchangeRecorder } = await import('../src/fill/agent-exchange.js');
+    const recorder = new AgentExchangeRecorder({ folder: join(store, 'traces', 'agent-run.agents'), run: 'agent-run', unit: 'agent-fill:doc.term', agent: 'fixture-agent' });
+    recorder.setGiven({ prompt: 'Fill the term from its documents.', task: { kind: 'doc.term' }, files: ['repo/docs/a.md'] });
+    recorder.answer('{"vertices":[],"end":{"state":"complete"}}', 'end_turn');
+    recorder.finish();
+    const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
+    Object.assign(product as unknown as Record<string, unknown>, {
+      open: async () => owner, product: () => ({ name: 'shop' }), runViewOf: async () => undefined, storeFolder: () => store, options: {},
+    });
+    const runs = await product.fillRuns('agent-run');
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.runId).toBe('agent-run');
+    expect(runs[0]?.agentExchanges).toMatchObject([{ unit: 'agent-fill:doc.term', agent: 'fixture-agent', state: 'turned', given: { files: ['repo/docs/a.md'] } }]);
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});

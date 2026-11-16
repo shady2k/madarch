@@ -11,7 +11,6 @@ let RadioGroup: typeof import('./radio-group.js').RadioGroup;
 let RadioGroupItem: typeof import('./radio-group.js').RadioGroupItem;
 let Switch: typeof import('./switch.js').Switch;
 let Progress: typeof import('./progress.js').Progress;
-let kit: typeof import('./select.js');
 beforeAll(async () => {
   GlobalRegistrator.register();
   previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -19,7 +18,6 @@ beforeAll(async () => {
   ({ RadioGroup, RadioGroupItem } = await import('./radio-group.js'));
   ({ Switch } = await import('./switch.js'));
   ({ Progress } = await import('./progress.js'));
-  kit = await import('./select.js');
 });
 afterEach(async () => {
   await act(async () => { root?.unmount(); });
@@ -67,35 +65,37 @@ test('invalid fields retain accessible names and error descriptions', async () =
   expect(container.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('required');
 });
 
-test('a Select whose first choice is empty opens, selects it and reports the empty value (madarch-64o5.82)', async () => {
-  // Radix refuses an empty item's value, and four menus offer "none" that way; the kit maps '' to a private value and
-  // back, so a caller can always name the empty choice.
+test('the kit menu names the empty choice and reports it back (madarch-64o5.88)', async () => {
+  // The kit's one-choice control is ChoiceMenu: a caller may name `''` — "no choice", a saved default — as an option,
+  // and the menu reports the same empty string back when it is chosen again.
+  const { ChoiceMenu } = await import('./choice-menu.js');
   const chosen: string[] = [];
   const host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
   const { createElement } = await import('react');
   await act(async () => {
-    root!.render(createElement(kit.Select, { defaultValue: '', onValueChange: (next: string) => { chosen.push(next); } },
-      createElement(kit.SelectTrigger, { 'aria-label': 'agent' }, createElement(kit.SelectValue, {})),
-      createElement(kit.SelectContent, {},
-        createElement(kit.SelectItem, { value: '' }, 'None'),
-        createElement(kit.SelectItem, { value: 'claude-code' }, 'Claude Code'),
-      )));
+    root!.render(createElement(ChoiceMenu, { label: 'Agent', testId: 'kit-menu', value: '', options: [{ value: '', label: 'None' }, { value: 'claude-code', label: 'Claude Code' }], onChange: (next: string) => { chosen.push(next); } }));
   });
-  const trigger = host.querySelector('[role="combobox"]') as HTMLElement;
+  const trigger = host.querySelector('[data-testid="kit-menu"]') as HTMLElement;
   expect(trigger).not.toBeNull();
-  // The empty default stands as the chosen item, not as a missing value.
+  // The empty value stands as the chosen item, not as a missing value.
   expect(trigger.textContent).toContain('None');
-  await act(async () => { trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' })); });
-  const options = [...document.querySelectorAll('[role="option"]')];
-  expect(options.map((one) => one.textContent)).toEqual(['None', 'Claude Code']);
-  const other = options.find((one) => one.textContent === 'Claude Code')!;
-  await act(async () => { other.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 })); });
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const other = document.querySelector('[data-testid="kit-menu-claude-code"]') as HTMLElement | null;
+  expect(other).not.toBeNull();
+  await act(async () => { other!.click(); });
   expect(chosen).toEqual(['claude-code']);
-  // And back to the empty choice: a caller hears `''`, the value four menus name "none" with.
-  await act(async () => { trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' })); });
-  const none = [...document.querySelectorAll('[role="option"]')].find((one) => one.textContent === 'None')!;
-  await act(async () => { none.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 })); });
-  expect(chosen).toEqual(['claude-code', '']);
+  // And back to the empty choice: a caller hears `''`.
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const none = document.querySelector('[data-testid="kit-menu-"]') as HTMLElement | null;
+  expect(none).not.toBeNull();
+  await act(async () => { none!.click(); });
+  expect(chosen[chosen.length - 1]).toBe('');
 });

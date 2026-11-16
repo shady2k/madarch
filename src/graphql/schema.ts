@@ -80,6 +80,13 @@ function entityFields(): FieldDef[] {
     { name: 'label', type: 'String!' },
     { name: 'template', type: 'String!' },
     { name: 'contested', type: '[String!]!' },
+    // The page's own field values, every declared field with the opinions that hold it: what a reader's «Details»
+    // block shows for a kind no template has described yet (decision 0036, section 6).
+    { name: 'details', type: '[Detail!]!' },
+    // The containers of the entity, outermost first: the links of a page's breadcrumb.
+    { name: 'trail', type: '[Entity!]!' },
+    // The place the newest opinion of any field rests on, as a reader reads it: the page's provenance line.
+    { name: 'origin', type: 'String' },
     { name: 'related', type: 'EntityConnection!', args: relatedArgs() },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
     { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
@@ -135,7 +142,7 @@ class Builder {
   private claimOwnTypes(): void {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
-      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
+      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate', 'RoleLead',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
       'SourceText', 'SourceTextNext',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
@@ -172,6 +179,15 @@ class Builder {
       { name: 'at', type: 'String' },
       { name: 'words', type: 'String' },
     ]);
+    // One declared field of an entity, as the reader's Details block shows it.
+    this.type('Detail', [
+      { name: 'name', type: 'String!' },
+      { name: 'type', type: 'String!' },
+      { name: 'key', type: 'Boolean!' },
+      { name: 'value', type: 'JSON' },
+      { name: 'contested', type: 'Boolean!' },
+      { name: 'opinions', type: '[Opinion!]!' },
+    ]);
     this.type('Opinion', [
       { name: 'value', type: 'JSON' },
       { name: 'producer', type: 'String!' },
@@ -204,6 +220,7 @@ class Builder {
     this.type('BootstrapHome', [{ name: 'id', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
     this.type('RecordTemplate', [{ name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
     this.type('OwnTemplate', [{ name: 'id', type: 'ID!' }, { name: 'template', type: 'String!' }]);
+    this.type('RoleLead', [{ name: 'role', type: 'String!' }, { name: 'lead', type: '[String!]!' }]);
     this.type('Bootstrap', [
       { name: 'structureRevision', type: 'String!' },
       // The product's language (its manifest's `language:`): the wiki's interface opens in it (madarch-64o5.84).
@@ -214,6 +231,9 @@ class Builder {
       { name: 'recordTemplates', type: '[RecordTemplate!]!' },
       { name: 'ownTemplates', type: '[OwnTemplate!]!' },
       { name: 'roles', type: '[String!]!' },
+      // The groups each role leads, in the role's own order: the sidebar lists them first for the reader who chose it
+      // (decision 0031). A role of the manifest, not of the engine.
+      { name: 'roleLeads', type: '[RoleLead!]!' },
     ]);
     // The frame's one read (decision 0036, sections 6 and 7): the product's groups and every kind it declares, with the
     // number of entities the graph holds. The sidebar is drawn from this, so the app names no kind of its own.
@@ -227,6 +247,10 @@ class Builder {
       { name: 'nav', type: 'String' },
       { name: 'count', type: 'Int!' },
       { name: 'entryId', type: 'ID' },
+      // The section of the navigation the product gives the kind (`purpose:`), and the roles it is meant for
+      // (`audience:`): the sidebar draws the reader's purposes and leaves out a kind the reader's role does not read.
+      { name: 'purpose', type: 'String' },
+      { name: 'audience', type: '[String!]' },
     ]);
     this.type('NavigationGroup', [
       { name: 'name', type: 'String!' },
@@ -256,7 +280,7 @@ class Builder {
     this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }, { name: 'total', type: 'Int' }, { name: 'share', type: 'Float' }]);
     // The search's answers as a reader meets them: each kind's word, how many it holds, and the rows with the line a
     // result is shown by (a file's path, a commit's short hash and its message).
-    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }]);
+    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }, { name: 'matched', type: 'String!' }]);
     this.type('SearchGroup', [
       { name: 'kind', type: 'String!' },
       { name: 'label', type: 'String!' },
@@ -316,7 +340,8 @@ class Builder {
       { name: 'taken', type: 'Boolean!' },
       { name: 'plugins', type: '[String!]!' },
       { name: 'fields', type: '[CatalogueField!]!' },
-      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
+      // The kind's records: the page searches, filters and sorts them on the server, and the graph pages them (madarch-64o5.128).
+      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'where', type: 'JSON' }, { name: 'orderBy', type: 'JSON' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'instancesAggregate', type: 'Aggregate!', args: [{ name: 'where', type: 'JSON' }, { name: 'lang', type: 'String' }] },
       { name: 'derivesFrom', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
       { name: 'derivedBy', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
@@ -523,6 +548,12 @@ class Builder {
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
     this.registry.claimField('Query', 'entityByKey', 'an entity by its declared kind and stable key');
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
+    this.registry.claimField('Query', 'catalogueDependencies', 'the catalogue graph of kinds');
+    this.registry.claimField('Query', 'logs', 'one page of every log madarch keeps');
+    this.registry.claimField('Query', 'products', 'the products this server serves, and the one in front');
+    this.registry.claimField('Query', 'fillStatus', 'the product fill state the home and the frame read');
+    this.registry.claimField('Query', 'fillRuns', 'the product fill runs the catalogue and the home read');
+    this.registry.claimField('Query', 'fillPlan', 'the fill plan one selection would run');
     // One file's text, by the repository and path the graph names (decision 0037): the one read surface a page uses.
     this.registry.claimField('Query', 'source', 'the source text of one file');
     fields.push(
@@ -537,6 +568,20 @@ class Builder {
       { name: 'templateFindings', type: '[TemplateFinding!]!' },
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'catalogueDependencies', type: 'JSON!', args: [{ name: 'lang', type: 'String' }] },
+      // The logs page reads the machine's evidence through the one read API (madarch-64o5.88): the same page of every
+      // log, filtered by the arguments and bounded by the reader's own constants.
+      { name: 'logs', type: 'JSON!', args: [
+        { name: 'sources', type: '[String!]' }, { name: 'level', type: 'String' }, { name: 'run', type: 'String' },
+        { name: 'q', type: 'String' }, { name: 'from', type: 'Int' }, { name: 'before', type: 'Int' }, { name: 'limit', type: 'Int' },
+      ] },
+      // The service's own state read through the one read API (madarch-64o5.136 restore): the products this server
+      // serves, the fill's state and its runs, and the plan one selection would run. The layer that owns the state
+      // answers them; the graph executor answers the rest.
+      { name: 'products', type: 'JSON' },
+      { name: 'fillStatus', type: 'JSON' },
+      { name: 'fillRuns', type: 'JSON', args: [{ name: 'run', type: 'String' }] },
+      { name: 'fillPlan', type: 'JSON', args: [{ name: 'selected', type: '[String!]' }, { name: 'pluginsOnly', type: 'Boolean' }] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },

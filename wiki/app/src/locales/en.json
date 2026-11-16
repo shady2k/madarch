@@ -23,11 +23,18 @@
     "ground": "Grounds",
     "kind": "Kind",
     "measure": "Measure",
+    "measures": {
+      "count": "A count of the records",
+      "groupBy": "Grouped by one field",
+      "histogram": "Ages in buckets",
+      "topN": "The first records by one field"
+    },
     "field": "Field",
     "buckets": "Buckets",
     "limit": "Limit",
     "total": "Entities counted",
     "missing": "Missing values",
+    "unaccounted": "Records in no shown row",
     "computedAt": "Computed at"
   },
   "authored": {
@@ -78,7 +85,8 @@
     "repositories": "Repositories",
     "toggleGroup": "Toggle {{group}} group",
     "pages": "Pages",
-    "catalogue": "Entity catalogue"
+    "catalogue": "Entity catalogue",
+    "logs": "Logs"
   },
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
@@ -148,48 +156,101 @@
       "noRun": "The address names no run.",
       "result": "Result by kind",
       "cause": {
-        "sandbox": "The plugin did not start: this machine cannot give it an isolated sandbox. On the preparation page, choose to run plugins without isolation if you trust them, or do not fill."
+        "sandbox": "The plugin did not start: this machine cannot give it an isolated sandbox. On the preparation page, choose to run plugins without isolation if you trust them, or do not fill.",
+        "plugin": "The plugin could not run: its lock, its closure or its own answer refused the unit.",
+        "agent": "The agent could not run the unit: the adapter is not installed, not signed in, or it ended without an answer.",
+        "cap": "The run crossed its token cap, and the units it had not finished were stopped.",
+        "dependency": "The kind waits for a kind another unit fills, and that unit did not finish.",
+        "timeout": "The unit passed its deadline or stopped answering, and it was stopped.",
+        "unknown": "The run recorded a failure, and its cause is in the detailed logs."
       },
+      "stageTimes": "Time per stage",
+      "logsLink": "Detailed logs of this run",
       "logEmpty": "Nothing has happened yet.",
+      "agents": {
+        "title": "What the agent was given and returned",
+        "empty": "This run ran no agent unit, or its exchange was not kept.",
+        "details": "Details",
+        "state": {
+          "turned": "Answered",
+          "failed": "Failed",
+          "cancelled": "Stopped"
+        },
+        "given": "Given",
+        "givenFiles": "Files it was told about: {{count}}",
+        "opened": "Files opened: {{count}}",
+        "openedDropped": "{{count}} file reads past the record's bound are not kept.",
+        "openedEmpty": "No file was opened.",
+        "steps": "Steps",
+        "stepsEmpty": "The agent streamed no step.",
+        "stepsDropped": "{{count}} steps past the record's bound are not kept.",
+        "step": {
+          "message": "Message",
+          "thought": "Thought",
+          "tool-call": "Tool call",
+          "tool-call-update": "Tool answer",
+          "plan": "Plan",
+          "other": "Update"
+        },
+        "returned": "Returned",
+        "returnedEmpty": "Nothing: the answer was empty.",
+        "returnedMissing": "No answer.",
+        "cut": "cut at the record's bound",
+        "failure": "Why it failed",
+        "context": "Context: {{used}} of {{size}}",
+        "model": "Model: {{model}}",
+        "agent": "Agent: {{agent}}",
+        "time": "{{seconds}} s",
+        "line": "line {{line}}",
+        "bytes": "{{count}} bytes",
+        "raw": "Raw JSON"
+      },
       "failed": "The run failed.",
       "phase": {
-        "queued": "Queued",
-        "running": "Running",
-        "paused": "Paused",
-        "succeeded": "Succeeded",
-        "partial": "Partly completed",
-        "failed": "Failed",
-        "stopped": "Stopped",
-        "skipped": "Skipped",
-        "waiting": "Waiting",
-        "done": "Published",
-        "cancelled": "Cancelled",
-        "skippedBecause": "Skipped because {{unit}} failed",
-        "skippedBecauseRunEnded": "Skipped because the run ended"
-      },
-      "final": {
-        "succeeded": "Every required unit published.",
-        "partial": "The run ended, but some units did not publish.",
-        "failed": "The run ended with a failure.",
-        "stopped": "The run was stopped."
-      },
-      "next": {
-        "retry": "Fix the cause, then retry the fill.",
-        "retryAction": "Retry the fill"
-      },
-      "status": {
-        "queued": "Running",
-        "running": "Running",
-        "paused": "Paused",
-        "succeeded": "Succeeded",
-        "partial": "Partly completed",
-        "failed": "Failed",
-        "stopped": "Stopped"
-      },
-      "endedAt": "ended {{time}}",
-      "attention": "The run did not finish completely",
-      "duration": "{{seconds}} s",
-      "event": {
+      "queued": "Queued",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped",
+      "skipped": "Skipped",
+      "waiting": "Waiting",
+      "done": "Published",
+      "cancelled": "Cancelled",
+      "skippedBecause": "Skipped because {{unit}} failed",
+      "skippedBecauseRunEnded": "Skipped because the run ended"
+    },
+    "final": {
+      "succeeded": "Every required unit published.",
+      "partial": "The run ended, but some units did not publish.",
+      "failed": "The run ended with a failure.",
+      "stopped": "The run was stopped."
+    },
+    "next": {
+      "retry": "Fix the cause, then retry the fill.",
+      "retryAction": "Retry the fill",
+      "sandbox": "Allow plugins to run without isolation on the preparation page if you trust them.",
+      "plugin": "Open the detailed logs of this run: the plugin error names its file and line.",
+      "agent": "Choose an agent that is installed and signed in, and raise the token cap above what the run needs.",
+      "cap": "Raise the run's token cap, or fill fewer kinds at once.",
+      "dependency": "Fill the kind this one reads first; the other units still run.",
+      "timeout": "Open the detailed logs of this run, and check the machine's load before pressing again.",
+      "unknown": "Open the detailed logs of this run for the cause."
+    },
+    "status": {
+      "queued": "Running",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "endedAt": "ended {{time}}",
+    "attention": "The run did not finish completely",
+    "duration": "{{seconds}} s",
+    "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -234,6 +295,11 @@
         "failed": "Failed",
         "ready": "Ready",
         "pending": "Queued"
+      },
+      "logRow": "Open in the logs",
+      "stageOther": "Another step",
+      "stage": {
+        "plugin-turns": "Plugins"
       }
     },
     "prefill": {
@@ -267,7 +333,8 @@
       "progress": "A fill is running: {{published}} of {{planned}} units published.",
       "openFill": "Follow the fill",
       "failed": "The last fill failed.",
-      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})"
+      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})",
+      "none": "No kind declares a dependency yet."
     },
     "files": {
       "area": "Area",
@@ -417,6 +484,9 @@
     },
     "localizedSource": "In the source",
     "title": "{{product}} — knowledge wiki",
+    "titleOf": "{{page}} — {{product}} — knowledge wiki",
+    "publishing": "Publishing the catalogue. Please wait.",
+    "publishingFailed": "The catalogue could not be published: {{message}}",
     "loading": "Loading…",
     "broken": "broken",
     "unresolved": "This reference was not checked against the graph.",
@@ -478,6 +548,8 @@
     "rebuilding": "This page is being rebuilt: the frame came back first, and its page follows in its own step.",
     "searchButton": "Search",
     "tableFilter": "Filter",
+    "tableSearch": "Search the records",
+    "tableClear": "Clear filters",
     "tableEmpty": "No records yet",
     "textEmpty": "The description is not written yet.",
     "source": {
@@ -1336,6 +1408,14 @@
     "yes": "Yes",
     "no": "No",
     "contested": "disputed",
+    "details": {
+      "empty": "The graph states no field of it yet",
+      "unstated": "No opinion holds it",
+      "key": "key",
+      "stated": "Stated by {{producer}}",
+      "place": "at {{place}}",
+      "opinions": "{{count}} opinions"
+    },
     "bucket": {
       "under": "under {{to}} days",
       "between": "{{from}}–{{to}} days",
@@ -1365,9 +1445,12 @@
     "diagramTooLarge": "The diagram is too large to show.",
     "diagramBadRequest": "The server refused the diagram request.",
     "diagramRenderer": "Renderer",
+    "templateFindings": "Template findings",
+    "fullScreen": "Full screen",
     "diagramFit": "Fit",
     "diagramZoomIn": "Zoom in",
-    "diagramZoomOut": "Zoom out"
+    "diagramZoomOut": "Zoom out",
+    "tableFind": "Find"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1429,10 +1512,6 @@
       "unreadable-file": "What is wrong:",
       "unplaced": "What is wrong:",
       "manifest": "What the manifest says:"
-    },
-    "fixer": {
-      "agent": "The agent fixes it",
-      "person": "A person fixes it"
     },
     "whoFixes": {
       "correction": "The agent fixes it at the next refresh: it edits this page using the reason above, and the correction shows as fixed.",
@@ -1631,8 +1710,58 @@
     },
     "problemNote": {
       "ruleUnimplemented": "The rule {{rule}} names the predicate \"{{predicate}}\", which the engine does not implement: the rule is not run",
-      "documentsRetired": "Documents are not judged: the Markdown question rules are retired, and generic authored entities declare no document predicates"
-    }
+      "documentsRetired": "Documents are not judged: the Markdown question rules are retired, and generic authored entities declare no document predicates",
+      "codeUnjudged": "The code section could not be judged: {{error}}",
+      "consistencyUnread": "The consistency section could not be read: {{error}}",
+      "consistencyTruncated": "The consistency section reads the first {{shown}} of {{total}} findings: the rest are not shown.",
+      "ruleNotRun": "The rule {{rule}} could not be run: {{error}}",
+      "noWikiRule": "The manifest declares no wiki rule of the kind \"{{kind}}\": the findings it would name are not on the page.",
+      "noSingleRepository": "The pages name no single code repository, so grounds that disappeared from the code are not looked for.",
+      "noRuleForPredicate": "The manifest declares no rule with the predicate \"{{predicate}}\": the findings it would name are not on the page.",
+      "unresolvableTarget": "The question {{slug}} names {{target}}, and it could not be resolved: {{error}}"
+    },
+    "needs": {
+      "code": "Needs a code change",
+      "documents": "Needs a document change",
+      "wiki": "Needs a wiki change"
+    },
+    "problemText": {
+      "cycleFiles": "{{names}} import one another in a cycle of files: every change to one reaches the others.",
+      "cycleModules": "{{names}} import one another in a cycle of modules: every change to one reaches the others.",
+      "sqlInput": "{{inputs}} reach {{build}}, which builds SQL text by joining strings, and {{sink}} runs that text as it is: the value is never a bound parameter.",
+      "routeOutsideAuthContract": "{{route}} is registered outside the auth group, while {{operation}} ({{contract}}) requires a token: it answers without one.",
+      "routeOutsideAuthGroup": "{{route}} is registered outside the auth group, while the other /{{root}} routes of {{service}} are inside it: it answers without a token.",
+      "hotspot": "{{path}} is {{count}} lines long and {{commits}} commits changed it (size × churn = {{score}}): most changes land where the code is largest.",
+      "deadExport": "{{symbol}} is exported by {{path}} and no code in this repository refers to it: the export is dead.",
+      "debt": "{{marker}} in {{path}}: {{body}}",
+      "configSecret": "{{name}} is declared a secret by {{files}}, and the repository holds its literal value: the secret is in the repository.",
+      "configDeclaredSecret": "{{name}} is required and the manifest declares it a secret, yet {{files}} holds a literal value: the value belongs in the environment, not the repository.",
+      "configDevValue": "{{name}} is required, and {{files}} gives it the development value (\"{{value}}\"): every copy of the product starts with it.",
+      "dependencyDeclaredUnused": "{{dependency}} is declared by {{path}}, and no source file of its service imports it: the declaration is dead weight.",
+      "dependencyUsedUndeclared": "{{name}} is imported by {{path}}, but no manifest of that service declares it: a fresh install resolves a different version or fails.",
+      "operationWithoutRoute": "{{operation}} is declared by {{path}}, and no route implements it: a caller following the contract gets no answer.",
+      "routeWithoutOperation": "{{route}} is served by {{path}}, and the service's contract declares no such operation: the interface is wider than the document.",
+      "groundRemoved": "{{ground}} is no longer in {{repository}} at the commit the graph describes.",
+      "unplacedQuestion": "No page of the product is about {{about}}, so the answer reaches no page ({{file}}): add a page that is, or name another page in the question's \"about\".",
+      "unplacedCorrection": "The page {{page}} is not among the product's pages any more, so the correction reaches no page ({{file}}).",
+      "checkFinding": "The check reported: {{message}}",
+      "consistencyFinding": "A producer found this in the graph: {{cause}}",
+      "brokenLinkEmpty": "The link names nothing after \"madarch:\".",
+      "brokenLinkNoEntity": "The graph holds no \"{{key}}\".",
+      "brokenLinkNoPath": "The document link names no path.",
+      "brokenLinkNoDocument": "No document \"{{path}}\" in the product repository or its code repositories.",
+      "brokenLinkNoSection": "The document \"{{path}}\" (in {{repos}}) has no section \"{{anchor}}\".",
+      "largeFile_one": "{{path}} is {{count}} line long, over the product's {{limit}}-line threshold: one module holds too much to change safely.",
+      "largeFile_other": "{{path}} is {{count}} lines long, over the product's {{limit}}-line threshold: one module holds too much to change safely.",
+      "documentStale": "{{target}} no longer resolves: the graph holds no such ground.",
+      "documentContradiction": "{{title}}: the sources disagree — {{sides}}",
+      "documentAmbiguous": "{{title}}: the term has more than one meaning in the product and no glossary fixes one.",
+      "documentUndocumented": "{{title}}: behaviour the documents do not describe",
+      "documentUndocumentedWhy": "{{title}}: {{why}}",
+      "largeFile_few": "{{path}} is {{count}} lines long, over the product's {{limit}}-line threshold: one module holds too much to change safely.",
+      "largeFile_many": "{{path}} is {{count}} lines long, over the product's {{limit}}-line threshold: one module holds too much to change safely."
+    },
+    "problemFilterLabel": "Section"
   },
   "journal": {
     "title": "How the agent wrote this page",
@@ -1696,10 +1825,6 @@
     "fillAgent": "The agent",
     "showSelected": "Show selected",
     "showAll": "Show all",
-    "shown_one": "{{count}} kind shown",
-    "shown_few": "{{count}} kinds shown",
-    "shown_many": "{{count}} kinds shown",
-    "shown_other": "{{count}} kinds shown",
     "noMatch": "No kind matches.",
     "selectGroup": "Choose {{count}}",
     "selectedCount_one": "{{count}} kind chosen",
@@ -1724,6 +1849,10 @@
     "stepOne": "Check the set of kinds the wiki should hold.",
     "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
     "stepThree": "Start the fill and follow its run.",
+    "created": "The product was created",
+    "noManifest": "The graph is empty. The product has no kinds manifest yet, so a fill has nothing to read.",
+    "manifestFile": "Its manifest is {{file}}.",
+    "manifestGuide": "How to write a product's manifests",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
@@ -1976,7 +2105,7 @@
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
     "approvalTitle": "Owner approval required",
-    "approval": "Reuse this set first. A new component may enter the kit only after the owner approves it. Catalogue controls Checkbox and Select are being added separately.",
+    "approval": "Reuse this set first. A new component may enter the kit only after the owner approves it. Catalogue controls The catalogue controls are being added separately.",
     "default": "Default",
     "ghost": "Ghost",
     "disabled": "Disabled",
@@ -2002,6 +2131,13 @@
     "complete": "Complete",
     "indeterminate": "Indeterminate",
     "typography": "Page structure and typography",
+    "timeline": "Timeline",
+    "choiceMenuTitle": "ChoiceMenu / DateTimeField",
+    "logsTitle": "Log viewer",
+    "logsLive": "Live",
+    "logsPaused": "Paused",
+    "closed": "Closed",
+    "chosen": "Chosen",
     "fieldLabel": "Field label",
     "charts": "Charts and hierarchies",
     "chartsNote": "Six forms of the vendored diagrammatic and the activity calendar in its two shapes. Each is drawn from the kit's tokens only: no chart carries a colour of its own.",
@@ -2031,6 +2167,7 @@
     "calendarMore": "more",
     "foldedCount": "{{count}} folded",
     "calendarSummary": "{{title}}: {{total}} in {{days}} days, {{from}} to {{to}}"
+
   },
   "overview": {
     "title": "Where this product stands",
@@ -2041,7 +2178,106 @@
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
   },
+  "logs": {
+    "title": "Logs",
+    "intro": "Every log madarch keeps: the server's records, this product's fills, each plugin's standard error, the agents' exchanges, the store's PostgreSQL log and its runs' spans.",
+    "source": {
+      "engine": "Server",
+      "fill": "Fill",
+      "plugin": "Plugin",
+      "agent": "Agent",
+      "store": "Store",
+      "trace": "Trace"
+    },
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warning",
+      "error": "Error"
+    },
+    "filters": {
+      "source": "Source",
+      "level": "Level",
+      "run": "Run",
+      "from": "From",
+      "to": "To",
+      "search": "Search",
+      "all": "All",
+      "older": "Older entries",
+      "follow": "Follow",
+      "pause": "Pause",
+      "copy": "Copy",
+      "copied": "Copied",
+      "context": "Context",
+      "details": "Log entries"
+    },
+    "empty": "No entries match these filters.",
+    "loading": "Reading the logs…",
+    "summary": "{{shown}} entries shown of {{scanned}} read",
+    "truncated": "The files were read from their ends: older lines are not in this answer.",
+    "cut": "the detail was cut at the record's bound",
+    "openRun": "Open the run",
+    "readFailed": "The logs could not be read: {{message}}",
+    "dateTime": {
+      "none": "Any time",
+      "title": "Pick a moment",
+      "clear": "Clear",
+      "done": "Done",
+      "hour": "Hour",
+      "minute": "Minute",
+      "second": "Second",
+      "previous": "Previous month",
+      "next": "Next month",
+      "close": "Close"
+    },
+    "event": {
+      "fill-started": "Fill started.",
+      "fill-ended": "Fill ended.",
+      "fill-failed": "The fill failed.",
+      "fill-refused": "The fill was refused.",
+      "plugin-closure-hashed": "The plugin's closure was hashed.",
+      "plugin-closure-copied": "The plugin's closure was copied.",
+      "plugin-sandbox-started": "The plugin's sandbox started.",
+      "plugin-introduced": "The plugin introduced itself.",
+      "plugin-paused": "The plugin paused.",
+      "plugin-resumed": "The plugin resumed.",
+      "plugin-cancelled": "The plugin was cancelled.",
+      "plugin-ignored-stop": "The plugin ignored the stop.",
+      "plugin-stop-cancelled": "The plugin was cancelled after ignoring the stop.",
+      "plugin-reported-error": "The plugin reported an error.",
+      "plugin-cgroup-outlived": "A plugin's cgroup outlived its processes.",
+      "unit-extracted": "The unit was extracted.",
+      "agent-file-read": "The agent read a file.",
+      "agent-file-written": "The agent wrote a file.",
+      "agent-update": "The agent streamed an update.",
+      "agent-tool-refused": "The agent's tool request was refused.",
+      "agent-result-validated": "The agent's result was validated.",
+      "sandbox-refused": "The sandbox cannot run here.",
+      "sandbox-filter-installed": "The sandbox's filter was installed.",
+      "sandbox-darwin-bounds": "The macOS sandbox bounds the tree by rlimits and its process group.",
+      "unit-not-extracted": "The unit was not extracted: {{detail}}",
+      "plugin-session-failed": "The plugin session failed: {{detail}}",
+      "sandbox-dependency": "The sandbox could not resolve a runtime dependency: {{detail}}",
+      "unit-failed-retry": "{{unit}} failed with no retry left: {{detail}}",
+      "unit-failed": "{{unit}} failed: {{detail}}",
+      "unit-blocked": "{{unit}} is blocked: {{detail}}",
+      "unit-cannot-split": "{{unit}} cannot split: {{detail}}",
+      "unit-blocked-child": "{{unit}} waits for a child that failed.",
+      "run-blocked": "The run is blocked: {{detail}}",
+      "agent-given": "The agent {{agent}} was given the unit {{unit}}.",
+      "agent-message": "The agent said: {{text}}",
+      "agent-thought": "The agent thought: {{text}}",
+      "agent-tool-call": "The agent called a tool: {{text}}",
+      "agent-tool-call-update": "The tool answered: {{text}}",
+      "agent-plan": "The agent's plan: {{text}}",
+      "agent-other": "The agent's update: {{text}}",
+      "agent-returned": "The agent unit {{unit}} returned {{characters}} characters.",
+      "agent-failed": "The agent unit {{unit}} failed: {{detail}}"
+    },
+    "quoted": "quoted"
+  },
   "charts": {
     "missingValues": "No value: {{labels}}"
   }
 }
+

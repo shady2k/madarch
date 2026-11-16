@@ -254,6 +254,8 @@ export interface PluginSession {
   readBlob(request: PluginReadRequest): Promise<PluginReadResult>;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
   agentReports(): ReadonlyMap<string, PluginAgentReport>;
+  /** The plugin's standard error, kept as a bounded log in the session's work folder; its file is written when it is asked. */
+  stderr(): StderrLog;
   pause(): Promise<void>;
   resume(): Promise<void>;
   /** Asks the plugin to finish and exit; `cancelled` when the grace period ran out and the tree was killed. */
@@ -441,6 +443,7 @@ ${text === '' ? '(empty)' : text}` };
       readBlob: async (request) => await this.readBlob(request),
       runUnit: async (unit) => await this.runUnit(unit),
       agentReports: () => new Map(this.reports),
+      stderr: () => this.sandbox?.stderr() ?? { file: '', totalBytes: 0, truncated: false },
       pause: async () => await this.pause(),
       resume: async () => await this.resume(),
       stop: async () => await this.stop(),

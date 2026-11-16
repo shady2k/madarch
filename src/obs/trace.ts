@@ -26,6 +26,7 @@ import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from '@ope
 /** What a span may record about itself: counts, sizes, names and paths, never a value or a text it moved. */
 export type SpanAttributes = Readonly<Record<string, AttributeValue>>;
 
+
 /** One trace of one run: its file, its log beside it, and its buffer of lines not yet written. */
 /** One reading of the process's memory, at a moment of the run's own clock (`performance.now()`). */
 interface MemorySample {
@@ -238,9 +239,14 @@ function tracerOf(): ReturnType<BasicTracerProvider['getTracer']> {
   return provider.getTracer('madarch', '1.0.0');
 }
 
-/** How a run id becomes a file name: every character a path would read as a separator is one dash. */
+/** How a run id becomes a file name's stem: every character a path would read as a separator is one dash. */
+export function traceStem(runId: string): string {
+  return runId.replace(/[^A-Za-z0-9._-]/gu, '-');
+}
+
+/** The trace file of one run, beside its log and its agent exchanges. */
 function traceFileName(runId: string): string {
-  return `${runId.replace(/[^A-Za-z0-9._-]/gu, '-')}.jsonl`;
+  return `${traceStem(runId)}.jsonl`;
 }
 
 /** Opens one run's trace: its file starts empty and its lines are buffered. */
@@ -249,7 +255,7 @@ export function openTrace(options: { readonly store: string; readonly runId: str
   const folder = join(options.store, 'traces');
   withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   const file = join(folder, traceFileName(options.runId));
-  const logFile = join(folder, `${options.runId.replace(/[^A-Za-z0-9._-]/gu, '-')}.log.jsonl`);
+  const logFile = join(folder, `${traceStem(options.runId)}.log.jsonl`);
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
   withSpanSync('fs.write', { 'file.path': file, 'file.bytes': 0 }, () => writeFileSync(file, '', 'utf8'));
   withSpanSync('fs.write', { 'file.path': logFile, 'file.bytes': 0 }, () => writeFileSync(logFile, '', 'utf8'));

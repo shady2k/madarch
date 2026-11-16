@@ -3,12 +3,17 @@
  * each by the component it names, and a `tabs` section holding the sections it groups.
  */
 import type { ReactElement } from 'react';
-import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
-import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
+import { sectionOpenFor, titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
+import { useTranslation } from 'react-i18next';
+import { Disclosure, DisclosureSummary } from './components/ui/disclosure.js';
+import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
+import { BulletList, ListItem, PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
 import { HeaderSection } from './components/header.js';
 import { at } from './components/format.js';
 import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
+import { FactSection } from './components/fact.js';
+import { DetailsSection } from './components/details.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
 import { TableSection } from './components/table.js';
@@ -22,8 +27,10 @@ import { SearchSection } from './components/search.js';
 import { RunSection } from './components/run.js';
 import { KindsSection } from './components/kinds.js';
 import { CatalogueSection } from './components/catalogue.js';
+import { DependenciesSection } from './components/dependencies.js';
 import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
+import { LogsSection } from './components/logs.js';
 import { FillKindSection } from './components/fill-kind.js';
 import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
@@ -33,6 +40,7 @@ import { RepositoriesSection } from './components/repositories.js';
 import { SettingsSection } from './components/settings.js';
 import type { MachineSettings, SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
+import type { OpenPage } from './address.js';
 
 export interface PageRuntime {
   readonly base: string;
@@ -40,7 +48,7 @@ export interface PageRuntime {
   readonly busy: boolean;
   /** The page's variables as the composition bound them (a `run` component reads its run from one). */
   readonly variables: Readonly<Record<string, unknown>>;
-  readonly open: (path: string) => void;
+  readonly open: OpenPage;
   readonly reload: (variables: Record<string, unknown>) => void;
   /** The frame's own reading: the product's name and the kinds the sidebar lists. */
   readonly product: string | null;
@@ -54,12 +62,17 @@ export interface PageRuntime {
   readonly machine?: MachineSettings;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
+  /** The reader's role: a section its template does not open for that role stands collapsed under its title. */
+  readonly role: string;
   /** Kinds a unit publication just changed: a page that shows them may highlight them. */
   readonly changedKinds?: ReadonlySet<string>;
+  /** The template findings the page's template answered: listed above the page's sections, not drawn instead of them. */
+  readonly findings?: PageComposition['findings'];
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
 export function PageView({ composition, data, runtime }: { readonly composition: PageComposition; readonly data: Record<string, unknown>; readonly runtime: PageRuntime }): ReactElement {
+  const { t } = useTranslation();
   const tabbed = new Set<string>();
   for (const section of composition.sections) {
     if (section.component !== 'tabs') continue;
@@ -95,20 +108,52 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
+    const named = title !== undefined && title !== '';
+    // The role's own page (decision 0036, section 6): a section the template does not open for the reader's role stays on
+    // the page, collapsed under its title. A section the template never titled stays open: it has no word to collapse under.
+    const collapsed = named && !sectionOpenFor(section, runtime.role);
     return (
       <PageSection key={section.id} data-section={section.id}>
-        {title === undefined || title === '' ? null : <SectionTitle>{title}</SectionTitle>}
-        {componentOf(section, context, composition.sections)}
+        {collapsed
+          ? (
+            <Disclosure data-testid="collapsed-section" data-section-id={section.id}>
+              <DisclosureSummary><SectionTitle>{title}</SectionTitle></DisclosureSummary>
+              {componentOf(section, context, composition.sections)}
+            </Disclosure>
+          )
+          : (
+            <>
+              {named ? <SectionTitle>{title}</SectionTitle> : null}
+              {componentOf(section, context, composition.sections)}
+            </>
+          )}
       </PageSection>
     );
   };
-  return <PageArticle data-testid="page">{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</PageArticle>;
+  const findings = runtime.findings ?? [];
+  return (
+    <PageArticle data-testid="page">
+      {findings.length === 0 ? null : (
+        <Alert variant="problem" data-testid="template-findings">
+          <AlertTitle>{t('knowledge.templateFindings')}</AlertTitle>
+          <AlertDescription>
+            <BulletList>
+              {findings.map((finding) => <ListItem key={`${finding.file}:${String(finding.line)}:${finding.path}`}>{`${finding.file}:${String(finding.line)}: ${finding.message}`}</ListItem>)}
+            </BulletList>
+          </AlertDescription>
+        </Alert>
+      )}
+      {composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}
+    </PageArticle>
+  );
 }
 
 function componentOf(section: ComposedSection, context: SectionContext, sections: readonly ComposedSection[]): ReactElement {
   switch (section.component) {
     case 'header': return <HeaderSection context={context} />;
     case 'facts': return <FactsSection context={context} />;
+    case 'fact': return <FactSection context={context} />;
+    case 'details': return <DetailsSection context={context} />;
     case 'text': return <TextSection context={context} />;
     case 'relations': return <RelationsSection context={context} />;
     case 'table': return <TableSection context={context} />;
@@ -122,6 +167,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'search': return <SearchSection context={context} />;
     case 'kinds': return <KindsSection context={context} />;
     case 'catalogue': return <CatalogueSection context={context} />;
+    case 'dependencies': return <DependenciesSection context={context} />;
     case 'prepare': return <PrepareSection context={context} />;
     case 'runs': return <RunsSection context={context} />;
     case 'first-run': return <FirstRunSection context={context} />;
@@ -132,5 +178,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'sources': return <SourcesSection context={context} />;
     case 'product-overview': return <ProductOverviewSection context={context} />;
     case 'repositories': return <RepositoriesSection context={context} />;
+    case 'logs': return <LogsSection context={context} />;
   }
 }

@@ -5,12 +5,12 @@
  * holds a value for is not drawn, so a template that asks fields some of its records lack reads as the records' own
  * shape.
  */
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
 import { at, dateOf, formatValue, hostOf, localized } from './format.js';
@@ -30,6 +30,29 @@ interface FilterFieldDecl {
   readonly label?: unknown;
   readonly field?: unknown;
   readonly operator?: unknown;
+}
+
+/** One facet a template declares: the field its counts group by, and the path its groups arrive at. */
+interface FacetDecl {
+  readonly label?: unknown;
+  readonly field?: unknown;
+  readonly path?: unknown;
+}
+
+/**
+ * The where a search text asks for (madarch-64o5.128): the field's contains, merged into the filters the reader already
+ * chose, and removed again when the text is cleared.
+ */
+export function searchWhere(where: Readonly<Record<string, unknown>>, field: string, text: string): Record<string, unknown> {
+  const next = { ...where };
+  if (text === '') delete next[field];
+  else next[field] = { _contains: text };
+  return next;
+}
+
+/** The columns a template lets a reader sort by. */
+function sortableOf(columns: readonly Column[]): readonly Column[] {
+  return columns.filter((column) => typeof column.sortField === 'string');
 }
 
 /** Whether the section's query reads one of the paging variables the page supplies. */
@@ -53,15 +76,26 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     return value !== null && value !== undefined && value !== '';
   }));
   const filters = (Array.isArray(section.params['filterFields']) ? section.params['filterFields'] : []) as FilterFieldDecl[];
-  const [filterIndex, setFilterIndex] = useState('0');
-  const filterDecl = filters[Number(filterIndex)];
-  const filterField = typeof filterDecl?.field === 'string' ? filterDecl.field : '';
+  const facets = (Array.isArray(section.params['facets']) ? section.params['facets'] : []) as FacetDecl[];
+  const searchField = typeof section.params['searchField'] === 'string' ? section.params['searchField'] : (filters[0] === undefined ? '' : String(filters[0].field ?? ''));
+  // The where the page holds: one entry per filter (the search text and each facet's chosen value), merged so a search
+  // and a facet narrow each other (madarch-64o5.128).
+  const [where, setWhere] = useState<Record<string, unknown>>({});
   const [filterText, setFilterText] = useState('');
-  const sortable = columns.filter((column) => typeof column.sortField === 'string');
-  const [sort, setSort] = useState(sortable[0] === undefined ? '' : String(sortable[0].sortField));
+  const [sortField, setSortField] = useState('');
+  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('ASC');
+  // The search asks the server once the reader stops typing, so one word costs one query, not one per letter; the
+  // first draw asks nothing, since the page already holds the unfiltered rows.
+  const lastAsked = useRef('');
+  useEffect(() => {
+    if (!canFilter || searchField === '' || filterText === lastAsked.current) return;
+    const timer = setTimeout(() => { lastAsked.current = filterText; askText(filterText); }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterText]);
   const canPage = reads(section, `${section.id}_after`);
-  const canFilter = filters.length > 0 && reads(section, `${section.id}_where`);
-  const canSort = sortable.length > 0 && reads(section, `${section.id}_orderBy`);
+  const canFilter = (filters.length > 0 || facets.length > 0) && reads(section, `${section.id}_where`);
+  const canSort = sortableOf(columns).length > 0 && reads(section, `${section.id}_orderBy`);
 
   const askPage = (cursor: string | undefined, at2: number): void => {
     const variables: Record<string, unknown> = {};
@@ -70,20 +104,24 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     setPage(at2);
     setCursors((held) => (at2 === 0 ? [undefined] : [...held.slice(0, at2), cursor]));
   };
-  const askFilter = (text: string, field: string): void => {
+  /** Asks the server for one where, as one page of the same section: the total and the rows are the server's. */
+  const askWhere = (next: Record<string, unknown>): void => {
     if (!canFilter) return;
-    const operator = filterDecl?.operator ?? '_contains';
-    const numeric = ['_lt', '_lte', '_gt', '_gte'].includes(String(operator));
-    const value = numeric && text !== '' ? Number(text) : text;
-    if (numeric && !Number.isFinite(value)) return;
-    const where = text === '' ? null : { [field]: { [String(operator)]: value } };
-    context.reload({ [`${section.id}_where`]: where, [`${section.id}_after`]: null });
+    setWhere(next);
+    context.reload({ [`${section.id}_where`]: Object.keys(next).length === 0 ? null : next });
     setPage(0);
     setCursors([undefined]);
   };
+  const askText = (text: string): void => {
+    if (!canFilter || searchField === '') return;
+    askWhere(searchWhere(where, searchField, text));
+  };
   const askSort = (field: string): void => {
     if (!canSort) return;
-    context.reload({ [`${section.id}_orderBy`]: field === '' ? null : [{ field, direction: 'ASC' }], [`${section.id}_after`]: null });
+    const direction = field === sortField && sortDirection === 'ASC' ? 'DESC' : 'ASC';
+    setSortField(field);
+    setSortDirection(direction);
+    context.reload({ [`${section.id}_orderBy`]: field === '' ? null : [{ field, direction }] });
     setPage(0);
     setCursors([undefined]);
   };
@@ -105,7 +143,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
             const target = (edge['node'] ?? edge) as Record<string, unknown>;
             const address = entityHref(target);
             const label = String(target['label'] ?? '');
-            return <TextLink key={String(target['id'] ?? at2)} href={address === undefined ? undefined : context.base + address} onClick={address === undefined ? undefined : follow(context.open, context.base + address)}>{label}{at2 + 1 < linked.length ? ', ' : ''}</TextLink>;
+            return <TextLink key={String(target['id'] ?? at2)} href={address === undefined ? undefined : context.base + address} {...(address === undefined ? {} : follow(context.open, context.base + address))}>{label}{at2 + 1 < linked.length ? ', ' : ''}</TextLink>;
           })}
           {more.hasNext ? <Paragraph>{t('knowledge.tableMoreRelations', { shown: linked.length, total: totalOf(value) })}</Paragraph> : null}
         </>;
@@ -118,7 +156,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
         ? (dateOf(value, language) ?? '')
         : Array.isArray(value) ? value.map((one) => formatValue(one, format, language)).join(', ') : formatValue(value, format, language);
       // The first column of a row that is an entity reads as the link to it: a list is where a reader goes next.
-      return index === 0 && href !== undefined ? <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{written}</TextLink> : written;
+      return index === 0 && href !== undefined ? <TextLink href={context.base + href} {...follow(context.open, context.base + href)}>{written}</TextLink> : written;
     });
   });
   // The rows each visited page held: a template may ask `first: 20` while the component's own default is 50, so the
@@ -135,50 +173,59 @@ export function TableSection({ context }: { readonly context: SectionContext }):
   const before = sizes.slice(0, page).reduce((sum, size) => sum + (size ?? 0), 0);
   // The connection's own paging state decides: a page before this one or a next page makes a pager.
   const paged = canPage && (page > 0 || next.hasNext);
-  const firstLabel = localized(filterDecl?.label, language) ?? '';
+
   return (
     <>
-      {canFilter || canSort ? (
+      {canFilter ? (
         <FilterBar>
-          {canFilter ? (
+          {searchField === '' ? null : (
             <FilterField>
-              {firstLabel}
-              <Input value={filterText} aria-label={firstLabel === '' ? t('knowledge.tableFilter') : firstLabel} onChange={(event) => { setFilterText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') askFilter(filterText, filterField); }} />
+              {localized(filters[0]?.label, language) ?? t('knowledge.tableSearch')}
+              <Input value={filterText} type="search" aria-label={t('knowledge.tableSearch')} placeholder={t('knowledge.tableSearch')} onChange={(event) => { setFilterText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') askText(filterText); }} data-testid="table-search" />
             </FilterField>
-          ) : null}
-          {canFilter && filters.length > 1 ? (
-            <FilterField>
-              {t('knowledge.tableField')}
-              <Select value={filterIndex} onValueChange={setFilterIndex}>
-                <SelectTrigger aria-label={t('knowledge.tableField')}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {filters.map((one, index) => {
-                    const value = String(index);
-                    return <SelectItem key={value} value={value}>{localized(one.label, language) ?? String(one.field ?? '')}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </FilterField>
-          ) : null}
-          {canFilter ? <Button variant="default" size="sm" onClick={() => { askFilter(filterText, filterField); }}>{t('knowledge.tableFilter')}</Button> : null}
-          {canSort ? (
-            <FilterField>
-              {t('knowledge.tableSort')}
-              <Select value={sort} onValueChange={(next) => { setSort(next); askSort(next); }}>
-                <SelectTrigger aria-label={t('knowledge.tableSort')}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">—</SelectItem>
-                  {sortable.map((column) => <SelectItem key={String(column.sortField)} value={String(column.sortField)}>{localized(column.label, language) ?? String(column.sortField)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </FilterField>
-          ) : null}
+          )}
+          {searchField === '' ? null : (
+            <Button variant="default" size="sm" onClick={() => askText(filterText)} data-testid="table-find">{t('knowledge.tableFind')}</Button>
+          )}
+          {Object.keys(where).length === 0 ? null : <Button variant="default" size="sm" onClick={() => { setFilterText(''); askWhere({}); }} data-testid="table-clear">{t('knowledge.tableClear')}</Button>}
+
         </FilterBar>
       ) : null}
+      {facets.map((facet, index) => {
+        const field = typeof facet.field === 'string' ? facet.field : '';
+        const groups = at(data, facet.path) as readonly { readonly key?: unknown; readonly count?: unknown }[] | undefined;
+        if (field === '' || groups === undefined) return null;
+        const active = where[field] as { _eq?: unknown } | undefined;
+        return (
+          <FilterBar key={String(index)} data-testid={`table-facet-${field}`}>
+            <FilterField>{localized(facet.label, language) ?? field}</FilterField>
+            {groups.map((group, at2) => {
+              const value = group.key;
+              const pressed = active?._eq === value;
+              return (
+                <Button key={String(at2)} variant={pressed ? 'default' : 'ghost'} size="sm" aria-pressed={pressed} data-testid={`table-facet-${field}-${String(value)}`} onClick={() => {
+                  const next = { ...where };
+                  if (pressed) delete next[field];
+                  else next[field] = { _eq: value };
+                  askWhere(next);
+                }}>{`${formatValue(value, 'text', language)} (${new Intl.NumberFormat(language).format(Number(group.count ?? 0))})`}</Button>
+              );
+            })}
+          </FilterBar>
+        );
+      })}
       {rows.length === 0 ? <Paragraph data-testid="table-empty">{localized(section.params['emptyText'], language) ?? t('knowledge.tableEmpty')}</Paragraph> : (
         <Table data-testid="table">
           <TableHeader>
-            <TableRow>{columns.map((column, index) => <TableHead key={String(index)}>{localized(column.label, language) ?? ''}</TableHead>)}</TableRow>
+            <TableRow>{columns.map((column, index) => {
+              const field = typeof column.sortField === 'string' ? column.sortField : '';
+              const label = localized(column.label, language) ?? '';
+              return (
+                <TableHead key={String(index)} aria-sort={canSort && field !== '' && field === sortField ? (sortDirection === 'ASC' ? 'ascending' : 'descending') : undefined}>
+                  {canSort && field !== '' ? <Button variant="ghost" size="sm" onClick={() => askSort(field)} data-testid={`table-sort-${field}`}>{label}</Button> : label}
+                </TableHead>
+              );
+            })}</TableRow>
           </TableHeader>
           <TableBody>
             {body.map((cells, index) => {

@@ -40,6 +40,7 @@ type Bootstrap {
   recordTemplates: [RecordTemplate!]!
   ownTemplates: [OwnTemplate!]!
   roles: [String!]!
+  roleLeads: [RoleLead!]!
 }
 
 type BootstrapHome {
@@ -60,6 +61,9 @@ type CatalogueEntity implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -74,7 +78,7 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
-  instances(first: Int, after: String, lang: String): EntityConnection!
+  instances(where: JSON, orderBy: JSON, first: Int, after: String, lang: String): EntityConnection!
   instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
@@ -414,12 +418,24 @@ type CodeTouchedEdge {
   node: Entity!
 }
 
+type Detail {
+  name: String!
+  type: String!
+  key: Boolean!
+  value: JSON
+  contested: Boolean!
+  opinions: [Opinion!]!
+}
+
 interface Entity {
   id: ID!
   kind: String!
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -505,6 +521,9 @@ type KindAdministratorGuide implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -573,6 +592,9 @@ type KindCodeAuthor implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -609,6 +631,9 @@ type KindCodeBroker implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -638,6 +663,9 @@ type KindCodeChannel implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -685,6 +713,9 @@ type KindCodeCiJob implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -714,6 +745,9 @@ type KindCodeCiWorkflow implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -743,6 +777,9 @@ type KindCodeColumn implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -799,6 +836,9 @@ type KindCodeCommit implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -856,6 +896,9 @@ type KindCodeComposeService implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -885,6 +928,9 @@ type KindCodeContract implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -923,6 +969,9 @@ type KindCodeConvention implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -967,6 +1016,9 @@ type KindCodeCycle implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -996,6 +1048,9 @@ type KindCodeDatabase implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1031,6 +1086,9 @@ type KindCodeDebt implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1060,6 +1118,9 @@ type KindCodeDependency implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1089,6 +1150,9 @@ type KindCodeDirectory implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1126,6 +1190,9 @@ type KindCodeDockerfile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1155,6 +1222,9 @@ type KindCodeDocumentSection implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1184,6 +1254,9 @@ type KindCodeEntryPoint implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1213,6 +1286,9 @@ type KindCodeEnvDefinition implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1242,6 +1318,9 @@ type KindCodeEnvVar implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1271,6 +1350,9 @@ type KindCodeFacet implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1300,6 +1382,9 @@ type KindCodeField implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1329,6 +1414,9 @@ type KindCodeFile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1420,6 +1508,9 @@ type KindCodeGitlink implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1462,6 +1553,9 @@ type KindCodeHealthEndpoint implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1491,6 +1585,9 @@ type KindCodeHealthcheck implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1520,6 +1617,9 @@ type KindCodeImage implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1549,6 +1649,9 @@ type KindCodeIndex implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1594,6 +1697,9 @@ type KindCodeInput implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1623,6 +1729,9 @@ type KindCodeK8sDeployment implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1652,6 +1761,9 @@ type KindCodeK8sService implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1681,6 +1793,9 @@ type KindCodeLockfile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1710,6 +1825,9 @@ type KindCodeLogger implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1739,6 +1857,9 @@ type KindCodeMakeTarget implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1768,6 +1889,9 @@ type KindCodeManifest implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1797,6 +1921,9 @@ type KindCodeMessage implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1826,6 +1953,9 @@ type KindCodeMetric implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1855,6 +1985,9 @@ type KindCodeMetricsEndpoint implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1884,6 +2017,9 @@ type KindCodeMigration implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1913,6 +2049,9 @@ type KindCodeModule implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1951,6 +2090,9 @@ type KindCodeNewcomerCommand implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -1980,6 +2122,9 @@ type KindCodeNewcomerFailure implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2009,6 +2154,9 @@ type KindCodeNewcomerPrerequisites implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2038,6 +2186,9 @@ type KindCodeOperation implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2079,6 +2230,9 @@ type KindCodePackage implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2115,6 +2269,9 @@ type KindCodePort implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2144,6 +2301,9 @@ type KindCodeProbe implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2173,6 +2333,9 @@ type KindCodeProcess implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2202,6 +2365,9 @@ type KindCodeRepository implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2246,6 +2412,9 @@ type KindCodeRoute implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2275,6 +2444,9 @@ type KindCodeService implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2313,6 +2485,9 @@ type KindCodeSnapshot implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2342,6 +2517,9 @@ type KindCodeSqlBuild implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2371,6 +2549,9 @@ type KindCodeSqlSink implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2400,6 +2581,9 @@ type KindCodeSymbol implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2441,6 +2625,9 @@ type KindCodeTable implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2485,6 +2672,9 @@ type KindCodeTask implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2514,6 +2704,9 @@ type KindCodeTestCase implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2545,6 +2738,9 @@ type KindCodeTestQuarantine implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2600,6 +2796,9 @@ type KindComment implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2644,6 +2843,9 @@ type KindConstitution implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2682,6 +2884,9 @@ type KindCorrection implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2723,6 +2928,9 @@ type KindDocDecision implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2764,6 +2972,9 @@ type KindDocRequirement implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2805,6 +3016,9 @@ type KindDocRule implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2846,6 +3060,9 @@ type KindDocTerm implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2902,6 +3119,9 @@ type KindDocUseCase implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2943,6 +3163,9 @@ type KindDocument implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -2990,6 +3213,9 @@ type KindDomain implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3058,6 +3284,9 @@ type KindEnrichment implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3126,6 +3355,9 @@ type KindLink implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3173,6 +3405,9 @@ type KindPageTemplate implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3208,6 +3443,9 @@ type KindPractice implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3255,6 +3493,9 @@ type KindProblemDismissal implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3305,6 +3546,9 @@ type KindProduct implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3373,6 +3617,9 @@ type KindQuestion implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3441,6 +3688,9 @@ type KindSkill implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3485,6 +3735,9 @@ type KindSource implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3526,6 +3779,9 @@ type KindTask implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3605,6 +3861,9 @@ type KindTimeCost implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3664,6 +3923,9 @@ type KindUserGuide implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3732,6 +3994,9 @@ type KindValueSet implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3780,6 +4045,9 @@ type KindValueSetEntry implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -3895,6 +4163,8 @@ type NavigationKind {
   nav: String
   count: Int!
   entryId: ID
+  purpose: String
+  audience: [String!]
 }
 
 type NavigationPurpose {
@@ -3975,6 +4245,11 @@ type RecordTemplate {
   template: String!
 }
 
+type RoleLead {
+  role: String!
+  lead: [String!]!
+}
+
 type SearchGroup {
   kind: String!
   label: String!
@@ -3985,6 +4260,7 @@ type SearchGroup {
 type SearchHit {
   node: Entity!
   line: String!
+  matched: String!
 }
 
 type SourceText {
@@ -4193,6 +4469,12 @@ type Query {
   templateFindings: [TemplateFinding!]!
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
+  catalogueDependencies(lang: String): JSON!
+  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int): JSON!
+  products: JSON
+  fillStatus: JSON
+  fillRuns(run: String): JSON
+  fillPlan(selected: [String!], pluginsOnly: Boolean): JSON
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
   related(id: ID!, edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }

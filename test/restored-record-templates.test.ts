@@ -20,7 +20,7 @@ const bindings = [
 const templates = ['entity', ...bindings.map(([name]) => name)].map((name) => ({ name, body: readFileSync(join(folder, `${name}.yaml`), 'utf8') }));
 const bootstrap: Bootstrap = {
   structureRevision: 'fixture', home: null, catalogueTemplate: 'entity', templates,
-  recordTemplates: bindings.map(([template, kind]) => ({ template, kind })), ownTemplates: [], roles: [],
+  recordTemplates: bindings.map(([template, kind]) => ({ template, kind })), ownTemplates: [], roles: [], roleLeads: [],
 };
 
 function page(kind: string) {

@@ -83,25 +83,53 @@ function themeWithScopes(): Record<string, unknown> {
   };
 }
 
-/**
- * The one highlighter this page opens, made on first use and kept for the page's life. Its engine is named: shiki's
- * default is a WASM build whose load differs by architecture and by what a runner's install kept, and a page whose tokens
- * depend on that draws plain text on one machine and coloured text on another. The JavaScript regex engine is the same
- * code everywhere. The theme is loaded once, by name, so every call colours a token from it and never from a per-call
- * registration.
- */
+/** The theme's own registered name: a page colours every token from the theme loaded once under it. */
 const THEME_NAME = 'madarch-kit';
+
+/**
+ * One highlighter over the grammars and the kit's theme, with the engine the caller names: shiki's own Oniguruma build
+ * when `engine` is left out. The theme is loaded once, by name, so every call colours a token from it.
+ */
+async function highlighterWith(engine: 'js' | 'default'): Promise<{ codeToTokens: (text: string, options: { lang: string }) => { tokens: ThemedToken[][] } }> {
+  const created = await createHighlighter({
+    ...(engine === 'js' ? { engine: createJavaScriptRegexEngine() } : {}),
+    themes: [themeWithScopes() as never],
+    langs: GRAMMARS.map((one) => one.id),
+  });
+  return { codeToTokens: (text: string, options: { lang: string }) => created.codeToTokens(text, { lang: options.lang as never, theme: THEME_NAME }) };
+}
+
+/** The colours a working engine gives one TypeScript line: a broken one folds the line into one token. */
+function colourCount(engine: { codeToTokens: (text: string, options: { lang: string }) => { tokens: ThemedToken[][] } }): number {
+  try {
+    const tokens = engine.codeToTokens('export const answer = 42;\n', { lang: 'typescript' }).tokens.flat();
+    return new Set(tokens.map((token) => token.color)).size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The one highlighter this page opens, made on first use and kept for the page's life (madarch-u3vw.16). The JavaScript
+ * regex engine is named first: shiki's default is a WASM build whose load differs by machine and by what a runner's
+ * install kept. That engine cannot be trusted alone either — on one host it folds a TypeScript line into a single token,
+ * as the default does on another — so the named engine is kept only if it draws the line in more than one colour, and
+ * shiki's own Oniguruma build answers otherwise. A page then colours its source on every machine, and neither engine's
+ * load decides what the reader sees.
+ */
+const PROBE_LINE_COLOURS = 2;
 
 let highlighter: Promise<{ codeToTokens: (text: string, options: { lang: string }) => { tokens: ThemedToken[][] } }> | undefined;
 
 async function highlighterOf(): Promise<NonNullable<Awaited<typeof highlighter>>> {
   highlighter ??= (async () => {
-    const created = await createHighlighter({
-      engine: createJavaScriptRegexEngine(),
-      themes: [themeWithScopes() as never],
-      langs: GRAMMARS.map((one) => one.id),
-    });
-    return { codeToTokens: (text: string, options: { lang: string }) => created.codeToTokens(text, { lang: options.lang as never, theme: THEME_NAME }) };
+    try {
+      const named = await highlighterWith('js');
+      if (colourCount(named) >= PROBE_LINE_COLOURS) return named;
+    } catch {
+      // The named engine could not open on this machine: shiki's own build is asked next.
+    }
+    return await highlighterWith('default');
   })();
   return await highlighter;
 }

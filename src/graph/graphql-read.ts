@@ -238,6 +238,16 @@ function evidenceOf(entries: readonly unknown[]): unknown[] {
   });
 }
 
+/** Whether an edge kind names the container at its target: the catalogue's `partOf`. */
+function isPartOf(edge: string): boolean {
+  return edge.slice(edge.lastIndexOf('.') + 1) === 'partOf';
+}
+
+/** Whether an edge kind names a container at its source: any kind's `contains`. */
+function isContains(edge: string): boolean {
+  return edge.slice(edge.lastIndexOf('.') + 1) === 'contains';
+}
+
 /** One opinion row from a table's row: its identity and the values the requested columns hold. */
 function rowOf(row: Record<string, unknown>, values: Record<string, unknown>): OpinionRow {
   const saidBy = String(row['said_by'] ?? '');
@@ -376,7 +386,8 @@ export class ReadContext {
      * The read of one file's text by the blob the graph names (decision 0037), given by the role that answers it: the api
      * role asks the store's queue, and a read that has no reader answers null.
      */
-    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,
+    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,    /** One page of every log the product keeps, when the caller can read them (the logs page's own evidence). */
+    private readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown,
   ) {
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
@@ -445,6 +456,9 @@ export class ReadContext {
     if (name === 'label') return this.labelOf(entity);
     if (name === 'template') return this.templateOf(entity, entity.kind);
     if (name === 'contested') return this.contestedOf(entity);
+    if (name === 'details') return this.detailsOf(entity);
+    if (name === 'trail') return this.trailOf(entity);
+    if (name === 'origin') return this.originOf(entity);
     if (name === 'backlinks') return this.backlinks(entity, args);
     if (name === 'outgoing') return this.outgoing(entity, args);
     if (name === 'related') return this.related({ ...args, id: entity.uid }, entity.lang);
@@ -565,6 +579,86 @@ export class ReadContext {
     // The home entity opens `home`, the product's own page: `/` is the page the home entity's template draws.
     if (entity !== undefined && homeKind(this.manifest)?.name === kind && this.productTemplates.templates.some((one) => one.name === 'home')) return 'home';
     return this.productTemplates.records.get(kind) ?? 'entity';
+  }
+
+  /**
+   * Every field the kind declares, with the value the graph agreed and the opinions that hold it: what a page's
+   * Details block shows when no template has named the kind's fields (decision 0036, section 6). A key field is
+   * identity, so its value stands with no opinion; a field two producers disagree on shows no value and `contested`.
+   */
+  private async detailsOf(entity: EntityValue): Promise<unknown[]> {
+    const kind = this.kindByType.get(entity.typeName);
+    if (kind === undefined) return [];
+    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
+    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
+    const contested = new Set(await this.contestedOf(entity));
+    return [...kind.fields]
+      .sort((left, right) => byCodePoint(left.name, right.name))
+      .map((field) => {
+        if (kind.key.includes(field.name)) {
+          return { name: field.name, type: field.type, key: true, value: entity.key[field.name] ?? null, contested: false, opinions: [] };
+        }
+        const rows = this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang);
+        return {
+          name: field.name,
+          type: field.type,
+          key: false,
+          value: agreedValue(rows, field.name),
+          contested: contested.has(fieldNameOf(field.name)),
+          opinions: rows.slice(-3).reverse().map((row) => opinionOf(row, field.name)),
+        };
+      });
+  }
+
+  /**
+   * The place the entity's newest opinion rests on, as the reader reads it: the file and line of its evidence, so the
+   * page's header can state where the page's own statements came from (decision 0036, section 6).
+   */
+  private async originOf(entity: EntityValue): Promise<string | null> {
+    const kind = this.kindByType.get(entity.typeName);
+    if (kind === undefined) return null;
+    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
+    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
+    let newest: OpinionRow | undefined;
+    for (const field of stated) {
+      for (const row of this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang)) {
+        if (newest === undefined || String(row.statedAt) > String(newest.statedAt)) newest = row;
+      }
+    }
+    const evidence = newest?.evidence[0] as Record<string, unknown> | undefined;
+    if (evidence === undefined) return null;
+    const path = typeof evidence['path'] === 'string' ? evidence['path'] : undefined;
+    if (path !== undefined) {
+      const repository = typeof evidence['repository'] === 'string' ? evidence['repository'] : undefined;
+      const line = typeof evidence['line_start'] === 'number' ? `:${String(evidence['line_start'])}` : '';
+      return repository === undefined ? `${path}${line}` : `${repository}/${path}${line}`;
+    }
+    const url = typeof evidence['url'] === 'string' ? evidence['url'] : undefined;
+    return url ?? null;
+  }
+
+  /**
+   * The entity's containers, outermost first: the chain a page's breadcrumb walks. The catalogue declares containment
+   * as an edge outward (`partOf`) or a row of the container that holds a member (`contains`), so both are followed; a
+   * chain that meets itself or runs eight deep stops.
+   */
+  private async trailOf(entity: EntityValue): Promise<EntityValue[]> {
+    const chain: EntityValue[] = [];
+    const seen = new Set<string>([entity.nodeId]);
+    let current = entity;
+    for (let step = 0; step < 8; step += 1) {
+      const out = (await this.links(current, { first: 50 }, 'out')) as { edges: { node: { edge: string; to: EntityValue } }[] };
+      const into = (await this.links(current, { first: 50 }, 'in')) as { edges: { node: { edge: string; from: EntityValue } }[] };
+      // A member states its container outward (`partOf`); a container holds its member in (`contains`). The same edge
+      // walked the other way names a member, never a container.
+      const up = out.edges.find((one) => isPartOf(one.node.edge))?.node.to
+        ?? into.edges.find((one) => isContains(one.node.edge))?.node.from;
+      if (up === undefined || seen.has(up.nodeId)) break;
+      chain.push(up);
+      seen.add(up.nodeId);
+      current = up;
+    }
+    return chain.reverse();
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {
@@ -1252,6 +1346,8 @@ export class ReadContext {
     }
     if (field === 'cochange') return this.cochange(args, lang);
     if (field === 'contributors') return this.contributors(args, lang);
+    if (field === 'catalogueDependencies') return this.catalogueDependencies(lang);
+    if (field === 'logs') return this.logs === undefined ? null : this.logs(args);
     if (field === 'related') return this.related(args, lang);
     if (field === 'catalogueEntity') {
       const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
@@ -1429,15 +1525,15 @@ export class ReadContext {
       // The rows a reader meets first: the label matches, and among them the shorter label (a path's own file before a
       // folder that holds it), then the answer's own order. Labels are read for the candidates, not for the whole kind.
       const candidates = [...group.rows.values()].sort((left, right) => left.best - right.best || Number(left.hit.nodeId) - Number(right.hit.nodeId)).slice(0, Math.max(perKind * 4, 40));
-      const named: { node: EntityValue; label: string; line: string; best: number }[] = [];
+      const named: { node: EntityValue; label: string; line: string; matched: string; best: number }[] = [];
       for (const row of candidates) {
         const node = this.entityFromRow({ node_id: row.hit.nodeId, uid: row.hit.uid, key: row.hit.key, entity: row.hit.kind }, lang);
         if (node === undefined) continue;
         const label = await this.labelOf(node);
-        named.push({ node, label, line: searchLine(label, row.hit.value), best: row.best });
+        named.push({ node, label, line: searchLine(label, row.hit.value), matched: row.hit.value, best: row.best });
       }
       named.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
-      const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line }));
+      const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line, matched: row.matched }));
       if (results.length === 0) continue;
       out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.values().next().value?.hit.total ?? 0, best: named[0]?.best ?? 3, results });
     }
@@ -1456,7 +1552,7 @@ export class ReadContext {
     const needle = text.trim().toLowerCase();
     if (needle === '') return undefined;
     const data = await this.catalogueData();
-    const rows: { best: number; label: string; line: string; value: EntityValue }[] = [];
+    const rows: { best: number; label: string; line: string; matched: string; value: EntityValue }[] = [];
     for (const entry of data.byName.values()) {
       const words = this.catalogueTitle(entry, lang);
       const definition = this.catalogueDefinition(entry, lang) ?? '';
@@ -1464,11 +1560,13 @@ export class ReadContext {
       const best = lower === needle ? 0 : lower.startsWith(needle) ? 1 : lower.includes(needle) ? 2 : definition.toLowerCase().includes(needle) ? 3 : 9;
       if (best === 9) continue;
       const node = this.catalogueEntityValue(entry, lang);
-      rows.push({ best, label: words, line: `${words}${definition === '' ? '' : ` — ${definition.length > 90 ? `${definition.slice(0, 90).replace(/\s+\S*$/u, '')}…` : definition}`}`, value: node });
+      // The field the words were found in: the kind's own word, or the definition that holds them.
+      const matched = best === 3 && definition !== '' ? definition : words;
+      rows.push({ best, label: words, line: `${words}${definition === '' ? '' : ` — ${definition.length > 90 ? `${definition.slice(0, 90).replace(/\s+\S*$/u, '')}…` : definition}`}`, matched, value: node });
     }
     if (rows.length === 0) return undefined;
     rows.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
-    return { kind: 'catalogue', label: 'catalogue', count: rows.length, best: rows[0]!.best, results: rows.slice(0, perKind).map((row) => ({ node: row.value, line: row.line })) };
+    return { kind: 'catalogue', label: 'catalogue', count: rows.length, best: rows[0]!.best, results: rows.slice(0, perKind).map((row) => ({ node: row.value, line: row.line, matched: row.matched })) };
   }
 
   /** The catalogue's word for a kind in the reader's language, else its English word, else the kind's name. */
@@ -1499,6 +1597,10 @@ export class ReadContext {
           .filter((one): one is { id: string; template: string } => one.template !== undefined),
       ].sort((left, right) => byCodePoint(left.id, right.id)),
       roles: [...this.manifest.roles.keys()].sort(byCodePoint),
+      // The groups each role lists first, as the manifest declares them: the sidebar reads no manifest of its own.
+      roleLeads: [...this.manifest.roles.values()]
+        .sort((left, right) => byCodePoint(left.name, right.name))
+        .map((role) => ({ role: role.name, lead: [...role.lead] })),
     };
   }
 
@@ -1532,6 +1634,8 @@ export class ReadContext {
         nav: kind.nav ?? null,
         count: counts.get(kind.name) ?? 0,
         entryId: catalogue.byName.get(kind.name)?.uid ?? null,
+        purpose: kind.purpose ?? null,
+        audience: kind.audience === undefined ? null : [...kind.audience],
       }));
     const purposes = [...(this.manifest.purposes?.values() ?? [])]
       .sort((left, right) => left.order - right.order || byCodePoint(left.id, right.id))
@@ -1858,6 +1962,21 @@ export class ReadContext {
   private async allCatalogue(args: ConnectionArgs, lang: string | undefined): Promise<unknown> {
     const data = await this.catalogueData();
     return this.catalogueConnection([...data.byName.values()], args, lang);
+  }
+
+  /** The kinds and what each needs filled first, as one compact answer for the catalogue's graph (madarch-64o5.124). */
+  private async catalogueDependencies(lang: string | undefined): Promise<unknown> {
+    const data = await this.catalogueData();
+    const kinds = [...data.byName.values()].map((value) => ({
+      name: value.name,
+      label: this.catalogueTitle(value, lang),
+      id: value.uid,
+      derivesFrom: value.derivesFrom.map((dependency) => {
+        const held = data.byName.get(dependency);
+        return { name: dependency, label: held === undefined ? dependency : this.catalogueTitle(held, lang), id: held?.uid ?? dependency };
+      }),
+    })).sort((left, right) => byCodePoint(left.name, right.name));
+    return { kinds };
   }
 
   private async catalogueData(): Promise<{ byName: Map<string, CatalogueValue>; byId: Map<string, CatalogueValue> }> {

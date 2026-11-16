@@ -40,6 +40,7 @@ type Bootstrap {
   recordTemplates: [RecordTemplate!]!
   ownTemplates: [OwnTemplate!]!
   roles: [String!]!
+  roleLeads: [RoleLead!]!
 }
 
 type BootstrapHome {
@@ -60,6 +61,9 @@ type CatalogueEntity implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -74,7 +78,7 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
-  instances(first: Int, after: String, lang: String): EntityConnection!
+  instances(where: JSON, orderBy: JSON, first: Int, after: String, lang: String): EntityConnection!
   instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
@@ -190,12 +194,24 @@ type DemoTouchedEdge {
   node: Entity!
 }
 
+type Detail {
+  name: String!
+  type: String!
+  key: Boolean!
+  value: JSON
+  contested: Boolean!
+  opinions: [Opinion!]!
+}
+
 interface Entity {
   id: ID!
   kind: String!
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -239,6 +255,9 @@ type KindDemoAuthor implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -274,6 +293,9 @@ type KindDemoCommit implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -313,6 +335,9 @@ type KindDemoFile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -364,6 +389,9 @@ type KindDemoRepository implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
@@ -450,6 +478,8 @@ type NavigationKind {
   nav: String
   count: Int!
   entryId: ID
+  purpose: String
+  audience: [String!]
 }
 
 type NavigationPurpose {
@@ -511,6 +541,11 @@ type RecordTemplate {
   template: String!
 }
 
+type RoleLead {
+  role: String!
+  lead: [String!]!
+}
+
 type SearchGroup {
   kind: String!
   label: String!
@@ -521,6 +556,7 @@ type SearchGroup {
 type SearchHit {
   node: Entity!
   line: String!
+  matched: String!
 }
 
 type SourceText {
@@ -569,6 +605,12 @@ type Query {
   templateFindings: [TemplateFinding!]!
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
+  catalogueDependencies(lang: String): JSON!
+  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int): JSON!
+  products: JSON
+  fillStatus: JSON
+  fillRuns(run: String): JSON
+  fillPlan(selected: [String!], pluginsOnly: Boolean): JSON
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
   related(id: ID!, edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }

@@ -56,6 +56,8 @@ export interface GraphqlProduct {
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
+  /** One page of every log the product keeps, read from the machine's own files rather than the graph. */
+  readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown;
 }
 
 /** The answer of one operation: the GraphQL result, and the HTTP status a route gives it. */
@@ -331,7 +333,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText, product.logs);
     const result = await execute({
       schema,
       document,

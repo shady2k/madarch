@@ -36,6 +36,7 @@ const bootstrap: Bootstrap = {
   recordTemplates: [],
   ownTemplates: [],
   roles: ['analyst', 'engineer'],
+  roleLeads: [],
 };
 
 /** Every object type of the starter schema that implements `Entity`. */
@@ -73,8 +74,8 @@ describe('the starter templates', () => {
       if (read.template !== undefined) templates.set(name, read.template);
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
-    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'records', 'diagram', 'outgoing', 'backlinks']);
-    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'dependencies', 'records', 'details', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'details', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 
   test('the home page composes against the real schema', () => {
@@ -108,7 +109,8 @@ describe('the starter templates', () => {
     for (const section of page.sections) expect(page.operation).toContain(`${section.alias}:`);
     expect(page.operation).toStartWith('query Page(');
     const declared = [...page.operation.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*):/gu)].map((match) => match[1]).sort();
-    expect(declared).toEqual(['id', 'lang']);
+    // The relations are paged: each asks its size and its cursor, so a page past the fiftieth row is reachable.
+    expect(declared).toEqual(['backlinks_after', 'backlinks_first', 'id', 'lang', 'outgoing_after', 'outgoing_first']);
     expect(page.variables['id']).toBe('00000000-0000-0000-0000-000000000005');
     // One operation asks every section: a page view is one request.
     expect(page.operation.match(/^query /gmu)).toHaveLength(1);
@@ -140,6 +142,12 @@ describe('the starter templates', () => {
     const analyst = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'analyst' });
     expect(engineer.sections.map((one) => one.id)).toContain('header');
     expect(analyst.sections.map((one) => one.id)).not.toContain('header');
+    // The reader who reads as everything is every role at once, as `/api/settings` names that reader (madarch-64o5.133).
+    const everything = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'everything' });
+    expect(everything.sections.map((one) => one.id)).toContain('header');
+    // A page composed with no role opens as that reader, never as a role no product declares.
+    const unnamed = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007' });
+    expect(unnamed.sections.map((one) => one.id)).toContain('header');
   });
 
   test('a template an address names is composed, and one it cannot bind is refused', () => {

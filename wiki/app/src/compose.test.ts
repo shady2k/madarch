@@ -21,6 +21,7 @@ const bootstrap: Bootstrap = {
   recordTemplates: [],
   ownTemplates: [],
   roles: [],
+  roleLeads: [],
 };
 
 /**

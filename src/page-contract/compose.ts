@@ -10,7 +10,7 @@
  */
 import { kindTypeNameOf } from '../graphql/names.js';
 import { byCodePoint } from '../model/order.js';
-import { sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
+import { EVERY_ROLE, sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
 import type { TemplateFinding } from './validate.js';
 
 /** The bootstrap the app reads once (section 1): the home, the templates, what opens each page and the roles. */
@@ -24,6 +24,8 @@ export interface Bootstrap {
   readonly recordTemplates: readonly { readonly kind: string; readonly template: string }[];
   readonly ownTemplates: readonly { readonly id: string; readonly template: string }[];
   readonly roles: readonly string[];
+  /** The groups each role lists first in the sidebar, in the role's own order (decision 0031). */
+  readonly roleLeads: readonly { readonly role: string; readonly lead: readonly string[] }[];
 }
 
 /** Where a page is opened: an entity's kind and id, or a template bound to no entity, and the address's own parameters. */
@@ -156,7 +158,7 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
   findings.push(...resolved.findings);
   const empty: PageComposition = { template, operation: '', variables: {}, sections: [], findings };
   if (resolved.resolved === undefined) return empty;
-  const role = address.role ?? 'all';
+  const role = address.role ?? EVERY_ROLE;
   const lang = address.lang;
   const sections = resolved.resolved.sections.filter((section) => sectionShownFor(section, role));
   const subjectSections = sections.filter((section) => section.on === 'subject' && (section.query ?? '').trim() !== '');
@@ -192,13 +194,20 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
         values['role'] = role;
         continue;
       }
-      const paging = used.match(/^(.+)_(first|after)$/u);
-      if (paging !== null && paging[1] === section.id) {
-        const pagingType = PAGING_TYPES[paging[2]!]!;
+      const paging = used === `${section.id}_first` ? 'first' : used === `${section.id}_after` ? 'after' : undefined;
+      if (section.id !== '' && paging !== undefined) {
+        const pagingType = PAGING_TYPES[paging]!;
         declarations.set(used, pagingType);
-        if (paging[2] === 'after') continue;
+        if (paging === 'after') continue;
         const pageSize = section.params['pageSize'];
         values[used] = typeof pageSize === 'number' ? pageSize : 50;
+        continue;
+      }
+      // A table's own filter and order (madarch-64o5.128): the page supplies them and the server does the work, so the
+      // operation declares them as JSON and no row is filtered here. A template that declares one of its own names its
+      // type (a relation's order is `[RelatedOrder!]`), and that declaration stands (madarch-u3vw.16).
+      if (section.id !== '' && (used === `${section.id}_where` || used === `${section.id}_orderBy`) && resolved.resolved.variables[used] === undefined) {
+        declarations.set(used, 'JSON');
         continue;
       }
       const declared: TemplateVariable | undefined = resolved.resolved.variables[used];

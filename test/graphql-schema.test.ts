@@ -60,6 +60,18 @@ describe('the schema of a published manifest', () => {
     expect(fields['demoContainsOf']?.type.toString()).toBe('DemoContainsConnection!');
   });
 
+  test('the frame reads each kind\'s purpose and audience and each role\'s leading groups', () => {
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
+    const kind = (schema.getType('NavigationKind') as GraphQLObjectType).getFields();
+    expect(kind['purpose']?.type.toString()).toBe('String');
+    expect(kind['audience']?.type.toString()).toBe('[String!]');
+    const roleLead = (schema.getType('RoleLead') as GraphQLObjectType).getFields();
+    expect(roleLead['role']?.type.toString()).toBe('String!');
+    expect(roleLead['lead']?.type.toString()).toBe('[String!]!');
+    const bootstrap = (schema.getType('Bootstrap') as GraphQLObjectType).getFields();
+    expect(bootstrap['roleLeads']?.type.toString()).toBe('[RoleLead!]!');
+  });
+
   test('is one schema from one manifest: two derivations are identical', () => {
     const manifest = publishedManifestOf(fixtureManifest());
     expect(graphqlSchemaOf(manifest)).toBe(graphqlSchemaOf(manifest));

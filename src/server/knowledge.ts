@@ -12,6 +12,7 @@
 import { here } from '../model/raise.js';
 import { AuthoredRefusal } from '../graph/authored.js';
 import type { ResetPlan } from '../knowledge/reset.js';
+import { LOG_LEVELS, LOG_SOURCES } from '../knowledge/logs.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
@@ -48,6 +49,8 @@ export interface KnowledgePart {
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
+  /** One page of every log madarch keeps for this product: the server's, the fills', the plugins', the agents', the store's. */
+  logs: (request: Request) => Promise<Handled>;
   /** The open problems the Problems page groups, and a count for the sidebar (workflow state, not a graph read). */
   problems: (request: Request) => Promise<Handled>;
   /** The product's Markdown documents and repositories (the frame's Sources page). */
@@ -224,7 +227,7 @@ function fillRefusalCode(message: string): string | undefined {
         ...(held['variables'] === undefined || held['variables'] === null ? {} : { variables: held['variables'] as Readonly<Record<string, unknown>> }),
         ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
         ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
-      });
+      }, { products: () => ({ current: product.folder, products: siblings() }) });
       return { response: json(answer.status, answer.body) };
     }),
     diagram: guarded('render a diagram', async (request) => {
@@ -388,6 +391,35 @@ function fillRefusalCode(message: string): string | undefined {
       const runs = await product.fillRuns(runId ?? undefined);
       if (runId !== null && runs.length === 0) return refused(404, { message: `${here()}: this product holds no run ${JSON.stringify(runId)}` });
       return { response: json(200, runId === null ? { runs } : { run: runs[0] }) };
+    }),
+    logs: guarded('read the logs', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const sources = (query.get('source') ?? '').split(',').map((name) => name.trim()).filter((name) => name !== '');
+      for (const name of sources) {
+        if (!(LOG_SOURCES as readonly string[]).includes(name)) return refused(400, { field: 'source', message: `"source" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}` });
+      }
+      const level = query.get('level');
+      if (level !== null && !(LOG_LEVELS as readonly string[]).includes(level)) return refused(400, { field: 'level', message: `"level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}` });
+      const numbers: { from?: number; before?: number; limit?: number } = {};
+      for (const key of ['from', 'before', 'limit'] as const) {
+        const held = query.get(key);
+        if (held === null || held === '') continue;
+        const value = Number(held);
+        if (!Number.isFinite(value) || value < 0) return refused(400, { field: key, message: `"${key}" is a whole number of milliseconds, got ${JSON.stringify(held)}` });
+        numbers[key] = Math.floor(value);
+      }
+      const run = query.get('run');
+      if (run !== null && run.trim() === '') return refused(400, { field: 'run', message: '"run" is a run id, got an empty one' });
+      const text = query.get('q');
+      return {
+        response: json(200, product.logs({
+          ...(sources.length === 0 ? {} : { sources: sources as import('../knowledge/logs.js').LogSourceName[] }),
+          ...(level === null ? {} : { level: level as import('../knowledge/logs.js').LogLevel }),
+          ...(run === null ? {} : { run }),
+          ...(text === null || text === '' ? {} : { q: text }),
+          ...numbers,
+        })),
+      };
     }),
     fillPlan: guarded('plan the fill', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });

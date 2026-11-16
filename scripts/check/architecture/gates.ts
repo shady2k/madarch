@@ -293,8 +293,11 @@ function fileTextProtocolFields(modules: Map<string, GateModule>): Set<Node> {
 }
 
 /** Gate 1: no string literal of the engine names a kind or a field the starter catalogue alone declares. */
+/** The words the engine itself must spell, so a catalogue field that happens to share one is not read as product data. */
+export const ENGINE_WORDS: readonly string[] = ['secret'];
+
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
-  const format = manifestFormatWords(root);
+  const format = new Set([...manifestFormatWords(root), ...ENGINE_WORDS]);
   const protocolFields = fileTextProtocolFields(modules);
   const names = new Set<string>();
   for (const kind of catalogueKinds(root)) {
@@ -437,6 +440,8 @@ export const FILE_AND_PROCESS_ALLOWED: readonly { readonly file: string; readonl
   { file: 'src/identity/identity.ts', why: 'who the user is, asked of git' },
   { file: 'src/render/read-worker.ts', why: 'the renderer in a process of its own' },
   { file: 'src/obs/trace.ts', why: 'the trace writer' },
+  { file: 'src/knowledge/logs.ts', why: 'the log reader: it reads the logs madarch keeps in its own folders' },
+  { file: 'src/fill/agent-exchange.ts', why: "the agent exchange record: it writes and reads a run's own evidence beside its trace" },
   { file: 'src/obs/retention.ts', why: 'the raw telemetry retention sweep' },
   { file: 'src/skills/install.ts', why: 'the skill set installed on disk' },
 ];

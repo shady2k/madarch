@@ -84,6 +84,17 @@ export function sweepRawTelemetry(store: string, retention: RawRetention, now: n
           gone.add(held.file);
           removed.push(held.file);
           bytes -= held.bytes;
+          // One run's own records stand beside its trace (madarch-64o5.88): its agent units' exchanges and its plugin
+          // runs' standard error go with it, as its log does.
+          if (held.trace) {
+            const stem = held.file.slice(0, -'.jsonl'.length);
+            for (const suffix of ['.agents', '.plugins']) {
+              const beside = `${stem}${suffix}`;
+              if (!existsSync(beside)) continue;
+              rmSync(beside, { recursive: true, force: true });
+              removed.push(beside);
+            }
+          }
         }
       }
       const standing = records.filter((record) => !gone.has(record.file));

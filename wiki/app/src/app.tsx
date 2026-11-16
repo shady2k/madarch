@@ -8,15 +8,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
+import { EVERY_ROLE, CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
+import { basePathOf, codesOf, fetchProducts, postQuery, readBootstrap, readNavigation, type Navigation, type ProductsAnswer, type PublicationState } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { MissingManifest } from './components/missing-manifest.js';
 import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
+import { pageTitleOf } from './components/header.js';
+import { PageTabs } from './components/page-tabs.js';
+import { pendingByKind, useLiveRun } from './components/run-indicator.js';
+import { activateTab, activeAddress, closeTab, followWindow, openPage, recallTabs, rememberTabs, sessionStorageOrNull, titleTab, type TabsState } from './tabs.js';
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
+import { LogsPage } from './components/logs.js';
 import { parseAddress, type FramePage } from './address.js';
 import { withSpan } from './trace.js';
 import { PageView, type PageRuntime } from './page.js';
@@ -50,9 +56,9 @@ function templateTask(template: string | undefined, t: TFunction): string | null
 
 function storedRole(): string {
   try {
-    return window.localStorage.getItem(ROLE_KEY) ?? 'everything';
+    return window.localStorage.getItem(ROLE_KEY) ?? EVERY_ROLE;
   } catch {
-    return 'all';
+    return EVERY_ROLE;
   }
 }
 
@@ -64,11 +70,21 @@ function keepRole(value: string): void {
   }
 }
 
-/** What one page's answer holds: its composition, the variables it was asked with and the sections' data. */
+/** The folder this wiki is served under, from a products home's address; a server that serves one product answers none. */
+function servedFolderOf(base: string): string | null {
+  if (!base.startsWith('/products/')) return null;
+  return decodeURIComponent(base.slice('/products/'.length));
+}
+
+/** What one page's answer holds: its composition, the variables it was asked with, the sections' data and its address. */
 interface Loaded {
   readonly composition: PageComposition;
   readonly variables: Record<string, unknown>;
   readonly data: Record<string, unknown>;
+  /** The address the answer was asked for: a page whose address moved keeps its last data until the next answer stands. */
+  readonly address: string;
+  /** What the composition refused, when it still names the page: the page says it above its sections (madarch-64o5.134). */
+  readonly findings?: PageComposition['findings'];
 }
 
 export function App(): ReactElement {
@@ -77,14 +93,25 @@ export function App(): ReactElement {
   const connection = useConnection();
   const [base] = useState(() => basePathOf(window.location.pathname));
   const [path, setPath] = useState(() => window.location.pathname.slice(base.length) + window.location.search);
+  // The window's open pages: the reader's own state, kept for this window alone (a reload keeps it).
+  const storage = useMemo(() => sessionStorageOrNull(), []);
+  const [tabs, setTabs] = useState<TabsState>(() => recallTabs(storage, base, path));
+  const tabsNow = useRef(tabs);
   const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [navigation, setNavigation] = useState<Navigation | null>(null);
+  /** The catalogue's publication, while the graph answers that it is being made or could not be: the frame says so. */
+  const [publication, setPublication] = useState<PublicationState | null>(null);
   // The run page polls its own run; the problems listing reads the whole product and would stand in its way while a
   // fill writes. Its count is read on every other page.
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
+  // The products this server serves, for the top bar's switcher and the «?» of madarch's own docs.
+  const products = useCommandRead<ProductsAnswer>('products', (signal) => fetchProducts(base, signal));
+  // The live fill run: read once, for the top bar's indicator and the sidebar's «still being written» counts.
+  const liveRun = useLiveRun(base);
+  const pending = useMemo(() => pendingByKind(liveRun.run), [liveRun.run]);
   const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [lastDataAt, setLastDataAt] = useState<number | null>(null);
@@ -92,6 +119,8 @@ export function App(): ReactElement {
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const navigationRequest = useRef(0);
   const [failure, setFailure] = useState<string | null>(null);
+  // The graph answered NO_MANIFEST: a product whose kinds manifest a fill has still to write (madarch-64o5.133).
+  const [noManifest, setNoManifest] = useState(false);
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
   const alive = useRef(true);
@@ -102,21 +131,64 @@ export function App(): ReactElement {
     return parseAddress(pathname ?? '/', `?${search}`, '');
   }, [path]);
 
-  const open = useCallback((next: string): void => {
-    // A component names an address of the app; a rendered link carries the base the app is served under.
-    const path = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
-    window.history.pushState({}, '', base + path);
-    setPath(path);
+  /** The tabs as the press left them: the handlers read the latest, and the bar is drawn from the state. */
+  const applyTabs = useCallback((next: TabsState): void => {
+    tabsNow.current = next;
+    setTabs(next);
+  }, []);
+  useEffect(() => { rememberTabs(storage, base, tabs); }, [base, storage, tabs]);
+
+  /** Shows the page the tab in front names: the address bar and the page below move with it, as a page load would. */
+  const show = useCallback((address: string): void => {
+    if (address === path) return;
+    window.history.pushState({}, '', base + address);
+    setPath(address);
     // A press on a link scrolls the page it opens to its top, as a page load would: the work area is the column that
     // scrolls, not the window.
     document.querySelector('[data-testid="shell-content"]')?.scrollTo({ top: 0 });
-  }, [base]);
+  }, [base, path]);
 
+  /**
+   * A press on a page's address: a plain press shows it in the tab in front, a control or command press in a tab of its
+   * own. An address another tab already holds brings that tab forward instead of standing twice.
+   */
+  const open = useCallback((next: string, options?: { readonly newTab?: boolean }): void => {
+    // A component names an address of the app; a rendered link carries the base the app is served under.
+    const address = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
+    const state = openPage(tabsNow.current, address, options?.newTab === true);
+    applyTabs(state);
+    show(activeAddress(state));
+  }, [applyTabs, base, show]);
+
+  /** A press on a tab brings the page it holds in front. */
+  const activate = useCallback((key: string): void => {
+    const state = activateTab(tabsNow.current, key);
+    applyTabs(state);
+    show(activeAddress(state));
+  }, [applyTabs, show]);
+
+  /** A press on a tab's close: the tab beside it comes forward when it was the one in front. */
+  const close = useCallback((key: string): void => {
+    const before = activeAddress(tabsNow.current);
+    const state = closeTab(tabsNow.current, key);
+    applyTabs(state);
+    if (activeAddress(state) !== before) show(activeAddress(state));
+  }, [applyTabs, show]);
+
+  // The window's own moves — the back and forward buttons, a link the browser followed: the tab that holds that page
+  // comes forward, else the tab in front names it.
   useEffect(() => {
-    const follow = (): void => { setPath(window.location.pathname.slice(base.length) + window.location.search); };
+    const follow = (): void => {
+      const address = window.location.pathname.slice(base.length) + window.location.search;
+      const state = followWindow(tabsNow.current, address);
+      applyTabs(state);
+      const shown = activeAddress(state);
+      if (shown !== address) window.history.pushState({}, '', base + shown);
+      setPath(shown);
+    };
     window.addEventListener('popstate', follow);
     return () => { window.removeEventListener('popstate', follow); };
-  }, [base]);
+  }, [applyTabs, base]);
 
   useEffect(() => {
     alive.current = true;
@@ -128,11 +200,19 @@ export function App(): ReactElement {
     if (!alive.current || !current()) return undefined;
     // The frame's calm state stands for an unreachable server; it is not a failure of the product's page.
     if (read.offline === true) return undefined;
+    // A catalogue being published, or one that could not be, is the product's own state: the frame says it in its words.
+    if (read.publication !== undefined) {
+      setPublication(read.publication);
+      return undefined;
+    }
+    setPublication(null);
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
+      setNoManifest((read.codes ?? []).includes('NO_MANIFEST'));
       setFailure(read.message ?? 'the bootstrap could not be read');
       return undefined;
     }
+    setNoManifest(false);
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
     setLastDataAt(Date.now());
@@ -188,13 +268,7 @@ export function App(): ReactElement {
     keepRole(savedRole.data.role);
   }, [savedRole.data]);
 
-  // The document says the language the reader reads and names the product, as the browser's tab shows them.
-  useEffect(() => {
-    document.documentElement.lang = language;
-    document.title = t('knowledge.title', { product: navigation?.product ?? 'madarch' });
-  }, [language, navigation?.product, t]);
-
-  const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>): Promise<void> => {
+  const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>, asked: string): Promise<void> => {
     const request = ++pageRequest.current;
     const current = (): boolean => alive.current && request === pageRequest.current;
     setBusy(true);
@@ -203,13 +277,18 @@ export function App(): ReactElement {
     setBusy(false);
     // The frame's calm state stands for the unreachable server, and the page keeps what it last held.
     if (answer.offline === true) return;
+    if (answer.publication !== undefined) {
+      setPublication(answer.publication);
+      return;
+    }
+    setPublication(null);
     const codes = codesOf(answer.errors);
     if (answer.errors.length > 0) {
       if (codes.includes(STALE_STRUCTURE) && bootstrap !== null) {
         const read = await loadBootstrap(current);
         if (current() && read !== undefined) {
           const again = composePage(read, { ...address.page, lang: language, role, ...(address.home ? { home: true } : {}) });
-          if (again.findings.length === 0) await ask(again, again.variables);
+          if (again.findings.length === 0) await ask(again, again.variables, asked);
         }
         return;
       }
@@ -218,7 +297,7 @@ export function App(): ReactElement {
     }
     setFailure(null);
     setLastDataAt(Date.now());
-    setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}) });
+    setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}), address: asked });
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
   // One page view, one operation: the page is composed from the bootstrap and the address, then asked once.
@@ -238,15 +317,17 @@ export function App(): ReactElement {
     }
     // An older product may have no `problems` template: its Problems page is the frame's template-findings page, not a
     // composition finding. A product with the template draws its own listing.
-    if (address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')) {
+    if ((address.page.template === 'problems' || address.page.template === 'logs') && !bootstrap.templates.some((one) => one.name === address.page.template)) {
       setFailure(null);
       setLoaded(null);
       return;
     }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
+    // A template the product's files could not be read as is: the page still stands, and names what its template's
+    // findings are instead of being replaced by them (madarch-64o5.134).
     if (composition.findings.length > 0) {
-      setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
-      setLoaded(null);
+      setFailure(null);
+      setLoaded({ composition, variables: composition.variables, data: {}, address: path, findings: composition.findings });
       return;
     }
     // A page whose sections ask the graph nothing (`fill`, `run`) is drawn from the command reads alone: it sends no
@@ -254,10 +335,10 @@ export function App(): ReactElement {
     if (composition.operation === '') {
       setFailure(null);
       setBusy(false);
-      setLoaded({ composition, variables: composition.variables, data: {} });
+      setLoaded({ composition, variables: composition.variables, data: {}, address: path });
       return;
     }
-    void ask(composition, composition.variables);
+    void ask(composition, composition.variables, path);
     return () => { pageRequest.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionKey]);
@@ -267,7 +348,7 @@ export function App(): ReactElement {
     const merged = { ...loaded.variables, ...variables };
     // A key set to null drops the variable, as the connection's own default asks.
     for (const [key, value] of Object.entries(variables)) if (value === null) delete merged[key];
-    void ask(loaded.composition, merged);
+    void ask(loaded.composition, merged, loaded.address);
   }, [ask, loaded]);
 
   /**
@@ -308,23 +389,72 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
+  // The tab's name: the product on its home, the page's own title once its answer stands, else the page's frame word.
+  // The page's own name is read from the answer that stands for the address in front, never from the last page's.
+  const loadedTitle = loaded === null || loaded.address !== path ? null : pageTitleOf(loaded.composition, loaded.data, language);
+  const knownTitle = address.home ? productName : loadedTitle ?? pageName;
+  // A page names its tab when its name is known: an entity's tab says «Loading…» until the page stands, then its title.
+  useEffect(() => {
+    if (knownTitle === null) return;
+    applyTabs(titleTab(tabsNow.current, tabsNow.current.active, knownTitle));
+  }, [applyTabs, knownTitle, path]);
+  // The document says the language the reader reads and names the page beside the product, as the browser's tab shows them.
+  useEffect(() => {
+    document.documentElement.lang = language;
+    const product = productName ?? navigation?.product ?? 'madarch';
+    document.title = knownTitle === null || knownTitle === product
+      ? t('knowledge.title', { product })
+      : t('knowledge.titleOf', { page: knownTitle, product });
+  }, [knownTitle, language, navigation?.product, productName, t]);
+  // A catalogue being published, or one that could not be, is read again by itself: the frame waits on the product it shows.
+  useEffect(() => {
+    if (publication === null) return;
+    const timer = setTimeout(() => { void loadBootstrap(); }, publication.status === 'pending' ? 1000 : 5000);
+    return () => { clearTimeout(timer); };
+  }, [publication, loadBootstrap]);
   // This machine's plugin isolation is read here, once, beside the role: a page that offers the isolation choice reads
   // it from the runtime instead of asking the settings route for itself.
   const machine = savedRole.data === null ? undefined : { pluginIsolation: savedRole.data.pluginIsolation ?? null, pluginsUnconfined: savedRole.data.pluginsUnconfined, reload: savedRole.reload };
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds, ...(machine === undefined ? {} : { machine }) };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, role, open, reload, onRole: applyRole, changedKinds, ...(loaded?.findings === undefined ? {} : { findings: loaded.findings }), ...(machine === undefined ? {} : { machine }) };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
+  // The groups the reader's role lists first (decision 0031), as the product's manifest declares them.
+  const leads = bootstrap?.roleLeads.find((one) => one.role === role)?.lead ?? [];
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} changed={changedKinds} />
+    <FrameNavigation
+      navigation={navigation}
+      base={base}
+      path={here}
+      open={(next, options) => { open(next, options); after(); }}
+      tasks={tasks}
+      role={role}
+      leads={leads}
+      problemsOpen={problems.data?.open ?? null}
+      productName={productName}
+      pending={pending}
+      changed={changedKinds}
+    />
   );
   const [menuOpen, setMenuOpen] = useState(false);
-  // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
-  if (bootstrap === null && (failure !== null || connection.offline)) {
+  // A product that has no kinds manifest has no graph to ask: the frame names the file and the guide that writes one,
+  // instead of the failure the empty catalogue would raise (madarch-64o5.133).
+  if (bootstrap === null && !connection.offline && noManifest) {
+    return (
+      <ShellError>
+        <MissingManifest product={identity.data?.name ?? null} status={null} />
+      </ShellError>
+    );
+  }
+  // The graph could not be read at all, the server cannot be reached, or the catalogue is being published: the frame
+  // says so instead of a page.
+  if (bootstrap === null && (failure !== null || connection.offline || publication !== null)) {
     return (
       <ShellError>
         {connection.offline
           ? <ConnectionBanner lastDataAt={lastDataAt} />
-          : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
+          : publication !== null
+            ? <PublicationNote publication={publication} />
+            : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
       </ShellError>
     );
   }
@@ -348,12 +478,15 @@ export function App(): ReactElement {
     );
   }
   // The kit and template findings have frame pages; other sections wait for their pages. A product without a
-  // `problems` template still has the frame's template-findings page at the same address.
+  // `problems` template still has the frame's template-findings page at the same address, and a product created before
+  // the logs template existed opens the frame's Logs page — the machine's logs are not the product's files.
   const page = section !== null
     ? section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />
     : address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')
       ? <ProblemsPage base={base} />
-      : null;
+      : address.page.template === 'logs' && !bootstrap.templates.some((one) => one.name === 'logs')
+        ? <LogsPage base={base} />
+        : null;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <RoleFirstVisit base={base} onChosen={applyRole} />
@@ -372,16 +505,21 @@ export function App(): ReactElement {
               busy={busy}
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
+              run={liveRun}
+              products={products.data?.products ?? null}
+              currentProduct={servedFolderOf(base) ?? products.data?.current ?? null}
               onLanguage={(next) => { void setWikiLanguage(next); }}
               onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}
             />
+            <PageTabs tabs={tabs.tabs} active={tabs.active} activate={activate} close={close} />
           </ShellFixed>
           <ShellRow>
             <ShellScroll data-testid="shell-content">
               <ShellDocument>
                 <main data-testid="wiki-main">
                   <ConnectionBanner lastDataAt={lastDataAt} />
+                  {publication === null || connection.offline ? null : <PublicationNote publication={publication} />}
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
                       <AlertDescription>{failure}</AlertDescription>
@@ -390,7 +528,7 @@ export function App(): ReactElement {
                   <Stack className={connection.offline ? 'opacity-60 transition-opacity' : 'transition-opacity'} data-testid="page-content" data-stale={connection.offline ? 'true' : 'false'}>
                     {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
                     {page}
-                    {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                    {loaded === null ? (page === null && failure === null ? <PageLoading /> : null) : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
                   </Stack>
                 </main>
               </ShellDocument>
@@ -399,5 +537,41 @@ export function App(): ReactElement {
         </ShellMain>
       </Stack>
     </TooltipProvider>
+  );
+}
+
+/**
+ * A template page whose answer is on its way: the shapes its sections will take stand in the body, never a blank page while
+ * a fill or a slow read holds the answer (madarch-64o5.136). The frame has already answered by this point.
+ */
+function PageLoading(): ReactElement {
+  return (
+    <PageSection data-testid="page-loading">
+      <Skeleton className="h-9 w-72" />
+      <Skeleton className="h-5 w-full" />
+      <Skeleton className="h-5 w-4/5" />
+    </PageSection>
+  );
+}
+
+/**
+ * The catalogue's own state (decision 0036, section 8): while the product's catalogue is being published, and when it
+ * could not be, the frame says so in the reader's language instead of drawing a page over nothing.
+ */
+function PublicationNote({ publication }: { readonly publication: PublicationState }): ReactElement {
+  const { t } = useTranslation();
+  const pending = publication.status === 'pending';
+  return (
+    <Alert
+      variant="problem"
+      className="mb-4"
+      role={pending ? 'status' : 'alert'}
+      data-publication={publication.status}
+      data-testid="publication-note"
+    >
+      <AlertDescription>
+        {pending ? t('knowledge.publishing') : t('knowledge.publishingFailed', { message: publication.message ?? '' })}
+      </AlertDescription>
+    </Alert>
   );
 }

@@ -4,10 +4,11 @@ import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
+import { readRunAgentExchanges } from '../src/fill/agent-exchange.js';
 import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -172,7 +173,25 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(prompt).toContain('Read both allowed documents and state one evidenced summary.');
       expect(prompt).toContain('A summary of the fixture documents.');
       expect(prompt).not.toMatch(/[\u0400-\u04FF]/u);
+      // The unit's whole exchange is madarch's own record (madarch-64o5.88): what it was given, the files it opened,
+      // what it returned and the context it reported — not only what the agent chose to keep in its own transcript.
+      const exchanges = readRunAgentExchanges(join(f.home, 'traces'), run.runId);
+      expect(exchanges.problems).toEqual([]);
+      const unit = exchanges.units.find((one) => one.unit === 'probe-summary:probe.summary');
+      expect(unit).toBeDefined();
+      expect(unit?.state).toBe('turned');
+      expect(unit?.given.prompt).toContain('Read both allowed documents and state one evidenced summary.');
+      expect(unit?.given.prompt).toContain('Task:');
+      expect(unit?.given.files).toEqual(['repo/docs/a.md', 'repo/docs/b.md']);
+      expect(unit?.opened.map((open) => open.path)).toEqual(['docs/a.md', 'docs/b.md']);
+      expect(unit?.returned?.text).toBe(JSON.stringify(answer));
+      expect(unit?.usage?.context).toEqual({ used: 31, size: 1000 });
+      // Each plugin run's standard error is kept with the run too (madarch-64o5.88): the unit's scratch folder is
+      // temporary, and the logs page reads the record after it is gone.
+      const pluginLogs = readdirSync(join(f.home, 'traces', `${run.runId}.plugins`));
+      expect(pluginLogs.length).toBeGreaterThanOrEqual(1);
     } finally { delete process.env['PROMPT_FILE']; await owner.close(); }
+
   }, 120_000);
 
   test('the bundled general agent refines a declared kind already filled by another plugin', async () => {

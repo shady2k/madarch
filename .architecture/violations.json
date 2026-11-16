@@ -27,11 +27,6 @@
   {
     "rule": "app-graph-reads",
     "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "readFillRuns"
-  },
-  {
-    "rule": "app-graph-reads",
-    "file": "wiki/app/src/components/overview.tsx",
     "symbol": "readProblemsCount"
   },
   {
@@ -1152,7 +1147,7 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "1\u20132 / 2"
+    "symbol": "1–2 / 2"
   },
   {
     "rule": "i18n-text",
@@ -2457,11 +2452,6 @@
   {
     "rule": "no-product-data",
     "file": "src/problems/code.ts",
-    "symbol": "secret"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
     "symbol": "test"
   },
   {
@@ -3117,7 +3107,7 @@
   {
     "rule": "no-regex",
     "file": "src/loop/entities.ts",
-    "symbol": "/[.!?\u2026]$/"
+    "symbol": "/[.!?…]$/"
   },
   {
     "rule": "no-regex",
@@ -3218,11 +3208,6 @@
     "rule": "no-regex",
     "file": "src/page-contract/compose.ts",
     "symbol": "/\\$([A-Za-z_][A-Za-z0-9_]*)/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/page-contract/compose.ts",
-    "symbol": "/^(.+)_(first|after)$/"
   },
   {
     "rule": "no-regex",
@@ -3791,11 +3776,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "wiki/app/src/components/run.tsx",
-    "symbol": "/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX/"
-  },
-  {
-    "rule": "no-regex",
     "file": "wiki/app/src/components/ui/filter-bar.tsx",
     "symbol": "/(auto|scroll)/"
   },
@@ -4186,21 +4166,6 @@
   },
   {
     "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <InlineGroup>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <Paragraph>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <Stack>"
-  },
-  {
-    "rule": "ui-kit-only",
     "file": "wiki/app/src/components/prepare.tsx",
     "symbol": "className on <Alert>"
   },
@@ -4343,11 +4308,6 @@
     "rule": "ui-kit-only",
     "file": "wiki/app/src/components/run.tsx",
     "symbol": "className on <Button>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/run.tsx",
-    "symbol": "className on <Disclosure>"
   },
   {
     "rule": "ui-kit-only",

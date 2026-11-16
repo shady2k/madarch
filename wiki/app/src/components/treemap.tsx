@@ -5,7 +5,7 @@ import { titleIn } from '../../../../src/page-contract/index.js';
 import { Button } from './ui/button.js';
 import { ChartTreemap, type ChartNode } from './ui/charts.js';
 import { ColourSwatch } from './ui/drawing.js';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { InlineGroup, PageSection, Paragraph, Stack, TextLink } from './ui/typography.js';
 import { at, localized } from './format.js';
 import { edgesOf, entityHref, nextOf } from './connection.js';
@@ -107,18 +107,9 @@ export function TreemapSection({ context }: { readonly context: SectionContext }
       {segments.map((segment, index) => <Button key={segments.slice(0, index + 1).join('/')} variant="ghost" size="sm" onClick={() => { setFolder([root, ...segments.slice(0, index + 1)].filter(Boolean).join('/')); }}>{segment}</Button>)}
     </InlineGroup>
     <InlineGroup>
-      {measures.length > 1 ? <Select value={measure} onValueChange={setMeasure}>
-        <SelectTrigger aria-label={t('knowledge.treemap.measure')}><SelectValue /></SelectTrigger>
-        <SelectContent>{measures.map((one) => <SelectItem key={one.path} value={one.path}>{localized(one.label, context.language)}</SelectItem>)}</SelectContent>
-      </Select> : null}
-      <Select value={colour} onValueChange={setColour}>
-        <SelectTrigger aria-label={t('knowledge.treemap.colour')}><SelectValue /></SelectTrigger>
-        <SelectContent><SelectItem value="language">{t('knowledge.treemap.language')}</SelectItem><SelectItem value="changed">{t('knowledge.treemap.changed')}</SelectItem></SelectContent>
-      </Select>
-      {colour === 'changed' ? <Select value={days} onValueChange={setDays}>
-        <SelectTrigger aria-label={t('knowledge.treemap.window')}><SelectValue /></SelectTrigger>
-        <SelectContent>{['7', '30', '90', '365'].map((one) => <SelectItem key={one} value={one}>{t('knowledge.treemap.days', { count: Number(one) })}</SelectItem>)}</SelectContent>
-      </Select> : null}
+      {measures.length > 1 ? <ChoiceMenu label={t('knowledge.treemap.measure')} testId="treemap-measure" value={measure} onChange={setMeasure} options={measures.map((one) => ({ value: one.path, label: localized(one.label, context.language) ?? one.path }))} /> : null}
+      <ChoiceMenu label={t('knowledge.treemap.colour')} testId="treemap-colour" value={colour} onChange={setColour} options={[{ value: 'language', label: t('knowledge.treemap.language') }, { value: 'changed', label: t('knowledge.treemap.changed') }]} />
+      {colour === 'changed' ? <ChoiceMenu label={t('knowledge.treemap.window')} testId="treemap-window" value={days} onChange={setDays} options={['7', '30', '90', '365'].map((one) => ({ value: one, label: t('knowledge.treemap.days', { count: Number(one) }) }))} /> : null}
     </InlineGroup>
     <ChartTreemap title={title} nodes={nodes} note={t('knowledge.treemap.empty')} {...(width === undefined ? {} : { width })} />
     <Paragraph>{t('knowledge.treemap.navigationNote')}</Paragraph>
@@ -132,7 +123,7 @@ export function TreemapSection({ context }: { readonly context: SectionContext }
     {direct.map((file) => {
       const node = file.row['node'];
       const href = entityHref(typeof node === 'object' && node !== null ? node as Record<string, unknown> : file.row);
-      return <Paragraph key={file.path}>{href === undefined ? file.path : <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{file.path}</TextLink>}{t('knowledge.treemap.fileValue', { value: file.value === undefined ? t('knowledge.treemap.unknownValue') : new Intl.NumberFormat(context.language).format(file.value), language: file.language })}</Paragraph>;
+      return <Paragraph key={file.path}>{href === undefined ? file.path : <TextLink href={context.base + href} {...follow(context.open, context.base + href)}>{file.path}</TextLink>}{t('knowledge.treemap.fileValue', { value: file.value === undefined ? t('knowledge.treemap.unknownValue') : new Intl.NumberFormat(context.language).format(file.value), language: file.language })}</Paragraph>;
     })}
   </Stack></PageSection>;
 }

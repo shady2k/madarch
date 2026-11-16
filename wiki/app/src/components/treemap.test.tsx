@@ -23,11 +23,17 @@ async function render(rows = sample, params: Record<string, unknown> = {}, hasNe
   await act(async () => { root.render(createElement(TreemapSection, { context })); });
   return { host, opened, reloaded, close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
 }
-async function choose(host: HTMLElement, name: string, value: string) {
-  const trigger = host.querySelector(`[aria-label="${name}"][role="combobox"]`) as HTMLElement;
-  await act(async () => { trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
-  const option = [...document.querySelectorAll('[role="option"]')].find((one) => one.textContent === value) as HTMLElement;
-  expect(option).toBeDefined();
+/** One choice of the kit's menu (madarch-64o5.88): its trigger is pressed and its item chosen by the control's own id. */
+async function choose(host: HTMLElement, testId: string, value: string) {
+  const trigger = host.querySelector(`[data-testid="${testId}"]`) as HTMLElement;
+  expect(trigger).not.toBeNull();
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  const option = document.querySelector(`[data-testid="${testId}-${value}"]`) as HTMLElement;
+  expect(option).not.toBeNull();
   await act(async () => { option.click(); });
 }
 test('a connection page is explicitly a subset; folders drill and breadcrumbs return; file links name graph entities', async () => {
@@ -52,13 +58,13 @@ test('a connection page is explicitly a subset; folders drill and breadcrumbs re
 test('last-change controls use dated recency, distinguish missing dates, and change with the window', async () => {
   const page = await render();
   try {
-    await choose(page.host, 'Colour by', 'Last change');
+    await choose(page.host, 'treemap-colour', 'changed');
     expect(page.host.textContent).toContain('recency, not a count of commits');
     expect(page.host.textContent).toContain('unknown or future last-change dates: 1');
     const fill = () => page.host.querySelector('[data-series="src/a.ts"]')?.getAttribute('fill');
     const initial = fill();
     expect(initial).toContain('color-mix');
-    await choose(page.host, 'Last-change window', '7 days');
+    await choose(page.host, 'treemap-window', '7');
     expect(fill()).not.toBe(initial);
     expect(page.host.querySelector('[data-series="readme.md"]')?.getAttribute('fill')).toBe('var(--surface-soft)');
   } finally { await page.close(); }
@@ -69,7 +75,7 @@ test('area switch reads the selected graph field and never invents missing bytes
     expect(page.host.textContent).toContain('No measured file values');
     expect(page.host.textContent).toContain('value not known');
     expect(page.host.querySelector('[data-testid="treemap-subset"]')).toBeNull();
-    await choose(page.host, 'Area measure', 'Lines');
+    await choose(page.host, 'treemap-measure', 'node.lines');
     expect(page.host.querySelector('[data-part="mark"]')).not.toBeNull();
     expect(page.host.textContent).toContain('5');
   } finally { await page.close(); }

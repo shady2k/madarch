@@ -67,3 +67,24 @@ test('the LikeC4 palette is the kit tokens, not its own blue', () => {
   expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-fill: var(--surface-active)');
   expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-stroke: var(--border)');
 });
+
+test('a picture fills the window on a press, and the same figure lets a reader leave it', async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({ code: 'FAILED' }), { status: 500 })) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(createElement(DiagramSection, { context: context('uid') })); });
+    await settle();
+    const press = container.querySelector('[data-testid="diagram-fullscreen"]');
+    expect(press).not.toBeNull();
+    await act(async () => { press?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen-body"]')).not.toBeNull();
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await Promise.resolve(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen-body"]')).toBeNull();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+  }
+});

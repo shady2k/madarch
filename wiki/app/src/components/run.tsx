@@ -16,12 +16,13 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Progress } from './ui/progress.js';
 import { Skeleton } from './ui/skeleton.js';
-import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
+import { ListItem, Metadata, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
+import { TechnicalText } from './ui/technical-text.js';
 import {
   isOffline, pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
-import { RUNS_PAGE } from '../address.js';
+import { logsAddress, RUNS_PAGE } from '../address.js';
 import { InlineCode } from './ui/inline-content.js';
 import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
@@ -52,11 +53,27 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
   'unit-skipped': 'unitSkipped',
 };
 
-/** A failed unit's cause, when the run page can name it and what to do about it. */
-function failureCauseOf(run: FillRunDetail): 'sandbox' | undefined {
+/** The classes of failure the run journal can name, each with the next thing a person does about it. */
+export type RunCause = 'sandbox' | 'plugin' | 'agent' | 'cap' | 'dependency' | 'timeout' | 'unknown';
+
+/** What a failure's own words say about its cause: the classes the run journal names, never the raw summary. */
+export function runCauseOf(summary: string): RunCause {
+  const folded = [...summary].map((character) => character === 'ſ' ? 's' : character === 'K' ? 'k'
+    : character >= 'A' && character <= 'Z' ? character.toLowerCase() : character).join('');
+  if (['cgroup', 'subtree_control', 'madarch_plugin_sandbox', 'sandbox'].some((word) => folded.includes(word))) return 'sandbox';
+  if (["plugin is pinned", 'closure', 'hashes to', "needs a person's approval", 'plugin'].some((word) => folded.includes(word))) return 'plugin';
+  if (['token cap', 'token bound', 'tokens'].some((word) => folded.includes(word))) return 'cap';
+  if (['agent', 'acp', 'auth', 'sign in', 'adapter'].some((word) => folded.includes(word))) return 'agent';
+  if (['wait for a dependency', 'waits for a dependency', 'dependency', 'blocked'].some((word) => folded.includes(word))) return 'dependency';
+  if (['deadline', 'timed out', 'timeout', 'heartbeat'].some((word) => folded.includes(word))) return 'timeout';
+  return 'unknown';
+}
+
+/** The first failure the run recorded, as the cause the page names above its result. */
+function failureCauseOf(run: FillRunDetail): RunCause | undefined {
   for (const event of run.events) {
-    if (event.type !== 'unit-failed' && event.type !== 'unit-retried' && event.type !== 'unit-blocked') continue;
-    if (/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX/i.test(event.summary)) return 'sandbox';
+    if (event.type !== 'unit-failed' && event.type !== 'unit-retried' && event.type !== 'unit-blocked' && event.type !== 'run-failed' && event.type !== 'run-blocked') continue;
+    return runCauseOf(event.summary);
   }
   return undefined;
 }
@@ -70,6 +87,21 @@ function groupOf(groups: readonly FillRunGroup[], text: string): FillRunGroup | 
   });
 }
 
+/**
+ * The kind and the plugin a run event names: its group's when the run recorded one, and else the unit id's own parts —
+ * a unit is `<plugin>:<kind>` behind its stage's path, with `@<vertex>` or `#<hash>` after it. A run pressed outside the
+ * page records no groups, and its failures still say which kind and which plugin they are about.
+ */
+function unitPartsOf(groups: readonly FillRunGroup[], text: string): { readonly kind: string; readonly plugin: string } | undefined {
+  const group = groupOf(groups, text);
+  if (group !== undefined) return { kind: group.kind, plugin: group.plugin };
+  const unit = text.slice(text.lastIndexOf('/') + 1);
+  const colon = unit.indexOf(':');
+  if (colon <= 0) return undefined;
+  const kind = (unit.slice(colon + 1).split('@')[0] ?? '').split('#')[0] ?? '';
+  return kind === '' ? undefined : { kind, plugin: unit.slice(0, colon) };
+}
+
 function seconds(value: number): number {
   return Math.max(0, Math.round(value / 1000));
 }
@@ -81,23 +113,105 @@ function shortMoment(iso: string, language: string): string {
   return new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-/** The run's log as a person reads it: state changes and work per kind, never the engine's own sentences. */
-function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
-  const lines: { at: string; text: string }[] = [];
+/** One line of the run journal: what happened, and for a failure the cause's own words, the next action and the row. */
+interface JournalLine {
+  readonly at: string;
+  readonly text: string;
+  /** A failure's own text with its file and line, the next action's class, and the logs page narrowed to its row. */
+  readonly cause: { readonly text: string; readonly next: RunCause; readonly link: string } | null;
+  /** How many events of one kind and group the line stands for: a run that retries four times says so once. */
+  readonly times: number;
+}
+
+/**
+ * A failure's own cause, as the event's summary states it: the innermost `file:line: …` a person can act on (the
+ * plugin's message, not the engine's sentence around it), and the event's whole text when it names no place.
+ */
+export function causeTextOf(summary: string): string {
+  let fromAt = 0;
+  for (let at = 0; at < summary.length; at += 1) {
+    if (at !== 0 && summary[at]!.trim() !== '') continue;
+    const start = summary[at]!.trim() === '' ? at + 1 : at;
+    let colon = start;
+    while (colon < summary.length && summary[colon] !== ':' && summary[colon]!.trim() !== '') colon += 1;
+    if (summary[colon] !== ':') continue;
+    const file = summary.slice(start, colon);
+    const dot = file.lastIndexOf('.');
+    const extension = file.slice(dot + 1);
+    if (dot < 0 || extension === '' || [...extension].some((character) =>
+      !((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')))) continue;
+    let end = colon + 1;
+    while (end < summary.length && summary[end]! >= '0' && summary[end]! <= '9') end += 1;
+    if (end === colon + 1 || summary.slice(end, end + 2) !== ': ') continue;
+    fromAt = at + (summary[at] === ' ' ? 1 : 0);
+    at = end + 1;
+  }
+  const from = summary.slice(fromAt);
+  // The engine's own retry tail is bookkeeping, not the cause. Like the original suffix match, a tail ends at no
+  // intervening line terminator; whitespace between the semicolon and the opening may itself span lines.
+  let text = from;
+  for (let at = from.indexOf(';'); at >= 0; at = from.indexOf(';', at + 1)) {
+    let opening = at + 1;
+    while (opening < from.length && from[opening]!.trim() === '') opening += 1;
+    if (!from.slice(opening, opening + 'the attempt is retried'.length).replaceAll('ſ', 's').replaceAll('K', 'k').toLowerCase().startsWith('the attempt is retried')) continue;
+    const tail = from.slice(opening + 'the attempt is retried'.length);
+    if ([...tail].some((character) => '\n\r\u2028\u2029'.includes(character))) continue;
+    text = from.slice(0, at);
+    break;
+  }
+  return text.length <= 300 ? text : `${text.slice(0, 300)}…`;
+}
+
+/** The unit a failure names, short: `<plugin>:<kind>` behind its stage's path and its vertex or child marks. */
+function unitLabelOf(unitId: string): string {
+  const unit = unitId.slice(unitId.lastIndexOf('/') + 1);
+  return (unit.split('@')[0] ?? '').split('#')[0] ?? '';
+}
+
+/**
+ * The run's journal as a person reads it (madarch-64o5.88, part 3): the key transitions of the run and its work per kind,
+ * never the engine's own sentences. A run of the same event type and group in a row is one line with its count, and every
+ * failure carries its cause and the next action in words — the raw summary stays in the detailed logs, which the page links.
+ */
+function journalLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): JournalLine[] {
+  const runId = run.runId;
+  const lines: JournalLine[] = [];
+
   for (const event of run.events.slice(-200)) {
     const word = EVENT_WORDS[event.type];
-    if (word === undefined) continue;
-    const group = groupOf(groups, event.unitId !== '' ? event.unitId : event.stage);
+    // A unit being planned is the run's bookkeeping, not a transition a person reads: the journal keeps the work.
+    if (word === undefined || word === 'unitPlanned') continue;
+    const parts = unitPartsOf(groups, event.unitId !== '' ? event.unitId : event.stage);
+    let text: string;
     if (word.startsWith('unit') || word === 'stagePlanned' || word === 'foundNothing') {
-      if (group === undefined) continue;
-      const kind = labelOf(group.kind);
+      if (parts === undefined) continue;
+      const kind = labelOf(parts.kind);
       if (kind === undefined) continue;
-      lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(group.plugin) ?? group.plugin }) });
+      text = t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(parts.plugin) ?? parts.plugin });
+    } else {
+      text = t(`knowledge.fillRun.event.${word}`);
+    }
+    const failure = word === 'unitFailed' || word === 'unitBlocked' || word === 'unitRetried' || word === 'failed' || word === 'blocked';
+    const cause = failure ? {
+      text: causeTextOf(event.summary),
+      next: runCauseOf(event.summary),
+      // The row a failure states is found by the unit's own name and the error level; the page opens on it.
+      link: logsAddress(runId, { ...(event.unitId === '' ? {} : { q: unitLabelOf(event.unitId) }), level: 'error' }),
+    } : null;
+    const last = lines[lines.length - 1];
+    // A repeat of the same line is the same line: the count is what a reader needs, not four identical rows.
+    if (last !== undefined && last.text === text) {
+      lines[lines.length - 1] = { ...last, at: event.at, times: last.times + 1, cause: last.cause ?? cause };
       continue;
     }
-    lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`) });
+    lines.push({ at: event.at, text, cause, times: 1 });
   }
-  return lines.map((line) => ({ at: new Date(line.at).toLocaleTimeString(language), text: line.text }));
+  return lines.map((line) => ({ ...line, at: new Date(line.at).toLocaleTimeString(language) }));
+}
+
+/** The newest event of a run as words, for the home's last-fill line (madarch-64o5.133). */
+export function latestEventWords(run: FillRunDetail, labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction): string | undefined {
+  return journalLines(run, run.groups, labelOf, pluginName, t, 'en').at(-1)?.text;
 }
 
 /** One fill run. */
@@ -141,7 +255,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return group?.labels[language] ?? group?.labels['en'] ?? held.group;
   };
   const names = (run?.order ?? run?.selected ?? []).map((kind) => labelOf(kind)).filter((label): label is string => label !== undefined);
-  const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
+  const lines = run === null ? [] : journalLines(run, run.groups, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
     if (connection.offline || run === null) return;
@@ -260,14 +374,124 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         </CardContent>
       </Card>
 
-      <Disclosure className="mt-2" data-testid="fill-run-log">
-        <DisclosureSummary>{t('knowledge.fillRun.log')}</DisclosureSummary>
-        {lines.length === 0 ? <Paragraph className="text-small text-muted">{t('knowledge.fillRun.logEmpty')}</Paragraph> : (
-          <PlainList className="m-0 list-none p-0">
-            {lines.map((line, at) => <ListItem key={`${String(at)}:${line.at}`} className="text-small">{line.at} · {line.text}</ListItem>)}
-          </PlainList>
-        )}
-      </Disclosure>
+
+      {liveRun.agentExchanges === undefined ? null : (
+        <Card data-testid="fill-run-agents">
+          <CardHeader><CardTitle>{t('knowledge.fillRun.agents.title')}</CardTitle></CardHeader>
+          <CardContent>
+            {liveRun.agentExchanges.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.empty')}</Paragraph> : (
+              <PlainList className="m-0 list-none p-0">
+                {liveRun.agentExchanges.map((exchange) => {
+                  const colon = exchange.unit.indexOf(':');
+                  const plugin = colon < 0 ? exchange.unit : exchange.unit.slice(0, colon);
+                  const heldKind = (colon < 0 ? '' : exchange.unit.slice(colon + 1)).split('@')[0] ?? '';
+                  const kind = labelOf(heldKind) ?? heldKind;
+                  const usage = exchange.usage;
+                  const answered = exchange.returned === null ? null : exchange.returned.text;
+                  return (
+                    <ListItem key={exchange.unit} className="mb-3" data-testid="agent-unit">
+                      <Disclosure data-testid="agent-details">
+                        <DisclosureSummary data-testid="agent-summary">
+                          {kind} · {pluginName(plugin) ?? plugin} · {t(`knowledge.fillRun.agents.state.${exchange.state}`, { defaultValue: exchange.state })} · {t('knowledge.fillRun.agents.details')}
+                        </DisclosureSummary>
+                        <Stack className="mt-2 grid gap-3">
+                          <Metadata data-testid="agent-facts">
+                            {t('knowledge.fillRun.agents.model', { model: exchange.model ?? '—' })} · {t('knowledge.fillRun.agents.agent', { agent: exchange.agent })} · {t('knowledge.fillRun.agents.time', { seconds: seconds(exchange.durationMs) })}
+                          </Metadata>
+                          <Stack className="grid gap-1">
+                            <Text className="font-medium">{t('knowledge.fillRun.agents.given')}</Text>
+                            <Metadata>{t('knowledge.fillRun.agents.givenFiles', { count: exchange.given.filesTotal })} · {t('knowledge.fillRun.agents.opened', { count: exchange.opened.length })}</Metadata>
+                            <TechnicalText data-testid="agent-prompt">{exchange.given.prompt}</TechnicalText>
+                            {exchange.given.cut ? <Metadata>{t('knowledge.fillRun.agents.cut')} · {t('knowledge.fillRun.agents.bytes', { count: exchange.given.bytes })}</Metadata> : null}
+                          </Stack>
+                          <Stack className="grid gap-1">
+                            <Text className="font-medium">{t('knowledge.fillRun.agents.opened', { count: exchange.opened.length })}</Text>
+                            {exchange.opened.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.openedEmpty')}</Paragraph> : (
+                              <PlainList className="m-0 list-none p-0" data-testid="agent-opened">
+                                {exchange.opened.map((open, at) => (
+                                  <ListItem key={`${String(at)}:${open.repository}/${open.path}`} className="text-small">
+                                    <TextLink href={`${context.base}/api/source?${new URLSearchParams({ repo: open.repository, path: open.path }).toString()}`}>{`${open.repository}: ${open.path}`}</TextLink>
+                                    <Metadata>{open.line === undefined ? '' : ` · ${t('knowledge.fillRun.agents.line', { line: open.line })}`} · {t('knowledge.fillRun.agents.bytes', { count: open.bytes })}</Metadata>
+                                  </ListItem>
+                                ))}
+                              </PlainList>
+                            )}
+                            {exchange.openedDropped === 0 ? null : <Metadata>{t('knowledge.fillRun.agents.openedDropped', { count: exchange.openedDropped })}</Metadata>}
+                          </Stack>
+                          <Stack className="grid gap-1">
+                            <Text className="font-medium">{t('knowledge.fillRun.agents.steps')}</Text>
+                            {exchange.steps.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.stepsEmpty')}</Paragraph> : (
+                              <PlainList className="m-0 list-none p-0" data-testid="agent-steps">
+                                {exchange.steps.map((step, at) => (
+                                  <ListItem key={`${String(at)}:${step.at}`} className="mb-2 text-small">
+                                    <Metadata>{new Date(step.at).toLocaleTimeString(language)} · {t(`knowledge.fillRun.agents.step.${step.kind}`, { defaultValue: step.sessionUpdate })}</Metadata>
+                                    {step.title === undefined ? null : <Text> · {step.title}</Text>}
+                                    {step.status === undefined ? null : <Metadata> · {step.status}</Metadata>}
+                                    {step.path === undefined ? null : <Metadata> · <InlineCode>{step.path}</InlineCode></Metadata>}
+                                    {step.text === undefined ? null : <TechnicalText>{step.text}</TechnicalText>}
+                                    {step.detail === undefined ? null : <TechnicalText>{step.detail}</TechnicalText>}
+                                  </ListItem>
+                                ))}
+                              </PlainList>
+                            )}
+                            {exchange.stepsDropped === 0 ? null : <Metadata>{t('knowledge.fillRun.agents.stepsDropped', { count: exchange.stepsDropped })}</Metadata>}
+                          </Stack>
+                          <Stack className="grid gap-1">
+                            <Text className="font-medium">{t('knowledge.fillRun.agents.returned')}</Text>
+                            {answered === null ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.returnedMissing')}</Paragraph>
+                              : answered.trim() === '' ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.returnedEmpty')}</Paragraph>
+                                : <TechnicalText data-testid="agent-answer">{answered}</TechnicalText>}
+                            {exchange.returned !== null && exchange.returned.cut ? <Metadata>{t('knowledge.fillRun.agents.cut')} · {t('knowledge.fillRun.agents.bytes', { count: exchange.returned.bytes })}</Metadata> : null}
+                          </Stack>
+                          <Metadata data-testid="agent-tokens">
+                            {usage === null || !usage.reported ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, total: usage.totalTokens ?? 0 })}
+                            {usage?.context === undefined ? null : <> · {t('knowledge.fillRun.agents.context', { used: usage.context.used, size: usage.context.size })}</>}
+                          </Metadata>
+                          {exchange.failure === null ? null : <Paragraph className="m-0 text-small" data-testid="agent-failure">{t('knowledge.fillRun.agents.failure')}: {exchange.failure}</Paragraph>}
+                          <Disclosure data-testid="agent-raw">
+                            <DisclosureSummary>{t('knowledge.fillRun.agents.raw')}</DisclosureSummary>
+                            <TechnicalText>{JSON.stringify(exchange, null, 2)}</TechnicalText>
+                          </Disclosure>
+                        </Stack>
+                      </Disclosure>
+                    </ListItem>
+                  );
+                })}
+              </PlainList>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card data-testid="fill-run-journal">
+        <CardHeader><CardTitle>{t('knowledge.fillRun.log')}</CardTitle></CardHeader>
+        <CardContent>
+          {lines.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.logEmpty')}</Paragraph> : (
+            <PlainList className="m-0 list-none p-0">
+              {lines.map((line, at) => (
+                <ListItem key={`${String(at)}:${line.at}`} className="mb-2 text-small" data-testid="fill-run-journal-line">
+                  <Metadata>{line.at} · </Metadata>{line.text}{line.times > 1 ? ` ×${String(line.times)}` : ''}
+                  {line.cause === null ? null : (
+                    <Stack className="mt-1 grid gap-1" data-testid="fill-run-journal-cause">
+                      <TechnicalText>{line.cause.text}</TechnicalText>
+                      <Metadata>{t(`knowledge.fillRun.next.${line.cause.next}`)} <TextLink href={context.base + line.cause.link} onClick={(event) => { event.preventDefault(); context.open(line.cause!.link); }} data-testid="fill-run-and-logs">{t('knowledge.fillRun.logRow')}</TextLink></Metadata>
+                    </Stack>
+                  )}
+                </ListItem>
+              ))}
+            </PlainList>
+          )}
+          {liveRun.summary === undefined || liveRun.summary.steps.length === 0 ? null : (
+            <Stack className="mt-3 grid gap-1" data-testid="fill-run-stage-times">
+              <Text className="font-medium">{t('knowledge.fillRun.stageTimes')}</Text>
+              {liveRun.summary.steps.map((step) => (
+                <Metadata key={step.step}>{t(`knowledge.fillRun.stage.${step.step}`, { defaultValue: t('knowledge.fillRun.stageOther') })} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
+              ))}
+            </Stack>
+          )}
+          <Paragraph className="mt-3"><TextLink href={context.base + logsAddress(runId)} onClick={(event) => { event.preventDefault(); context.open(logsAddress(runId)); }} data-testid="fill-run-logs-link">{t('knowledge.fillRun.logsLink')}</TextLink></Paragraph>
+        </CardContent>
+      </Card>
 
       <Paragraph><TextLink href={context.base + RUNS_PAGE} onClick={(event) => { event.preventDefault(); context.open(RUNS_PAGE); }}>{t('runs.back')}</TextLink></Paragraph>
 
