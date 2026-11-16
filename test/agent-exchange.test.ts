@@ -21,9 +21,11 @@ function scratch(): string {
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
+// A file's text is read by the blob the graph names (decision 0037): the graph holds the blob id, and the host's own
+// read answers its text, as the page and the plugin share one read path.
 const graph = {
   files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }],
-  value: async () => 'first\nsecond',
+  value: async () => 'blob-1',
 };
 const result = { vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' as const } };
 
@@ -60,6 +62,7 @@ describe('the agent unit exchange', () => {
     const bridge = new PluginAgentBridge({ prompt: 'Fill the kind from the documents.', roots: ['repo/docs'] }, {
       adapter: { id: 'fixture-agent', command: 'fixture', env: { API_TOKEN: 'secret-token-123' } },
       environment: { API_TOKEN: 'secret-token-123' },
+      readFile: async () => 'first\nsecond',
       exchange: { run: 'fill-1', traces },
       connect: scripted(),
     } as PluginAgentOptions, graph, outputs);

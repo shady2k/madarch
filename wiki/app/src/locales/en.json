@@ -230,7 +230,7 @@
     "next": {
       "retry": "Fix the cause, then retry the fill.",
       "retryAction": "Retry the fill",
-      "sandbox": "Enable the controllers for your session, or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins.",
+      "sandbox": "Allow plugins to run without isolation on the preparation page if you trust them.",
       "plugin": "Open the detailed logs of this run: the plugin error names its file and line.",
       "agent": "Choose an agent that is installed and signed in, and raise the token cap above what the run needs.",
       "cap": "Raise the run's token cap, or fill fewer kinds at once.",

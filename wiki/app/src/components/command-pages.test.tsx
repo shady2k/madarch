@@ -629,7 +629,7 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     expect(causeText).toContain('cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers');
     // The engine's retry tail is the run's bookkeeping, not the cause: the page states the cause and then what to do.
     expect(causeText).not.toContain('the attempt is retried');
-    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Включите контроллеры для своей сессии');
+    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Разрешите плагинам работать без изоляции на странице подготовки');
     // The event's own wrapper sentence stays out: the page shows the cause's words, not the engine's framing of them.
     expect(text).not.toContain('demo.alpha failed');
     // A failure links to its own row in the logs: the run, the unit's name and the error level.
