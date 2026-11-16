@@ -1,6 +1,10 @@
 {
   "name": "disk",
   "version": "1.0.0",
+  "tier": "core",
+  "capabilities": [
+    "filesystem"
+  ],
   "entry": "entry.ts",
   "runtime": {
     "name": "bun",
@@ -42,6 +46,6 @@
   "concurrency": 1,
   "labels": {
     "en": "File system",
-    "ru": "Файловая система"
+    "ru": "\u0424\u0430\u0439\u043b\u043e\u0432\u0430\u044f \u0441\u0438\u0441\u0442\u0435\u043c\u0430"
   }
 }

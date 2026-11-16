@@ -53,9 +53,9 @@ describe('the schema of a published manifest', () => {
     expect(schema.getType('BigInt')).toBeDefined();
     expect(schema.getType('DateTime')).toBeDefined();
     expect(schema.getType('JSON')).toBeDefined();
-    const file = schema.getType('DemoFile') as GraphQLObjectType;
+    const file = schema.getType('KindDemoFile') as GraphQLObjectType;
     const fields = file.getFields();
-    expect(fields['repository']?.type.toString()).toBe('DemoRepository');
+    expect(fields['repository']?.type.toString()).toBe('KindDemoRepository');
     expect(fields['demoTouchedOf']?.type.toString()).toBe('DemoTouchedConnection!');
     expect(fields['demoContainsOf']?.type.toString()).toBe('DemoContainsConnection!');
   });
@@ -88,29 +88,24 @@ describe('the schema of a published manifest', () => {
     expect(sdl).toContain('fields: [CatalogueField!]!');
   });
 
-  test('keeps the mechanism\'s page template apart from a product kind named template', () => {
+  test('keeps the mechanism\'s page template apart from a product kind named page.template', () => {
+    // One name space, two families (src/graphql/names.ts): a kind's types carry the `Kind` prefix, so a kind named after
+    // an engine type stands beside it rather than being refused or renamed.
     const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:
+  page.template:
+    
+    source: graph
+    title: name
   template:
     
     source: graph
     title: name
 `)));
-    expect(sdl).toContain('type Template implements Entity');
+    expect(sdl).toContain('type KindPageTemplate implements Entity');
+    expect(sdl).toContain('type KindTemplate implements Entity');
     expect(sdl).toContain('templates: [PageTemplate!]!');
-  });
-
-  test('refuses a reserved type name, naming the declaration and the reserved name', () => {
-    const error = refusalOf(`
-kinds:
-  demo.edge:
-    
-    source: graph
-    title: name
-`);
-    expect(error.message).toContain('the kind "demo.edge"');
-    expect(error.message).toContain('"DemoEdge"');
-    expect(error.message).toContain('reserved');
+    expect(sdl).toContain('type PageTemplate');
   });
 
   test('encodes a contract field whose name the schema reserves, instead of refusing the product', () => {
@@ -143,7 +138,7 @@ kinds:
 `);
     expect(error.message).toContain('the kind "demo.file"');
     expect(error.message).toContain('the kind "demo-file"');
-    expect(error.message).toContain('"DemoFile"');
+    expect(error.message).toContain('"KindDemoFile"');
   });
 
   test('refuses a field and an edge that encode to one field name on a type, naming both', () => {

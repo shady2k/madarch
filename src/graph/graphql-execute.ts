@@ -14,7 +14,7 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { readProductTemplates } from './product-templates.js';
+import { readPublishedTemplates } from './product-templates.js';
 
 /**
  * The depth a query may reach, counting the root field as one (decision 0036, section 5; seven since the portal frame's
@@ -48,6 +48,11 @@ export interface GraphqlOperation {
 /** What the executor needs of the product it answers for. */
 export interface GraphqlProduct {
   readonly deadlineMs?: number;
+  /**
+   * The read of one file's text by the blob the graph names (decision 0037): the role that answers a read gives it, and a
+   * product without one answers the field with null.
+   */
+  readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>;
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
@@ -213,8 +218,9 @@ export function structureRevisionOf(sdl: string, templates: readonly { name: str
 }
 
 /** Whether a GraphQL error is PostgreSQL's statement timeout or a cancelled statement. */
-function isStatementTimeout(error: GraphQLError): boolean {
-  return /canceling statement due to statement timeout|cancelled statement|canceling statement due to user request/iu.test(error.message);
+/** Whether an error is a statement the store cancelled: the executor's own reads raise it as a field's read does. */
+function isStatementTimeout(error: unknown): error is Error {
+  return error instanceof Error && /canceling statement due to statement timeout|cancelled statement|canceling statement due to user request/iu.test(error.message);
 }
 
 /** One answer's JSON size, or its refusal when it is over the response bound. */
@@ -258,7 +264,6 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   if (aliases > MAX_ALIASES) {
     return { status: 400, body: { errors: [{ message: `the query holds ${String(aliases)} aliases; the limit is ${String(MAX_ALIASES)}`, extensions: { code: 'LIMIT_ALIASES' } }] } };
   }
-  const templates = readProductTemplates(product.folder);
   let backend: number | undefined;
   // A caller that holds the manifest is admitted before the snapshot: a refusal costs no connection.
   let prepared: { manifest: KindsManifest; published: ReturnType<typeof publishedManifestOf>; sdl: string; schema: GraphQLSchema } | undefined;
@@ -289,9 +294,21 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     backend = Number(pid.rows[0]?.pid);
     // The manifest is read inside the operation's snapshot: a publication between the schema and the data would
     // otherwise answer a query whose fields the rows no longer match.
-    const see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
+    let see: NonNullable<typeof prepared>;
+    let templates: Awaited<ReturnType<typeof readPublishedTemplates>>;
+    try {
+      see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
+      // The product's page templates are the graph's entities (the owner's decision of 2026-11-15): read in this page's
+      // own snapshot, never from the checkout.
+      templates = await readPublishedTemplates(tx, see.manifest);
+    } catch (error) {
+      // A statement timeout is the operation's wherever it is raised: a read the page makes before its fields answers
+      // TIMEOUT as they do, never a server error.
+      if (isStatementTimeout(error)) throw new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(deadlineMs)} ms`, 200);
+      throw error;
+    }
     const { manifest, published, sdl, schema } = see;
-    const structure = structureRevisionOf(sdl, templates.templates);
+    const structure = structureRevisionOf(sdl, templates.templates.templates);
     // One connection, one statement at a time: resolvers of one level run together, and a client asked for a second
     // query while the first is in flight answers neither (the weight of a page's aliases must not break its read).
     let queue: Promise<unknown> = Promise.resolve();
@@ -314,7 +331,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText);
     const result = await execute({
       schema,
       document,

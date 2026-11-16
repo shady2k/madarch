@@ -15,6 +15,10 @@ import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/g
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 import type { StartedServer } from '../src/server/http.js';
+import { startFileTextServer } from './file-text-server.js';
+
+/** The host hands the plugin the git tool it resolved; a test that serves reads does the same. */
+process.env['MADARCH_TOOL_GIT'] = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 
 const folders: string[] = [];
 const servers: StartedServer[] = [];
@@ -67,11 +71,14 @@ describe('serveWiki with a product or a manifestless directory', () => {
   test('serves linked repository README through the documents the wiki lists as pages', async () => {
     const base = scratch(); const product = join(base, 'product'); const source = join(base, 'source');
     mkdirSync(product); mkdirSync(source);
-    writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: linked-id\nname: Linked\nrepos:\n  - name: source\n    url: https://example.invalid/source.git\n');
+    // The repository is a linked local checkout, declared as such: a read is confined to the product or to a repository
+    // its manifest declares (src/knowledge/file-texts.ts).
+    writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: linked-id\nname: Linked\nrepos:\n  - name: source\n    url: https://example.invalid/source.git\n    linked: true\n');
     writeFileSync(join(source, 'README.md'), '# Linked source\n'); writeFileSync(join(source, 'src.ts'), 'export {}');
-    const runIn = (cwd: string, args: string[]): void => { const result = Bun.spawnSync(['git', ...args], { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
-    const run = (args: string[]): void => runIn(source, args);
+    const runIn = (cwd: string, args: string[]): string => { const result = Bun.spawnSync(['git', ...args], { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr)); return new TextDecoder().decode(result.stdout).trim(); };
+    const run = (args: string[]): string => runIn(source, args);
     run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
+    const readmeBlob = run(['rev-parse', 'HEAD:README.md']);
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     // The product's own copy of the starter set: the engine knows no entities (decision 0034, item 24).
     seedStarterSet(product);
@@ -86,7 +93,6 @@ describe('serveWiki with a product or a manifestless directory', () => {
         { name: 'repository', type: 'text', producers: ['fixture'] },
         { name: 'path', type: 'text', producers: ['fixture'] },
         { name: 'markdown', type: 'text', producers: ['fixture'] },
-        { name: 'source_text', type: 'text', producers: ['fixture'] },
         { name: 'anchors', type: 'json', producers: ['fixture'] },
         { name: 'links', type: 'json', producers: ['fixture'] },
       ],
@@ -121,7 +127,10 @@ describe('serveWiki with a product or a manifestless directory', () => {
       await owner.transaction('write', async (tx) => {
         const journal = journalFor('fixture@1');
         const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
+        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
+        // The file entity with its blob, as a real fill publishes it: the source view reads the text by the blob.
+        const file = await ensureVertex(tx, contract, { kind: 'code.file', key: { repository: 'source', path: 'README.md' } }, 1, journal);
+        await publishOpinion(tx, contract, { kind: 'code.file', nodeId: file.nodeId, producer: 'fixture', producerVersion: '1', values: { blob: readmeBlob } }, 1, journal);
         await writeJournal(tx, journal);
       });
     } finally { await owner.close(); }
@@ -130,11 +139,21 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect(response.status).toBe(200);
     const listed = await response.json() as { data: { allDocument: { edges: { node: { label: string; markdown: string; repository: string | null; path: string } }[] } } };
     expect(listed.data.allDocument.edges.map((edge) => edge.node)).toContainEqual({ label: 'Linked source', markdown: '# Linked source\n', repository: 'source', path: 'README.md' });
-    // The text is the graph's: the checkout may go, and the source view still answers it (decision 0035, item 24).
+    // The text is git's blob the graph names (decision 0037): the working copy may go, and the source view still answers
+    // the text, read through the plugin host the fill role answers (the test serves that role here).
     rmSync(join(source, 'README.md'));
-    const held = await fetch(`${result.url}/api/source?repo=source&path=README.md`);
-    expect(held.status).toBe(200);
-    expect((await held.json() as { text: string }).text).toBe('# Linked source\n');
+    const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(base))), connectOnly: true });
+    const files = await startFileTextServer(reader);
+    try {
+      const held = await fetch(`${result.url}/api/source?repo=source&path=README.md`);
+      expect(held.status).toBe(200);
+      expect((await held.json() as { text: string }).text).toBe('# Linked source\n');
+      // The words came through the queue: the fill role answered the read this test served.
+      expect(files.served()).toBeGreaterThan(0);
+    } finally {
+      await files.stop();
+      await reader.close();
+    }
   }, 60_000);
 
   test('a network bind names the address it listens on and prints no tunnel; a loopback bind over SSH prints one', async () => {

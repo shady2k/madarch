@@ -40,7 +40,7 @@
           "properties": {
             "protocol": {
               "type": "string",
-              "const": "madarch.plugins/2",
+              "const": "madarch.plugins/3",
               "description": "The protocol version this plugin speaks."
             },
             "name": {
@@ -362,6 +362,10 @@
             },
             "planOutput": {
               "type": "boolean"
+            },
+            "read": {
+              "type": "boolean",
+              "description": "The plugin answers the host's blob reads: a page's text and the agent's file reads, by (repository, blob id) (decision 0037)."
             },
             "reads": {
               "anyOf": [
@@ -694,6 +698,69 @@
       },
       "additionalProperties": false,
       "description": "The plugin asks the host for the file vertices whose path matches a pattern."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "file.read"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "repository",
+            "blob"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The repository’s name, as the graph’s file vertices hold it."
+            },
+            "blob": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The git blob id of the content, as the graph holds it."
+            },
+            "from": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The first line asked for, 1-based; absent, the first line."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The last line asked for, inclusive; absent, the last line of the blob."
+            }
+          },
+          "additionalProperties": false,
+          "description": "One file read an ordinary plugin asks the host for, by repository and blob id."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for a file’s text by repository and blob id; the host routes it to the core plugin that owns git."
     },
     {
       "type": "object",

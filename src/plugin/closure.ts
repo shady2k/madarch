@@ -29,6 +29,8 @@ import { LineCounter, parseDocument } from 'yaml';
 /** Where a refusal stands, as every error of this codebase names it. */
 const WHERE = 'src/plugin/closure.ts';
 
+import { CAPABILITY_NAMES, capabilityProblem, declarationOf } from './capabilities.js';
+
 /** The plugin's own description, kept in the closure under this name. */
 export const PLUGIN_MANIFEST_FILE = 'plugin.json';
 
@@ -73,6 +75,13 @@ export const PluginManifest = Type.Object(
       }, { additionalProperties: false }),
     ]))),
     concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+    /**
+     * The plugin's tier (owner's decision, 2026-11-15; decision 0038): a core plugin is the one gate to one outside
+     * source, and an ordinary plugin holds no environment at all.
+     */
+    tier: Type.Optional(Type.Union([Type.Literal('core'), Type.Literal('ordinary')], { description: 'core: the one gate to one outside source; ordinary: no environment at all. Absent, the plugin is ordinary.' })),
+    /** The outside sources the plugin owns (core) or asks the host for (ordinary), by name. */
+    capabilities: Type.Optional(Type.Array(Type.Union(CAPABILITY_NAMES.map((name) => Type.Literal(name))), { description: 'repository, filesystem, network or agents: the source a core plugin owns, and the outside data an ordinary plugin asks the host for.' })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     /** The plugin's name for a reader, per interface language; absent leaves its id as the name. */
     labels: Type.Optional(Type.Record(Type.String(), Type.String())),
@@ -233,6 +242,11 @@ export function parsePluginManifest(text: string, file: string): PluginManifest 
   if (body !== null && typeof body === 'object') {
     if (body.concurrency !== undefined && (!Number.isInteger(body.concurrency) || body.concurrency < 1)) refuse('concurrency', `plugin ${body.name ?? '?'} concurrency must be a positive integer`);
     if (!Array.isArray(body.produces) || body.produces.length === 0) refuse('produces', `plugin ${body.name ?? '?'} declares no output; declare produces, including Problem records for checks`);
+    const problem = capabilityProblem(declarationOf({ ...(typeof body.tier === 'string' ? { tier: body.tier } : {}), ...(Array.isArray(body.capabilities) ? { capabilities: body.capabilities as string[] } : {}) }), typeof body.name === 'string' ? body.name : '?');
+    if (problem !== undefined) {
+      const line = pluginManifestLine(text, ['capabilities']);
+      throw new ClosureRefusal('plugin-capabilities', `${file}:${line}: ${problem}`, file, line);
+    }
   }
   if (!Value.Check(PluginManifest, value)) {
     const first = [...Value.Errors(PluginManifest, value)][0];

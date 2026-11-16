@@ -55,6 +55,8 @@ const stackLayouts = {
   catalogue: 'grid min-w-0 items-start gap-6 wide:grid-cols-[minmax(0,1fr)_200px]',
   // The reading layout takes the work area's width; the prose inside it keeps a reading measure (madarch-64o5.99).
   reading: 'w-full',
+  // A page whose parts stand one under another in a narrow column: a source view, its toolbar and its notes.
+  text: 'grid gap-3',
   navigation: 'flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]',
   shell: 'shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body',
 };

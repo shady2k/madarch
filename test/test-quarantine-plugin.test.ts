@@ -27,11 +27,15 @@ function context(content: string): ExtractContext {
   return {
     signal: new AbortController().signal, heartbeat() {}, progress() {},
       async agent() { throw new Error('this extraction does not request an agent'); },
+      async read(request: { readonly repository: string; readonly blob: string }) {
+        expect(request).toEqual({ repository: file.key.repository, blob: 'blob-of-the-file' });
+        return { text: content, lines: content.split('\n').length, bytes: content.length, binary: false };
+      },
     graph: {
       async files(pattern) { expect(['**/*.test.*', '**/quarantine-results.json']).toContain(pattern); return pattern === '**/*.test.*' ? [file] : []; },
       async value<T>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T> {
-        expect(kind).toBe(file.kind); expect(key).toEqual(file.key); expect(field).toBe('content');
-        return content as T;
+        expect(kind).toBe(file.kind); expect(key).toEqual(file.key); expect(field).toBe('blob');
+        return 'blob-of-the-file' as T;
       },
       async unresolved() { return { rows: [] }; }, async removedEnds() { return { rows: [] }; }, async unevidenced() { return { rows: [] }; },
     },
@@ -72,7 +76,12 @@ describe('test quarantine extraction', () => {
     const report = { kind: 'code.file', key: { repository: 'repo', path: 'madarch/quarantine-results.json' } };
     const result = { file: file.key.path, name: 'outer suite first', task: 'madarch-64o5.17', since, result: 'PASS', commit: 'a'.repeat(40), finishedAt: '2026-11-11T20:00:00Z' };
     ctx.graph.files = async pattern => pattern === '**/*.test.*' ? [file] : [report];
-    ctx.graph.value = async <T>(_kind: string, key: Readonly<Record<string, string | number>>): Promise<T> => (key['path'] === report.key.path ? JSON.stringify({ cases: [result, { ...result, since: 'b'.repeat(40), result: 'FAIL', finishedAt: '2026-11-11T21:00:00Z' }] }) : source) as T;
+    const texts = new Map([
+      ['blob-source', source],
+      ['blob-report', JSON.stringify({ cases: [result, { ...result, since: 'b'.repeat(40), result: 'FAIL', finishedAt: '2026-11-11T21:00:00Z' }] })],
+    ]);
+    ctx.graph.value = async <T>(_kind: string, key: Readonly<Record<string, string | number>>): Promise<T> => (key['path'] === report.key.path ? 'blob-report' : 'blob-source') as T;
+    ctx.read = async (request) => ({ text: texts.get(request.blob) ?? '', lines: 1, bytes: 1, binary: false });
     const extracted = await extract(unit, ctx);
     expect(extracted.vertices?.[0]?.values?.['latest_result']).toEqual(result);
     expect(extracted.vertices?.[1]?.values).not.toHaveProperty('latest_result');
@@ -89,7 +98,11 @@ describe('test quarantine extraction', () => {
     process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     let content = source;
     const host = new PluginHost({ pluginFolder: folder, repository: work, workRoot: work,
-      trust: 'validation', closure, graph: { async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return content; } },
+      trust: 'validation', closure,
+      // The one blob read, as a fill's host answers it (decision 0038): the graph names the blob, and the reader the
+      // caller gave answers its text.
+      readBlob: async (ask) => ({ text: ask.blob === 'blob-of-the-file' ? content : '', lines: 1, bytes: content.length, binary: ask.blob !== 'blob-of-the-file' }),
+      graph: { async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return 'blob-of-the-file'; } },
     });
     try {
       const session = await host.open();

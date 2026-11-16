@@ -54,7 +54,7 @@ const graphql = async (query: string, variables: Record<string, unknown> = {}): 
 
 /** The one authored entity the product's kind holds, by uid, as the graph states it. */
 const readNote = async (uid: string): Promise<{ id: string; title: string; count: number | null } | null> => {
-  const answer = await graphql(`query ($id: ID!) { entity(id: $id) { ... on Note { id title count } } }`, { id: uid });
+  const answer = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindNote { id title count } } }`, { id: uid });
   expect(answer.errors, JSON.stringify(answer.errors)).toBeUndefined();
   return answer.data!['entity'] as { id: string; title: string; count: number | null } | null;
 };

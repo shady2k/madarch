@@ -1,6 +1,10 @@
 {
   "name": "agent-fill",
   "version": "1.0.0",
+  "tier": "ordinary",
+  "capabilities": [
+    "agents"
+  ],
   "entry": "main.ts",
   "runtime": {
     "name": "bun",
@@ -27,6 +31,6 @@
   },
   "labels": {
     "en": "Agent",
-    "ru": "Агент"
+    "ru": "\u0410\u0433\u0435\u043d\u0442"
   }
 }

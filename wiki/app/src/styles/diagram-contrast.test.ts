@@ -96,6 +96,19 @@ describe('the diagram palette holds AA contrast in both schemes', () => {
     });
   }
 
+  for (const [scheme, vars] of Object.entries(schemes())) {
+    test(`${scheme}: every source token reads against the code background`, () => {
+      const canvas = (() => { let value = vars['--code-bg'] ?? ''; for (let at = 0; at < 8 && /^var\((--[a-z0-9-]+)\)$/u.test(value); at += 1) value = vars[/^var\((--[a-z0-9-]+)\)$/u.exec(value)![1]!] ?? value; return value; })();
+      const ground = over(canvas, vars['--surface-page'] ?? '#fff')!;
+      for (const name of ['--syntax-comment', '--syntax-string', '--syntax-keyword', '--syntax-number', '--syntax-function', '--syntax-type']) {
+        const value = vars[name];
+        expect(value, `${scheme} ${name}`).toBeDefined();
+        const contrast = contrastRatio(colourOf(value!)!, ground);
+        expect(contrast, `${scheme} ${name}: ${value} on ${canvas}`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
+
   test('the palette names every token the renderers are handed', () => {
     const { light } = schemes();
     for (const name of ['--surface-page', '--surface-active', '--surface-card', '--surface-soft', '--text', '--text-muted', '--border']) {
