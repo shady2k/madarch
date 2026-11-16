@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { parse, stringify } from 'yaml';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-catalog.ts');
 const MANIFEST = starterManifestText();
@@ -91,16 +92,11 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
 
 /** One edge kind's `labels` block removed, leaving the edge without words. */
 function edgeWithoutLabels(manifest: string, edge: string): string {
-  const lines = manifest.split('\n');
-  const start = lines.indexOf(`  - name: ${edge}`);
-  if (start < 0) throw new Error(`the starter set declares no edge ${edge}`);
-  let end = start + 1;
-  while (end < lines.length && !lines[end]!.startsWith('  - ') && !(lines[end]!.startsWith('  #'))) end += 1;
-  const held = lines.slice(start + 1, end);
-  const at = held.findIndex((line) => line === '    labels:');
-  if (at < 0) throw new Error(`the edge ${edge} declares no labels`);
-  const kept = held.filter((_line, index) => index < at || index > at + 2);
-  return [...lines.slice(0, start + 1), ...kept, ...lines.slice(end)].join('\n');
+  const fixture = parse(manifest);
+  const declaration = fixture.edges.find((row: { name: string }) => row.name === edge);
+  if (!declaration) throw new Error(`the starter set declares no edge ${edge}`);
+  delete declaration.labels;
+  return stringify(fixture, { lineWidth: 0 });
 }
 
 describe('the catalog check over the starter set', () => {
@@ -108,7 +104,7 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 498 kinds (117 with a page of their own or a member\'s row)');
+    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 501 kinds (117 with a page of their own or a member\'s row)');
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 
@@ -122,14 +118,14 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
-    const manifest = editField(MANIFEST, 'code.entry-point', 'definition', null);
+    const manifest = editField(appended(MANIFEST, 'probe.catalogue', { id: 'practice.probe-catalogue', group: 'code.schema', acquisition: '[conversation]' }), 'probe.catalogue', 'definition', null);
     const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
-    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.entry-point": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "probe.catalogue": "definition" is one sentence saying what the kind is, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
-    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.entry-point": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "probe.catalogue": "definition" is one sentence saying what the kind is, got undefined']);
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
-    expect(read.catalog!.kinds.has('code.entry-point')).toBe(false);
-    expect(read.kinds.has('code.entry-point')).toBe(false);
+    expect(read.catalog!.kinds.has('probe.catalogue')).toBe(false);
+    expect(read.kinds.has('probe.catalogue')).toBe(false);
     expect(read.catalog!.kinds.has('code.file')).toBe(true);
   }, 30_000);
 

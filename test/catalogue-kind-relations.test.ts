@@ -43,10 +43,20 @@ test('the real File catalogue page shares dependency and declared-relation edges
       delete field.binding;
       field.producers = ['fixture'];
     }
+    const cataloguePath = join(folder, 'madarch/catalog.yaml');
+    const catalogue = parse(readFileSync(cataloguePath, 'utf8'));
     for (const name of ['fixture.file-audit', 'fixture.file-review']) {
+      const keyEdges = base['key-edges'].map((role: { role: string; edge: string; side: 'from' | 'to' }) => {
+        const parent = catalogue.edges.find((edge: { name: string }) => edge.name === role.edge);
+        if (parent === undefined) throw new Error(`${cataloguePath}:1: missing fixture parent edge ${role.edge}`);
+        const edgeName = `${name}-${role.role}`;
+        catalogue.edges.push({ ...parent, name: edgeName, [role.side]: [name] });
+        return { ...role, role: edgeName, edge: edgeName };
+      });
       writeFileSync(join(folder, 'madarch/kinds/testing/case', `${name}.yaml`),
-        stringify({ ...base, id: name, labels: { en: { one: name, many: name }, ru: { one: name === 'fixture.file-audit' ? 'Проверка файла' : 'Обзор файла', many: name } } }));
+        stringify({ ...base, id: name, 'key-edges': keyEdges, labels: { en: { one: name, many: name }, ru: { one: name === 'fixture.file-audit' ? 'Проверка файла' : 'Обзор файла', many: name } } }));
     }
+    writeFileSync(cataloguePath, stringify(catalogue));
     const first = validated();
     const manifest = first.manifest;
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(manifest)) });

@@ -37,6 +37,19 @@ function decisions(source: string, word: string, file = 'src/fixture.ts'): boole
 }
 
 describe('declaration-scoped protocol literals', () => {
+  test('canonical transaction vocabulary needs actual DatabaseOwner parameter consumption', () => {
+    const file = 'src/sql-driver.ts', module = parsed(file, "export type SqlTransactionKind = 'snapshot' | 'write';");
+    const ownerFile = 'src/adapters/database-owner.ts';
+    const run = (text: string) => {
+      const modules = new Map([[file, module], [ownerFile, parsed(ownerFile, text)]]);
+      return literals(module.tree).map(node => declarationProtocolLiteral(module, node, modules));
+    };
+    expect(run("import type { SqlTransactionKind as Mode } from '../sql-driver.js'; export interface DatabaseOwner { transaction(kind: Mode, work: unknown): void }")).toEqual([true, true]);
+    expect(run('export interface DatabaseOwner { transaction(kind: string, work: unknown): void }')).toEqual([false, false]);
+    expect(run("import type { SqlTransactionKind } from '../counterfeit.js'; export interface DatabaseOwner { transaction(kind: SqlTransactionKind, work: unknown): void }")).toEqual([false, false]);
+    expect(run("import type { SqlTransactionKind } from '../sql-driver.js'; export interface DatabaseOwner { transaction(work: unknown, kind: SqlTransactionKind): void }")).toEqual([false, false]);
+  });
+
   test('typed transaction mode initializer requires its actual owner consumer', () => {
     expect(decisions(`import type { DatabaseOwner } from './adapters/database-owner.js'; import type { SqlTransactionKind } from './sql-driver.js';
       function valid(owner: DatabaseOwner) { const kind: SqlTransactionKind = 'snapshot'; trace(kind); owner.transaction(kind, work); }

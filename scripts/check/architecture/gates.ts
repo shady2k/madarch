@@ -1112,7 +1112,6 @@ function typedEngineComparisonLiteral(module: GateModule, node: Node, modules: M
 /** Exact type declarations are vocabulary only at their authoritative engine boundary. */
 function engineTypeLiteral(module: GateModule, node: Node): boolean {
   const declarations: Readonly<Record<string, readonly string[]>> = {
-    'src/sql-driver.ts': ['SqlTransactionKind'],
     'src/graph/producer-binding.ts': ['ProducerAction'],
     'src/graph/evidence-targets.ts': ['EvidenceLocatorDraft', 'EvidenceTarget'],
     'src/graph/contract.ts': ['FieldType'],

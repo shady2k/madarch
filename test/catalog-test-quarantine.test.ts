@@ -29,7 +29,7 @@ describe('test quarantine in the starter catalogue', () => {
     expect(kind['key-edges']).toEqual([{ role: 'code.test-quarantine-repository', edge: 'code.test-quarantine-repository', side: 'from' }]);
     expect(kind['derives-from']).toEqual(['code.file']);
     expect(kind.fields).toEqual([
-      { name: 'path', type: 'text', binding: 'test-quarantine@1.path' },
+      { name: 'path', type: 'path', binding: 'test-quarantine@1.path' },
       { name: 'name', type: 'text', binding: 'test-quarantine@1.name' },
       { name: 'quarantine_reason', type: 'text', binding: 'test-quarantine@1.quarantine_reason' },
     ]);

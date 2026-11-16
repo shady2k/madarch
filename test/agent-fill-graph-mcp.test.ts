@@ -13,7 +13,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareStore } from '../src/adapters/prepare-store.js';
 import { connectAcpAgent } from '../src/fill/acp.js';
 import { runFill } from '../src/fill/run.js';
 import { executeGraphql } from '../src/graph/graphql-execute.js';
@@ -21,7 +20,7 @@ import { byCodePoint } from '../src/model/order.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
@@ -177,7 +176,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); },
         product: f.product, targets: { kinds: ['domain', 'code.module'], requested: ['domain', 'code.module'] },
         tokenCap: 200_000, database: owner,
-        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 2,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record] }, connect: connectAcpAgent },
       });
@@ -260,7 +259,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       const run = await runFill({
         product: f.product, targets: { kinds: ['domain', 'code.module'], requested: ['domain', 'code.module'] },
         tokenCap: 300, database: owner,
-        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 1,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record] }, connect: connectAcpAgent },
       });
@@ -305,7 +304,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       const run = await runFill({
         product: f.product, targets: { kinds: ['domain'], requested: ['domain'] },
         tokenCap: 200_000, database: owner,
-        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 1,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record, 'malformed'] }, connect: connectAcpAgent },
       });

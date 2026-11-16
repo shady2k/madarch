@@ -233,6 +233,17 @@ export function declarationProtocolLiteral(module: GateModule, node: Node, modul
   const word = value(node);
   if (word === undefined) return false;
   const ancestors = parents(module, node), parent = ancestors[0];
+  if (module.file === 'src/sql-driver.ts' && parent?.['type'] === 'TsLiteralType') {
+    const alias = ancestors.find(part => part['type'] === 'TsTypeAliasDeclaration');
+    if (alias !== undefined && named(alias['id'], 'SqlTransactionKind') && exported(module, alias)) {
+      const owner = modules.get('src/adapters/database-owner.ts');
+      const contract = owner === undefined ? undefined : context(owner).nodes.find(part => part['type'] === 'TsInterfaceDeclaration' && named(part['id'], 'DatabaseOwner') && exported(owner, part));
+      const method = ((contract?.['body'] as Node | undefined)?.['body'] as Node[] | undefined)?.find(part => part['type'] === 'TsMethodSignature' && named(part['key'], 'transaction'));
+      const parameter = (method?.['params'] as Node[] | undefined)?.[0];
+      const consumed = owner === undefined ? undefined : reference(owner, typeOf(parameter), modules);
+      if (consumed?.module === module && consumed.node === alias && vocabulary(modules, module.file, 'SqlTransactionKind', word)) return true;
+    }
+  }
   if (snapshotFormLiteral(module, node, modules) || gitArgumentLiteral(module, node) || writtenAtMemberLiteral(module, node, modules)
     || evidenceDiagnosticLiteral(module, node, modules) || snapshotMemberKeyLiteral(module, node, modules) || pageFormatTupleLiteral(module, node, modules)
     || guardedPageFormatLiteral(module, node, modules) || graphConditionObjectLiteral(module, node, modules) || evidenceLocatorArgumentLiteral(module, node, modules)

@@ -51,6 +51,7 @@ edges:
   - name: sample.powers
     from: [sample]
     to: [sample]
+    cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
     labels:
       en: { out: powers, in: powered by }
       ru: { out: питает, in: питается от }

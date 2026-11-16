@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { GROUP_SHORT_LABEL_LIMIT, parseCatalogYaml, parseKinds } from '../src/product/manifest/kinds.js';
 import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify } from 'yaml';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
 
@@ -248,7 +248,7 @@ describe('a catalog is read as its manifest declares it', () => {
     const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
-    expect(read.catalog!.kinds.size).toBe(498);
+    expect(read.catalog!.kinds.size).toBe(501);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);
@@ -302,9 +302,8 @@ describe('every field of a catalog row is required, and a wrong one is refused n
   });
 
   test('a kind the engine cannot make yet declares no page: a source or a member is refused', () => {
-    for (const field of ['source', 'member'] as const) {
-      expectRefused(withKind(SMALL, 'test.kind', { [field]: field === 'member' ? '{ relation: c4.uses, direction: out }' : 'graph' }), `kind "test.kind": "${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
-    }
+    expectRefused(withKind(SMALL, 'test.kind', { source: 'markdown' }), 'kind "test.kind": a kind with template-policy none may declare only source graph');
+    expectRefused(withKind(SMALL, 'test.kind', { member: '{ relation: c4.uses, direction: out }' }), 'kind "test.kind": "member" belongs to a kind that shows a page, and "template-policy" is "none"');
   });
 });
 
@@ -349,6 +348,15 @@ describe('one defect in the manifest is one problem', () => {
   function withPlant(old: string, written: string): string {
     const base = starterManifestText();
     if (!base.includes(old)) throw new Error(`the starter manifest holds no ${JSON.stringify(old)}`);
+    if (old.startsWith('    ')) {
+      const declaration = { ...parseYaml(base).kinds['code.entry-point'], group: old.startsWith('    group:') ? 'code.structure' : 'code.schema', id: 'fixture.entry-point', 'key-edges': [], 'derives-from': [] };
+      const row = `  fixture.entry-point:
+${stringify(declaration, { lineWidth: 0 }).trimEnd().split('\n').map(line => `    ${line}`).join('\n')}
+`;
+      if (!row.includes(old)) throw new Error(`the isolated fixture holds no ${JSON.stringify(old)}`);
+      return `${base}
+${row.replace(old, written)}`;
+    }
     return base.replace(old, written);
   }
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
@@ -362,17 +370,17 @@ describe('one defect in the manifest is one problem', () => {
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
     ['a subgroup whose parent nobody declares, its kinds included', withPlant('  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: code }', '  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: nowhere }'), 'group "contracts": "parent" names a group of "groups"'],
-    ['a kind in a group nobody declares', withPlant('    group: code.structure\n', '    group: nowhere.at-all\n'), 'kind "code.entry-point": "group" names the subgroup of the catalog the kind belongs to'],
-    ['a kind in an area rather than a subgroup', withPlant('    group: code.structure\n', '    group: code\n'), 'kind "code.entry-point": "group" names "code", which no area holds'],
+    ['a kind in a group nobody declares', withPlant('    group: code.structure\n', '    group: nowhere.at-all\n'), 'kind "fixture.entry-point": "group" names the subgroup of the catalog the kind belongs to'],
+    ['a kind in an area rather than a subgroup', withPlant('    group: code.structure\n', '    group: code\n'), 'kind "fixture.entry-point": "group" names "code", which no area holds'],
     ['a subgroup over its bound', appendedKind('probe.overflow', 'practice.probe-overflow', 'infrastructure.orchestration'), 'subgroup "infrastructure.orchestration": 13 kinds'],
     ['two kinds of one concept id', appendedKind('probe.duplicate', 'c4.container', 'code.schema'), 'kind "probe.duplicate": the concept id "c4.container" is the id of kind "code.service"'],
     ['a value the catalog marks as an attribute declared as a kind', appendedKind('probe.attribute', 'version', 'code.schema'), 'kind "probe.attribute": "version" is a value the catalog marks as an attribute'],
-    ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - agent-from-graph\n    - extractor code\n', '    acquisition: ["telepathy"]\n'), 'kind "code.entry-point": "acquisition" holds "telepathy"'],
-    ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.entry-point": "sources" holds "nowhere"'],
+    ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - agent-from-graph\n    - extractor code\n', '    acquisition: ["telepathy"]\n'), 'kind "fixture.entry-point": "acquisition" holds "telepathy"'],
+    ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "fixture.entry-point": "sources" holds "nowhere"'],
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('roles:\n', 'roles:\n  probe: { lead: [nowhere] }\n'), 'role "probe": "nowhere" is not a group of "groups"'],
-    ['an agent field that sends the agent to a file', withPlant("    agent: The language the entry point is written in.", '    agent: "Read docs/domains/**/*.md: the name"'), 'kind "code.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
-    ['an agent field that sends the agent to a glob', withPlant("    agent: The language the entry point is written in.", '    agent: "the name, from each **/*.md source file"'), 'kind "code.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
+    ['an agent field that sends the agent to a file', withPlant("    agent: The language the entry point is written in.", '    agent: "Read docs/domains/**/*.md: the name"'), 'kind "fixture.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
+    ['an agent field that sends the agent to a glob', withPlant("    agent: The language the entry point is written in.", '    agent: "the name, from each **/*.md source file"'), 'kind "fixture.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {

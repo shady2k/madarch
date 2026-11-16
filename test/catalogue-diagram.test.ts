@@ -1,5 +1,6 @@
 import { testHostBinding } from './host-binding-fixture.js';
 /** A catalogue diagram reads real manifest vertices and relations before it folds and lays out. */
+import { parse, stringify } from 'yaml';
 import { expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,7 +27,12 @@ test('a catalogue with 80 related kinds reads translated labels and renders with
   try {
     const kindsFolder = join(folder, 'madarch/kinds/demo/core');
     mkdirSync(kindsFolder, { recursive: true });
-    writeFileSync(join(folder, 'madarch/catalog.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8').replace('subgroup-kind-bound: 12', 'subgroup-kind-bound: 100'));
+    const catalogue = parse(readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8'));
+    catalogue.catalog['subgroup-kind-bound'] = 100;
+    const mentions = catalogue.edges.find((edge: { name: string }) => edge.name === 'mentions');
+    mentions.from.push('manifest.kind');
+    mentions.to.push('manifest.kind');
+    writeFileSync(join(folder, 'madarch/catalog.yaml'), stringify(catalogue));
     for (const name of ['demo.repository', 'demo.file']) {
       writeFileSync(join(kindsFolder, `${name}.yaml`), readFileSync(join(import.meta.dir, `graphql/fixture-product-${name}.yaml`)));
     }
