@@ -51,7 +51,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const kindParameter = param(kind);
       const propertiesParameter = param(properties);
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
-      statements.push(`SELECT ${requestIndex}::integer AS request_index, assertion_rows.* FROM (
+      statements.push(`SELECT ${requestIndex}::integer AS request_index, array_position(${propertiesParameter}::text[],assertion_rows.property) AS property_rank, assertion_rows.* FROM (
  SELECT assertion_node.uid::text AS id, subject.id AS subject_id, subject.uid::text AS subject_uid,
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
@@ -74,7 +74,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         unit: string | null; operation_uid: string; evidence: string[]; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
-    }>(statements.join(' UNION ALL '), parameters);
+    }>(`SELECT * FROM (${statements.join(' UNION ALL ')}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
       for (const row of rows) {
         const request = requests[row.request_index]!;
