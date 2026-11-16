@@ -982,6 +982,9 @@ export class ReadContext {
     for (const name of this.manifest.catalog?.schema.relations.keys() ?? []) {
       if (fieldNameOf(name) === relation || `${fieldNameOf(name)}Of` === relation) return name;
     }
+    for (const declared of this.published.relations) {
+      if (fieldNameOf(declared.name) === relation || `${fieldNameOf(declared.name)}Of` === relation) return declared.name;
+    }
     for (const edge of this.published.edges) {
       if (fieldNameOf(edge.name) === relation || `${fieldNameOf(edge.name)}Of` === relation) return edge.name;
     }
