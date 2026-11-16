@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -1036,12 +1036,32 @@ export function postmasterStill(dataDir: string, pid: number, startTime: string 
   return processStartTime(pid, platform) === startTime;
 }
 
+/** The installed Linux postmaster's kernel identity when its socket cannot answer (startup, authentication or shutdown). */
+function postmasterFileIdentity(dataDir: string, pid: number, bin: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'linux') return false;
+  const start = processStartTime(pid);
+  if (start === undefined) return false;
+  try {
+    // A command line alone is not identity: a shell script named postgres may carry exactly these arguments.
+    const executable = statSync(`/proc/${String(pid)}/exe`);
+    const installed = statSync(join(bin, postgresProgram('postgres', platform)));
+    if (executable.dev !== installed.dev || executable.ino !== installed.ino) return false;
+    const argv = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
+    if (!runsOnDataDir(argv[0] ?? '', argv, dataDir, platform)) return false;
+    if (argv.some((argument) => argument === '--single' || argument === '--boot' || argument === '--describe-config' || argument === '-C')) return false;
+    if (realPathOf(`/proc/${String(pid)}/cwd`) !== realPathOf(dataDir)) return false;
+    const record = readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n');
+    if (Number(record[0]) !== pid || realPathOf(record[1] ?? '') !== realPathOf(dataDir)) return false;
+    return postmasterStill(dataDir, pid, start, platform);
+  } catch { return false; }
+}
+
 /**
  * Whether the pid in `postmaster.pid` is the postmaster of exactly this data folder: the server is asked over its own
  * socket (or loopback TCP on Windows) for `SHOW data_directory`; it is ours only when it answers, the answer's real path is
  * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A server that answers only
- * that it is busy or shutting down is checked through its own files (`postmasterBusyIdentity`). A process that is not
- * confirmed is never signaled and `pg_ctl` is never run for it.
+ * that it cannot answer is checked against the installed executable, exact data folder and kernel identity on Linux.
+ * A process that is not confirmed is never signaled and `pg_ctl` is never run for it.
  */
 export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
   if (holderOf(dataDir) !== pid) return false;
@@ -1063,7 +1083,7 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
     encoding: 'utf8', timeout: 5_000,
     env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
   });
-  if (answer.status !== 0) return false;
+  if (answer.status !== 0) return postmasterFileIdentity(dataDir, pid, bin, platform);
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
   return holderOf(dataDir) === pid;
 }

@@ -14,7 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { fallbackSignalAllowed, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
+import { clusterPaths, openCluster, fallbackSignalAllowed, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -249,6 +249,25 @@ test('a stale pid of a postgres serving a sibling data folder is not its postmas
   decoy.kill('SIGKILL');
 }, 30_000);
 
+test('a script named postgres with the exact data folder is not the installed postmaster', async () => {
+  const base = mkdtempSync(join(root, 'decoy-exact-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  const script = join(base, 'postgres');
+  writeFileSync(script, '#!/bin/sh\nsleep 30\n');
+  execFileSync('chmod', ['755', script]);
+  const decoy = Bun.spawn([script, '-D', dataDir], { cwd: dataDir, stdout: 'ignore', stderr: 'ignore' });
+  children.push(decoy);
+  writeFileSync(join(dataDir, 'postmaster.pid'), `${String(decoy.pid)}\n${dataDir}\n${Math.floor(Date.now() / 1000)}\n5432\n${clusterPaths(join(base, 'knowledge', 'one', 'graph')).socketDir}\n\n0 0\nready\n`);
+  expect(postmasterOfDataDir(dataDir, decoy.pid)).toBe(false);
+  stopDatabasesUnderSync(join(base, 'knowledge'));
+  expect(alive(decoy.pid)).toBe(true);
+  expect(existsSync(join(dataDir, 'postmaster.pid'))).toBe(true);
+  decoy.kill('SIGKILL');
+  await decoy.exited;
+}, 30_000);
+
 test('a non-postgres process whose arguments name the data folder is not its postmaster', async () => {
   const base = mkdtempSync(join(root, 'decoy-args-'));
   const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
@@ -263,6 +282,48 @@ test('a non-postgres process whose arguments name the data folder is not its pos
   if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed the unrelated record');
   decoy.kill('SIGKILL');
 }, 30_000);
+
+test('the installed postgres in single-user mode is not a postmaster', async () => {
+  const base = mkdtempSync(join(root, 'single-user-'));
+  const cluster = await openCluster(clusterPaths(join(base, 'knowledge', 'one', 'graph')));
+  await cluster.stop();
+  const standalone = Bun.spawn([join(cluster.bin, 'postgres'), '--single', '-D', cluster.dataDir, 'postgres'], { cwd: cluster.dataDir, stdin: 'pipe', stdout: 'ignore', stderr: 'ignore' });
+  children.push(standalone);
+  const pidFile = join(cluster.dataDir, 'postmaster.pid');
+  try {
+    writeFileSync(pidFile, `${String(standalone.pid)}\n${cluster.dataDir}\n${Math.floor(Date.now() / 1000)}\n`);
+    expect(postmasterOfDataDir(cluster.dataDir, standalone.pid)).toBe(false);
+    stopDatabasesUnderSync(join(base, 'knowledge'));
+    expect(alive(standalone.pid)).toBe(true);
+    expect(existsSync(pidFile)).toBe(true);
+  } finally {
+    standalone.kill('SIGKILL');
+    await standalone.exited;
+  }
+}, 60_000);
+
+test('a real postmaster that refuses authentication is verified and stopped without a socket answer', async () => {
+  const base = mkdtempSync(join(root, 'auth-refused-'));
+  const store = join(base, 'knowledge', 'one', 'graph');
+  const cluster = await openCluster(clusterPaths(store));
+  const pid = Number(readFileSync(join(cluster.dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]);
+  try {
+    writeFileSync(join(cluster.dataDir, 'pg_hba.conf'), 'local all all reject\n');
+    execFileSync(join(cluster.bin, 'pg_ctl'), ['-D', cluster.dataDir, 'reload']);
+    await waitUntil('the postmaster to reject authentication', () => {
+      try { execFileSync(join(cluster.bin, 'psql'), ['-X', '-h', cluster.socketDir, '-U', 'postgres', '-d', 'postgres', '-c', 'SELECT 1'], { stdio: 'pipe' }); return false; }
+      catch (error) { return String((error as { stderr?: Buffer }).stderr).includes('pg_hba.conf rejects connection'); }
+    });
+    expect(postmasterOfDataDir(cluster.dataDir, pid)).toBe(true);
+    // Give this process's lease back without asking its failed socket to prove identity.
+    await cluster.stop();
+    stopDatabasesUnderSync(join(base, 'knowledge'));
+    expect(alive(pid)).toBe(false);
+    expect(existsSync(join(cluster.dataDir, 'postmaster.pid'))).toBe(false);
+  } finally {
+    try { execFileSync(join(cluster.bin, 'pg_ctl'), ['-D', cluster.dataDir, '-m', 'immediate', '-w', 'stop'], { stdio: 'ignore' }); } catch { /* already stopped */ }
+  }
+}, 60_000);
 
 test('the fallback signal is decided by the platform, never by an unverified pid', () => {
   expect(syncStopSignalPlan('win32', true)).toEqual({ signal: false });
