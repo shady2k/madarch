@@ -24,7 +24,7 @@ const check = (root: string) => architectureCheck({ root, rules: [RULE] });
 
 describe('read code never imports writer judgements (0039 amendment)', () => {
   test('knowledge, GraphQL and MCP imports fail with full paths and lines', async () => {
-    const readers = ['knowledge/nested/read', 'graphql/schema', 'mcp/authored', 'graph/graphql-read', 'graph/graphql-execute'];
+    const readers = ['knowledge/nested/read', 'graphql/schema', 'mcp/authored', 'graph/graphql-read', 'graph/graphql-execute', 'graph/dispute-read', 'graph/assertion-read', 'graph/records'];
     const files = Object.fromEntries(readers.map(file => [`src/${file}.ts`, `// preface
 import { judge } from '${file.startsWith('knowledge/nested/') ? '../../graph/' : file.startsWith('graph/') ? './' : '../graph/'}disputes.js';
 import type { judge as selection } from '${file.startsWith('knowledge/nested/') ? '../../graph/' : file.startsWith('graph/') ? './' : '../graph/'}assertion-selection.js';`]));
@@ -66,6 +66,19 @@ ${text}`])));
     });
     try { expect(architectureCheckPasses(await check(root))).toBe(true); }
     finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('graph record hydration never imports evidence judgement, while evidence display remains allowed', async () => {
+    const forbidden = ['evidence-read', 'evidence-support', 'manifest-publication'];
+    const root = fixture({
+      ...Object.fromEntries(forbidden.map(name => [`src/graph/${name}.ts`, 'export const display = 1;'])),
+      'src/knowledge/graph-read.ts': forbidden.map(name => `import '../graph/${name}.js';`).join('\n'),
+      'src/knowledge/evidence-display.ts': "import '../graph/evidence-read.js';",
+      'src/graph/write.ts': "import './evidence-support.js'; import './manifest-publication.js';",
+    });
+    try {
+      expect((await check(root)).found).toEqual(forbidden.map((name, index) => ({ rule: RULE, file: 'src/knowledge/graph-read.ts', line: index + 1, symbol: `src/graph/${name}.ts` })));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   test('debt cannot excuse a read-time judgement', async () => {

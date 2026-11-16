@@ -29,8 +29,16 @@ export default {
       severity: 'error',
       comment:
         'Decision 0039 amendment, items 17, 25, 27 and 31: every judgement is made by the writer at write time. Knowledge, GraphQL and MCP readers apply the per-stream and newest rules only; they never import dispute judgement or assertion selection code.',
-      from: { path: '^(src/(knowledge|graphql|mcp)/|src/graph/graphql-(read|execute)\\.ts$)' },
+      from: { path: '^(src/(knowledge|graphql|mcp)/|src/graph/(graphql-(read|execute)|dispute-read|assertion-read|records)\\.ts$)' },
       to: { path: '^src/graph/(disputes|assertion-selection)\\.ts$' },
+    },
+    {
+      name: 'read-no-judgements',
+      severity: 'error',
+      comment:
+        'Record hydration reads persisted assertions, not evidence applicability or manifest judgement. Evidence display outside this reader may still evaluate evidence.',
+      from: { path: '^src/knowledge/graph-read\\.ts$' },
+      to: { path: '^src/graph/(evidence-read|evidence-support|manifest-publication)\\.ts$' },
     },
     {
       name: 'graph-single-writer',
