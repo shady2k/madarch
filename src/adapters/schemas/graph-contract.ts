@@ -93,18 +93,18 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
           ${layers} SELECT a.assertion_id FROM assertion a JOIN layers layer ON layer.id=a.context_id AND (wanted_subject IS NULL OR a.assertion_id=wanted_subject)
           AND (layer.cutoff IS NULL OR a.recorded_sequence<=layer.cutoff);`;
         const resolve = isDisputableProperty(sort,kind.name,'$exists');
-        return `WHEN ${literal(kind.name)} THEN
-          ${resolve ? 'chosen := graph_dispute_selection(ctx);' : 'chosen := ARRAY[]::uuid[];'}
-          snapshot_at := CASE WHEN chosen IS NOT NULL AND ${resolve ? 'true' : 'false'} THEN (nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'at')::timestamptz ELSE date_trunc('milliseconds',clock_timestamp()) END;
-          RETURN QUERY ${layers}, visible AS (
+        const targetAssertions = sort === 'vertex'
+          ? 'SELECT s.assertion_id FROM edge se CROSS JOIN LATERAL (SELECT av.assertion_id FROM assertion_vertex_subject av WHERE av.subject_edge_id=se.id OFFSET 0) s WHERE se.to_node=wanted_subject'
+          : 'SELECT s.assertion_id FROM assertion_edge_subject s WHERE s.edge_id=wanted_subject';
+        const activeQuery = (bounded: boolean): string => `          RETURN QUERY ${layers}${bounded ? `, target_assertions AS MATERIALIZED (${targetAssertions})` : ''}, visible AS (
             SELECT ${id} AS subject_id,source.to_node AS source_id,an.uid AS assertion_uid,a.operation,v.value,a.valid_from,a.valid_to,a.recorded_sequence,
               layer.depth,min(layer.depth) OVER (PARTITION BY ${id},source.to_node) AS nearest
-            FROM assertion a ${subject} JOIN node an ON an.id=a.assertion_id
+            FROM ${bounded ? 'target_assertions target CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id OFFSET 0) a' : 'assertion a'} ${subject} JOIN node an ON an.id=a.assertion_id
             JOIN layers layer ON layer.id=a.context_id AND (layer.cutoff IS NULL OR a.recorded_sequence<=layer.cutoff)
             JOIN edge source ON source.from_node=a.assertion_id
             JOIN entity sk ON sk.id=source.entity_id AND sk.name='system.assertion-source'
             LEFT JOIN "${valueTable}" v ON v.assertion_id=a.assertion_id
-            WHERE a.property='$exists' AND (wanted_subject IS NULL OR ${id}=wanted_subject) ${resolve ? `AND (chosen IS NULL OR date_trunc('milliseconds',a.recorded_at)<=(nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'recordedAt')::timestamptz)` : ''}
+            WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`} ${resolve ? `AND (chosen IS NULL OR date_trunc('milliseconds',a.recorded_at)<=(nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'recordedAt')::timestamptz)` : ''}
           ), current_stream AS (
             SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value FROM visible
             WHERE depth=nearest AND date_trunc('milliseconds',valid_from)<=snapshot_at AND (valid_to IS NULL OR date_trunc('milliseconds',valid_to)>snapshot_at)
@@ -112,6 +112,10 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
           ), candidates AS (SELECT * FROM current_stream WHERE operation='assert')
           SELECT subject_id FROM candidates GROUP BY subject_id
           HAVING CASE WHEN bool_or(assertion_uid=ANY(chosen)) THEN bool_or(value AND assertion_uid=ANY(chosen)) ELSE bool_or(value) END;`;
+        return `WHEN ${literal(kind.name)} THEN
+          ${resolve ? 'chosen := graph_dispute_selection(ctx);' : 'chosen := ARRAY[]::uuid[];'}
+          snapshot_at := CASE WHEN chosen IS NOT NULL AND ${resolve ? 'true' : 'false'} THEN (nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'at')::timestamptz ELSE date_trunc('milliseconds',clock_timestamp()) END;
+          IF wanted_subject IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
       await tx.query(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
         DECLARE chosen uuid[]; snapshot_at timestamptz; BEGIN CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
