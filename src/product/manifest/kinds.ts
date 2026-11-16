@@ -35,7 +35,7 @@
  */
 import { ROLE_BINDING_SCHEMA, semanticRoleFields, semanticRoleEdges } from '../../model/semantic-role-protocol.js';
 import { MANIFEST_CONTRACT } from '../../graph/manifest-contract.js';
-import { SYSTEM_CONTRACT, withAssertionContract } from '../../graph/system-contract.js';
+import { withAssertionContract } from '../../graph/system-contract.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
@@ -703,7 +703,9 @@ function readsAFile(description: string): boolean {
   return false;
 }
 
-const protectedGraphKinds = new Set([...MANIFEST_CONTRACT.vertex, ...withAssertionContract({ vertex: [], edge: [], dictionary: [] }).vertex].map((kind) => kind.name));
+const protectedContract = withAssertionContract(MANIFEST_CONTRACT);
+const protectedGraphKinds = new Set(protectedContract.vertex.map((kind) => kind.name));
+const protectedGraphEdges = new Set(protectedContract.edge.map((kind) => kind.name));
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 /**
@@ -1690,7 +1692,11 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const raw = value as Record<string, unknown>;
     let decl = raw;
     const inherited = raw['extends'];
-    const base = inherited === undefined ? undefined : SYSTEM_CONTRACT.vertex.find((kind) => inherited === `system:${kind.name}` && kind.name === name);
+    if ((protectedGraphKinds.has(name) || protectedGraphEdges.has(name)) && inherited === undefined) {
+      problem([], 'a protected name requires extends: system:<same name> (0039 item 9)');
+      continue;
+    }
+    const base = inherited === undefined ? undefined : protectedContract.vertex.find((kind) => inherited === `system:${kind.name}` && kind.name === name);
     if (inherited !== undefined) {
       const start = findings.length;
       if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned kind as its declaration'); continue; }
@@ -2243,6 +2249,9 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
         return;
       }
+      if (protectedGraphKinds.has(body['name']) || protectedGraphEdges.has(body['name'])) {
+        findings.push({ file, line, message: `edge "${body['name']}": a protected name requires extends: system:<same name> (0039 item 9)` }); return;
+      }
       const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels', 'cardinality', 'contract-uid', 'on-parent-delete'].includes(key));
       if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields, capability, labels and cardinality` }); return; }
       // Every edge kind declares the words it reads as at both ends in each interface language (owner's decision,
@@ -2281,6 +2290,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (edges.has(body['name']) || kinds.has(body['name'])) { findings.push({ file, line, message: `edge "${body['name']}": kind names are unique` }); return; }
       for (const direction of ['from', 'to'] as const) {
         const ends = body[direction] as string[];
+        const endBound = rawCardinality[direction];
+        if (bound(endBound) && endBound.min > 0 && ends.some((name) => name === 'any' || protectedGraphKinds.has(name))) {
+          findings.push({ file, line: at(['edges', index, 'cardinality', direction]), message: `edge "${body['name']}": a protected ${direction} end requires a zero lower bound (0039 item 9)` }); return;
+        }
         if (ends.includes('any') && ends.length !== 1) { findings.push({ file, line: at(['edges', index, direction, ends.indexOf('any')]), message: `edge "${body['name']}": any stands alone in the ${direction} endpoint list (0039 item 1)` }); return; }
         for (const [endpoint, name] of ends.entries()) {
           if (name !== 'any' && !kinds.has(name) && !protectedGraphKinds.has(name)) { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }

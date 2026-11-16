@@ -95,7 +95,7 @@ export const SYSTEM_CONTRACT: GraphContract = {
 export function withSystemContract(contract: GraphContract): GraphContract {
   return inheritProtectedContract(contract, SYSTEM_CONTRACT);
 }
-function inheritProtectedContract(contract: GraphContract, baseContract: GraphContract): GraphContract {
+export function inheritProtectedContract(contract: GraphContract, baseContract: GraphContract): GraphContract {
   for (const sort of ['vertex', 'edge'] as const) {
     for (const supplied of contract[sort]) {
       const system = baseContract[sort].find((kind) => kind.name === supplied.name);

@@ -1,4 +1,5 @@
 id: practice.operation
+extends: system:operation
 purpose: history
 audience: [product-lead, analyst, developer]
 definition: An operation is one intended change with its author, time and expectation, applied as a single step of the record.

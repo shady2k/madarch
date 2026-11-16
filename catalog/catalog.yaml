@@ -2331,26 +2331,6 @@ edges:
     ru:
       out: связанный объект
       in: Указано в
-- name: workflow-stages
-  from:
-  - workflow
-  to:
-  - manifest.workflow-stage
-  cardinality:
-    from:
-      min: 0
-      max: null
-    to:
-      min: 1
-      max: 1
-  labels:
-    en:
-      out: Stage
-      in: Referenced by
-    ru:
-      out: Этап
-      in: Указано в
-  on-parent-delete: cascade
 - name: comment-author
   from:
   - comment

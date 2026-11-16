@@ -48,6 +48,24 @@ The remaining issues are implementation and validation blockers under the record
 - Test bounds are not raised to make this cutover pass. The new bounded 100-entry metadata regression must demonstrate that metadata queries remain bounded rather than conceal work behind a larger timeout.
 
 ## Acceptance evidence
+
+### ALX-101: one protected workflow-stage parent (0039 item 9)
+The duplicate catalogue stage and `workflow-stages` edge are removed. Manifest
+joining reuses `inheritProtectedContract`; catalogue validation refuses protected
+names without explicit inheritance and required edges on protected YAML ends.
+The catalogue's `operation` declaration now explicitly inherits its system base;
+no reader-facing kind is removed there. Catalogue count is 500, down from 501.
+The exact endpoint-pair count is 265, down from 266 solely because the duplicate
+edge is removed; all pair-set equality and full-starter assertions remain.
+
+This increment is **blocked**, not accepted: repeat publication still exceeds
+its unchanged 300-second bound. The protected stage publication regression passes
+unchanged, but the separate startup-binding case exceeded its 10-second bound.
+A read-only review also found that explicit manifest nullable extensions parse
+but contract generation loses inherited key/capability, and that protected edge
+extensions are refused even with explicit inheritance. These remain unresolved;
+no claim of complete extension support is made. No forbidden core file, table,
+budget or timeout is changed. The ALX-101 hand-in records full per-file results.
 This existing coverage entry is narrower than the whole cutover. Complete capability requirements and their coverage, current-revision checks and stage acceptance remain owed; the entry must not be read as coverage of all decision 0039 requirements.
 
 ### Current status: unaccepted work in progress
