@@ -84,7 +84,8 @@ test('0039.24: failure after an accepted assertion rolls the whole operation bac
   await fixture(async owner => {
     await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [term('a')], removals: [] }); throw new Error('abort operation'); })).rejects.toThrow('abort operation');
     expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
-    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); const first = await ensureVertex(tx, graph, ref('a')); const second = await ensureVertex(tx, graph, ref('a')); expect(first.nodeId).toBe(second.nodeId); });
+    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [term('a')], removals: [] }); const first = await ensureVertex(tx, graph, ref('a')); const second = await ensureVertex(tx, graph, ref('a')); expect(first.nodeId).toBe(second.nodeId); });
   });
 });
 
@@ -125,8 +126,8 @@ test('0039.14: evidence names a real vertex and missing evidence rolls back the 
   await fixture(async owner => {
     await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{kind:'fixture.snapshot',key:{digest:'b685bd8d6164b5c255df9af9d40e33f88087ae8ba5020fe301678183adbc1f60'},values:{content:'evidence text\nsecond line'},producer:'fixture',producerVersion:'1'}], removals: [] }); });
     await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...term('cited'), evidence: [{ target: {kind:'fixture.snapshot',key:{digest:'b685bd8d6164b5c255df9af9d40e33f88087ae8ba5020fe301678183adbc1f60'}}, relation: 'supports', locator: { lineStart: 1, lineEnd: 2 } }] }], removals: [] }); });
-    const lineage = await owner.run(tx => tx.query<{ n: number }>("SELECT count(*)::integer AS n FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.assertion-evidence'"));
-    expect(lineage.rows[0]!.n).toBe(2);
+    const lineage = await owner.run(tx => tx.query<{ property: string }>("SELECT a.property FROM edge e JOIN entity k ON k.id=e.entity_id JOIN assertion a ON a.assertion_id=e.from_node WHERE k.name='system.assertion-evidence' ORDER BY a.property"));
+    expect(lineage.rows).toEqual([{ property: '$exists' }, { property: 'definition' }, { property: 'name' }]);
     await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...term('invalid'), evidence: [{ target: {kind:'fixture.snapshot',key:{digest:'missing'}} }] }], removals: [] }); })).rejects.toThrow('MISSING_ENDPOINT');
     expect((await owner.run(tx => tx.query("SELECT * FROM node WHERE key->>'name'='invalid'"))).rows).toEqual([]);
   });
@@ -134,7 +135,7 @@ test('0039.14: evidence names a real vertex and missing evidence rolls back the 
 
 test('0039.25: time intervals are checked and recorded sequence is assigned by storage', async () => {
   await fixture(async owner => {
-    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); const node = await ensureVertex(tx, graph, ref('a')); await writeAssertion(tx, graph, { kind: 'fixture.term', sort: 'vertex', subjectId: node.nodeId, property: 'definition', operation: 'assert', value: 'historical', validFrom: '2020-01-01T00:00:00Z', validTo: '2021-01-01T00:00:00Z' }); });
+    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...ref('a'), values: {}, producer: 'fixture', producerVersion: '1' }], removals: [] }); const node = await ensureVertex(tx, graph, ref('a')); await writeAssertion(tx, graph, { kind: 'fixture.term', sort: 'vertex', subjectId: node.nodeId, property: 'definition', operation: 'assert', value: 'historical', validFrom: '2020-01-01T00:00:00Z', validTo: '2021-01-01T00:00:00Z' }); });
     const rows = await owner.run(tx => loadAssertions(tx, 'vertex', 'fixture.term', ['definition']));
     expect(rows[0]!.recordedSequence > 0n).toBe(true);
     expect((await selected(owner))[0]?.selected ?? null).toBeNull();
