@@ -22,6 +22,9 @@ None.
 
 ## Coverage
 - graph-storage/edge-endpoints: test, mutation
+- graph-storage/assertion-selection: static, test, mutation, review
+- graph-storage/writer-judgements: static, test, mutation, review
+- graph-storage/page-query-budget: static, test, mutation, review
 
 ## Where it is seen
 Kind: request
@@ -79,7 +82,7 @@ The following results belong to the earlier endpoint-only increment, not the pre
 These historical results must not be reused as current acceptance receipts. Full backend suites, full-cutover mutation evidence and final stage acceptance were not established by that endpoint increment.
 
 
-## ALX-39 binding amendment follow-up (2026-11-16)
+### ALX-39 binding amendment follow-up (2026-11-16)
 
 Implementation base: `b067470173d85f56f0e2b6a2f3a78524865ae822`. The main-line Base header names the revision on the target history for the document gate; it is not the implementation diff base.
 
