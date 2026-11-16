@@ -141,7 +141,7 @@ async function snapshotFixture() {
   });
   await publish([{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify(encode(manifest))},producer:'fixture',producerVersion:'1'},
     {kind:'system.run',uid:snapshotRun,key:{},values:{run_name:'original-run'},producer:'fixture',producerVersion:'1'},
-    {kind:'system.unit',uid:snapshotUnit,key:{},values:{unit_name:'plugin-turns/base:Source',generation:3,state:'completed',scope:'base:Source'},producer:'fixture',producerVersion:'1'},
+    {kind:'system.unit',uid:snapshotUnit,key:{},values:{unit_name:'plugin-turns/base:Source',generation:3,state:'published',scope:'base:Source'},producer:'fixture',producerVersion:'1'},
     {kind:'code.repository',key:{name:'repo'},producer:'fixture',producerVersion:'1'}]);
   await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:snapshotUnit,key:{}},to:{kind:'system.run',uid:snapshotRun,key:{}},producer:'fixture',producerVersion:'1'}],removals:[]}));
   return {owner,manifest,contract,publish};

@@ -4,7 +4,7 @@ import { generatedTableName,type GraphContract } from '../src/graph/contract.js'
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { loadAssertions,selectAssertionSlots } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
-const graph:GraphContract={vertex:[{name:'file',table:generatedTableName('file','vertex'),key:['path'],fields:[{name:'path',type:'text'},{name:'language',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
+const graph:GraphContract={vertex:[{name:'file',table:generatedTableName('file','vertex'),key:['path'],identity:{namespace:'019a0000-0000-7000-8000-000000000099',origin:['path']},fields:[{name:'path',type:'text'},{name:'language',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
 test('0039.25: batch and singleton publication preserve the same source histories and effective values',async()=>{
  const owners=await Promise.all([createTestDatabaseOwner({graphContract:graph}),createTestDatabaseOwner({graphContract:graph})]);
  try{

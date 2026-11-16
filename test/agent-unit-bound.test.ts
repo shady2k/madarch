@@ -37,6 +37,7 @@ async function run(folder: string, limits: { readonly unitMs: number; readonly a
   const host = new PluginHost({
     pluginFolder: folder, repository: folder, workRoot: mkdtempSync(join(tmpdir(), 'madarch-agent-bound-work-')),
     trust: 'production', releaseHashes: [closureOf(folder).hash],
+    operations: { apply: async () => ({ accepted: true }) },
     limits: { handshakeMs: 10_000, heartbeatMs: 1_000, maxMessageBytes: 65_536, ...limits },
     env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' },
   });

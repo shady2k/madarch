@@ -32,10 +32,10 @@ await definePlugin({ name: 'partial-probe', version: '1.0.0', contract: ${JSON.s
       contract: { vertex: [], edge: [] },
       releaseHashes: [closure.hash],
     } as unknown as PluginTurnWiring;
-    const writes: { kind: string; value: unknown }[] = [];
-    const draft = { write(write: { kind: string; value: unknown }) { writes.push(write); }, writes() { return { writes: [] }; } };
-    await runPluginTurn(wiring, 'partial-probe:Probe', draft as never, undefined, undefined, undefined, undefined);
-    const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string; reason?: string } | undefined;
+    const outcomes: import('../src/fill/producer-outcomes.js').ProducerOutcomeDraft[] = [];
+    await runPluginTurn(wiring, 'partial-probe:Probe', outcome => { outcomes.push(outcome); });
+    expect(outcomes).toHaveLength(1);
+    const outcome = outcomes[0];
     expect(outcome?.outcome).toBe('abstained');
     expect(outcome?.reason).toContain('the rest could not be read');
     expect(outcome?.reason).toContain('app/src/a.ts:2:3 it broke');
