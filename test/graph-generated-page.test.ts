@@ -5,7 +5,7 @@ import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { activateGraphProducer } from '../src/graph/producer-binding.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
-import { installDisputeSelection, readDispute, reconcileDisputes, refreshDisputeSelection, resolveDispute } from '../src/graph/disputes.js';
+import { readDispute, reconcileDisputes, resolveDispute } from '../src/graph/disputes.js';
 import { sha256Hex } from '../src/graph/digest.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -82,7 +82,6 @@ test('generated pages use persisted evidence-valid label and existence resolutio
     const resolver = await testHostBinding(owner, labelledContract, 'page-resolver');
     await owner.transaction('write', async tx => {
       await activateGraphProducer(tx, labelledContract, first);
-      await installDisputeSelection(tx, labelledContract);
       await publishGraphDrafts(tx, labelledContract, {
         vertices: ['kept', 'retired'].map(slug => ({
           kind: 'fixture.page', key: { slug }, values: { body: `body ${slug}`, label: slug === 'kept' ? 'Chosen title' : 'Retired title' },
@@ -92,7 +91,6 @@ test('generated pages use persisted evidence-valid label and existence resolutio
       const retired = (await tx.query<{ id: string }>("SELECT n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture.page' AND n.key->>'slug'='retired'")).rows[0]!;
       await writeAssertion(tx, labelledContract, { sort: 'vertex', kind: 'fixture.page', subjectId: retired.id, property: '$exists', operation: 'assert', value: false, validFrom: '2020-01-01T00:00:00Z' });
       await reconcileDisputes(tx, labelledContract);
-      await refreshDisputeSelection(tx, labelledContract);
     });
     const subjects = (await owner.run(tx => tx.query<{ id: string; slug: string }>(
       "SELECT n.id::text AS id,n.key->>'slug' AS slug FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture.page'",
@@ -101,18 +99,15 @@ test('generated pages use persisted evidence-valid label and existence resolutio
     const retired = subjects.find(row => row.slug === 'retired')!;
     await owner.transaction('write', async tx => {
       await activateGraphProducer(tx, labelledContract, second);
-      await installDisputeSelection(tx, labelledContract);
       await writeAssertion(tx, labelledContract, { sort: 'vertex', kind: 'fixture.page', subjectId: kept.id, property: 'label', operation: 'assert', value: 'Rejected title', validFrom: '2020-01-01T00:00:00Z' });
       await writeAssertion(tx, labelledContract, { sort: 'vertex', kind: 'fixture.page', subjectId: retired.id, property: '$exists', operation: 'assert', value: true, validFrom: '2020-01-01T00:00:00Z' });
       await reconcileDisputes(tx, labelledContract);
-      await refreshDisputeSelection(tx, labelledContract);
     });
     const content = 'Verified page title and retirement evidence';
     const digest = sha256Hex(Buffer.from(content));
     const resolutions: string[] = [];
     await owner.transaction('write', async tx => {
       await activateGraphProducer(tx, labelledContract, resolver);
-      await installDisputeSelection(tx, labelledContract);
       await publishGraphDrafts(tx, labelledContract, {
         vertices: [{ kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'fixture', producerVersion: '1' }], removals: [],
       });
@@ -130,7 +125,6 @@ test('generated pages use persisted evidence-valid label and existence resolutio
         }));
       }
       await reconcileDisputes(tx, labelledContract);
-      await refreshDisputeSelection(tx, labelledContract);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     });
     // Read in a new transaction: neither resolution may depend on the writer's temporary selection.

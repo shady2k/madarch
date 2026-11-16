@@ -6,6 +6,7 @@ import { GIT_KINDS } from '../fill/stages/git-contract.js';
 import { commitFacts, fileFacts, listFiles, listRepositories, repositoryFacts, productFileIndex } from '../graph/index.js';
 import type { FileDate, FileRecord } from '../graph/index.js';
 import { readKindAssertions } from '../graph/records.js';
+import { assertionReadSql } from '../graph/assertion-read.js';
 import { withSpan } from '../obs/trace.js';
 import { entityAddress } from './addresses.js';
 import { readEvidenceStates, type EvidenceState } from '../graph/evidence-read.js';
@@ -421,10 +422,41 @@ export class GraphReader {
    * the cursor, the search is a position over them, and the opinions of the page's vertices are loaded afterwards.
    */
   private async generatedPage(tx:OuterTransaction,decl:GeneratedKindRead,options:{q?:string;after?:string;limit:number}):Promise<{rows:GraphEntity[];next:string|null;total:number}> {
-    const text=options.q?.trim().toLowerCase();
-    const matching=(await this.generatedOfKinds(tx,[decl])).filter(e=>text===undefined||e.key.toLowerCase().includes(text)||e.label.toLowerCase().includes(text)).sort((a,b)=>byCodePoint(a.key,b.key));
-    const tail=options.after===undefined?matching:matching.filter(e=>byCodePoint(e.key,options.after!)>0);
-    const rows=tail.slice(0,options.limit);return {rows,next:tail.length>options.limit?rows.at(-1)!.key:null,total:matching.length};
+    const validAt = await this.validAt();
+    const fields = decl.columns.filter(field => !decl.key.includes(field));
+    const membershipFields = fields.filter(field => ['label', 'name', 'subject'].includes(field));
+    const typed = await assertionReadSql([{ sort: 'vertex', kind: decl.kind, properties: ['$exists', ...membershipFields] }], { validAt });
+    const parameters = [...typed.parameters];
+    const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
+    const kind = param(decl.kind);
+    const key = decl.key.length === 0 || (decl.keyEdges?.length ?? 0) > 0 ? 'n.uid::text' : decl.key.map(field => `n.key->>${param(field)}`).join(" || '/' || ");
+    const fallback = decl.key.length === 0 ? 'n.uid::text' : `n.key->>${param(decl.key.at(-1)!)}`;
+    const text = param(options.q?.trim().toLowerCase() ?? '');
+    const after = param(options.after ?? null);
+    const limit = param(options.limit + 1);
+    const membership = await tx.query<{ id: number | null; uid: string | null; key: Record<string, unknown> | null; total: string }>(`
+      WITH assertions AS (${typed.sql}), effective AS (
+        SELECT subject_id,jsonb_object_agg(property,value ORDER BY property_rank,recorded_sequence::bigint) AS values
+        FROM assertions WHERE selected GROUP BY subject_id
+      ), named AS (
+        SELECT n.id,n.uid::text,n.key,${kind} || ':' || (${key}) AS record_key,
+          coalesce(e.values->>'label',e.values->>'name',e.values->>'subject',${fallback}) AS label
+        FROM node n JOIN entity k ON k.id=n.entity_id JOIN effective e ON e.subject_id=n.id
+        WHERE k.name=${kind} AND e.values->>'$exists'='true'
+      ), matching AS MATERIALIZED (
+        SELECT * FROM named WHERE ${text}='' OR position(${text} IN lower(record_key))>0 OR position(${text} IN lower(label))>0
+      ), page AS (
+        SELECT * FROM matching WHERE ${after}::text IS NULL OR record_key COLLATE "C">${after} COLLATE "C"
+        ORDER BY record_key COLLATE "C" LIMIT ${limit}
+      ) SELECT page.id,page.uid,page.key,(SELECT count(*) FROM matching)::text AS total
+        FROM (SELECT 1) seed LEFT JOIN page ON TRUE ORDER BY page.record_key COLLATE "C"`, parameters);
+    const total = Number(membership.rows[0]!.total);
+    const identities = membership.rows.filter((row): row is typeof row & { id: number; uid: string; key: Record<string, unknown> } => row.id !== null).slice(0,options.limit);
+    if (identities.length === 0) return { rows: [], next: null, total };
+    const records = await readKindAssertions(tx,'vertex',decl.kind,fields,{ validAt, identities });
+    const rows = await this.generatedEntities(tx,decl,records);
+    rows.sort((a,b) => byCodePoint(a.key,b.key));
+    return { rows, next: membership.rows.length > options.limit ? rows.at(-1)!.key : null, total };
   }
   private async generatedOfKinds(tx:OuterTransaction,kinds:readonly GeneratedKindRead[]):Promise<GraphEntity[]> {
     const entities:GraphEntity[]=[];

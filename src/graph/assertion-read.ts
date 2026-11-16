@@ -2,10 +2,66 @@
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { assertionValueTableName } from './contract.js';
-import { selectAssertions, type AssertionRow, type AssertionSelection } from './assertion-selection.js';
+export interface AssertionRow {
+  readonly id: string;
+  readonly subject: { readonly type: 'vertex'; readonly uid: string } | { readonly type: 'edge'; readonly id: string; readonly kind: string; readonly from: string; readonly to: string };
+  readonly property: string;
+  readonly context: number;
+  readonly language: string | null;
+  readonly source: string;
+  readonly value: unknown;
+  readonly operation: 'assert' | 'retract';
+  readonly validFrom: string;
+  readonly validTo: string | null;
+  readonly recordedAt: string;
+  readonly recordedSequence: bigint;
+}
+
+export interface AssertionSqlSelector {
+  readonly unitUids?: readonly string[];
+  readonly validAt?: string;
+  readonly recordedAt?: string;
+  readonly contexts?: readonly number[];
+  readonly contextRecordedThrough?: Readonly<Record<number, string | null>>;
+}
+
+/** Item 25: pin the base, choose the nearest source layer, then recorded and valid-time order. */
+export function assertionSelectionSql(raw: string, selector: AssertionSqlSelector = {}): string {
+  const quote = (value: string): string => "'" + value.replaceAll("'", "''") + "'";
+  for (const at of [selector.validAt, selector.recordedAt]) if (at !== undefined && !Number.isFinite(Date.parse(at))) throw new Error(`${import.meta.path}:37: invalid temporal selector ${JSON.stringify(at)}`);
+  const contexts = selector.contexts ?? [1];
+  if (contexts.length === 0 || contexts.some(id => !Number.isSafeInteger(id))) throw new Error(`${import.meta.path}:39: invalid context selector`);
+  const valid = selector.validAt === undefined ? 'transaction_timestamp()' : `${quote(selector.validAt)}::timestamptz`;
+  const recorded = selector.recordedAt === undefined ? 'transaction_timestamp()' : `${quote(selector.recordedAt)}::timestamptz`;
+  const fences = Object.entries(selector.contextRecordedThrough ?? {}).filter(([,seq]) => seq !== null).map(([id,seq]) => {
+    if (!Number.isSafeInteger(Number(id)) || BigInt(seq!) < 0n) throw new Error(`${import.meta.path}:44: invalid context recorded cutoff`);
+    return `(r.context_id<>${Number(id)} OR r.recorded_sequence::bigint<=${BigInt(seq!)})`;
+  }).join(' AND ') || 'TRUE';
+  return `WITH RECURSIVE context_path AS (
+    SELECT id,parent,parent_recorded_seq,0 AS layer,NULL::bigint AS cutoff FROM context WHERE id=${contexts[0]}
+    UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,p.layer+1,least(p.cutoff,p.parent_recorded_seq)
+    FROM context c JOIN context_path p ON c.id=p.parent
+  ), raw AS MATERIALIZED (${raw}), eligible AS (
+    SELECT r.*,p.layer FROM raw r JOIN context_path p ON p.id=r.context_id
+    WHERE ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(ARRAY[${selector.unitUids.map(quote).join(',')}]::uuid[]))`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences}
+  ), layers AS (
+    SELECT eligible.*,min(layer) OVER (PARTITION BY request_index,subject_id,property,language,source) AS nearest FROM eligible
+  ), streams AS (
+    SELECT DISTINCT ON (request_index,subject_id,property,language,source) * FROM layers
+    WHERE layer=nearest AND valid_from<=${valid} AND (valid_to IS NULL OR valid_to>${valid})
+    ORDER BY request_index,subject_id,property,language,source,recorded_sequence::bigint DESC,id COLLATE "C" DESC
+  ), selected AS (
+    SELECT DISTINCT ON (request_index,subject_id,property,language) * FROM streams WHERE operation='assert'
+    ORDER BY request_index,subject_id,property,language,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
+  ) SELECT raw.*,EXISTS(SELECT 1 FROM streams s WHERE s.id=raw.id AND s.operation='assert') AS active,
+    EXISTS(SELECT 1 FROM selected s WHERE s.id=raw.id) AS selected FROM raw`;
+}
+
 
 export interface StoredAssertion extends AssertionRow {
   readonly subjectId: number;
+  readonly selected?: boolean;
+  readonly active?: boolean;
   readonly author: string;
   readonly unit: string | null;
   readonly operationUid: string;
@@ -24,12 +80,12 @@ function assertionJSON(this: StoredAssertion): Omit<StoredAssertion, 'recordedSe
 }
 
 /** Numeric ids are internal joins only; all exposed identities are graph uids. */
-export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'edge', kind: string, properties: readonly string[], subjectIds?: readonly number[]): Promise<StoredAssertion[]> {
-  return (await loadAssertionsBatch(executor, [{ sort, kind, properties, ...(subjectIds === undefined ? {} : { subjectIds }) }]))[0]!;
+export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'edge', kind: string, properties: readonly string[], subjectIds?: readonly number[], selector?: AssertionSqlSelector): Promise<StoredAssertion[]> {
+  return (await loadAssertionsBatch(executor, [{ sort, kind, properties, ...(subjectIds === undefined ? {} : { subjectIds }) }], selector))[0]!;
 }
 
 /** One statement reads independent typed requests without merging their field or subject boundaries. */
-export async function loadAssertionsBatch(executor: SqlExecutor, requests: readonly AssertionReadRequest[]): Promise<StoredAssertion[][]> {
+export async function loadAssertionsBatch(executor: SqlExecutor, requests: readonly AssertionReadRequest[], selector?: AssertionSqlSelector): Promise<StoredAssertion[][]> {
   return await withSpan('graph.assertions.read', { 'madarch.requests': requests.length }, async () => {
     const result: StoredAssertion[][] = requests.map(() => []);
     const parameters: unknown[] = [];
@@ -62,8 +118,8 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         value_row.value,value_row.value_type,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-source') AS source,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-author') AS author,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-unit') AS unit,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-operation') AS operation_uid,
+        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-unit' ORDER BY lineage.id LIMIT 1) AS unit,
+        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-operation' ORDER BY lineage.id LIMIT 1) AS operation_uid,
         ARRAY(SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence' ORDER BY target.uid) AS evidence
         FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
         ${subjectJoin} LEFT JOIN (${values}) value_row ON value_row.assertion_id=a.assertion_id AND value_row.property=a.property
@@ -72,18 +128,18 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
     }
     if (statements.length === 0) return result;
     const { rows } = await executor.query<{
-      request_index: number;
+      request_index: number; selected?: boolean; active?: boolean;
         id: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
         unit: string | null; operation_uid: string; evidence: string[]; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
-    }>(`SELECT * FROM (${statements.join(' UNION ALL ')}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
       for (const row of rows) {
         const request = requests[row.request_index]!;
         const assertion = {
-        id: row.id,
+        id: row.id, ...(row.selected === undefined ? {} : { selected: row.selected, active: row.active! }),
         subject: request.sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind: request.kind, from: row.edge_from!, to: row.edge_to! },
         subjectId: Number(row.subject_id), property: row.property, context: Number(row.context_id), language: row.language,
         source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence,
@@ -97,22 +153,18 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
   });
 }
 
-/** Batch callers partition by subject, property and language before source survivorship. */
-export function selectAssertionSlots(rows: readonly StoredAssertion[], options: Parameters<typeof selectAssertions>[1]): ReadonlyMap<string, AssertionSelection> {
-  const slots = new Map<string, StoredAssertion[]>();
-  for (const row of rows) {
-    const key = JSON.stringify([row.subject.type, row.subject.type === 'vertex' ? row.subject.uid : row.subject.id, row.property, row.language]);
-    const values = slots.get(key) ?? [];
-    values.push(row);
-    slots.set(key, values);
-  }
-  return new Map([...slots].map(([key, values]) => [key, selectAssertions(values, options)]));
+/** Build the same typed SQL without executing it, for page membership in its own statement. */
+export async function assertionReadSql(requests: readonly AssertionReadRequest[], selector: AssertionSqlSelector = {}): Promise<{ sql: string; parameters: readonly unknown[] }> {
+  let captured: { sql: string; parameters: readonly unknown[] } | undefined;
+  await loadAssertionsBatch({ query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => { captured = { sql, parameters: parameters ?? [] }; return { rows: [] as Row[] }; } }, requests, selector);
+  if (captured === undefined) throw new Error(`${import.meta.path}:201: assertion SQL requires at least one property`);
+  return captured;
 }
 
 /** Active source existence, never historical identity presence (0039 items 25, 26 and 30).
  * Structural assertion lineage is attached to immutable headers, not recursively asserted.
  */
-export function activeExistenceSql(sort: 'vertex' | 'edge', alias: string, kinds: readonly string[], options: { readonly validAt: string; readonly recordedAt: string; readonly contexts: readonly number[]; readonly contextRecordedThrough?: Readonly<Record<number, string | null>>; readonly resolvedAssertionIds?: readonly string[] }, structural: readonly string[] = []): string {
+export function activeExistenceSql(sort: 'vertex' | 'edge', alias: string, kinds: readonly string[], options: { readonly validAt: string; readonly recordedAt: string; readonly contexts: readonly number[]; readonly contextRecordedThrough?: Readonly<Record<number, string | null>> }, structural: readonly string[] = []): string {
   const quote = (value: string): string => "'" + value.replaceAll("'", "''") + "'";
   if (!Number.isFinite(Date.parse(options.validAt)) || !Number.isFinite(Date.parse(options.recordedAt)) || options.contexts.length === 0 || options.contexts.some((id) => !Number.isSafeInteger(id)) || Object.entries(options.contextRecordedThrough ?? {}).some(([id, cutoff]) => !Number.isSafeInteger(Number(id)) || (cutoff !== null && (BigInt(cutoff) < 0n || BigInt(cutoff).toString() !== cutoff)))) throw new Error(`${import.meta.path}:96: invalid temporal selector`);
   const contexts = `ARRAY[${options.contexts.join(',')}]::bigint[]`;
@@ -135,7 +187,5 @@ export function activeExistenceSql(sort: 'vertex' | 'edge', alias: string, kinds
     WHERE ${subject}=${alias}.id AND a.property='$exists' AND a.context_id=ANY(${contexts}) AND a.recorded_at<=${quote(options.recordedAt)}::timestamptz AND ${sequenceFence('a')}
   ), layers AS (SELECT eligible.*,min(layer) OVER (PARTITION BY source) AS nearest FROM eligible),
   streams AS (SELECT DISTINCT ON (source) * FROM layers WHERE layer=nearest AND valid_from<=${quote(options.validAt)}::timestamptz AND (valid_to IS NULL OR valid_to>${quote(options.validAt)}::timestamptz) ORDER BY source,recorded_sequence DESC)
-  SELECT 1 FROM streams WHERE operation='assert' AND value=TRUE
-    AND (NOT EXISTS (SELECT 1 FROM streams resolved WHERE resolved.operation='assert' AND resolved.uid=ANY(ARRAY[${(options.resolvedAssertionIds ?? []).map(quote).join(',')}]::uuid[]))
-      OR uid=ANY(ARRAY[${(options.resolvedAssertionIds ?? []).map(quote).join(',')}]::uuid[]))))`;
+  SELECT 1 FROM (SELECT DISTINCT ON (language) * FROM streams WHERE operation='assert' ORDER BY language,valid_from DESC,recorded_sequence DESC,uid::text COLLATE "C" DESC) selected WHERE value=TRUE))`;
 }
