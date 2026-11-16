@@ -160,6 +160,8 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind, taken: false, plugins: [] }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
   for (const [name, edge] of manifest.edges ?? []) {
     add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
+    const declaration = JSON.stringify(encode(edge));
+    const declaredEvidence = evidence(KINDS_FILE, edge.line);
     // A wildcard permits endpoints; it does not declare a relationship between every pair of kinds.
     // Its complete declaration remains a catalogue relation, without invented concrete links.
     for (const from of edge.from) for (const to of edge.to) {
@@ -169,7 +171,9 @@ export function validateProductManifests(productFolder: string, files: KindsFile
           if (installed === undefined) throw new Error(`${import.meta.path}:166: relation ${name} has undeclared endpoint ${endpoint}`);
           add('kind', endpoint, { contract: installed, protected: true, taken: false, plugins: [] }, KINDS_FILE, edge.line);
         }
-        addEdge(MANIFEST_RELATION_EDGE, from, to, edge, KINDS_FILE, edge.line, name);
+        edges.push({ kind: MANIFEST_RELATION_EDGE, from: { kind: 'manifest.kind', key: { name: from } }, to: { kind: 'manifest.kind', key: { name: to } },
+          discriminator: name, values: { declaration, relation: name },
+          evidence: declaredEvidence, producer: 'manifest', producerVersion: '1' });
       }
     }
   }
