@@ -8,7 +8,7 @@ Kind: behavior
 ## Intent
 Replace the old graph storage and every dependent reader in one atomic cutover against origin/foundation/madarch-64o5.141. The base supplies reusable value types, the catalogue changes and additive assertion prerequisites. Decision 0039 governs references as edges, parent-edge identity, typed per-source assertions, lineage, valid and recorded time, and value-pinned disputes and resolutions. There is no supported intermediate storage shape, retired API alias or wide-row read projection.
 
-This change is work in progress and unaccepted. The working tree contains the whole cutover; neither this record nor earlier targeted checks establish final acceptance. The proposed graph-storage capability file currently describes endpoint checks only and does not yet specify the whole acceptance surface below.
+This change is work in progress and unaccepted. The working tree contains the whole cutover; neither this record nor earlier targeted checks establish final acceptance. The proposed graph-storage capability specifies endpoint checks, item-25 assertion selection, writer-owned judgements and the two-query page budget. Whole-cutover acceptance still includes the remaining surface below.
 
 ## Out of scope
 - Migration of existing product data: current products are refilled after the cutover, rather than migrated from retired storage.
