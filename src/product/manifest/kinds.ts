@@ -53,7 +53,7 @@ import { PluginContractFile, type PluginContractDeclaration } from '../../plugin
 import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
 import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
-import { FIELD_TYPES, fieldTypeOf, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords } from '../../graph/contract.js';
+import { FIELD_TYPES, fieldTypeOf, SYNONYMS_FIELD, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords } from '../../graph/contract.js';
 import { byCodePoint } from '../../model/order.js';
 import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
 import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
@@ -375,8 +375,11 @@ export interface KindDecl {
   /** Retired authored Markdown location, read only by the one-time importer. */
   importFolder?: string;
   importFile?: string;
-  /** Declared naming fields for mention hints; title remains the default label contract. */
-  readonly naming?: { readonly label: string; readonly synonyms?: string; readonly domain?: string };
+  /**
+   * Declared naming fields for mention hints; title remains the default label contract. The synonyms half of the
+   * dictionary is the system's common field on every entity (0039 item 6), so a kind declares none.
+   */
+  readonly naming?: { readonly label: string; readonly domain?: string };
   /** The attribute that names a page. */
   title: string;
   attributes?: readonly string[];
@@ -1945,26 +1948,34 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
+    // Every entity answers to the system's common synonyms field (0039 item 6); a kind declares it only in that shape.
+    for (const field of fields) {
+      if (field.name !== SYNONYMS_FIELD) continue;
+      const type: ValueTypeDeclaration | undefined = field.valueType === undefined ? undefined : valueTypes[field.valueType];
+      const schema = field.schema ?? type?.schema;
+      const list = schema?.['type'] === 'array' && isRecord(schema['items']) && schema['items']['type'] === 'string' && schema['prefixItems'] === undefined;
+      if (field.type !== 'json' || (field.valueType !== undefined && type?.storage !== 'json') || !list) {
+        problem(['fields', SYNONYMS_FIELD], 'synonyms is the system field of every entity: a kind declares it as a JSON list of text or leaves it out');
+      }
+    }
     let naming: KindDecl['naming'];
     const rawNaming = decl['naming'];
     if (rawNaming !== undefined) {
-      if (!isRecord(rawNaming) || Object.keys(rawNaming).length === 0) problem(['naming'], 'naming maps label, synonyms or domain to declared fields');
+      if (!isRecord(rawNaming) || Object.keys(rawNaming).length === 0) problem(['naming'], 'naming maps label and domain to declared fields');
       else {
         const start = findings.length;
-        const slots: { label?: string; synonyms?: string; domain?: string } = {};
+        const slots: { label?: string; domain?: string } = {};
         if (typeof rawNaming['label'] !== 'string') problem(['naming', 'label'], 'naming requires an explicit label field');
         for (const [role, name] of Object.entries(rawNaming)) {
-          if (role !== 'label' && role !== 'synonyms' && role !== 'domain') { problem(['naming', role], 'naming slots are label, synonyms and domain'); continue; }
+          if (role !== 'label' && role !== 'domain') {
+            problem(['naming', role], role === 'synonyms'
+              ? 'every entity answers to the system synonyms field: naming maps label and domain, never synonyms'
+              : 'naming slots are label and domain');
+            continue;
+          }
           const field: FieldDecl | undefined = fields.find(field => field.name === name);
           if (typeof name !== 'string' || field === undefined) { problem(['naming', role], 'a naming slot names a declared field'); continue; }
-          if (role === 'synonyms') {
-            const type: ValueTypeDeclaration | undefined = field.valueType === undefined ? undefined : valueTypes[field.valueType];
-            const schema = type?.schema;
-            if (field.type !== 'json' || type?.storage !== 'json' || schema?.['type'] !== 'array' || !isRecord(schema['items']) || schema['items']['type'] !== 'string' || schema['prefixItems'] !== undefined) {
-              problem(['naming', role], 'synonyms requires a named registry JSON value type with type: array and items: {type: string}, without prefixItems');
-              continue;
-            }
-          } else if (field.type !== 'text') { problem(['naming', role], `${role} requires a text field`); continue; }
+          if (field.type !== 'text') { problem(['naming', role], `${role} requires a text field`); continue; }
           slots[role] = name;
         }
         if (start === findings.length && slots.label !== undefined) naming = { ...slots, label: slots.label };

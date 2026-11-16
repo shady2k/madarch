@@ -12,7 +12,7 @@
  * document kind whose entities only the agent writes — is no part of this
  * contract, and no table stands for it.
  */
-import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
+import { generatedTableName, SYNONYMS_FIELD, SYNONYMS_FIELD_CONTRACT, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { KindsManifest } from '../../product/manifest/kinds.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
@@ -37,6 +37,9 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
     if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
+    // Every entity carries the system's common synonyms field (0039 item 6), whether its kind declares fields or none; a
+    // kind that declares the field itself keeps its declaration, which the manifest reads as the same list of text.
+    if (!fields.some((field) => field.name === SYNONYMS_FIELD)) fields.push(SYNONYMS_FIELD_CONTRACT);
     vertex.push({ ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
   }
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) };

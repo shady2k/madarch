@@ -23,6 +23,15 @@ export function generatedTableName(kind: string, sort: TableSort): string {
   return `${prefix}_${slug}_${digest}`;
 }
 
+/**
+ * Decision 0039 item 6: the common synonyms field every entity holds, declared by the system part rather than by a
+ * product kind. Its value is the list of other names the entity answers to; names plus synonyms form the hint
+ * dictionary, and a same-named entity of another kind stays another candidate (item 29).
+ */
+export const SYNONYMS_FIELD = 'synonyms';
+export const SYNONYMS_SCHEMA: JsonSchema = { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } };
+export const SYNONYMS_FIELD_CONTRACT: FieldContract = { name: SYNONYMS_FIELD, type: 'json', schema: SYNONYMS_SCHEMA, nullable: true };
+
 /** The PostgreSQL types a field may map to. */
 export const FIELD_TYPES = ['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json'] as const;
 export type FieldType = typeof FIELD_TYPES[number];

@@ -7,7 +7,7 @@ import { withAssertionContract, isDisputableProperty } from './system-contract.j
 import { keyUid, newUid } from './uid.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
 import { validateFieldValue,validateValueContracts } from './value-validation.js';
-import { scanMentions } from './mentions.js';
+import { mentionDiscriminator, mentionOccurrencesOf } from './mention-graph.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
@@ -164,8 +164,16 @@ export async function requireAssertionScope(executor:SqlExecutor,contract:GraphC
  });
 }
 export async function writeAssertion(executor:SqlExecutor,declared:GraphContract,input:AssertionInput,context=1):Promise<string>{
+ return await writeAssertionOf(executor,declared,input,context,true);
+}
+/**
+ * The writer's own derived statements (0039 items 5 and 25): the `mentions` edge of a written string is recorded by the
+ * writer as that source's statement of the mention, so the source's declared slots do not have to name a system relation
+ * it never writes by hand. Everything else — target existence, scope, immutability, values — is checked as for any write.
+ */
+async function writeAssertionOf(executor:SqlExecutor,declared:GraphContract,input:AssertionInput,context:number,checked:boolean):Promise<string>{
  return await withSpan('graph.assertion.write',{'graph.kind':input.kind,'graph.property':input.property},async()=>{
- const contract=withAssertionContract(declared);const binding=requireWriteCapability(executor);checkBinding(binding,contract,context);permitted(binding,input.kind,input.property,input.operation==='retract');
+ const contract=withAssertionContract(declared);const binding=requireWriteCapability(executor);checkBinding(binding,contract,context);if(checked)permitted(binding,input.kind,input.property,input.operation==='retract');
  const kind=contract[input.sort].find(k=>k.name===input.kind);if(!kind)throw new Error(`${WHERE}:114: UNKNOWN_KIND ${input.kind}`);
  const subject=(await executor.query<{kind:string}>(`SELECT k.name AS kind FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
@@ -184,7 +192,7 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
   if(input.property===kind.evidence.contentField&&input.value!==null&&kind.evidence.digestField){const node=(await executor.query<{key:Record<string,unknown>}>(`SELECT key FROM node WHERE id=$1::bigint`,[input.subjectId])).rows[0]!;if(createHash('sha256').update(String(input.value),'utf8').digest('hex')!==node.key[kind.evidence.digestField])throw new Error(`${WHERE}:131: EVIDENCE_INVALID snapshot content contradicts digest`);}
  }
 
- const mentions=input.operation==='assert'?scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[];
+ const mentions=input.operation==='assert'?mentionOccurrencesOf(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[];
  if(mentions.length>0)await refreshWriteSemantics(executor);
  for(const mention of mentions){const endpointNode=(await executor.query<{id:string;kind:string}>(`SELECT n.id::text AS id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[mention.uid])).rows[0];if(!endpointNode||!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[endpointNode.id,endpointNode.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);}
  const uid=newUid();const made=await identity(executor,'system.assertion',uid,{},binding.productUid,context);
@@ -203,9 +211,37 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
     await putEdge(executor,'system.assertion-evidence',made.nodeId,endpointNode.id,canonicalJson({index,relation:evidence.relation??'supports',locator}),context);};
    const deferred=pendingEvidence.get(executor);if(deferred)deferred.push(attach);else await attach();
  }
- for(const mention of mentions)await putEdge(executor,'system.assertion-mentions',made.nodeId,await uidNode(executor,mention.uid),JSON.stringify({path:mention.path,start:mention.start,end:mention.end}),context);
+ // Item 29: each mention is an edge of the assertion that holds the string, with the occurrence as its discriminator,
+ // and the writer records it as this source's statement so a text that changes can retract what it leaves behind.
+ for(const mention of mentions){
+  const edgeId=await putEdge(executor,'system.assertion-mentions',made.nodeId,await uidNode(executor,mention.uid),mentionDiscriminator(mention),context);
+  await writeAssertionOf(executor,contract,{sort:'edge',kind:'system.assertion-mentions',subjectId:edgeId,property:'$exists',operation:'assert',value:true},context,false);
+ }
+ // Item 5: mentions that left the text are retracted by the source that wrote it, in this same transaction; the rows and
+ // their history stay, and no reader sees a token the text no longer holds.
+ if(input.property!=='$exists')await retractLeftMentions(executor,contract,input.sort,input.subjectId,input.property,made.nodeId,binding,context);
  return uid;
  });
+}
+/**
+ * Decision 0039 item 5: the mentions the source's previous statement of the field made, and the new statement does not
+ * repeat, are retracted by that source in the same transaction. The previous assertion is the one this write replaced,
+ * so every mention is retracted exactly once, when the statement holding it is superseded; the rows stay as history and
+ * no traversal reaches a token the written text no longer holds.
+ */
+async function retractLeftMentions(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',subjectId:string,property:string,writtenAssertion:string,binding:WriteCapability,context:number):Promise<void>{
+ const subject=sort==='vertex'
+  ? 'JOIN assertion_vertex_subject held ON held.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=held.subject_edge_id AND attachment.to_node=$1::bigint'
+  : 'JOIN assertion_edge_subject held ON held.assertion_id=a.assertion_id AND held.edge_id=$1::bigint';
+ const sourceNode=(await executor.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[binding.sourceUid])).rows[0];
+ if(sourceNode===undefined)throw new Error(`${WHERE}:216: MISSING_LINEAGE_TARGET ${binding.sourceUid}`);
+ const previous=(await executor.query<{id:string}>(`SELECT a.assertion_id::text AS id FROM assertion a ${subject}
+  JOIN edge source ON source.from_node=a.assertion_id JOIN entity sk ON sk.id=source.entity_id AND sk.name='system.assertion-source'
+  WHERE a.property=$2::text AND a.assertion_id<>$3::bigint AND source.to_node=$4::bigint
+  ORDER BY a.recorded_sequence DESC LIMIT 1`,[subjectId,property,writtenAssertion,sourceNode.id])).rows[0];
+ if(previous===undefined)return;
+ const held=(await executor.query<{id:string}>(`SELECT mention.id::text AS id FROM edge mention JOIN entity mk ON mk.id=mention.entity_id AND mk.name='system.assertion-mentions' WHERE mention.from_node=$1::bigint`,[previous.id])).rows;
+ for(const edge of held)await writeAssertionOf(executor,contract,{sort:'edge',kind:'system.assertion-mentions',subjectId:edge.id,property:'$exists',operation:'retract'},context,false);
 }
 export interface GraphDrafts {readonly vertices:readonly VertexDraft[];readonly removals:readonly VertexRemovalDraft[];readonly edges?:readonly EdgeDraft[];readonly edgeRemovals?:readonly EdgeRemovalDraft[]}
 export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphContract,drafts:GraphDrafts,context=1,_options:Record<string,unknown>={}):Promise<number>{

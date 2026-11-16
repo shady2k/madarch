@@ -73,7 +73,6 @@ value-types:
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.note.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.note.yaml'), 'utf8').replace('title: label', `title: label
 naming:
   label: label
-  synonyms: aliases
   domain: qualifier`).replace('key: []', `- name: aliases
   type: aliases
   schema:
@@ -148,15 +147,52 @@ describe('the agent writes the graph', () => {
     ]);
   });
 
-  test('naming declarations reject unknown fields and untyped synonym containers', () => {
+  test('a changed text retracts the mentions it left, and keeps the ones it repeats', async () => {
+    const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }];
+    const left = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'left behind' }, values: {}, evidence });
+    const kept = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'kept along' }, values: {}, evidence });
+    const term = await putEntityAssertion(owner, agent, {
+      kind: 'doc.term',
+      values: { title: 'Statements', body: `Both [[uid:${left.uid}]] and [[uid:${kept.uid}]] stand here.` },
+      evidence,
+    });
+    if (term.uid === undefined) throw new Error(`${import.meta.path}:1: the written term has no uid`);
+    const active = async (): Promise<string[]> => (await owner.run(tx => tx.query<{ target: string }>(`
+      SELECT target.uid::text AS target FROM assertion a
+      JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id
+      JOIN edge attachment ON attachment.id=subject.subject_edge_id
+      JOIN edge mention ON mention.from_node=a.assertion_id
+      JOIN entity mk ON mk.id=mention.entity_id AND mk.name='system.assertion-mentions'
+      JOIN node target ON target.id=mention.to_node
+      WHERE attachment.to_node=(SELECT id FROM node WHERE uid=$1::uuid)
+        AND a.property='body' AND graph_edge_active(mention.id,'system.assertion-mentions',1)
+      ORDER BY target.uid::text`,[term.uid]))).rows.map(row => row.target);
+    if (left.uid === undefined || kept.uid === undefined) throw new Error(`${import.meta.path}:1: the written repositories have no uid`);
+    const leftUid: string = left.uid;
+    const keptUid: string = kept.uid;
+    expect(await active()).toEqual([leftUid, keptUid].sort());
+    await putEntityAssertion(owner, agent, { kind: 'doc.term', id: term.uid, values: { body: `Only [[uid:${keptUid}]] stands here now.` }, evidence });
+    expect(await active()).toEqual([keptUid]);
+    const retracted = (await owner.run(tx => tx.query<{ n: string }>(`
+      SELECT count(*)::text AS n FROM assertion a
+      JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id
+      JOIN edge mention ON mention.id=subject.edge_id
+      JOIN entity mk ON mk.id=mention.entity_id AND mk.name='system.assertion-mentions'
+      JOIN node target ON target.id=mention.to_node
+      WHERE a.property='$exists' AND a.operation='retract' AND target.uid=$1::uuid`,[leftUid]))).rows[0]!.n;
+    expect(retracted).toBe('1');
+  });
+
+  test('naming declarations name their fields, and the synonyms half is the system field', () => {
     const path = join(folder, 'madarch/kinds/demo/core/demo.note.yaml');
     const content = readFileSync(path, 'utf8');
     try {
       for (const [before, after, expected] of [
-        ['  synonyms: aliases', '  synonyms: payload', 'synonyms requires a named registry JSON value type'],
         ['  domain: qualifier', '  domain: absent', 'a naming slot names a declared field'],
         ['  label: label', '  label: aliases', 'label requires a text field'],
         ['  label: label\n', '', 'naming requires an explicit label field'],
+        ['  label: label', '  label: label\n  synonyms: aliases', 'every entity answers to the system synonyms field'],
+        ['  producers: [person]\n- name: qualifier', '  producers: [person]\n- name: synonyms\n  type: text\n  nullable: true\n  producers: [person]\n- name: qualifier', 'synonyms is the system field of every entity'],
       ] as const) {
         writeFileSync(path, content.replace(before, after));
         const result = readKinds(folder);
@@ -169,10 +205,10 @@ describe('the agent writes the graph', () => {
     } finally { writeFileSync(path, content); }
   });
 
-  test('write answers preserve every ambiguous declared title, including decoded JSON spans', async () => {
+  test('write answers preserve every ambiguous declared name, its kind label, and decoded JSON spans', async () => {
     const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }];
     const first = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Shared label' }, evidence });
-    const second = await putEntityAssertion(owner, agent, { kind: 'demo.note', values: { label: 'A qualified concept', aliases: ['Shared label', 'Shared label'], qualifier: 'Commerce' }, evidence });
+    const second = await putEntityAssertion(owner, agent, { kind: 'demo.note', values: { label: 'A qualified concept', synonyms: ['Shared label', 'Shared label'], qualifier: 'Commerce' }, evidence });
     const third = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Shared label' }, evidence });
     const keyed = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'Shared label' }, values: {}, evidence });
     const answer = await putEntityAssertion(owner, agent, {
@@ -180,11 +216,12 @@ describe('the agent writes the graph', () => {
     });
     const candidates = [first, second, third, keyed].map(item => {
       if (item.uid === undefined) throw new Error(`${import.meta.path}:150: written fixture entity has no uid`);
-      return { uid: item.uid, kind: item.kind, label: item === second ? 'A qualified concept' : 'Shared label', domain: item === second ? 'Commerce' : '' };
-    }).sort((left, right) => left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : left.uid < right.uid ? -1 : 1);
+      const kindLabel = item.kind === 'doc.term' ? 'Glossary term' : item.kind === 'demo.note' ? 'Note' : 'Repository';
+      return { uid: item.uid, kind: item.kind, kindLabel, label: item === second ? 'A qualified concept' : 'Shared label', domain: item === second ? 'Commerce' : '' };
+    }).sort((left, right) => left.uid < right.uid ? -1 : left.uid > right.uid ? 1 : 0);
     expect(answer.hints?.filter(hint => hint.path === '/payload/a~0~1/0')).toEqual([
-      { path: '/payload/a~0~1/0', start: 2, end: 14, candidates },
-      { path: '/payload/a~0~1/0', start: 15, end: 27, candidates },
+      { name: 'Shared label', path: '/payload/a~0~1/0', start: 2, end: 14, candidates },
+      { name: 'Shared label', path: '/payload/a~0~1/0', start: 15, end: 27, candidates },
     ]);
     expect(new Set(candidates.map(candidate => candidate.uid)).size).toBe(4);
   });

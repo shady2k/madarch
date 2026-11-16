@@ -20,7 +20,9 @@ import { semanticBinding } from '../knowledge/semantic-bindings.js';
 import { resolveEntityRef, publishGraphDrafts } from './write.js';
 import { readKindAssertions } from './records.js';
 import { newUid } from './uid.js';
-import { scanMentionHints, type MentionCandidate, type MentionHint } from './mentions.js';
+import { mentionHintsOf } from './mention-graph.js';
+import { mentionDictionary } from './mention-dictionary.js';
+import type { MentionFieldHint } from './mention-text.js';
 import type { OuterTransaction } from '../history-types.js';
 
 /** A refused write: the tool answers its message, naming the field when one is at fault. */
@@ -249,7 +251,7 @@ export interface WriteAnswer {
   readonly key?: Record<string, unknown>;
   readonly uid?: string;
   readonly written?: number;
-  readonly hints?: readonly MentionHint[];
+  readonly hints?: readonly MentionFieldHint[];
   readonly imported?: { readonly identity: { readonly migration: string; readonly path: string; readonly legacyId: string }; readonly words: string };
   readonly retracted?: boolean;
 }
@@ -261,41 +263,10 @@ async function manifestOf(tx: OuterTransaction): Promise<KindsManifest> {
   return manifest;
 }
 
-/** Names come only from the manifest's declared page-title field, never a guessed field name. */
-async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contract: GraphContract, values: unknown): Promise<MentionHint[]> {
-  const dictionary = new Map<string, MentionCandidate[]>();
+/** Item 29: the write's answer carries its unlinked names at their places, and makes no edge of them. */
+async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contract: GraphContract, values: unknown): Promise<MentionFieldHint[]> {
   const cutoff = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-  for (const kind of manifest.kinds.values()) {
-    const vertex = contract.vertex.find(candidate => candidate.name === kind.name);
-    const labelField = kind.naming === undefined ? kind.title : kind.naming.label;
-    if (vertex === undefined || !vertex.fields.some(field => field.name === labelField && field.type === 'text')) continue;
-    const namingFields = [...new Set([labelField, kind.naming?.synonyms, kind.naming?.domain].filter((field): field is string => field !== undefined))];
-    const records = await readKindAssertions(tx, 'vertex', kind.name, namingFields, { contract, validAt: cutoff, recordedAt: cutoff });
-    for (const record of records) {
-      const values = record.values;
-      const label = values[labelField];
-      if (typeof label !== 'string' || label.length === 0) continue;
-      const domain = kind.naming?.domain === undefined ? '' : values[kind.naming.domain];
-      const synonyms = kind.naming?.synonyms === undefined ? [] : values[kind.naming.synonyms];
-      const candidate = { uid: record.uid, kind: kind.name, label, domain: typeof domain === 'string' ? domain : '' };
-      const names = new Set([label, ...(Array.isArray(synonyms) ? synonyms as string[] : [])]);
-      for (const name of names) {
-        if (name.length === 0) continue;
-        const candidates = dictionary.get(name) ?? [];
-        candidates.push(candidate);
-        dictionary.set(name, candidates);
-      }
-    }
-  }
-  for (const candidates of dictionary.values()) candidates.sort((left, right) => {
-    const leftKey = Array.from(`${left.kind}\0${left.uid}`, char => char.codePointAt(0)!);
-    const rightKey = Array.from(`${right.kind}\0${right.uid}`, char => char.codePointAt(0)!);
-    for (let index = 0; index < Math.min(leftKey.length, rightKey.length); index++) {
-      if (leftKey[index] !== rightKey[index]) return leftKey[index]! - rightKey[index]!;
-    }
-    return leftKey.length - rightKey.length;
-  });
-  return scanMentionHints(values, '', dictionary);
+  return mentionHintsOf(values, '', await mentionDictionary(tx, manifest, contract, cutoff));
 }
 
 /** Puts the agent's opinion of an entity's fields, creating the entity when its key names none. */
