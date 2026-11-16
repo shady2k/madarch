@@ -2,7 +2,7 @@
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract } from './contract.js';
 import { withAssertionContract, isDisputableProperty } from './system-contract.js';
-import { loadAssertions, type StoredAssertion, type AssertionRow, type AssertionSqlSelector } from './assertion-read.js';
+import { loadAssertions, loadAssertionsBatch, type AssertionReadRequest, type StoredAssertion, type AssertionRow, type AssertionSqlSelector } from './assertion-read.js';
 import { withSpan } from '../obs/trace.js';
 type Selectors = AssertionSqlSelector;
 export interface DisputeView {
@@ -19,36 +19,40 @@ async function links(tx:SqlExecutor,uid:string,kind:string,selectors?:Selectors)
  return found.filter(row=>assertions.some(assertion=>assertion.subjectId===Number(row.id)&&assertion.selected&&assertion.value===true)).map(row=>row.uid);
  });
 }
-async function records(tx:SqlExecutor,kind:string,selectors:Selectors):Promise<Map<string,Record<string,unknown>>>{
- return await withSpan('graph.dispute.records',{},async()=>{
- const properties=['segment_from','segment_to','state'];
- const rows=await loadAssertions(tx,'vertex',kind,properties,undefined,selectors);const grouped=new Map<string,StoredAssertion[]>();
- for(const row of rows){const uid=subject(row);grouped.set(uid,[...(grouped.get(uid)??[]),row]);}
- const result=new Map<string,Record<string,unknown>>();
- for(const [uid,values] of grouped){const fields:Record<string,unknown>={};for(const property of properties){const selected=values.find(r=>r.property===property&&r.selected);if(selected)fields[property]=selected.value;}if(Object.keys(fields).length)result.set(uid,fields);}
- return result;
- });
+const questionProperties=['segment_from','segment_to','state'];
+const lineageKinds=['system.dispute-anchor','system.dispute-question-resolution','system.dispute-supersedes','system.resolution-assertion','system.dispute-candidate'];
+type Lineage = { origin:string; uid:string; id:number; kind:string };
+/** One snapshot's recorded question fields and lineage, shared by every requested slot. */
+async function disputeSnapshot(tx:SqlExecutor,selectors:Selectors,requests:readonly AssertionReadRequest[]=[]) {
+ const lineage=(await tx.query<Lineage>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) ORDER BY target.uid::text COLLATE "C"`,[lineageKinds])).rows;
+ const batches=await loadAssertionsBatch(tx,[...requests,{sort:'vertex',kind:'system.dispute-question',properties:questionProperties},...lineageKinds.map(kind=>({sort:'edge' as const,kind,properties:['$exists'],subjectIds:lineage.filter(link=>link.kind===kind).map(link=>Number(link.id))}))],selectors);
+ const questions=new Map<string,Record<string,unknown>>();
+ for(const row of batches[requests.length]!){const uid=subject(row),fields=questions.get(uid)??{};if(row.selected)fields[row.property]=row.value;questions.set(uid,fields);}
+ const visible=new Set(batches.slice(requests.length+1).flat().filter(row=>row.selected&&row.value===true).map(row=>row.subjectId));
+ const linked=new Map<string,string[]>();
+ for(const link of lineage){if(!visible.has(Number(link.id)))continue;const key=JSON.stringify([link.origin,link.kind]);const values=linked.get(key)??[];values.push(link.uid);linked.set(key,values);}
+ const links=(uid:string,kind:string)=>linked.get(JSON.stringify([uid,kind]))??[];
+ const read=(rows:readonly StoredAssertion[]):DisputeView|null=>{
+  for(const [id,fields] of questions){
+   const anchor=links(id,'system.dispute-anchor')[0];if(!rows.some(row=>row.id===anchor)||fields['state']===undefined)continue;
+   const history=links(id,'system.dispute-question-resolution');
+   const superseded=new Set(history.flatMap(uid=>links(uid,'system.dispute-supersedes')));
+   const resolution=fields['state']==='RESOLVED'?(history.find(uid=>!superseded.has(uid))??null):null;
+   return {id,state:fields['state']==='RESOLVED'?'RESOLVED':'OPEN',candidates:links(id,'system.dispute-candidate'),resolution,supersededResolutions:history.filter(uid=>uid!==resolution),selectedAssertionUid:resolution===null?null:links(resolution,'system.resolution-assertion')[0]??null};
+  }
+  return null;
+ };
+ return {batches:batches.slice(0,requests.length),read};
 }
 /** Read persisted judgement at the requested bitemporal snapshot. */
 export async function readDispute(tx:SqlExecutor,_contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors):Promise<DisputeView|null>{
- const questions=await records(tx,'system.dispute-question',selectors);
-
- for(const [id,fields] of questions){
-  const anchor=(await links(tx,id,'system.dispute-anchor',selectors))[0];if(!rows.some(row=>row.id===anchor))continue;
-  if(fields['state']===undefined)continue;
-  const history=await links(tx,id,'system.dispute-question-resolution',selectors);
-  const superseded=new Set<string>();for(const uid of history)for(const older of await links(tx,uid,'system.dispute-supersedes',selectors))superseded.add(older);
-  const resolution=fields['state']==='RESOLVED'?(history.find(uid=>!superseded.has(uid))??null):null;
-  const assertion=resolution===null?null:(await links(tx,resolution,'system.resolution-assertion',selectors))[0]??null;
-  return {id,state:fields['state']==='RESOLVED'?'RESOLVED':'OPEN',candidates:await links(tx,id,'system.dispute-candidate',selectors),resolution,supersededResolutions:history.filter(uid=>uid!==resolution),selectedAssertionUid:assertion};
- }
- return null;
+ return (await disputeSnapshot(tx,selectors)).read(rows);
 }
 export interface DisputeSlot {
  readonly sort:'vertex'|'edge'; readonly kind:string; readonly subjectId:number; readonly property:string; readonly language:string|null;
  readonly rows:readonly StoredAssertion[]; readonly dispute:DisputeView;
 }
-/** Batch bridge for readers: applicability is computed here once, including semantic pins and evidence. */
+/** Read the persisted question state and lineage once for every anchored slot. */
 export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,selectors:Selectors):Promise<readonly DisputeSlot[]> {
  return await withSpan('graph.dispute.slots',{},async()=>{
   const contract=withAssertionContract(declared);const result:DisputeSlot[]=[];
@@ -64,10 +68,13 @@ export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,sel
    if(!group){group={sort:anchor.sort,kind:anchor.kind,properties:new Set(),subjects:new Set(),slots:[]};groups.set(key,group);}
    group.properties.add(anchor.property);group.subjects.add(Number(anchor.subject_id));group.slots.push(anchor);
   }
-  for(const group of groups.values()){
-   const all=await loadAssertions(tx,group.sort,group.kind,[...group.properties],[...group.subjects],selectors);
+  if(groups.size===0)return result;
+  const requested=[...groups.values()];
+  const snapshot=await disputeSnapshot(tx,selectors,requested.map(group=>({sort:group.sort,kind:group.kind,properties:[...group.properties],subjectIds:[...group.subjects]})));
+  for(const [index,group] of requested.entries()){
+   const all=snapshot.batches[index]!;
    for(const anchor of group.slots){
-    const rows=all.filter(row=>row.subjectId===Number(anchor.subject_id)&&row.property===anchor.property&&row.language===anchor.language);const dispute=await readDispute(tx,contract,rows,selectors);
+    const rows=all.filter(row=>row.subjectId===Number(anchor.subject_id)&&row.property===anchor.property&&row.language===anchor.language);const dispute=snapshot.read(rows);
     if(dispute)result.push({sort:group.sort,kind:group.kind,subjectId:Number(anchor.subject_id),property:anchor.property,language:anchor.language,rows,dispute});
    }
   }

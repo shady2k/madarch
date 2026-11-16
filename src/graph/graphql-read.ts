@@ -21,7 +21,7 @@ import { productEntityOf } from '../product/manifest.js';
 import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { assertionValueTableName, type FieldType } from '../graph/contract.js';
-import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
+import { activeExistenceSql, loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './dispute-read.js';
 import { contextLayers } from './context.js';
 import { evidenceSupportRoles } from './evidence-support.js';
@@ -541,6 +541,8 @@ export class ReadContext {
       selected, question: includeQuestion ? await this.assertionQuestion(row, lang) : null };
   }
 
+  private readonly resolutionAssertions = new Map<string, Promise<StoredAssertion | null>>();
+
   private async assertionQuestion(row: StoredAssertion, lang: string | undefined): Promise<unknown> {
     const slot = this.disputeSlots.find(slot => slot.rows.some(candidate => candidate.id === row.id));
     if (slot === undefined) return null;
@@ -548,7 +550,12 @@ export class ReadContext {
     const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
     const selectors = { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough };
     const resolution = async (uid: string) => {
-      const assertion = await loadResolutionAssertion(this.tx, contract, uid, slot.rows, selectors);
+      let pending = this.resolutionAssertions.get(uid);
+      if (pending === undefined) {
+        pending = loadResolutionAssertion(this.tx, contract, uid, slot.rows, selectors);
+        this.resolutionAssertions.set(uid, pending);
+      }
+      const assertion = await pending;
       if (assertion === null) throw new Error(`${import.meta.path}:1: dispute resolution ${uid} has no visible assertion lineage`);
       return await this.assertionValue(assertion, uid === dispute.resolution, lang, false);
     };
@@ -580,7 +587,7 @@ export class ReadContext {
     this.fieldQueue = undefined;
     this.fieldFlush = undefined;
     if (queue === undefined) return;
-    for (const [kind, nodes] of queue) {
+    const requests = [...queue].map(([kind, nodes]) => {
       const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: StoredAssertion[] }>();
       const declared = this.kindByType.get(typeNameOf(kind));
       if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
@@ -591,7 +598,11 @@ export class ReadContext {
         // A node fetched again keeps every column it was fetched with: the statement replaces its rows.
         for (const column of held?.columns ?? []) wanted.add(column);
       }
-      const rows = await loadAssertions(this.tx, 'vertex', kind, [...wanted], [...nodes.keys()].map(Number), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
+      return { kind, nodes, cache, wanted };
+    });
+    const batches = await loadAssertionsBatch(this.tx, requests.map(({ kind, nodes, wanted }) => ({ sort: 'vertex', kind, properties: [...wanted], subjectIds: [...nodes.keys()].map(Number) })), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
+    for (const [index, { kind, nodes, cache, wanted }] of requests.entries()) {
+      const rows = batches[index]!;
       const byId = new Map<string, StoredAssertion[]>();
       for (const id of nodes.keys()) byId.set(id, []);
       for (const row of rows) byId.get(String(row.subjectId))?.push(row);
