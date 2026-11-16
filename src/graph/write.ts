@@ -148,12 +148,13 @@ export async function activateBoundIdentities(executor:SqlExecutor,declared:Grap
   if(!held.active)await writeAssertion(executor,contract,{sort:'vertex',kind:held.kind,subjectId:held.id,property:'$exists',operation:'assert',value:true},binding.context);
  }
 }
+function edgeUid(kind:string,fromUid:string,toUid:string,discriminator:string):string{return keyUid(keyUid('madarch.catalogue.kind',[kind]),[fromUid,toUid,discriminator]);}
 async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,discriminator:string,context:number):Promise<string>{
  const kindId=await entityId(executor,kind,'edge');
  const nodes=publicationIdentities.get(executor)?.nodes??new Map<string,string>();
  const missing=[...new Set([from,to])].filter(id=>!nodes.has(id));
  if(missing.length)for(const row of (await executor.query<{id:string;uid:string}>(`SELECT id::text AS id,uid::text AS uid FROM node WHERE id=ANY($1::bigint[]) ORDER BY uid`,[missing])).rows)nodes.set(row.id,row.uid);
- const uid=keyUid(keyUid('madarch.catalogue.kind',[kind]),[nodes.get(from)!,nodes.get(to)!,discriminator]);
+ const uid=edgeUid(kind,nodes.get(from)!,nodes.get(to)!,discriminator);
  const made=await executor.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) VALUES($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5,$6) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[uid,kindId,from,to,discriminator,context]);
  return made.rows[0]?.id??(await executor.query<{id:string}>(`SELECT id::text AS id FROM edge WHERE uid=$1::uuid`,[uid])).rows[0]!.id;
 }
@@ -207,11 +208,36 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  if(mentions.length>0)await refreshWriteSemantics(executor);
  for(const mention of mentions){const endpointNode=(await executor.query<{id:string;kind:string}>(`SELECT n.id::text AS id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[mention.uid])).rows[0];if(!endpointNode||!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[endpointNode.id,endpointNode.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);}
  const uid=newUid();const made=await identity(executor,'system.assertion',uid,{},binding.productUid,context);
- await executor.query(`INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation) VALUES($1::bigint,$2,$3,$4,coalesce($5::timestamptz,clock_timestamp()),$6::timestamptz,$7)`,[made.nodeId,input.property,input.language??null,context,input.validFrom??null,input.validTo??null,input.operation]);
- if(input.sort==='vertex'){const edgeId=await putEdge(executor,'system.assertion-subject',made.nodeId,input.subjectId,'',context);await executor.query(`INSERT INTO assertion_vertex_subject(assertion_id,subject_edge_id) VALUES($1::bigint,$2::bigint)`,[made.nodeId,edgeId]);}
- else await executor.query(`INSERT INTO assertion_edge_subject(assertion_id,edge_id) VALUES($1::bigint,$2::bigint)`,[made.nodeId,input.subjectId]);
- for(const [relation,lineageUid] of [['source',binding.sourceUid],['author',binding.principalUid],['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])])await putEdge(executor,`system.assertion-${relation}`,made.nodeId,await uidNode(executor,lineageUid!),'',context);
- if(input.operation==='assert')await executor.query(`INSERT INTO "${assertionValueTableName(input.kind,input.sort,input.property)}"(assertion_id,value) VALUES($1::bigint,$2${field.type==='json'?'::jsonb':''})`,[made.nodeId,field.type==='json'?JSON.stringify(input.value):input.value]);
+ const parameters:unknown[]=[made.nodeId,input.property,input.language??null,context,input.validFrom??null,input.validTo??null,input.operation];
+ const parameter=(value:unknown,cast:string):string=>{parameters.push(value);return `$${parameters.length}${cast}`;};
+ const structuralEdges:string[]=[];
+ const appendStructuralEdge=async(kind:string,targetId:string,targetUid:string):Promise<string>=>{
+  const edgeIdentity=edgeUid(kind,uid,targetUid,'');
+  structuralEdges.push(`(${parameter(edgeIdentity,'::uuid')},${parameter(await entityId(executor,kind,'edge'),'::bigint')},${parameter(targetId,'::bigint')})`);
+  return edgeIdentity;
+ };
+ let subjectEdgeUid:string|undefined;
+ if(input.sort==='vertex'){
+  let subjectUid=publicationIdentities.get(executor)?.nodes.get(input.subjectId);
+  if(subjectUid===undefined)subjectUid=(await executor.query<{uid:string}>(`SELECT uid::text AS uid FROM node WHERE id=$1::bigint`,[input.subjectId])).rows[0]!.uid;
+  subjectEdgeUid=await appendStructuralEdge('system.assertion-subject',input.subjectId,subjectUid);
+ }
+ for(const [relation,lineageUid] of [['source',binding.sourceUid],['author',binding.principalUid],['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])])await appendStructuralEdge(`system.assertion-${relation}`,await uidNode(executor,lineageUid!),lineageUid!);
+ const attachment=input.sort==='vertex'
+  ? `INSERT INTO assertion_vertex_subject(assertion_id,subject_edge_id) SELECT header.assertion_id,structural_edges.id FROM header CROSS JOIN structural_edges WHERE structural_edges.uid=${parameter(subjectEdgeUid,'::uuid')}`
+  : `INSERT INTO assertion_edge_subject(assertion_id,edge_id) SELECT assertion_id,${parameter(input.subjectId,'::bigint')} FROM header`;
+ const valueWrite=input.operation==='assert'
+  ? `INSERT INTO "${assertionValueTableName(input.kind,input.sort,input.property)}"(assertion_id,value) SELECT assertion_id,${parameter(field.type==='json'?JSON.stringify(input.value):input.value,field.type==='json'?'::jsonb':'')} FROM header`
+  : 'SELECT assertion_id FROM header';
+ await executor.query(`WITH header AS (
+  INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
+  VALUES($1::bigint,$2,$3,$4,coalesce($5::timestamptz,clock_timestamp()),$6::timestamptz,$7) RETURNING assertion_id
+ ), structural_edges AS (
+  INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+  SELECT identities.uid,identities.kind,header.assertion_id,identities.target,'',$4 FROM header
+  CROSS JOIN (VALUES ${structuralEdges.join(',')}) identities(uid,kind,target) RETURNING id,uid
+ ), attachment AS (${attachment} RETURNING assertion_id)
+ ${valueWrite}`,parameters);
  for(const [index,evidence] of (input.evidence??[]).entries()){
    const locator=evidence.locator??{};
    validateEvidenceLocator(locator);
