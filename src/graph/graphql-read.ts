@@ -18,6 +18,7 @@
  * derivation relations come from those vertices, the manifest's field vertices and real dependency edges.
  */
 import type { GraphQLFieldResolver } from 'graphql';
+import { withSpan } from '../obs/trace.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { generatedTableName, type FieldType } from '../graph/contract.js';
 import { byCodePoint } from '../model/order.js';
@@ -452,12 +453,12 @@ export class ReadContext {
       if (field.reference !== undefined && read.value !== null && typeof read.value === 'object') return this.referenceValue(entity, field.reference, read.value as Record<string, unknown>);
       return read.value;
     }
-    const opinions = /^(.*)Opinions$/u.exec(name);
+    const opinions = name.match(/^(.*)Opinions$/u);
     if (opinions !== null) {
       const held = this.fieldsByType.get(entity.typeName)?.get(opinions[1]!);
       if (held !== undefined) return await this.fieldOpinions(entity, held);
     }
-    const count = /^(.*)OpinionsCount$/u.exec(name);
+    const count = name.match(/^(.*)OpinionsCount$/u);
     if (count !== null) {
       const held = this.fieldsByType.get(entity.typeName)?.get(count[1]!);
       if (held !== undefined) return (await this.fieldRead(entity, held)).count;
@@ -498,13 +499,16 @@ export class ReadContext {
     if (queue === undefined) return;
     for (const [kind, keys] of queue) {
       const wanted = [...keys.values()];
-      const rows = await this.tx.query<Record<string, unknown>>(
-        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
+      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
          FROM node n JOIN entity en ON en.id = n.entity_id
          WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed
-           AND n.key IN (SELECT jsonb_array_elements($2::jsonb))`,
-        [kind, JSON.stringify(wanted)],
-      );
+           AND n.key IN (SELECT jsonb_array_elements($2::jsonb))`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [kind, JSON.stringify(wanted)]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const found = new Map<string, EntityValue>();
       for (const row of rows.rows) {
         const value = this.entityFromRow(row);
@@ -637,12 +641,15 @@ export class ReadContext {
         const field = declared.fields.find((one) => one.name === column);
         return field?.type === 'bigint' ? `"${column}"::text AS "${column}"` : `"${column}" AS "${column}"`;
       });
-      const rows = await this.tx.query<Record<string, unknown>>(
-        `SELECT node_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select.length === 0 ? '' : `, ${select.join(', ')}`}
+      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT node_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select.length === 0 ? '' : `, ${select.join(', ')}`}
          FROM "${this.vertexTable.get(kind)!}"
-         WHERE node_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`,
-        [[...nodes.keys()]],
-      );
+         WHERE node_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [[...nodes.keys()]]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const byId = new Map<string, OpinionRow[]>();
       for (const id of nodes.keys()) byId.set(id, []);
       for (const row of rows.rows) {
@@ -685,7 +692,7 @@ export class ReadContext {
     if (queue === undefined) return;
     for (const [key, held] of queue) {
       const { edge, side, ids, args, lang } = held;
-      const sql = new Sql();
+        const sql = new Sql();
       const parentColumn = side === 'from' ? 'e.from_node' : 'e.to_node';
       const otherColumn = side === 'from' ? 'e.to_node' : 'e.from_node';
       const first = clampFirst(args.first);
@@ -700,8 +707,8 @@ export class ReadContext {
       const afterKeys = order.keys.map((one) => ({ ...one, expr: `"${one.column}"` }));
       const after = this.afterClause(afterKeys, args.after, sql, 'id');
       const rankOrder = order.keys.length === 0 ? 'rows.id' : order.keys.map((one) => one.rank).join(', ');
-      const answer = await this.tx.query<Record<string, unknown>>(
-        `WITH filtered AS (
+      const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH filtered AS (
            SELECT ${parentColumn}::text AS parent, e.id, e.discriminator, n2.id::text AS other_id, n2.uid::text AS other_uid,
                   n2.key AS other_key, en2.name AS other_entity${projections === '' ? '' : `, ${projections}`}
            FROM edge e
@@ -716,9 +723,12 @@ export class ReadContext {
          ), ranked AS (
            SELECT rows.*, row_number() OVER (PARTITION BY parent ORDER BY ${rankOrder}, rows.id) AS rn FROM rows
          )
-         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY parent, rn`,
-        sql.params,
-      );
+         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY parent, rn`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const opinionRows = await this.fetchEdgeOpinions(edge, [...new Set(answer.rows.map((row) => String(row['id'])))]);
       // A relation may reach a catalogue entity: its values come from the manifest the start published.
       if (answer.rows.some((row) => String(row['other_entity']) === 'manifest.kind')) await this.catalogueData();
@@ -789,11 +799,14 @@ export class ReadContext {
     if (ids.length === 0) return out;
     const table = this.edgeTable.get(edge.name)!;
     const select = edge.fields.map((field) => (field.type === 'bigint' ? `"${field.name}"::text AS "${field.name}"` : `"${field.name}" AS "${field.name}"`)).join(', ');
-    const rows = await this.tx.query<Record<string, unknown>>(
-      `SELECT edge_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select === '' ? '' : `, ${select}`}
-       FROM "${table}" WHERE edge_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`,
-      [ids],
-    );
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT edge_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select === '' ? '' : `, ${select}`}
+       FROM "${table}" WHERE edge_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     for (const row of rows.rows) {
       const values: Record<string, unknown> = {};
       for (const field of edge.fields) values[fieldNameOf(field.name)] = row[field.name];
@@ -815,11 +828,11 @@ export class ReadContext {
     if (name === 'node') return edge.node;
     if (name === 'opinions') return (this.edgeOpinions.get(edge.edgeId) ?? []).slice(-50).reverse().map((row) => opinionOfAll(row));
     if (name in edge.values) return edge.values[name];
-    const opinions = /^(.*)Opinions$/u.exec(name);
+    const opinions = name.match(/^(.*)Opinions$/u);
     if (opinions !== null) {
       return this.edgeOpinionsOf(edge, opinions[1]!).slice(0, 50).map((row) => opinionOf(row, opinions[1]!));
     }
-    const count = /^(.*)OpinionsCount$/u.exec(name);
+    const count = name.match(/^(.*)OpinionsCount$/u);
     if (count !== null) return this.edgeOpinionsOf(edge, count[1]!).length;
     return null;
   }
@@ -884,8 +897,8 @@ export class ReadContext {
       const reference = source.key.includes(field.name)
         ? `(n.key->'${field.name}')`
         : `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN (array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1] END FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1)::jsonb`;
-      const answer = await this.tx.query<Record<string, unknown>>(
-        `WITH filtered AS (
+      const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH filtered AS (
            SELECT tn.id::text AS target, n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
            FROM node n
            JOIN entity en ON en.id = n.entity_id
@@ -901,9 +914,12 @@ export class ReadContext {
          ), ranked AS (
            SELECT rows.*, row_number() OVER (PARTITION BY target ORDER BY ${rankOrder}, rows.node_id::bigint) AS rn FROM rows
          )
-         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY target, rn`,
-        sql.params,
-      );
+         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY target, rn`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const cache = new Map<string, { rows: EntityValue[]; cursors: string[]; total: number }>();
       for (const target of targets.keys()) cache.set(target, { rows: [], cursors: [], total: 0 });
       for (const row of answer.rows) {
@@ -944,8 +960,8 @@ export class ReadContext {
     const kindPages = new Map<string, string>();
     // The catalogue answers the folded nodes' page: the kind's entry lists every entity the node stands for.
     const catalogue = await this.catalogueData().catch(() => undefined);
-    const found = await this.tx.query<Record<string, unknown>>(
-      `WITH around AS (
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH around AS (
          SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
@@ -965,9 +981,12 @@ export class ReadContext {
                 row_number() OVER (PARTITION BY side, relation, kind ORDER BY node_id::bigint) AS rn
          FROM live
        )
-       SELECT * FROM counted WHERE rn <= $2::int ORDER BY side, relation, kind, rn`,
-      [id, Math.max(1, first)],
-    );
+       SELECT * FROM counted WHERE rn <= $2::int ORDER BY side, relation, kind, rn`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [id, Math.max(1, first)]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const sample = new Map<string, Record<string, unknown>[]>();
     for (const row of found.rows) {
       const key = `${row['side']}\u0000${row['relation']}\u0000${row['kind']}`;
@@ -1094,22 +1113,28 @@ export class ReadContext {
             WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
         }
       }
-      const rows = await this.tx.query<Record<string, unknown>>(
-        `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
+      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
            SELECT DISTINCT target, relation, source_id, other FROM links
          ), ranked AS (
            SELECT distinct_links.*, row_number() OVER (PARTITION BY target ORDER BY relation, source_id) AS rn,
                   count(*) OVER (PARTITION BY target) AS total
            FROM distinct_links
          )
-         SELECT * FROM ranked ORDER BY target, rn`,
-        sql.params,
-      );
+         SELECT * FROM ranked ORDER BY target, rn`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const others = [...new Set(rows.rows.map((row) => String(row['other'])))];
-      const nodes = others.length === 0 ? [] : (await this.tx.query<Record<string, unknown>>(
-        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`,
-        [others],
-      )).rows;
+      const nodes = others.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [others]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      })).rows;
       const byId = new Map<string, EntityValue>();
       for (const row of nodes) {
         const node = this.entityFromRow(row, held.entity.lang);
@@ -1168,12 +1193,15 @@ export class ReadContext {
     const table = this.vertexTable.get(kind);
     if (table === undefined) return null;
     // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
-    const found = await this.tx.query<{ blob: unknown }>(
-      `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
         WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
-          AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`,
-      [roles.repository, repository, roles.path, path],
-    );
+          AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<{ blob: unknown }>(statementSql, [roles.repository, repository, roles.path, path]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const blob = found.rows[0]?.blob;
     if (typeof blob !== 'string' || blob === '') return null;
     // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
@@ -1195,11 +1223,14 @@ export class ReadContext {
     if (field === 'entity') {
       const id = typeof args['id'] === 'string' ? args['id'] : '';
       if (id === '') return null;
-      const rows = await this.tx.query<Record<string, unknown>>(
-        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-         FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.uid = $1::uuid AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
-        [id],
-      );
+      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
+         FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.uid = $1::uuid AND n.context_id = 1 AND NOT n.removed LIMIT 1`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [id]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       if (rows.rows[0] === undefined) return null;
       if (String(rows.rows[0]['entity']) === 'manifest.kind') await this.catalogueData();
       return this.entityFromRow(rows.rows[0], lang) ?? null;
@@ -1241,8 +1272,8 @@ export class ReadContext {
     const afterKeys = order.keys.map((one) => ({ ...one, expr: `"order_${String(one.at)}"` }));
     const after = this.afterClause(afterKeys, args.after, sql, 'node_id::bigint');
     const rankOrder = order.keys.length === 0 ? 'rows.node_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
-    const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH filtered AS (
+    const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH filtered AS (
          SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
          FROM node n JOIN entity en ON en.id = n.entity_id
          WHERE en.name = ${kindName} AND n.context_id = 1 AND NOT n.removed${where === '' ? '' : ` AND (${where})`}
@@ -1253,9 +1284,12 @@ export class ReadContext {
                 (SELECT count(*) FROM filtered) AS total
          FROM rows
        )
-       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`,
-      sql.params,
-    );
+       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const values = answer.rows.map((row) => this.entityFromRow(row, lang)).filter((one): one is EntityValue => one !== undefined);
     const total = answer.rows.length === 0 ? 0 : Number(answer.rows[0]!['total']);
     const page = values.slice(0, first);
@@ -1274,11 +1308,14 @@ export class ReadContext {
     const startupFirst = kind.source === 'graph' && table !== undefined
       ? `EXISTS (SELECT 1 FROM "${table}" p WHERE p.node_id = n.id AND p.context_id = 1 AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'start') DESC, `
       : '';
-    const rows = await this.tx.query<Record<string, unknown>>(
-      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY ${startupFirst}n.id LIMIT 1`,
-      [kind.name],
-    );
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
+       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY ${startupFirst}n.id LIMIT 1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [kind.name]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     if (rows.rows[0] === undefined) return null;
     if (String(rows.rows[0]['entity']) === 'manifest.kind') await this.catalogueData();
     return this.entityFromRow(rows.rows[0], lang) ?? null;
@@ -1315,8 +1352,8 @@ export class ReadContext {
     }
     if (parts.length === 0) return [];
     const bound = sql.param(limit, '::int');
-    const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH hits AS (${parts.join(' UNION ALL ')}),
+    const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH hits AS (${parts.join(' UNION ALL ')}),
        matched AS (
          SELECT hits.*, row_number() OVER (PARTITION BY node_id ORDER BY rank, length(value), value COLLATE "C") AS match_row
          FROM hits
@@ -1329,9 +1366,12 @@ export class ReadContext {
        )
        SELECT node_id, uid, key, kind, value, rank, total FROM counted
        WHERE result_row <= ${bound}
-       ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint`,
-      sql.params,
-    );
+       ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     return answer.rows.map((row) => ({
       nodeId: String(row['node_id']),
       uid: String(row['uid']),
@@ -1509,7 +1549,13 @@ export class ReadContext {
         FROM node n JOIN entity en ON en.id = n.entity_id
         WHERE n.context_id = 1 AND NOT n.removed AND en.name = ${kindParam}${stillHere}`;
     });
-    const found = await this.tx.query<Record<string, unknown>>(parts.join(' UNION ALL '), sql.params);
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = parts.join(' UNION ALL ');
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     return new Map(found.rows.map((row) => [String(row['kind']), Number(row['n'])]));
   }
 
@@ -1543,7 +1589,13 @@ export class ReadContext {
     const { kind, lang } = aggregate;
     if (name === 'count') {
       const filtered = this.aggregateSource(aggregate, undefined);
-      const found = await this.tx.query<{ n: number }>(`WITH v AS (${filtered.sql}) SELECT count(*)::int AS n FROM v`, filtered.params);
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH v AS (${filtered.sql}) SELECT count(*)::int AS n FROM v`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<{ n: number }>(statementSql, filtered.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       return Number(found.rows[0]?.n ?? 0);
     }
     const fieldName = typeof args['field'] === 'string' ? args['field'] : '';
@@ -1552,11 +1604,14 @@ export class ReadContext {
     const filtered = this.aggregateSource(aggregate, field);
     if (name === 'groupBy') {
       const limit = Math.min(Math.max(0, Math.trunc(Number(args['limit'] ?? 20))), 20);
-      const found = await this.tx.query<{ key: unknown; n: number }>(
-        `WITH v AS (${filtered.sql}) SELECT to_jsonb(value) AS key, count(*)::int AS n FROM v
-         GROUP BY value ORDER BY n DESC, value ASC NULLS LAST LIMIT ${String(limit)}`,
-        filtered.params,
-      );
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH v AS (${filtered.sql}) SELECT to_jsonb(value) AS key, count(*)::int AS n FROM v
+         GROUP BY value ORDER BY n DESC, value ASC NULLS LAST LIMIT ${String(limit)}`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<{ key: unknown; n: number }>(statementSql, filtered.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       return found.rows.map((row) => ({ key: row.key, count: Number(row.n) }));
     }
     if (name === 'histogram') {
@@ -1572,28 +1627,37 @@ export class ReadContext {
           : from === null ? `m < ${String(to)}` : to === null ? `m >= ${String(from)}` : `m >= ${String(from)} AND m < ${String(to)}`;
         return { clause, from, to };
       });
-      const found = await this.tx.query<{ at: number; n: number }>(
-        `WITH v AS (${filtered.sql}), m AS (SELECT ${measured} AS m FROM v WHERE value IS NOT NULL),
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH v AS (${filtered.sql}), m AS (SELECT ${measured} AS m FROM v WHERE value IS NOT NULL),
          b AS (SELECT * FROM (VALUES ${buckets.map((_, at) => `(${String(at)})`).join(', ')}) AS t(at))
          SELECT b.at, ${buckets.map((one, at) => `count(*) FILTER (WHERE b.at = ${String(at)} AND ${one.clause})`).join(' + ')}::int AS n
-         FROM m CROSS JOIN b GROUP BY b.at ORDER BY b.at`,
-        filtered.params,
-      );
+         FROM m CROSS JOIN b GROUP BY b.at ORDER BY b.at`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<{ at: number; n: number }>(statementSql, filtered.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const counted = new Map(found.rows.map((row) => [Number(row.at), Number(row.n)]));
       return buckets.map((one, at) => ({ from: one.from, to: one.to, count: counted.get(at) ?? 0 }));
     }
     if (name === 'topN') {
       const n = Math.min(Math.max(0, Math.trunc(Number(args['n'] ?? 10))), 50);
-      const found = await this.tx.query<Record<string, unknown>>(
-        `WITH v AS (${filtered.sql}) SELECT node_id, value FROM v WHERE value IS NOT NULL
-         ORDER BY value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`,
-        filtered.params,
-      );
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `WITH v AS (${filtered.sql}) SELECT node_id, value FROM v WHERE value IS NOT NULL
+         ORDER BY value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, filtered.params);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const ids = found.rows.map((row) => String(row['node_id']));
-      const nodes = ids.length === 0 ? [] : (await this.tx.query<Record<string, unknown>>(
-        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`,
-        [ids],
-      )).rows;
+      const nodes = ids.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      })).rows;
       const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
       return found.rows
         .map((row) => ({ node: byId.get(String(row['node_id'])), value: row['value'] }))
@@ -1625,8 +1689,8 @@ export class ReadContext {
     const afterKeys = order.keys.map((one) => ({ ...one, expr: `"order_${String(one.at)}"` }));
     const after = this.afterClause(afterKeys, args['after'] as string | null | undefined, sql, 'other_id::bigint');
     const rankOrder = order.keys.length === 0 ? 'rows.other_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
-    const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH filtered AS (
+    const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH filtered AS (
          SELECT ${otherColumn}::text AS other_id, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
          FROM edge e
          JOIN entity en ON en.id = e.entity_id AND en.name = ${sql.param(edgeName, '::text')}
@@ -1638,9 +1702,12 @@ export class ReadContext {
                 (SELECT count(*) FROM filtered) AS total
          FROM rows
        )
-       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`,
-      sql.params,
-    );
+       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const values = answer.rows.map((row) => this.entityFromRow(row, lang)).filter((one): one is EntityValue => one !== undefined);
     const total = answer.rows.length === 0 ? 0 : Number(answer.rows[0]!['total']);
     const page = values.slice(0, first);
@@ -1657,10 +1724,13 @@ export class ReadContext {
   private async vertexColumns(): Promise<Map<string, Set<string>>> {
     if (this.columnCache !== undefined) return this.columnCache;
     const tables = [...new Set(this.published.kinds.map((kind) => this.vertexTable.get(kind.name)).filter((one): one is string => one !== undefined))];
-    const found = tables.length === 0 ? [] : (await this.tx.query<{ table_name: string; column_name: string }>(
-      `SELECT table_name, column_name FROM information_schema.columns WHERE table_name = ANY($1::text[])`,
-      [tables],
-    )).rows;
+    const found = tables.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT table_name, column_name FROM information_schema.columns WHERE table_name = ANY($1::text[])`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<{ table_name: string; column_name: string }>(statementSql, [tables]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    })).rows;
     const out = new Map<string, Set<string>>();
     for (const row of found) {
       const held = out.get(String(row.table_name)) ?? new Set<string>();
@@ -1681,8 +1751,8 @@ export class ReadContext {
     const edge = typeof args['edge'] === 'string' ? args['edge'] : '';
     const first = Math.min(Math.max(1, Math.trunc(Number(args['first'] ?? 20))), 50);
     if (uid === '' || through === '' || edge === '') return [];
-    const rows = await this.tx.query<Record<string, unknown>>(
-      `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
        near AS (
          SELECT e.from_node AS mid FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
            WHERE e.to_node = (SELECT id FROM me) AND e.context_id = 1
@@ -1692,15 +1762,21 @@ export class ReadContext {
            WHERE e.to_node IN (SELECT mid FROM near) AND e.context_id = 1
        ),
        counted AS (SELECT node, count(*)::int AS n FROM far GROUP BY node)
-       SELECT node, n FROM counted ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`,
-      [uid, through, edge],
-    );
+       SELECT node, n FROM counted ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [uid, through, edge]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const ids = rows.rows.map((row) => String(row['node']));
     if (ids.length === 0) return [];
-    const nodes = (await this.tx.query<Record<string, unknown>>(
-      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`,
-      [ids],
-    )).rows;
+    const nodes = (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    })).rows;
     const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
     return rows.rows.map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) })).filter((one) => one.node !== undefined);
   }
@@ -1714,8 +1790,8 @@ export class ReadContext {
     const edgeName = typeof args['edge'] === 'string' ? args['edge'] : '';
     const first = Math.min(Math.max(0, Math.trunc(Number(args['first'] ?? 20))), 50);
     if (uid === '' || edgeName === '') return [];
-    const rows = await this.tx.query<Record<string, unknown>>(
-      `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
        mine AS (
          SELECT e.to_node AS node, e.from_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
            WHERE e.to_node = (SELECT id FROM me) AND e.context_id = 1
@@ -1731,15 +1807,21 @@ export class ReadContext {
            WHERE e.to_node IN (SELECT other FROM mine) AND e.from_node <> (SELECT id FROM me) AND e.context_id = 1
        ),
        shared AS (SELECT node, count(DISTINCT other)::int AS n FROM sibling GROUP BY node)
-       SELECT node, n FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`,
-      [uid, edgeName],
-    );
+       SELECT node, n FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [uid, edgeName]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const ids = rows.rows.map((row) => String(row['node']));
     if (ids.length === 0) return [];
-    const nodes = (await this.tx.query<Record<string, unknown>>(
-      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`,
-      [ids],
-    )).rows;
+    const nodes = (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    })).rows;
     const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
     return rows.rows
       .map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) }))
@@ -1760,26 +1842,38 @@ export class ReadContext {
     const byId = new Map<string, CatalogueValue>();
     const kindTable = generatedTableName('manifest.kind', 'vertex');
     const fieldTable = generatedTableName('manifest.field', 'vertex');
-    const kinds = await this.tx.query<Record<string, unknown>>(
-      `SELECT DISTINCT ON (n.id) n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name, p.declaration AS declaration
+    const kinds = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT DISTINCT ON (n.id) n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name, p.declaration AS declaration
        FROM "${kindTable}" p
        JOIN node n ON n.id = p.node_id
        WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed
-       ORDER BY n.id, p.id DESC`,
-    );
-    const fieldRows = await this.tx.query<Record<string, unknown>>(
-      `SELECT p.declaration AS declaration FROM "${fieldTable}" p
+       ORDER BY n.id, p.id DESC`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
+    const fieldRows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT p.declaration AS declaration FROM "${fieldTable}" p
        JOIN node n ON n.id = p.node_id
-       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`,
-    );
-    const dependencies = await this.tx.query<Record<string, unknown>>(
-      `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
+       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
+    const dependencies = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
        FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
        JOIN node dependent ON dependent.id = e.from_node AND dependent.context_id = 1 AND NOT dependent.removed
        JOIN node prerequisite ON prerequisite.id = e.to_node AND prerequisite.context_id = 1 AND NOT prerequisite.removed
        WHERE e.context_id = 1
-       ORDER BY dependent, prerequisite`,
-    );
+       ORDER BY dependent, prerequisite`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const fieldsByKind = new Map<string, CatalogueFieldValue[]>();
     for (const row of fieldRows.rows) {
       const declaration = row['declaration'] as Record<string, unknown> | undefined;

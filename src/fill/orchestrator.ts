@@ -611,7 +611,7 @@ async function answerNow(
   query: string,
 ): Promise<{ readonly kind: 'read'; readonly rows: readonly unknown[] } | { readonly kind: 'unanswered'; readonly reason: string }> {
   try {
-    return { kind: 'read', rows: await reader.query(query) };
+    return { kind: 'read', rows: await withSpan('graph.read', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(query) }, async (span) => { const rows = await reader.query(query); span.setAttribute('db.rows', rows.length); return rows; }) };
   } catch (error) {
     if (error instanceof SnapshotError || error instanceof GraphReadRefusal) return { kind: 'unanswered', reason: error.message };
     throw error;
@@ -1189,15 +1189,15 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
     const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
       // limits are counted and the step taken under one lock and a slot can never be given twice.
-      const locked = await executor.query<{ run_id: string }>('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [run.runId]);
+      const locked = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE') }, async (span) => { const answer = await executor.query<{ run_id: string }>('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [run.runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
       if (locked.rows.length === 0) raise(`table fill_run: no run ${run.runId}`);
       const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
       if (scheduling !== undefined) {
         for (const dependency of scheduling.after) {
-          const previous = await executor.query<{ state: string; generation: unknown }>(
+          const previous = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT g.state, g.generation FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1') }, async (span) => { const answer = await executor.query<{ state: string; generation: unknown }>(
             'SELECT g.state, g.generation FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
             [unitIdFor(unit.stageId, dependency)],
-          );
+          ); span.setAttribute('db.rows', answer.rows.length); return answer; });
           const dependencyId = unitIdFor(unit.stageId, dependency);
           const state = previous.rows[0]?.state;
           const generation = Number(previous.rows[0]?.generation);
@@ -1216,12 +1216,14 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
           if (state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
         }
       }
-      const counted = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
+      const counted = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT u.unit_id AS unit_id, u.stage_id AS stage_id, g.state AS state
+           FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+          WHERE g.run_id = $1`) }, async (span) => { const answer = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
         `SELECT u.unit_id AS unit_id, u.stage_id AS stage_id, g.state AS state
            FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
           WHERE g.run_id = $1`,
         [run.runId],
-      );
+      ); span.setAttribute('db.rows', answer.rows.length); return answer; });
       const states = counted.rows.map((row) => ({ unitId: row.unit_id, stageId: row.stage_id, state: row.state as UnitState }));
       if (scheduling !== undefined) {
         const stage = stageOf(orchestrator, unit.stageId);
@@ -2842,7 +2844,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
   // that costs what the run holds. The index on `fill_unit_generation(run_id)` makes it a small read.
   const passRunId = run.runId;
-  const counted = await database.run(async (executor) => await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]));
+  const counted = await database.run(async (executor) => await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1') }, async (span) => { const answer = await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]); span.setAttribute('db.rows', answer.rows.length); return answer; }));
   const unitsInRun = Number(counted.rows[0]?.count ?? 0);
   tick('read');
 

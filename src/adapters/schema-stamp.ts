@@ -1,4 +1,5 @@
 /** Stamped module preparation, called only from the store owner's preparation boundary. */
+import { withSpan } from '../obs/trace.js';
 import { sha256Hex } from '../graph/digest.js';
 import type { DatabaseOwner, OuterTransaction } from './database-owner.js';
 
@@ -35,23 +36,53 @@ export async function createSchemaOnce(owner: Pick<DatabaseOwner, 'transaction'>
   const stamp = schemaStampOf(options.parts);
   return await owner.transaction('write', async (transaction) => {
     // Serialized before anything is read or made: the lock is what makes the check and the DDL one step.
-    await transaction.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    await transaction.query(`CREATE SCHEMA IF NOT EXISTS ${STAMP_SCHEMA}`);
-    await transaction.query(STAMP_TABLE);
-    const held = await transaction.query<{ stamp: string; standing: string }>(
-      `SELECT s.stamp, (SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                        WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($2::text[])) AS standing
-         FROM ${STAMP_SCHEMA}.schema_stamp s WHERE s.name = $1`,
-      [options.name, options.tables],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = SCHEMA_LOCK_SQL;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query(sql, [storeSchemaLockKey()]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `CREATE SCHEMA IF NOT EXISTS ${STAMP_SCHEMA}`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = STAMP_TABLE;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT s.stamp, (SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                            WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($2::text[])) AS standing
+             FROM ${STAMP_SCHEMA}.schema_stamp s WHERE s.name = $1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query<{ stamp: string; standing: string }>(
+          sql,
+          [options.name, options.tables],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     // The stamp stands only while the tables it describes stand: a store reset by a tool or a test drops them, and the
     // stamp beside them must not claim a schema that is gone.
     if (held.rows[0]?.stamp === stamp && Number(held.rows[0]?.standing) === options.tables.length) return false;
     await options.create(transaction);
-    await transaction.query(
-      `INSERT INTO ${STAMP_SCHEMA}.schema_stamp (name, stamp) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()`,
-      [options.name, stamp],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `INSERT INTO ${STAMP_SCHEMA}.schema_stamp (name, stamp) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query(
+          sql,
+          [options.name, stamp],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return true;
   });
 }

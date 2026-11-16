@@ -1,3 +1,4 @@
+import { withSpan } from '../obs/trace.js';
 /**
  * The GraphQL API's executor (decision 0036, sections 1, 4 and 5): one operation, one read-only snapshot transaction,
  * the schema derived from the product's published manifest, and the read layer's resolvers. Admission refuses a query
@@ -276,8 +277,20 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     }
   }
   const work = owner.transaction('snapshot', async (tx) => {
-    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(deadlineMs)]);
-    const pid = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = "SELECT set_config('statement_timeout', $1, true)";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query(sql, [String(deadlineMs)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const pid = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT pg_backend_pid() AS pid';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ pid: number }>(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     backend = Number(pid.rows[0]?.pid);
     // The manifest is read inside the operation's snapshot: a publication between the schema and the data would
     // otherwise answer a query whose fields the rows no longer match.
@@ -303,7 +316,13 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
       get(target, property, receiver) {
         if (property === 'query') {
           return async (text: string, params?: readonly unknown[]) => {
-            const run = queue.then(async () => await target.query(text, params as never));
+            const run = queue.then(async () => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+              const sql = text;
+              span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+              const result = await target.query(sql, params as never);
+              span.setAttribute('db.rows', result.rows.length);
+              return result;
+            }));
             queue = run.catch(() => undefined);
             return await run;
           };
@@ -349,7 +368,13 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   } catch (error) {
     if (error instanceof GraphqlRefusal) {
       if (expired) {
-        if (backend !== undefined) await owner.run(async (tx) => { await tx.query('SELECT pg_cancel_backend($1)', [backend]); }).catch(() => undefined);
+        if (backend !== undefined) await owner.run(async (tx) => { await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+          const sql = 'SELECT pg_cancel_backend($1)';
+          span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+          const result = await tx.query(sql, [backend]);
+          span.setAttribute('db.rows', result.rows.length);
+          return result;
+        }); }).catch(() => undefined);
         await work.catch(() => undefined);
       }
       return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };

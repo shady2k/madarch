@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * One product's knowledge wiki (decision 0029): the product's own graph store,
  * the fill that writes it, and the reads that draw its pages.
@@ -438,7 +439,13 @@ export class KnowledgeProduct {
    * PostgreSQL telling this side to try again, and the second attempt finds the tables the other committed.
    */
   private async ensureStoreTables(owner: DatabaseOwner): Promise<void> {
-    const there = async (): Promise<boolean> => (await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.node') IS NOT NULL AS there"))).rows[0]?.there === true;
+    const there = async (): Promise<boolean> => (await owner.run(async (tx) => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = "SELECT to_regclass('public.node') IS NOT NULL AS there";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ there: boolean }>(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    }))).rows[0]?.there === true;
     if (await there()) return;
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -449,7 +456,13 @@ export class KnowledgeProduct {
         await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
-          await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+          await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+            const sql = SCHEMA_LOCK_SQL;
+            span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+            const result = await tx.query(sql, [storeSchemaLockKey()]);
+            span.setAttribute('db.rows', result.rows.length);
+            return result;
+          });
         });
         return;
       } catch (error) {
@@ -554,7 +567,13 @@ export class KnowledgeProduct {
     const owner = await this.open();
     await this.followStoreFill();
     return await owner.transaction('snapshot', async (tx) => {
-      await tx.query("SET LOCAL statement_timeout = '2000ms'");
+      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = "SET LOCAL statement_timeout = '2000ms'";
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query(sql);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       const manifest = await readPublishedManifest(tx);
       if (manifest === undefined) throw new WikiReadError(`${join(this.options.productFolder, KINDS_FILE)}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
       const published = publishedManifestOf(manifest);
@@ -819,7 +838,7 @@ export class KnowledgeProduct {
   /** Takes the pause off the store: the run it described was taken up or ended. A failure is logged. */
   private clearPause(): void {
     try {
-      rmSync(this.pauseFile(), { force: true });
+      withSpanSync('fs.remove', { 'file.path': this.pauseFile() }, () => rmSync(this.pauseFile(), { force: true }));
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not take the pause off ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -836,7 +855,7 @@ export class KnowledgeProduct {
     if (this.fill.state !== 'idle' || this.writer.state !== 'idle' || this.running !== undefined) return;
     let kept: { fill?: unknown; writer?: unknown; run?: unknown };
     try {
-      kept = JSON.parse(readFileSync(this.pauseFile(), 'utf8')) as { fill?: unknown; writer?: unknown; run?: unknown };
+      kept = JSON.parse(withSpanSync('fs.read', { 'file.path': this.pauseFile() }, (span) => { const result = readFileSync(this.pauseFile(), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(result)); return result; })) as { fill?: unknown; writer?: unknown; run?: unknown };
     } catch {
       return;
     }
@@ -964,11 +983,11 @@ export class KnowledgeProduct {
       return { started: false, message: `the run could not find the store it belongs to, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
     }
     try {
-      mkdirSync(folder, { recursive: true });
-      writeFileSync(this.activeFillFile(), `${JSON.stringify({ startedAt })}\n`, 'utf8');
-      rmSync(join(folder, CHANGED_PAGES_FILE), { force: true });
+      withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
+      withSpanSync('fs.write', { 'file.path': this.activeFillFile(), 'file.bytes': Buffer.byteLength(`${JSON.stringify({ startedAt })}\n`) }, () => writeFileSync(this.activeFillFile(), `${JSON.stringify({ startedAt })}\n`, 'utf8'));
+      withSpanSync('fs.remove', { 'file.path': join(folder, CHANGED_PAGES_FILE) }, () => rmSync(join(folder, CHANGED_PAGES_FILE), { force: true }));
     } catch (error) {
-      try { rmSync(this.activeFillFile(), { force: true }); } catch { /* the launched run has not begun; its mark is only a file */ }
+      try { withSpanSync('fs.remove', { 'file.path': this.activeFillFile() }, () => rmSync(this.activeFillFile(), { force: true })); } catch { /* the launched run has not begun; its mark is only a file */ }
       return { started: false, message: `the run of ${folder} could not be marked as active, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
     }
     this.changedPages = undefined;
@@ -1186,7 +1205,7 @@ export class KnowledgeProduct {
   /** The mark is removed once the run is over, whether it completed or failed. */
   private clearActiveFill(): void {
     try {
-      rmSync(this.activeFillFile(), { force: true });
+      withSpanSync('fs.remove', { 'file.path': this.activeFillFile() }, () => rmSync(this.activeFillFile(), { force: true }));
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not clear the mark of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1231,29 +1250,31 @@ export class KnowledgeProduct {
     let folder: string;
     try { folder = journalFolder(this.storeFolder()); } catch { return new Map(); }
     let names: string[] = [];
-    try { names = readdirSync(folder).filter((name) => name.startsWith('run-') && name.endsWith('.jsonl')).sort(byCodePoint); }
+    try { names = withSpanSync('fs.readdir', { 'file.path': folder }, (span) => { const result = readdirSync(folder); span.setAttribute('file.entries', result.length); return result; }).filter((name) => name.startsWith('run-') && name.endsWith('.jsonl')).sort(byCodePoint); }
     catch { names = []; }
     const index = new Map<string, string[]>();
-    for (const name of names) {
-      const file = join(folder, name);
-      const run = name.slice(0, -'.jsonl'.length);
-      let stamp: string;
-      try { const stat = statSync(file); stamp = `${stat.size}:${stat.mtimeMs}`; }
-      catch { continue; }
-      let entry = this.journalFiles.get(file);
-      if (entry === undefined || entry.stamp !== stamp) {
-        const units = new Map<string, string[]>();
-        for (const record of readJournalFile(file).records) units.set(record.unit, [run]);
-        entry = { stamp, units };
-        this.journalFiles.set(file, entry);
+    withSpanSync('journal.index', { 'file.path': folder, 'journal.entries': names.length }, () => {
+      for (const name of names) {
+        const file = join(folder, name);
+        const run = name.slice(0, -'.jsonl'.length);
+        let stamp: string;
+        try { const stat = statSync(file); stamp = `${stat.size}:${stat.mtimeMs}`; }
+        catch { continue; }
+        let entry = this.journalFiles.get(file);
+        if (entry === undefined || entry.stamp !== stamp) {
+          const units = new Map<string, string[]>();
+          for (const record of readJournalFile(file).records) units.set(record.unit, [run]);
+          entry = { stamp, units };
+          this.journalFiles.set(file, entry);
+        }
+        for (const unit of entry.units.keys()) {
+          const runs = index.get(unit);
+          if (runs === undefined) index.set(unit, [run]);
+          else runs.push(run);
+        }
       }
-      for (const unit of entry.units.keys()) {
-        const runs = index.get(unit);
-        if (runs === undefined) index.set(unit, [run]);
-        else runs.push(run);
-      }
-    }
-    for (const runs of index.values()) runs.sort(byCodePoint);
+      for (const runs of index.values()) runs.sort(byCodePoint);
+    });
     return index;
   }
 
@@ -1327,10 +1348,10 @@ export class KnowledgeProduct {
   /** Writes the product's settings file whole, the way every setting is stored: one file, one atomic rename. */
   private async writeSettings(body: Record<string, unknown>): Promise<void> {
     const file = this.choiceFile();
-    await mkdir(dirname(file), { recursive: true });
+    await withSpan('fs.mkdir', { 'file.path': dirname(file) }, async () => await mkdir(dirname(file), { recursive: true }));
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
-    await rename(temporary, file);
+    await withSpan('fs.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(`${JSON.stringify(body)}\n`) }, async () => await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8'));
+    await withSpan('fs.rename', { 'file.from': temporary, 'file.to': file }, async () => await rename(temporary, file));
     this.notify();
   }
 
@@ -1391,13 +1412,13 @@ export class KnowledgeProduct {
     if (assignments.editing !== null) roles.editing = assignments.editing;
     if (Object.keys(roles).length > 0) body.roles = roles;
     if (!any && Object.keys(body).length === 0) {
-      await rm(file, { force: true });
+      await withSpan('fs.remove', { 'file.path': file }, async () => await rm(file, { force: true }));
       return;
     }
-    await mkdir(dirname(file), { recursive: true });
+    await withSpan('fs.mkdir', { 'file.path': dirname(file) }, async () => await mkdir(dirname(file), { recursive: true }));
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
-    await rename(temporary, file);
+    await withSpan('fs.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(`${JSON.stringify(body)}\n`) }, async () => await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8'));
+    await withSpan('fs.rename', { 'file.from': temporary, 'file.to': file }, async () => await rename(temporary, file));
   }
 
   /** The agent the reader chose for this product, or null; a file that names an agent madarch does not offer is an error naming it. */
@@ -1881,8 +1902,8 @@ export class KnowledgeProduct {
     if (current !== language && this.pagesLanguage() === undefined && existsSync(join(product.folder, PRODUCT_PATH))) {
       const file = join(this.storeFolder(), 'pages-language.json');
       try {
-        mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, `${JSON.stringify({ language: current })}\n`, 'utf8');
+        withSpanSync('fs.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
+        withSpanSync('fs.write', { 'file.path': file, 'file.bytes': Buffer.byteLength(`${JSON.stringify({ language: current })}\n`) }, () => writeFileSync(file, `${JSON.stringify({ language: current })}\n`, 'utf8'));
       } catch (error) {
         return { ok: false, message: `${file}: the language the pages are in now could not be recorded, so the language was not changed: ${(error as Error).message}` };
       }
@@ -1914,7 +1935,7 @@ export class KnowledgeProduct {
   /** The language the writer last wrote the pages in whole, as kept beside the store; absent when none was recorded. */
   private pagesLanguage(): string | undefined {
     try {
-      const language = (JSON.parse(readFileSync(join(this.storeFolder(), 'pages-language.json'), 'utf8')) as { language?: unknown }).language;
+      const language = (JSON.parse(withSpanSync('fs.read', { 'file.path': join(this.storeFolder(), 'pages-language.json') }, (span) => { const result = readFileSync(join(this.storeFolder(), 'pages-language.json'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(result)); return result; })) as { language?: unknown }).language;
       return typeof language === 'string' ? language : undefined;
     } catch {
       return undefined;
@@ -1924,7 +1945,7 @@ export class KnowledgeProduct {
   /** The run last recorded as finished, with the start that tells it from an earlier one; absent when none was recorded. */
   private lastFill(): { startedAt: string | null; finishedAt: string } | undefined {
     try {
-      const kept = JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { startedAt?: unknown; finishedAt?: unknown };
+      const kept = JSON.parse(withSpanSync('fs.read', { 'file.path': join(this.storeFolder(), 'last-fill.json') }, (span) => { const result = readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(result)); return result; })) as { startedAt?: unknown; finishedAt?: unknown };
       if (typeof kept.finishedAt !== 'string') return undefined;
       if (kept.startedAt !== undefined && kept.startedAt !== null && typeof kept.startedAt !== 'string') return undefined;
       return { startedAt: typeof kept.startedAt === 'string' ? kept.startedAt : null, finishedAt: kept.finishedAt };
@@ -2135,7 +2156,7 @@ export class KnowledgeProduct {
       if (event.kind !== 'unit-published') continue;
       const kind = kindOfUnit(event.unitId);
       if (kind === undefined) continue;
-      const facts = /published\s+(\d+)\s+facts?/u.exec(event.summary)?.[1];
+      const facts = event.summary.match(/published\s+(\d+)\s+facts?/u)?.[1];
       this.notify({ kinds: [kind], ...(facts === undefined ? {} : { facts: Number(facts) }) });
     }
     this.progressNotice = { runId, seq: last };
@@ -2255,7 +2276,7 @@ export class KnowledgeProduct {
     const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
     let run: ReturnType<typeof readTraceRunSummary> | undefined;
     if (chosenEntry !== undefined) {
-      const stat = statSync(chosenEntry.file);
+      const stat = withSpanSync('fs.stat', { 'file.path': chosenEntry.file }, () => statSync(chosenEntry.file));
       const key = `${chosenEntry.file}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
       if (this.traceSummaryMemo?.key !== key) {
         this.traceSummaryMemo = { key, value: readTraceRunSummary({ store: this.storeFolder(), runId: record.runId }, this.traceReader) };

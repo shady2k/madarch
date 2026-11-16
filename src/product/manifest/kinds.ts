@@ -33,6 +33,7 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
+import { withSpanSync } from '../../obs/trace.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
@@ -1786,7 +1787,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const parseBinding = (raw: unknown, path: (string | number)[]): FieldBinding | undefined | null => {
       if (raw === undefined) return undefined;
       if (typeof raw === 'string') {
-        const parsed = BINDING_PATTERN.exec(raw);
+        const parsed = raw.match(BINDING_PATTERN);
         if (parsed === null) { problem(path, `"binding" is "<plugin>@<major>.<field>" (a plugin id, the major version the manifest binds, and a field the plugin declares), and is ${JSON.stringify(raw)}`); return null; }
         return { kind: 'plugin', plugin: parsed[1]!, major: parsed[2]!, field: parsed[3]! };
       }
@@ -2260,10 +2261,18 @@ export function setKindsLanguage(productFolder: string, language: string): strin
       const root = realpathSync(productFolder);
       if (!real.startsWith(`${root}/`) && !real.startsWith(`${root}\\`)) return `${file}: the manifest is a link to ${real}, outside the product ${productFolder}, so the language is not written into it`;
     }
-    const document = parseDocument(readFileSync(file, 'utf8'));
+    const document = parseDocument(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const result = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(result));
+      return result;
+    }));
     if (document.errors.length > 0) return `${file}: the manifest cannot be read, so the language is not written into it: ${document.errors[0]!.message.split('\n')[0]}`;
     document.set('language', language);
-    writeFileSync(file, document.toString(), 'utf8');
+    withSpanSync('fs.write', { 'file.path': file }, (span) => {
+      const data = document.toString();
+      span.setAttribute('file.bytes', Buffer.byteLength(data));
+      return writeFileSync(file, data, 'utf8');
+    });
     return undefined;
   } catch (error) {
     return `${file}: the language could not be written: ${(error as Error).message}`;

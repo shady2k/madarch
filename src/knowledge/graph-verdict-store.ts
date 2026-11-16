@@ -3,6 +3,7 @@
  * versions of a filled product, read from the temporal graph, and the JSON
  * cache beside the product's store. Nothing is written into the graph itself.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { GIT_KINDS } from '../fill/stages/git-contract.js';
@@ -73,7 +74,7 @@ export function readGraphVerdictState(file: string): GraphVerdictState {
   if (!existsSync(file)) return { budgets: DEFAULT_GRAPH_VERDICT_BUDGETS };
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = withSpanSync('fs.read', { 'file.path': file }, (span) => { const held = readFileSync(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; });
   } catch (error) {
     throw new Error(`${file}:1: the graph verdicts cannot be read: ${(error as Error).message}; full path ${file}`);
   }
@@ -94,9 +95,9 @@ export function readGraphVerdictState(file: string): GraphVerdictState {
 }
 
 const writeAtomically = (file: string, text: string): void => {
-  mkdirSync(dirname(file), { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
   const temporary = join(dirname(file), `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  writeFileSync(temporary, text, 'utf8');
+  withSpanSync('fs.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(text) }, () => writeFileSync(temporary, text, 'utf8'));
   renameSync(temporary, file);
 };
 

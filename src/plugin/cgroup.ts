@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../obs/log.js';
+import { withSpanSync } from '../obs/trace.js';
 
 /** The cgroup filesystem madarch reads and writes. */
 const CGROUP_ROOT = '/sys/fs/cgroup';
@@ -63,7 +64,12 @@ export interface SetupProblem {
 
 /** The cgroup folder this process runs in, as `/proc/self/cgroup` names it. */
 export function ownCgroupFolder(): string {
-  const line = readFileSync('/proc/self/cgroup', 'utf8').split('\n').find((entry) => entry.startsWith('0::'));
+  const held = withSpanSync('fs.read', { 'file.path': '/proc/self/cgroup' }, (span) => {
+    const text = readFileSync('/proc/self/cgroup', 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(text));
+    return text;
+  });
+  const line = held.split('\n').find((entry) => entry.startsWith('0::'));
   const path = line === undefined ? '/' : line.slice('0::'.length);
   return join(CGROUP_ROOT, path);
 }
@@ -81,8 +87,13 @@ export function cgroupParent(env: Readonly<Record<string, string | undefined>> =
 
 /** The controllers a cgroup offers its children, as `cgroup.controllers` lists them. */
 export function availableControllers(parent: string): string[] {
+  const file = join(parent, 'cgroup.controllers');
   try {
-    return readFileSync(join(parent, 'cgroup.controllers'), 'utf8').trim().split(/\s+/u).filter((name) => name !== '').sort();
+    return withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held.trim().split(/\s+/u).filter((name) => name !== '').sort();
+    });
   } catch {
     return [];
   }
@@ -90,8 +101,13 @@ export function availableControllers(parent: string): string[] {
 
 /** The controllers a cgroup hands its children, as `cgroup.subtree_control` lists them. */
 function delegatedControllers(parent: string): string[] {
+  const file = join(parent, 'cgroup.subtree_control');
   try {
-    return readFileSync(join(parent, 'cgroup.subtree_control'), 'utf8').trim().split(/\s+/u).filter((name) => name !== '');
+    return withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held.trim().split(/\s+/u).filter((name) => name !== '');
+    });
   } catch {
     return [];
   }
@@ -140,7 +156,11 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
  * AppArmor profile) that refuses them runs no confined plugin at all.
  */
 export function checkUserNamespaces(files: { read?: (path: string) => string; uid?: number | undefined } = {}): SetupProblem | undefined {
-  const read = files.read ?? ((path: string) => readFileSync(path, 'utf8'));
+  const read = files.read ?? ((path: string) => withSpanSync('fs.read', { 'file.path': path }, (span) => {
+    const held = readFileSync(path, 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  }));
   const uid = files.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined);
   const readNumber = (path: string): number | undefined => {
     try {
@@ -192,7 +212,7 @@ export class PluginCgroup {
    */
   static create(parent: string, name: string, limits: CgroupLimits): PluginCgroup {
     const folder = join(parent, name);
-    mkdirSync(folder);
+    withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder));
     const cgroup = new PluginCgroup(folder, limits);
     cgroup.write('memory.max', String(limits.memoryBytes));
     cgroup.write('memory.swap.max', '0');
@@ -202,11 +222,17 @@ export class PluginCgroup {
   }
 
   private write(file: string, value: string): void {
-    writeFileSync(join(this.folder, file), value);
+    const target = join(this.folder, file);
+    withSpanSync('fs.write', { 'file.path': target, 'file.bytes': Buffer.byteLength(value) }, () => writeFileSync(target, value));
   }
 
   private read(file: string): string {
-    return readFileSync(join(this.folder, file), 'utf8');
+    const target = join(this.folder, file);
+    return withSpanSync('fs.read', { 'file.path': target }, (span) => {
+      const held = readFileSync(target, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
   }
 
   /** Puts one process — and everything it forks after — into the cgroup. */

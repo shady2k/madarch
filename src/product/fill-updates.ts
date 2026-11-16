@@ -36,6 +36,7 @@
  * (`GET /api/fill`, `src/fill/orchestrator-host.ts`), and this module's own lines
  * say what it saw and why it did nothing.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
@@ -169,7 +170,7 @@ export function seenKey(product: string, repository: string): string {
 function refValueOf(commonDir: string, ref: string): { commit: string; file: string } | undefined {
   const loose = join(commonDir, ...ref.split('/'));
   try {
-    const text = readFileSync(loose, 'utf8').trim();
+    const text = withSpanSync('fs.read', { 'file.path': loose }, (span) => { const held = readFileSync(loose, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim();
     if (text !== '') return { commit: text, file: loose };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -177,7 +178,7 @@ function refValueOf(commonDir: string, ref: string): { commit: string; file: str
   const packed = join(commonDir, 'packed-refs');
   let text: string;
   try {
-    text = readFileSync(packed, 'utf8');
+    text = withSpanSync('fs.read', { 'file.path': packed }, (span) => { const held = readFileSync(packed, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
@@ -200,9 +201,9 @@ function gitFolderOf(folder: string): { gitDir: string; commonDir: string } | un
   const dotGit = join(folder, '.git');
   let gitDir: string;
   try {
-    if (statSync(dotGit).isDirectory()) gitDir = dotGit;
+    if (withSpanSync('fs.stat', { 'file.path': dotGit }, () => statSync(dotGit)).isDirectory()) gitDir = dotGit;
     else {
-      const text = readFileSync(dotGit, 'utf8').trim();
+      const text = withSpanSync('fs.read', { 'file.path': dotGit }, (span) => { const held = readFileSync(dotGit, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim();
       if (!text.startsWith('gitdir:')) return undefined;
       gitDir = resolve(folder, text.slice('gitdir:'.length).trim());
     }
@@ -212,7 +213,7 @@ function gitFolderOf(folder: string): { gitDir: string; commonDir: string } | un
   // A worktree's refs live in the repository's own folder, which `commondir` names.
   let commonDir = gitDir;
   try {
-    const text = readFileSync(join(gitDir, 'commondir'), 'utf8').trim();
+    const text = withSpanSync('fs.read', { 'file.path': join(gitDir, 'commondir') }, (span) => { const held = readFileSync(join(gitDir, 'commondir'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim();
     if (text !== '') commonDir = resolve(gitDir, text);
   } catch {
     // An ordinary checkout holds no `commondir`: its own folder is the common one.
@@ -226,7 +227,7 @@ function checkoutHead(folder: string): { folders: { gitDir: string; commonDir: s
   if (folders === undefined) return undefined;
   const headPath = join(folders.gitDir, 'HEAD');
   try {
-    return { folders, headPath, text: readFileSync(headPath, 'utf8').trim() };
+    return { folders, headPath, text: withSpanSync('fs.read', { 'file.path': headPath }, (span) => { const held = readFileSync(headPath, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim() };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { folders, headPath, text: undefined };
     throw error;
@@ -309,7 +310,7 @@ export function readSeenHeads(home: string): Record<string, { branch: string; co
   const file = join(home, UPDATE_STATE_FILE);
   let parsed: Partial<SeenHeads>;
   try {
-    parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<SeenHeads>;
+    parsed = JSON.parse(withSpanSync('fs.read', { 'file.path': file }, (span) => { const held = readFileSync(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })) as Partial<SeenHeads>;
   } catch {
     // A file that is not there yet, and one that cannot be read, answer the same: nothing has been watched.
     return {};
@@ -336,7 +337,7 @@ export function seenHeadsNote(home: string): string | undefined {
   const file = join(home, UPDATE_STATE_FILE);
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = withSpanSync('fs.read', { 'file.path': file }, (span) => { const held = readFileSync(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     return `the heads the watcher keeps in ${file} cannot be read, so every repository is read as a baseline and a commit that waited there is not asked for again: ${(error as Error).message}`;
@@ -352,9 +353,9 @@ export function seenHeadsNote(home: string): string | undefined {
 /** Writes the heads, whole, through a temporary file: a reader never sees half a record. */
 function writeSeenHeads(home: string, seen: Record<string, { branch: string; commit: string }>): void {
   const file = join(home, UPDATE_STATE_FILE);
-  mkdirSync(dirname(file), { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
   const temp = `${file}.${String(process.pid)}.tmp`;
-  writeFileSync(temp, `${JSON.stringify({ repositories: seen }, null, 2)}\n`);
+  withSpanSync('fs.write', { 'file.path': temp, 'file.bytes': Buffer.byteLength(`${JSON.stringify({ repositories: seen }, null, 2)}\n`) }, () => writeFileSync(temp, `${JSON.stringify({ repositories: seen }, null, 2)}\n`));
   renameSync(temp, file);
 }
 

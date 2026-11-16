@@ -5,6 +5,7 @@
  * the clock.
  */
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { withSpanSync } from '../obs/trace.js';
 import { join } from 'node:path';
 import type { ChangedPage } from './model.js';
 
@@ -21,7 +22,7 @@ export interface RecordedRun {
 export function readChangedPages(folder: string, lastRun: RecordedRun | undefined): ChangedPage[] | undefined {
   if (existsSync(join(folder, ACTIVE_FILL_FILE))) return undefined;
   try {
-    const kept = JSON.parse(readFileSync(join(folder, CHANGED_PAGES_FILE), 'utf8')) as { startedAt?: unknown; finishedAt?: unknown; pages?: unknown };
+    const kept = JSON.parse(withSpanSync('fs.read', { 'file.path': join(folder, CHANGED_PAGES_FILE) }, (span) => { const answer = readFileSync(join(folder, CHANGED_PAGES_FILE), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; })) as { startedAt?: unknown; finishedAt?: unknown; pages?: unknown };
     if (lastRun === undefined || lastRun.startedAt === null) return undefined;
     if (kept.startedAt !== lastRun.startedAt || kept.finishedAt !== lastRun.finishedAt || !Array.isArray(kept.pages)) return undefined;
     const pages: ChangedPage[] = [];
@@ -38,7 +39,7 @@ export function readChangedPages(folder: string, lastRun: RecordedRun | undefine
 /** Removes the list of the run before and the mark of a run interrupted at launch; a completed list is left alone. */
 export function invalidateInterruptedRun(folder: string): boolean {
   if (!existsSync(join(folder, ACTIVE_FILL_FILE))) return false;
-  rmSync(join(folder, CHANGED_PAGES_FILE), { force: true });
-  rmSync(join(folder, ACTIVE_FILL_FILE), { force: true });
+  withSpanSync('fs.remove', { 'file.path': join(folder, CHANGED_PAGES_FILE) }, () => rmSync(join(folder, CHANGED_PAGES_FILE), { force: true }));
+  withSpanSync('fs.remove', { 'file.path': join(folder, ACTIVE_FILL_FILE) }, () => rmSync(join(folder, ACTIVE_FILL_FILE), { force: true }));
   return true;
 }

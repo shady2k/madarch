@@ -274,7 +274,11 @@ export function trackedPluginAnswerer(graph: { query(text: string): Promise<read
   const read = async <T>(method: keyof GraphAnswerer, args: readonly unknown[]): Promise<T> => {
     const supplied = [...args];
     while (supplied.length > 0 && supplied[supplied.length - 1] === undefined) supplied.pop();
-    return (await graph.query(JSON.stringify({ read: 'plugin', method, args: supplied })))[0] as T;
+    return (await withSpan('plugin.read', { 'plugin.read': method, 'plugin.args': supplied.length }, async (span) => {
+      const answer = await graph.query(JSON.stringify({ read: 'plugin', method, args: supplied }));
+      span.setAttribute('plugin.rows', answer.length);
+      return answer;
+    }))[0] as T;
   };
   return {
     files: (...args) => read('files', args),
@@ -376,7 +380,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot, { ...(wiring.unconfined === true ? { unconfined: true } : {}) }))
         : { filesystemInputs: [], repositories: [] };
     } catch (error) {
-      rmSync(workRoot, { recursive: true, force: true });
+      withSpanSync('fs.remove', { 'file.path': workRoot }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => rmSync(workRoot, { recursive: true, force: true })));
       throw error;
     }
   })();
@@ -542,7 +546,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
-    withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => rmSync(workRoot, { recursive: true, force: true }));
+    withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => rmSync(workRoot, { recursive: true, force: true }))));
   }
 }
 

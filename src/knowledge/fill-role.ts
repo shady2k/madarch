@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
-import { withSpan } from '../obs/trace.js';
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
 import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
 import { closeFileTextSessions } from '../plugin/file-reads.js';
@@ -265,7 +265,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
 function storeFoldersOf(knowledgeRoot: string): string[] {
   let names: string[];
   try {
-    names = readdirSync(knowledgeRoot).sort();
+    names = withSpanSync('fs.readdir', { 'file.path': knowledgeRoot }, (span) => { const held = readdirSync(knowledgeRoot); span.setAttribute('file.entries', held.length); return held; }).sort();
   } catch {
     return [];
   }

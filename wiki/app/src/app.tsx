@@ -18,6 +18,7 @@ import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPa
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
 import { parseAddress, type FramePage } from './address.js';
+import { withSpan } from './trace.js';
 import { PageView, type PageRuntime } from './page.js';
 import { Alert, AlertDescription } from './components/ui/alert.js';
 import {
@@ -153,7 +154,11 @@ export function App(): ReactElement {
 
   // The probe that lifts the calm state: the product read the server answers first, without touching the graph.
   useEffect(() => setConnectionProbe(async () => {
-    const answer = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
+    const answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': `${base}/api/product` }, async (span) => {
+      const held = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
+      span.setAttribute('http.status', held.status);
+      return held;
+    });
     if (answer.ok) reportOnline();
     else if (answer.status === 503) reportOffline('starting');
     else if (answer.status === 502 || answer.status === 504) reportOffline();

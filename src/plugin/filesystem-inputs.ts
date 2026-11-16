@@ -1,6 +1,7 @@
 /** Private snapshots of declared filesystem inputs; no repository format is interpreted here. */
 import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { withSpanSync } from '../obs/trace.js';
 import { ClosureRefusal } from './closure-refusal.js';
 
 export interface FilesystemInput {
@@ -38,7 +39,8 @@ export function snapshotFilesystemInputs(inputs: readonly FilesystemInput[], wor
       } else refuse(from);
     };
     if (!lstatSync(source).isDirectory()) refuse(source);
-    copy(source, target);
+    // One span for the copy of the whole input: a span for each file of it would bury what the copy moved.
+    withSpanSync('fs.copy', { 'file.from': source, 'file.to': target }, () => copy(source, target));
     return { name: input.name, folder: target };
   });
 }

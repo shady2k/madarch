@@ -1,4 +1,5 @@
 /** Queue installation. Only central store preparation calls prepareQueueSchema. */
+import { withSpan } from '../../obs/trace.js';
 import { PgBoss } from 'pg-boss';
 import type { DatabaseOwner } from '../database-owner.js';
 import type { QueueDeclaration } from '../../fill/queue.js';
@@ -46,7 +47,13 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
   let release!: (prepared: boolean) => void;
   const finished = new Promise<boolean>((resolve) => { release = resolve; });
   const holding = owner.transaction('write', async (transaction) => {
-    await transaction.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = SCHEMA_LOCK_SQL;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query(sql, [storeSchemaLockKey()]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     acquired();
     if (await finished) {
       await createSchemaOnce({ transaction: async (_kind, work) => await work(transaction) }, {
@@ -72,9 +79,15 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
           throw new Error(`the queue "${declaration.name}" has a different singleton rule in ${owner.location}: prepare a queue of its own name rather than changing its policy`);
         }
       }
-      await owner.run((executor) => executor.query(
-        `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`,
-      ));
+      await owner.run(async (executor) => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(
+              sql,
+            );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      }));
       prepared = true;
     } finally {
       await boss.stop({ graceful: false });

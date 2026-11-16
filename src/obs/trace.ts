@@ -27,8 +27,9 @@ export type SpanAttributes = Readonly<Record<string, AttributeValue>>;
 
 /** Deletes every trace older than the newest `keep` runs, and the log beside each. */
 function trimTraces(folder: string, keep: number): void {
+  withSpanSync('trace.trim', { 'file.path': folder, 'trace.keep': keep }, (span) => {
   let names: string[];
-  try { names = readdirSync(folder); } catch { return; }
+  try { names = readdirSync(folder); span.setAttribute('file.entries', names.length); } catch { return; }
   const files = names
     .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
     .map((name) => ({ name, at: (() => { try { return statSync(join(folder, name)).mtimeMs; } catch { return 0; } })() }))
@@ -37,6 +38,7 @@ function trimTraces(folder: string, keep: number): void {
     rmSync(join(folder, held.name), { force: true });
     rmSync(join(folder, held.name.replace(/\.jsonl$/u, '.log.jsonl')), { force: true });
   }
+  });
 }
 
 /** One trace of one run: its file, its log beside it, and its buffer of lines not yet written. */
@@ -260,12 +262,12 @@ function traceFileName(runId: string): string {
 export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean; readonly keep?: number }): TraceRun {
   enabled = process.env['MADARCH_TRACE'] !== 'off';
   const folder = join(options.store, 'traces');
-  mkdirSync(folder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   const file = join(folder, traceFileName(options.runId));
   const logFile = join(folder, `${options.runId.replace(/[^A-Za-z0-9._-]/gu, '-')}.log.jsonl`);
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
-  writeFileSync(file, '', 'utf8');
-  writeFileSync(logFile, '', 'utf8');
+  withSpanSync('fs.write', { 'file.path': file, 'file.bytes': 0 }, () => writeFileSync(file, '', 'utf8'));
+  withSpanSync('fs.write', { 'file.path': logFile, 'file.bytes': 0 }, () => writeFileSync(logFile, '', 'utf8'));
   // Retention: the last N runs stand, the older files go (decision 0034's trace is evidence, not an archive).
   trimTraces(folder, options.keep ?? 20);
   const run: TraceRun = {
@@ -374,9 +376,10 @@ export function annotateSpan(attributes: SpanAttributes): void {
 
 /** The trace files a store holds, newest first. */
 export function traceFiles(store: string): { file: string; runId: string; modifiedAt: number }[] {
+  return withSpanSync('trace.files', { 'file.path': store }, (span) => {
   const folder = join(store, 'traces');
   let names: string[];
-  try { names = readdirSync(folder); } catch { return []; }
+  try { names = readdirSync(folder); span.setAttribute('file.entries', names.length); } catch { return []; }
   return names
     .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
     .map((name) => {
@@ -384,4 +387,5 @@ export function traceFiles(store: string): { file: string; runId: string; modifi
       return { file, runId: name.slice(0, -'.jsonl'.length), modifiedAt: (() => { try { return statSync(file).mtimeMs; } catch { return 0; } })() };
     })
     .sort((left, right) => right.modifiedAt - left.modifiedAt || (left.runId < right.runId ? 1 : left.runId > right.runId ? -1 : 0));
+  });
 }

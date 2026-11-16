@@ -1,5 +1,6 @@
 /** The CPU read, fold, layout and HTML work lives off the API event loop. */
 import { createPostgresDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { withSpan } from '../obs/trace.js';
 import { readPublishedManifest } from '../graph/manifest-publication.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
@@ -21,7 +22,13 @@ const stage = (name: string): void => self.postMessage({ kind: 'stage', stage: n
 const pictures = new Map<string, DiagramAnswer>();
 async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extract<ReadWork, {kind: 'diagram'}>): Promise<DiagramNeighbourhood | undefined> {
   return await owner.transaction('snapshot', async (tx) => {
-    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(asked.deadlineMs ?? 30_000)]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = "SELECT set_config('statement_timeout', $1, true)";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await tx.query(statementSql, [String(asked.deadlineMs ?? 30_000)]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const manifest = await readPublishedManifest(tx);
     if (manifest === undefined) throw new Error(`${folder}/madarch/catalog.yaml:1: the graph holds no published manifest`);
     const published = publishedManifestOf(manifest);

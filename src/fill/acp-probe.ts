@@ -25,6 +25,7 @@
  * (madarch-tzte.22.4's walk, 2026-10-19) and about 160× to 264× larger.
  */
 import { statSync } from 'node:fs';
+import { withSpanSync } from '../obs/trace.js';
 import { delimiter, join } from 'node:path';
 import { madarchHome, homeFromEnv, type DraftEnv } from '../product/home.js';
 import { AGENT_API_KEY_ENV } from '../product/fill-agents.js';
@@ -311,13 +312,14 @@ export function adapterInstallCommand(entry: AcpAdapterCatalogueEntry, folder: s
  */
 export function acpLoginState(entry: AcpAdapterCatalogueEntry, home = homeFromEnv()): { state: AcpLoginState; detail: string } {
   if (entry.login.kind === 'none') return { state: 'unknown', detail: entry.login.detail };
-  const found = entry.login.paths.map((path) => join(home, path)).filter((path) => {
+  const login = entry.login;
+  const found = withSpanSync('agent.login-stat', { 'file.entries': entry.login.paths.length, 'file.path': home }, () => login.paths.map((path) => join(home, path)).filter((path) => {
     try {
       return statSync(path).isFile();
     } catch {
       return false;
     }
-  });
+  }));
   const wanted = entry.login.paths.map((path) => join(home, path));
   if (found.length > 0) return { state: 'signed-in', detail: `${found.join(', ')} is there, so ${entry.label} has a sign-in on this machine. ${entry.login.detail}` };
   return { state: 'not-signed-in', detail: `nothing named ${wanted.join(' or ')} is there, so ${entry.label} has no sign-in madarch can see. ${entry.login.detail} Signing in is the agent's own step: madarch never asks for the person's agent credentials.` };
