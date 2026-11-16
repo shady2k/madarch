@@ -247,7 +247,9 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
 /**
  * A history store on a fresh database of the run's server, dropped when it
  * closes: the shape `createHistoryStore({ clock })` had when a store was a
- * database of its own, without a cluster per case.
+ * database of its own, without a cluster per case. Plain SQL temporal history
+ * needs no graph write capability (0039 item 26); graph fixtures use
+ * createTestDatabaseOwner and keep its authenticated write path.
  */
 export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string; readonly timing?: TestDatabaseOptions['timing'] }): Promise<HistoryStore> {
   if (options.store !== undefined) {
