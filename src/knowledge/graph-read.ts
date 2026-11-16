@@ -9,9 +9,6 @@ import { readKindAssertions } from '../graph/records.js';
 import { assertionReadSql } from '../graph/assertion-read.js';
 import { withSpan } from '../obs/trace.js';
 import { entityAddress } from './addresses.js';
-import { readEvidenceStates, type EvidenceState } from '../graph/evidence-read.js';
-import { evidenceSupportRoles } from '../graph/evidence-support.js';
-import { readPublishedManifest } from '../graph/manifest-publication.js';
 
 export interface SourceSpan {
   path: string;
@@ -22,9 +19,11 @@ export interface SourceSpan {
 }
 
 /** One place a claim of an entity stands: the file, the lines, and the commit or digest the value was read at. */
-export interface GraphEvidence extends EvidenceState, Citation {
+export interface GraphEvidence extends Citation {
   /** The field the evidence is under: the claim's attribute. */
   field: string;
+  /** The stored locator, including coordinates and digest supplied by the source. */
+  locator: Readonly<Record<string, unknown>> | null;
   repository: string | null;
   path: string | null;
   lineStart: number | null;
@@ -205,9 +204,13 @@ export class GraphReader {
     return this.generated?.get(kind);
   }
 
+  private repositoryKinds(kind: string): string[] {
+    return [...this.generatedEdges?.values() ?? []].filter(edge => edge.from.includes(kind) && edge.to.includes(GIT_KINDS.repository)).map(edge => edge.kind);
+  }
+
   private async records(tx: OuterTransaction, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], subjectIds?: readonly number[]): Promise<import('../graph/records.js').AssertionRecord[]> {
     const contract = this.contract;
-    return await readKindAssertions(tx, sort, kind, fields, { validAt: await this.validAt(), ...(contract === undefined ? {} : { contract }), ...(subjectIds === undefined ? {} : { subjectIds }) });
+    return await readKindAssertions(tx, sort, kind, fields, { validAt: await this.validAt(), ...(contract === undefined ? {} : { contract }), ...(subjectIds === undefined ? {} : { subjectIds }), ...(sort === 'vertex' ? { repositoryKinds: this.repositoryKinds(kind) } : {}) });
   }
 
   private async run<T>(work: (tx: OuterTransaction) => Promise<T>): Promise<T> {
@@ -316,59 +319,26 @@ export class GraphReader {
     return (await this.generatedOfKinds(tx,[decl])).filter(e=>e.key===`${decl.kind}:${tail}`||e.uid===tail);
   }
 
-  private async generatedEntities(tx:OuterTransaction, decl:GeneratedKindRead, records:readonly import('../graph/records.js').AssertionRecord[]):Promise<GraphEntity[]> {
+  private async generatedEntities(decl:GeneratedKindRead, records:readonly import('../graph/records.js').AssertionRecord[]):Promise<GraphEntity[]> {
     if (records.length === 0) return [];
-    const allEdges: { from_node: number; target_uid: string; target_kind: string; target_key: Record<string, unknown> }[] = [];
-    const repositoryEdges = [...this.generatedEdges?.values() ?? []].filter(edge => edge.from.includes(decl.kind) && edge.to.includes(GIT_KINDS.repository));
-    if (repositoryEdges.length > 0) {
-      const candidates = await tx.query<{ id: number; kind: string; target_uid: string; target_kind: string; target_key: Record<string, unknown> }>(
-        `SELECT e.id,k.name AS kind,n.uid::text AS target_uid,t.name AS target_kind,n.key AS target_key
-         FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node n ON n.id=e.to_node JOIN entity t ON t.id=n.entity_id
-         WHERE e.from_node=ANY($1::bigint[]) AND k.name=ANY($2::text[]) AND t.name=$3`,
-        [records.map(record => record.id), repositoryEdges.map(edge => edge.kind), GIT_KINDS.repository]);
-      for (const kind of new Set(candidates.rows.map(edge => edge.kind))) {
-        const identities = candidates.rows.filter(edge => edge.kind === kind);
-        for (const edge of await this.records(tx, 'edge', kind, [], identities.map(edge => Number(edge.id)))) {
-          const target = identities.find(candidate => Number(candidate.id) === edge.id)!;
-          allEdges.push({ from_node: edge.from!, target_uid: target.target_uid, target_kind: target.target_kind, target_key: target.target_key });
-        }
-      }
-    }
     const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };
-    const evidenceContract = this.contract;
-    if (evidenceRows.rows.length > 0 && evidenceContract === undefined) throw new Error(`${import.meta.path}:341: evidence reads require the explicit graph contract`);
-    const manifest = evidenceRows.rows.length === 0 ? undefined : await readPublishedManifest(tx);
-    const supportRoles = evidenceSupportRoles(manifest?.semanticBindings);
-    // Without a declared support role the evidence evaluator returns unknown applicability, never guessed support.
-    const at = await this.validAt();
-    const evidenceRequests = evidenceRows.rows.map(evidence => {
-      const assertion = records.flatMap(record => record.assertions).find(row => row.id === evidence.assertion_uid);
-      if (assertion === undefined || evidenceContract === undefined) throw new Error(`${import.meta.path}:347: evidence ${evidence.target_uid} has no owning assertion contract`);
-      const attachment = JSON.parse(evidence.locator) as { locator: Record<string, unknown> | null };
-      return { targetUid: evidence.target_uid, locator: attachment.locator, assertion };
-    });
-    const evaluated = evidenceContract === undefined ? [] : await readEvidenceStates(tx, evidenceContract, evidenceRequests, { validAt: at, recordedAt: at, contexts: [1] }, supportRoles);
-    const states = new Map(evidenceRows.rows.map((evidence, index) => [`${evidence.assertion_uid}:${evidence.target_uid}:${evidence.locator}`, evaluated[index]!]));
     return records.map(row=>{
       const properties:Record<string,unknown>={...row.key,...row.values};
       delete properties['$exists'];
       const keyValues=decl.key.map(f=>String(row.key[f]??''));
       const key=`${decl.kind}:${keyValues.length===0 || (decl.keyEdges?.length ?? 0) > 0 ? row.uid : keyValues.join('/')}`;
       properties['recordKey']=key;
-      const edges=allEdges.filter(e=>Number(e.from_node)===row.id);
-      const repository=edges.find(e=>e.target_kind===GIT_KINDS.repository);
-      if (repository !== undefined) properties['repositoryName'] = repository.target_key['name'];
+      const repository=row.assertions[0]?.repositoryTargets[0];
+      if (repository !== undefined) properties['repositoryName'] = repository.key['name'];
       const entityOpinions:GraphEntityOpinion[]=row.assertions.filter(a=>a.property!=='$exists').map(a=>({field:a.property,value:a.value,opinionId:a.id,producer:a.source,authorUid:a.author,recordedAt:a.recordedAt,validFrom:a.validFrom,lang:a.language,evidence:evidenceRows.rows.filter(e => e.assertion_uid === a.id).map(e => {
         const attachment = JSON.parse(e.locator) as { locator: Record<string, unknown> | null };
         const locator = attachment.locator ?? {};
-        const state = states.get(`${e.assertion_uid}:${e.target_uid}:${e.locator}`);
-        if (state === undefined) throw new Error(`${import.meta.path}:367: evidence ${e.target_uid} has no computed read state`);
-        return { ...state, field: a.property, ...decodeCitation({ repository: null, path: typeof locator['path'] === 'string' ? locator['path'] : typeof e.key['path'] === 'string' ? e.key['path'] : null, lineStart: typeof locator['lineStart'] === 'number' ? locator['lineStart'] : null, lineEnd: typeof locator['lineEnd'] === 'number' ? locator['lineEnd'] : null }, `${import.meta.path}:366`), commit: typeof locator['commit'] === 'string' ? locator['commit'] : null, type: 'assertion' as const, id: e.target_uid, saidBy: a.source };
+        return { field: a.property, locator: attachment.locator, ...decodeCitation({ repository: null, path: typeof locator['path'] === 'string' ? locator['path'] : typeof e.key['path'] === 'string' ? e.key['path'] : null, lineStart: typeof locator['lineStart'] === 'number' ? locator['lineStart'] : null, lineEnd: typeof locator['lineEnd'] === 'number' ? locator['lineEnd'] : null }, `${import.meta.path}:366`), commit: typeof locator['commit'] === 'string' ? locator['commit'] : null, type: 'assertion' as const, id: e.target_uid, saidBy: a.source };
       })}));
       const placed = entityOpinions.flatMap(assertion => assertion.evidence).find(evidence => evidence.path !== null && evidence.lineStart !== null && evidence.lineEnd !== null);
       const span = placed === undefined ? undefined : { path: placed.path!, lineStart: placed.lineStart!, lineEnd: placed.lineEnd!, byteStart: 0, byteEnd: 0 };
       const label=String(properties['label']??properties['name']??properties['subject']??keyValues.at(-1)??row.uid);
-      return {key,uid:row.uid,kind:decl.kind,label,properties,...(span === undefined ? {} : { span }),nodeIds:[row.uid],scope:repository===undefined?'':repository.target_uid,opinions:entityOpinions,evidence:entityOpinions.flatMap(a=>a.evidence)};
+      return {key,uid:row.uid,kind:decl.kind,label,properties,...(span === undefined ? {} : { span }),nodeIds:[row.uid],scope:repository===undefined?'':repository.uid,opinions:entityOpinions,evidence:entityOpinions.flatMap(a=>a.evidence)};
     });
   }
 
@@ -453,14 +423,14 @@ export class GraphReader {
     const total = Number(membership.rows[0]!.total);
     const identities = membership.rows.filter((row): row is typeof row & { id: number; uid: string; key: Record<string, unknown> } => row.id !== null).slice(0,options.limit);
     if (identities.length === 0) return { rows: [], next: null, total };
-    const records = await readKindAssertions(tx,'vertex',decl.kind,fields,{ validAt, identities });
-    const rows = await this.generatedEntities(tx,decl,records);
+    const records = await readKindAssertions(tx,'vertex',decl.kind,fields,{ validAt, identities, repositoryKinds: this.repositoryKinds(decl.kind) });
+    const rows = await this.generatedEntities(decl,records);
     rows.sort((a,b) => byCodePoint(a.key,b.key));
     return { rows, next: membership.rows.length > options.limit ? rows.at(-1)!.key : null, total };
   }
   private async generatedOfKinds(tx:OuterTransaction,kinds:readonly GeneratedKindRead[]):Promise<GraphEntity[]> {
     const entities:GraphEntity[]=[];
-    for(const decl of kinds)entities.push(...await this.generatedEntities(tx,decl,await this.records(tx,'vertex',decl.kind,decl.columns.filter(field => !decl.key.includes(field)))));
+    for(const decl of kinds)entities.push(...await this.generatedEntities(decl,await this.records(tx,'vertex',decl.kind,decl.columns.filter(field => !decl.key.includes(field)))));
     return entities;
   }
   private async entitiesOfIds(tx:OuterTransaction,ids:readonly string[],scope:string|null=this.scope??null,localIds=false):Promise<Map<string,GraphEntity>> {
@@ -473,7 +443,7 @@ export class GraphReader {
       if (decl === undefined) continue;
       const subjects = identities.rows.filter(row => row.kind === kind).map(row => Number(row.id));
       const records = await this.records(tx, 'vertex', kind, decl.columns.filter(field => !decl.key.includes(field)), subjects);
-      entities.push(...await this.generatedEntities(tx, decl, records));
+      entities.push(...await this.generatedEntities( decl, records));
     }
     return new Map(entities.map(e=>[localIds ? String(identities.rows.find(row => row.uid === e.uid)!.id) : e.nodeIds[0]!,scope===null?e:{...e,scope}]));
   }

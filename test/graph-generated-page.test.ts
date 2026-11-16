@@ -193,3 +193,44 @@ test('generated page search uses the rendered label across several language and 
     });
   } finally { await owner.close(); }
 });
+
+
+test('generated pages hydrate several attributes, provenance and repository scope in exactly two queries', async () => {
+  const relation = 'fixture.page-repository';
+  const hydratedContract = withAssertionContract({
+    ...labelledContract,
+    vertex: [...labelledContract.vertex, { name: 'code.repository', table: generatedTableName('code.repository', 'vertex'), capability: 'fixture', key: ['name'], fields: [{ name: 'name', type: 'text' as const }] }],
+    edge: [{ name: relation, from: ['fixture.page'], to: ['code.repository'], fields: [], repeats: false, capability: 'fixture', cardinality: { from: 'many' as const, to: 'many' as const }, labels: { en: { out: 'repository', in: 'pages' }, ru: { out: 'repository', in: 'pages' } } }],
+  });
+  const owner = await createTestDatabaseOwner({ graphContract: hydratedContract });
+  try {
+    const binding = await testHostBinding(owner, hydratedContract, 'page-hydration');
+    const content = 'Retained citation content';
+    const digest = sha256Hex(Buffer.from(content));
+    await owner.transaction('write', async tx => {
+      await activateGraphProducer(tx, hydratedContract, binding);
+      await publishGraphDrafts(tx, hydratedContract, { vertices: [
+        { kind: 'code.repository', key: { name: 'example' }, values: {}, producer: 'fixture', producerVersion: '1' },
+        { kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'fixture', producerVersion: '1' },
+        ...Array.from({ length: 12 }, (_, i) => ({ kind: 'fixture.page', key: { slug: `page-${String(i).padStart(2, '0')}` }, values: { body: `body ${i}`, label: `Title ${i}` }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest } }, locator: { path: 'docs/example.md', lineStart: 1, lineEnd: 1, commit: 'abc123' } }], producer: 'fixture', producerVersion: '1' })),
+      ], edges: Array.from({ length: 12 }, (_, i) => ({ kind: relation, from: { kind: 'fixture.page', key: { slug: `page-${String(i).padStart(2, '0')}` } }, to: { kind: 'code.repository', key: { name: 'example' } }, values: {}, producer: 'fixture', producerVersion: '1' })), removals: [] });
+    });
+    await owner.transaction('snapshot', async tx => {
+      const statements: { sql: string; values?: readonly unknown[] }[] = [];
+      const measured = { query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => { statements.push({ sql, ...(values === undefined ? {} : { values }) }); return await tx.query<Row>(sql, values); } };
+      const edges = new Map([[relation, { kind: relation, columns: [], types: {}, from: ['fixture.page'], to: ['code.repository'] }]]);
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, measured, undefined, labelledGenerated, edges, owner.graphContract);
+      const page = await reader.list('fixture.page', { limit: 3 });
+      expect(page.total).toBe(12);
+      expect(page.rows).toHaveLength(3);
+      expect(page.rows[0]?.properties).toMatchObject({ body: 'body 0', label: 'Title 0', repositoryName: 'example' });
+      expect(page.rows[0]?.scope).not.toBe('');
+      expect(page.rows[0]?.opinions?.find(opinion => opinion.field === 'body')).toMatchObject({ producer: binding.sourceUid, evidence: [expect.objectContaining({ path: 'docs/example.md', lineStart: 1, lineEnd: 1, commit: 'abc123', saidBy: binding.sourceUid, locator: { path: 'docs/example.md', lineStart: 1, lineEnd: 1, commit: 'abc123' } })] });
+      expect(statements).toHaveLength(2);
+      expect(page.rows[0]?.evidence?.every(evidence => !('historicalValidity' in evidence))).toBe(true);
+      if (process.env['MADARCH_READER_EXPLAIN'] === '1') {
+        for (const [index, statement] of statements.entries()) console.log(`PAGE_PLAN_${index + 1}`, JSON.stringify((await tx.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement.sql}`, statement.values)).rows));
+      }
+    });
+  } finally { await owner.close(); }
+});

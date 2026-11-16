@@ -15,6 +15,7 @@ export interface AssertionRecordRequest {
   readonly sort: 'vertex' | 'edge';
   readonly kind: string;
   readonly fields: readonly string[];
+  readonly repositoryKinds?: readonly string[];
   readonly subjectUids?: readonly string[];
   readonly subjectIds?: readonly number[];
   readonly identities?: readonly { id: number; uid: string; key: Record<string, unknown> }[];
@@ -42,7 +43,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
     });
     if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
-    const loaded = await loadAssertionsBatch(tx, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], subjectIds: identities[index]!.map(row => Number(row.id)) })), selector);
+    const loaded = await loadAssertionsBatch(tx, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)) })), selector);
     return requests.map((request,index) => identities[index]!.flatMap(row => {
       const own = loaded[index]!.filter(assertion => assertion.subjectId === Number(row.id));
       const chosen = own.filter(assertion => assertion.selected);
@@ -58,8 +59,8 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
 }
 
 /** Internal numeric joins never become public identities. */
-export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], selector: AssertionRecordSelector & Pick<AssertionRecordRequest, 'subjectUids' | 'subjectIds' | 'identities'> = {}): Promise<AssertionRecord[]> {
-  return await withSpan('graph.records.kind', { 'graph.kind': kind }, async () => (await readKindsAssertions(tx, [{ sort, kind, fields, ...(selector.identities === undefined ? {} : { identities: selector.identities }), ...(selector.subjectUids === undefined ? {} : { subjectUids: selector.subjectUids }), ...(selector.subjectIds === undefined ? {} : { subjectIds: selector.subjectIds }) }], selector))[0]!);
+export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], selector: AssertionRecordSelector & Pick<AssertionRecordRequest, 'subjectUids' | 'subjectIds' | 'identities' | 'repositoryKinds'> = {}): Promise<AssertionRecord[]> {
+  return await withSpan('graph.records.kind', { 'graph.kind': kind }, async () => (await readKindsAssertions(tx, [{ sort, kind, fields, ...(selector.repositoryKinds === undefined ? {} : { repositoryKinds: selector.repositoryKinds }), ...(selector.identities === undefined ? {} : { identities: selector.identities }), ...(selector.subjectUids === undefined ? {} : { subjectUids: selector.subjectUids }), ...(selector.subjectIds === undefined ? {} : { subjectIds: selector.subjectIds }) }], selector))[0]!);
 }
 type SemanticRecord = Omit<AssertionRecord, 'key'>;
 

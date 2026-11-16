@@ -67,12 +67,14 @@ export interface StoredAssertion extends AssertionRow {
   readonly operationUid: string;
   readonly evidence: readonly string[];
   readonly evidenceAttachments: readonly { readonly targetUid: string; readonly locator: string; readonly key: Record<string, unknown> }[];
+  readonly repositoryTargets: readonly { readonly uid: string; readonly key: Record<string, unknown> }[];
 }
 
 export interface AssertionReadRequest {
   readonly sort: 'vertex' | 'edge';
   readonly kind: string;
   readonly properties: readonly string[];
+  readonly repositoryKinds?: readonly string[];
   readonly subjectIds?: readonly number[];
 }
 
@@ -92,7 +94,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
     const parameters: unknown[] = [];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
     const statements: string[] = [];
-    for (const [requestIndex, { sort, kind, properties, subjectIds }] of requests.entries()) {
+    for (const [requestIndex, { sort, kind, properties, subjectIds, repositoryKinds = [] }] of requests.entries()) {
       if (properties.length === 0 || subjectIds?.length === 0) continue;
     const values=properties.map(property=>{
       const table=assertionValueTableName(kind,sort,property);
@@ -109,6 +111,17 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
            JOIN entity subject_kind ON subject_kind.id=subject.entity_id
            JOIN node edge_from ON edge_from.id=subject.from_node
            JOIN node edge_to ON edge_to.id=subject.to_node`;
+      const repositoryStatements = repositoryKinds.map(edgeKind => {
+        const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
+        return `SELECT 0 AS request_index,e.id AS subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
+          (SELECT lineage.to_node::text FROM edge lineage JOIN entity lk ON lk.id=lineage.entity_id WHERE lineage.from_node=a.assertion_id AND lk.name='system.assertion-source') AS source,
+          target.uid::text AS target_uid,target.key AS target_key
+          FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node target ON target.id=e.to_node JOIN entity tk ON tk.id=target.entity_id
+          JOIN assertion_edge_subject attachment ON attachment.edge_id=e.id JOIN assertion a ON a.assertion_id=attachment.assertion_id
+          JOIN node an ON an.id=a.assertion_id LEFT JOIN "${assertionValueTableName(edgeKind, 'edge', '$exists')}" v ON v.assertion_id=a.assertion_id
+          WHERE e.from_node=subject.id AND ek.name=${literal} AND tk.name='code.repository' AND a.property='$exists'`;
+      });
+      const repositories = repositoryStatements.length === 0 ? "'[]'::jsonb" : `(SELECT coalesce(jsonb_agg(jsonb_build_object('uid',r.target_uid,'key',r.target_key) ORDER BY r.subject_id),'[]'::jsonb) FROM (${assertionSelectionSql(repositoryStatements.join(' UNION ALL '), selector)}) r WHERE r.selected AND r.value=TRUE)`;
       const kindParameter = param(kind);
       const propertiesParameter = param(properties);
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
@@ -116,7 +129,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
  SELECT assertion_node.uid::text AS id, subject.id AS subject_id, subject.uid::text AS subject_uid,
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
-        value_row.value,value_row.value_type,
+        ${repositories} AS repository_targets,value_row.value,value_row.value_type,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-source') AS source,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-author') AS author,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-unit' ORDER BY lineage.id LIMIT 1) AS unit,
@@ -135,7 +148,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       request_index: number; selected?: boolean; active?: boolean;
         id: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
-        unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; value: unknown; value_type:string|null;
+        unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; repository_targets: StoredAssertion['repositoryTargets']; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
     }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
@@ -146,7 +159,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         id: row.id, ...(row.selected === undefined ? {} : { selected: row.selected, active: row.active! }),
         subject: request.sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind: request.kind, from: row.edge_from!, to: row.edge_to! },
         subjectId: Number(row.subject_id), property: row.property, context: Number(row.context_id), language: row.language,
-        source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence, evidenceAttachments: row.evidence_attachments,
+        source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence, evidenceAttachments: row.evidence_attachments, repositoryTargets: row.repository_targets,
         value: row.value_type === 'bigint' && typeof row.value === 'string' && Number.isSafeInteger(Number(row.value)) ? Number(row.value) : row.value_type==='timestamp with time zone'&&typeof row.value==='string' ? new Date(row.value).toISOString() : row.value instanceof Date ? row.value.toISOString() : row.value, operation: row.operation, validFrom: text(row.valid_from), validTo: row.valid_to === null ? null : text(row.valid_to),
         recordedAt: text(row.recorded_at), recordedSequence: BigInt(row.recorded_sequence),
       } satisfies StoredAssertion;
