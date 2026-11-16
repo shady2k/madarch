@@ -73,6 +73,7 @@ async function producerRows(tx:SqlExecutor,rows:readonly StoredAssertion[]):Prom
  });
 }
 async function resolutionSource(tx:SqlExecutor,contract:GraphContract,principal:string,product:string):Promise<string>{
+ return await withSpan('graph.dispute.resolution-source',{},async()=>{
  const uid=keyUid('system.resolution-source',[principal]);const previous=requireWriteCapability(tx);
  await bootstrapWriteIdentity(tx,'source',uid,product,previous.context);
  try{
@@ -81,6 +82,7 @@ async function resolutionSource(tx:SqlExecutor,contract:GraphContract,principal:
   await writeAssertion(tx,contract,{sort:'vertex',kind:'source',subjectId:source.id,property:'$exists',operation:'assert',value:true,validFrom:'0001-01-01T00:00:00.000Z'},previous.context);
  }finally{bindWriteCapability(tx,previous);}
  return uid;
+ });
 }
 /** Materialize a persisted question at the same temporal/context snapshot as its slot. */
 async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors):Promise<DisputeView|null>{
