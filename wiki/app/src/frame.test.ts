@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { groupTree } from './frame.js';
+import { groupTree, productChoices } from './frame.js';
 
 test('a loop kind is not a reading section, while an own-page kind with no other destination stays one', () => {
   const navigation = {
@@ -14,3 +14,15 @@ test('a loop kind is not a reading section, while an own-page kind with no other
   expect(names).toEqual(['reading.kind', 'own.kind']);
 });
 
+test('the product menu offers each product at its own wiki address, the one in front marked', () => {
+  const products = [{ name: 'Shop', folder: 'shop' }, { name: 'Docs', folder: 'docs', own: true as const }];
+  // A products home serves each wiki under its folder, in the address the app is not mounted at.
+  expect(productChoices('/products/shop', products, 'shop')).toEqual([
+    { name: 'Shop', folder: 'shop', href: '/products/shop/', here: true },
+    { name: 'Docs', folder: 'docs', href: '/products/docs/', here: false },
+  ]);
+  // A server that serves one product serves it at its root.
+  expect(productChoices('', [{ name: 'Shop', folder: 'shop' }], 'shop')).toEqual([
+    { name: 'Shop', folder: 'shop', href: '/', here: true },
+  ]);
+});

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type AnchorHTMLAttributes, type MouseEvent
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  AlertTriangleIcon, BookOpenIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon,
+  AlertTriangleIcon, BookOpenIcon, CheckIcon, CircleHelpIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon,
   HistoryIcon, HomeIcon, LayoutGridIcon, MenuIcon, RefreshCwIcon, SearchIcon, SettingsIcon, UserRoundIcon,
 } from 'lucide-react';
 import {
@@ -18,11 +18,11 @@ import {
   ProductLink,
 } from './components/ui/navigation.js';
 import {
-  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet,
+  ShellActions, ShellBrandMark, ShellIconLink, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet,
   ShellRoleButton, ShellRoleLabel, ShellToolbar,
 } from './components/ui/shell.js';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
@@ -32,10 +32,10 @@ import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/sear
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { RunIndicator, type LiveRun } from './components/run-indicator.js';
 import { FillEntry } from './components/fill-entry.js';
-import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
+import { PageHeader, PageTitle, Paragraph, TextLink } from './components/ui/typography.js';
 import { CATALOGUE_KIND, EVERY_ROLE } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage, type OpenPage } from './address.js';
-import type { Navigation, NavigationGroup as NavGroup, NavigationKind, NavigationPurpose } from './client.js';
+import type { Navigation, NavigationGroup as NavGroup, NavigationKind, NavigationPurpose, ProductChoice } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
@@ -239,6 +239,54 @@ export function FrameNavigation({ navigation, base, path, open, tasks, role, pro
  * The choices the product card offers: each product's name, the address its wiki answers at, and whether it is the one in
  * front. A server that serves one product serves it at its root; a products home serves each wiki under its folder.
  */
+/** The products the server serves, at the address each answers under: a products home serves each below its folder. */
+export function productChoices(base: string, products: readonly ProductChoice[], current: string | null): { readonly name: string; readonly folder: string; readonly href: string; readonly here: boolean }[] {
+  return products.map((product) => ({ name: product.name, folder: product.folder, href: base === '' ? '/' : `/products/${encodeURIComponent(product.folder)}/`, here: product.folder === current }));
+}
+
+/**
+ * The served products in the top bar (madarch-64o5.132, restored by madarch-64o5.136): a kit menu lists every product
+ * this server serves, the one in front marked; a press opens another product's wiki. The product block itself stays the
+ * brand's link with no chevron, so the switcher is reached from the bar and not from the block.
+ */
+function ProductMenu({ base, products, current }: { readonly base: string; readonly products: readonly ProductChoice[] | null; readonly current: string | null }): ReactElement | null {
+  const { t } = useTranslation();
+  if (products === null || products.length === 0) return null;
+  const choices = productChoices(base, products, current);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={t('knowledge.chooseProduct')} title={t('knowledge.chooseProduct')} data-testid="product-menu">
+          <LayoutGridIcon aria-hidden="true" size={18} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>{t('knowledge.products')}</DropdownMenuLabel>
+        {choices.map((product) => (
+          <DropdownMenuItem key={product.folder} asChild>
+            <TextLink href={product.href} aria-current={product.here ? 'true' : undefined} data-testid="product-choice" onClick={(event) => { if (product.here) event.preventDefault(); }}>
+              {product.name}
+              {product.here ? <CheckIcon aria-hidden="true" size={16} /> : null}
+            </TextLink>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The «?» beside the language globe: madarch's own documentation, from any other product this server serves. */
+function HelpLink({ products, current }: { readonly products: readonly ProductChoice[] | null; readonly current: string | null }): ReactElement | null {
+  const { t } = useTranslation();
+  const own = products?.find((product) => product.own === true);
+  if (own === undefined || own.folder === current) return null;
+  return (
+    <ShellIconLink href={`/products/${encodeURIComponent(own.folder)}/`} aria-label={t('knowledge.help.label')} title={t('knowledge.help.title')} data-testid="help-link">
+      <CircleHelpIcon aria-hidden="true" size={21} />
+    </ShellIconLink>
+  );
+}
+
 /**
  * The product at the top left (madarch-64o5.122): its name and the space it stands in, as a link to the product's own
  * home. The brand keeps its lowercase mark, and a control that only navigates is a link with no chevron.
@@ -408,7 +456,7 @@ function SearchBox({ base, open }: { readonly base: string; readonly open: OpenP
 }
 
 /** The top bar: the search, then the way to the fill, the run, the role, the docs and the language. */
-export function FrameToolbar({ base, language, role, roles, busy, menu, open, run, onLanguage, onRole, onReload }: {
+export function FrameToolbar({ base, language, role, roles, busy, menu, open, run, products = null, currentProduct = null, onLanguage, onRole, onReload }: {
   readonly base: string;
   readonly language: 'en' | 'ru';
   readonly role: string;
@@ -420,6 +468,9 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, ru
   readonly open: OpenPage;
   /** The live fill run, read once by the frame; the indicator draws it. */
   readonly run: LiveRun;
+  /** The products this server serves, for the switcher and the «?» of madarch's own docs. */
+  readonly products?: readonly ProductChoice[] | null;
+  readonly currentProduct?: string | null;
   readonly onLanguage: (language: 'en' | 'ru') => void;
   readonly onRole: (role: string) => void;
   readonly onReload: () => void;
@@ -432,6 +483,8 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, ru
       <ShellActions>
         <FillEntry open={open} />
         <RunIndicator live={run.live} run={run.run} open={open} />
+        <ProductMenu base={base} products={products} current={currentProduct} />
+        <HelpLink products={products} current={currentProduct} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>

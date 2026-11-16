@@ -74,10 +74,14 @@ const navigation = {
 };
 
 const requests: { query: string; variables: Record<string, unknown> }[] = [];
+/** The operations a page asked for: the frame's bootstrap and products reads are not pages. */
+const pageReads = (): { query: string; variables: Record<string, unknown> }[] => requests.filter((one) => !one.query.includes('bootstrap') && !one.query.includes('products'));
 let readerRole = 'everything';
 
 function answerFor(query: string, variables: Record<string, unknown>): unknown {
   if (query.includes('bootstrap')) return { data: { bootstrap, navigation } };
+  // The frame's product menu reads the served products through the same API; it is the frame's answer, not a page's.
+  if (query.includes('products')) return { data: { products: { current: 'shop', products: [] } } };
   const after = variables['records_after'];
   return {
     data: {
@@ -139,7 +143,7 @@ test('one page view is one operation, after one bootstrap', async () => {
     expect(page.container.textContent).toContain('A kind');
     expect(page.container.textContent).toContain('one');
     expect(requests.filter((one) => one.query.includes('bootstrap'))).toHaveLength(1);
-    const pages = requests.filter((one) => !one.query.includes('bootstrap'));
+    const pages = pageReads();
     expect(pages).toHaveLength(1);
     expect(pages[0]?.variables['id']).toBe(ID);
     // The operation aliases each section and asks for the first page of the connection.
@@ -158,7 +162,7 @@ test('a press on the next page asks the same operation with the cursor', async (
     const next = [...page.container.querySelectorAll('button')].find((one) => one.textContent === '→');
     await act(async () => { next?.click(); });
     await settle();
-    const pages = requests.filter((one) => !one.query.includes('bootstrap'));
+    const pages = pageReads();
     expect(pages).toHaveLength(2);
     expect(pages[1]?.query).toBe(pages[0]?.query);
     expect(pages[1]?.variables['records_after']).toBe('cursor-2');
@@ -173,7 +177,7 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
   const page = await render();
   try {
     expect(page.container.textContent).toContain('no page stands at /nothing/here');
-    expect(requests.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(0);
+    expect(pageReads()).toHaveLength(0);
   } finally {
     await page.close();
   }
@@ -191,7 +195,7 @@ test('a page change reads its own page and does not read the frame\'s answers ag
   window.history.pushState({}, '', `/e/catalogue/${ID}`);
   const page = await render();
   try {
-    const firstPages = requests.filter((one) => !one.query.includes('bootstrap')).length;
+    const firstPages = pageReads().length;
     expect(firstPages).toBe(1);
     expect(problems).toBe(1);
     await act(async () => {
@@ -199,7 +203,7 @@ test('a page change reads its own page and does not read the frame\'s answers ag
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
     await settle();
-    expect(requests.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(firstPages + 1);
+    expect(pageReads()).toHaveLength(firstPages + 1);
     expect(problems).toBe(1);
   } finally {
     await page.close();
@@ -321,6 +325,7 @@ test('a change event refreshes the navigation and asks the current page again', 
       bootstraps += 1;
       return new Response(JSON.stringify({ data: { bootstrap, navigation: { ...navigation, kinds: navigation.kinds.map((one) => ({ ...one, count: bootstraps })) } } }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
+    if (body.query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'shop', products: [] } } }), { status: 200, headers: { 'content-type': 'application/json' } });
     pages += 1;
     return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
@@ -373,6 +378,7 @@ test('a unit publication grows the sidebar before the run ends, without a reload
       bootstraps += 1;
       return new Response(JSON.stringify({ data: { bootstrap, navigation: nav(navCount) } }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
+    if (body.query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'shop', products: [] } } }), { status: 200, headers: { 'content-type': 'application/json' } });
     if (body.query.includes('navigation')) {
       return new Response(JSON.stringify({ data: { navigation: nav(navCount) } }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
@@ -423,6 +429,7 @@ test('a catalogue entry page reads again when the kind it lists changed', async 
     const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
     if (body.query.includes('bootstrap')) return new Response(JSON.stringify({ data: { bootstrap, navigation } }), { status: 200, headers: { 'content-type': 'application/json' } });
     if (body.query.includes('navigation')) return new Response(JSON.stringify({ data: { navigation } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (body.query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'shop', products: [] } } }), { status: 200, headers: { 'content-type': 'application/json' } });
     pages += 1;
     return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
@@ -467,6 +474,7 @@ for (const obsoleteError of [false, true]) {
       }
       const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
       if (body.query.includes('bootstrap')) return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})));
+      if (body.query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'shop', products: [] } } }), { status: 200, headers: { 'content-type': 'application/json' } });
       return await new Promise<Response>((resolve) => { pending.push(resolve); });
     }) as typeof fetch;
     const page = await render();

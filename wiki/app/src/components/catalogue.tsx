@@ -23,7 +23,8 @@ import { ChoiceMenu } from './ui/choice-menu.js';
 import { Skeleton } from './ui/skeleton.js';
 import { ResponsiveContents } from './ui/table-of-contents.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
-import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
+import { readFillPlan, useCommandRead, useChangeStream, type FillPlanError, type FillPlanView, type FillRunDetail } from './command.js';
+import { fetchFillRuns } from '../client.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation, NavigationKind } from '../client.js';
@@ -71,11 +72,30 @@ function groupCheck(visible: readonly NavigationKind[], active: ReadonlySet<stri
   return { all: visible.length > 0 && on === visible.length, some: on > 0 && on < visible.length, count: visible.length };
 }
 
-/** What one kind's fill stands as: nothing the graph holds of it, or the records it holds. */
-type KindState = 'never' | 'filled';
+/** What one kind's fill stands as: nothing the graph holds of it, records it holds, or a fill that did not finish it. */
+type KindState = 'never' | 'filled' | 'failed';
 
-/** One kind's state: whether the graph holds any record of the kind at all. */
-const stateOf = (kind: NavigationKind): KindState => kind.count > 0 ? 'filled' : 'never';
+/**
+ * The kinds the newest runs left failed (madarch-64o5.133): the newest run that reached a kind decides it, and only a
+ * failed or cancelled unit says the fill did not finish the kind. A kind the newest run never reached, or reached while
+ * waiting or running, keeps the graph's own verdict.
+ */
+function failedKinds(runs: readonly FillRunDetail[]): Set<string> {
+  const seen = new Set<string>();
+  const failed = new Set<string>();
+  for (const run of runs) {
+    for (const group of run.groups) {
+      if (seen.has(group.kind)) continue;
+      seen.add(group.kind);
+      if (group.phase === 'failed' || group.phase === 'cancelled') failed.add(group.kind);
+    }
+  }
+  return failed;
+}
+
+/** One kind's state: a failed fill first, then whether the graph holds any record of the kind at all. */
+const stateOf = (kind: NavigationKind, failed: ReadonlySet<string>): KindState =>
+  failed.has(kind.kind) ? 'failed' : kind.count > 0 ? 'filled' : 'never';
 
 const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
 
@@ -118,7 +138,12 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   const planRead = useCommandRead<{ plan: FillPlanView }>(`catalogue-selection:${selectedKey}`, (signal) => readFillPlan(base, selection, signal), selecting && selection.length > 0);
   const allPlan = allRead.data?.plan;
   const selectionPlan = selection.length === 0 ? undefined : planRead.data?.plan;
-  // A kind's state is the graph's own count (madarch-64o5.133).
+  // The fill's own record of each kind: the newest run that reached a kind says whether a fill left it failed, and the
+  // graph's count says whether it holds anything of the kind (madarch-64o5.133). The runs are read through the one
+  // read API, as the rest of the page's data is (madarch-64o5.136 restore).
+  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => fetchFillRuns(context.base, undefined, signal));
+  useChangeStream(context.base, () => { runs.reload(); });
+  const failed = failedKinds(runs.data?.runs ?? []);
 
   // A new address (the kind page's «Изменить состав», a reload) resets the mode and the explicit selection.
   useEffect(() => {
@@ -220,7 +245,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     const neededLabel = needed === undefined ? undefined : kindLabel(navigation, needed);
     const error: FillPlanError | undefined = errors.get(kind.kind);
     const link = linkOf(kind);
-    const state = stateOf(kind);
+    const state = stateOf(kind, failed);
     return (
       <ListItem key={kind.kind} className="border-b border-line py-3 last:border-b-0" data-testid="catalogue-kind" data-kind={kind.kind} data-changed={context.changedKinds?.has(kind.kind) ? 'true' : undefined}>
         <Stack className="flex items-start gap-3">

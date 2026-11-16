@@ -209,6 +209,11 @@ function journalLines(run: FillRunDetail, groups: readonly FillRunGroup[], label
   return lines.map((line) => ({ ...line, at: new Date(line.at).toLocaleTimeString(language) }));
 }
 
+/** The newest event of a run as words, for the home's last-fill line (madarch-64o5.133). */
+export function latestEventWords(run: FillRunDetail, labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction): string | undefined {
+  return journalLines(run, run.groups, labelOf, pluginName, t, 'en').at(-1)?.text;
+}
+
 /** One fill run. */
 export function RunSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();

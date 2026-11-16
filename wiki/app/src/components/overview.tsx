@@ -15,10 +15,12 @@ import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
 import {
-  readFillRuns, readProblemsCount, useChangeStream, useCommandRead,
-  type FillRunDetail, type ProblemsCount,
+  readProblemsCount, useChangeStream, useCommandRead,
+  type FillPlanView, type FillRunDetail, type FillStatusAnswer, type ProblemsCount,
 } from './command.js';
+import { fetchFillPlan, fetchFillRuns, fetchFillStatus } from '../client.js';
 import { durationWords, momentWords } from './format.js';
+import { latestEventWords } from './run.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
@@ -36,17 +38,29 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
   const { t, i18n } = useTranslation();
   const language = context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(context.base, signal));
-  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(context.base, signal));
-  useChangeStream(context.base, () => { problems.reload(); runs.reload(); });
+  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => fetchFillRuns(context.base, undefined, signal));
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => fetchFillStatus(context.base, signal));
+  useChangeStream(context.base, () => { problems.reload(); runs.reload(); status.reload(); });
   const last: FillRunDetail | undefined = runs.data?.runs[0];
   const live = last !== undefined && LIVE.includes(last.phase);
+  // The kind and plugin words of the last thing a running fill did, as its own run page writes them: the plan names the
+  // plugins, and the frame's navigation names the kinds.
+  const orderKey = (last?.order ?? last?.selected ?? []).join(',');
+  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => fetchFillPlan(context.base, last?.order ?? last?.selected ?? [], false, signal), live && orderKey !== '');
+  const labelOf = (kind: string): string | undefined => context.navigation?.kinds.find((one) => one.kind === kind)?.many;
+  const pluginName = (name: string): string | undefined => {
+    const labels = plan.data?.plan.plugins?.find((plugin) => plugin.name === name)?.labels;
+    return labels?.[language] ?? labels?.['en'];
+  };
   const [dismissed, setDismissed] = useState<string | null>(dismissedRun);
   // A number stands only on a successful answer: a request that failed, or has not answered yet, is "not known" — never
   // zero problems and never "no fill has run" said as fact (madarch-64o5.83, review P2).
   const notKnown = t('overview.notKnown');
   const problemsText = problems.error !== null || problems.data === null ? notKnown : t('overview.problems', { count: problems.data.open });
   const fillState: 'known' | 'none' | 'unknown' = runs.error !== null || runs.data === null ? 'unknown' : last === undefined ? 'none' : 'known';
+  const lastWords = live && last !== undefined ? latestEventWords(last, labelOf, pluginName, t) : undefined;
   const failed = last !== undefined && last.phase === 'failed';
+  const incomplete = status.data?.filled === true && status.data.incomplete === true && !live && !failed;
   return (
     <Stack data-testid="product-overview">
       <Card>
@@ -68,6 +82,7 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
             {!live || last === undefined ? null : (
               <Stack data-testid="overview-fill-running">
                 <Paragraph data-testid="overview-fill-counts">{t('knowledge.fillRun.active', { done: last.publishedUnits, total: last.units.length })}</Paragraph>
+                {lastWords === undefined ? null : <Paragraph data-testid="overview-fill-last">{lastWords}</Paragraph>}
               </Stack>
             )}
           </Stack>
@@ -86,7 +101,15 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
           </AlertDescription>
         </Alert>
       )}
-
+      {!incomplete ? null : (
+        <Card data-testid="overview-fill-incomplete">
+          <CardHeader><CardTitle>{t('knowledge.incompleteTitle')}</CardTitle></CardHeader>
+          <CardContent>
+            <Paragraph>{t('knowledge.incomplete')}</Paragraph>
+            <Button variant="default" size="default" onClick={() => context.open(catalogueSelectionAddress([]))} data-testid="overview-fill-continue">{t('knowledge.fillPage.open')}</Button>
+          </CardContent>
+        </Card>
+      )}
     </Stack>
   );
 }

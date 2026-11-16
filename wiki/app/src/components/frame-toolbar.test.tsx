@@ -44,14 +44,14 @@ beforeEach(() => {
   }) as unknown as typeof fetch;
 });
 
-async function render(): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
+async function render(products: readonly { name: string; folder: string; own?: true }[] = [], current = 'shop', base = ''): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   const opened: string[] = [];
   await act(async () => {
     root.render(createElement(FrameToolbar, {
-      base: '',
+      base,
       language: 'en',
       role: 'developer',
       roles: ['developer'],
@@ -59,6 +59,8 @@ async function render(): Promise<{ container: HTMLElement; opened: string[]; clo
       menu: null,
       open: (address: string) => { opened.push(address); },
       run: { live: false, run: null },
+      products,
+      currentProduct: current,
       onLanguage: () => undefined,
       onRole: () => undefined,
       onReload: () => undefined,
@@ -149,3 +151,38 @@ test('at a phone\'s width the search stands behind its toggle, which opens the f
   }
 });
 
+test('the «?» opens madarch\'s own wiki when this server serves it beside the product in front', async () => {
+  const page = await render([{ name: 'Shop', folder: 'shop' }, { name: 'Madarch', folder: 'madarch-wiki', own: true }]);
+  try {
+    const help = page.container.querySelector('[data-testid="help-link"]') as HTMLAnchorElement | null;
+    expect(help?.getAttribute('href')).toBe('/products/madarch-wiki/');
+    expect(help?.getAttribute('aria-label')).toBe('madarch documentation');
+  } finally {
+    await page.close();
+  }
+  const own = await render([{ name: 'Madarch', folder: 'madarch-wiki', own: true }], 'madarch-wiki');
+  try {
+    expect(own.container.querySelector('[data-testid="help-link"]')).toBeNull();
+  } finally {
+    await own.close();
+  }
+});
+
+test('the product menu lists the served products, the one in front marked, and opens another', async () => {
+  const page = await render([{ name: 'Shop', folder: 'shop' }, { name: 'Docs', folder: 'docs' }], 'shop', '/products/shop');
+  try {
+    const trigger = page.container.querySelector('[data-testid="product-menu"]') as HTMLElement | null;
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      trigger!.click();
+    });
+    await settle();
+    const items = [...document.querySelectorAll('[data-testid="product-choice"]')] as HTMLAnchorElement[];
+    expect(items.map((one) => one.getAttribute('href'))).toEqual(['/products/shop/', '/products/docs/']);
+    expect(items[0]?.getAttribute('aria-current')).toBe('true');
+    expect(items[1]?.getAttribute('aria-current')).toBeNull();
+  } finally {
+    await page.close();
+  }
+});
