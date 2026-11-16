@@ -238,11 +238,11 @@ export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 
 export const queryDigest = (query: string): string => canonicalJsonDigest({ query });
 
-async function readKindAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],subjectUids?:readonly string[]):Promise<AssertionRecord[]>{
+async function readKindAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],subjectUids?:readonly string[],subjectIds?:readonly number[]):Promise<AssertionRecord[]>{
   return await withSpan('graph.orchestration.records', {}, async () => {
    const clock=(await tx.query<{now:string|Date}>('SELECT clock_timestamp() AS now')).rows[0]!.now;
    const now=new Date(clock).toISOString();
-   return readSelectedKindAssertions(tx,sort,kind,properties,{validAt:now,recordedAt:now,...(subjectUids===undefined?{}:{subjectUids})});
+   return readSelectedKindAssertions(tx,sort,kind,properties,{validAt:now,recordedAt:now,...(subjectUids===undefined?{}:{subjectUids}),...(subjectIds===undefined?{}:{subjectIds})});
   });
 }
 const fields: Record<string, readonly string[]> = {
@@ -271,10 +271,10 @@ async function write(tx:SqlExecutor,kind:string,uid:string,values:Record<string,
 }
 async function related(tx:SqlExecutor,kind:string,relation:string,target:string):Promise<AssertionRecord[]>{
   return await withSpan('graph.orchestration.related', {}, async () => {
-   const edges=await readKindAssertions(tx,'edge',relation,[]);
-   const targetId=(await tx.query<{id:number}>('SELECT id FROM node WHERE uid=$1::uuid',[target])).rows[0]?.id;
-   const ids=new Set(edges.filter(edge=>edge.to===Number(targetId)).map(edge=>edge.from));
-   return (await readKindAssertions(tx,'vertex',kind,fields[kind]??[])).filter(row=>ids.has(row.id));
+   const candidates=(await tx.query<{id:number}>(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node WHERE k.name=$1 AND target.uid=$2::uuid ORDER BY e.id`,[relation,target])).rows.map(row=>Number(row.id));
+   const edges=await readKindAssertions(tx,'edge',relation,[],undefined,candidates);
+   const subjects=[...new Set(edges.map(edge=>edge.from!))];
+   return readKindAssertions(tx,'vertex',kind,fields[kind]??[],undefined,subjects);
   });
 }
 async function child(tx:SqlExecutor,kind:string,relation:string,targetKind:string,target:string,values:Record<string,unknown>,uid=newUid()):Promise<string>{
@@ -283,18 +283,30 @@ async function child(tx:SqlExecutor,kind:string,relation:string,targetKind:strin
 }
 async function locked(tx:SqlExecutor):Promise<void>{await acquireGraphWriteLock(tx);}
 
-export async function recordUnitReadIn(tx:SqlExecutor,options:{readonly unitId:string;readonly generation:number;readonly query:string;readonly rows:readonly unknown[];readonly at:number;readonly membership?:string}):Promise<TrackedRead>{
- await locked(tx);const uid=await requiredUnit(tx,options.unitId,options.generation);
+async function recordUnitReadBatchIn(tx:SqlExecutor,reads:readonly Parameters<typeof recordUnitReadIn>[1][]):Promise<readonly TrackedRead[]>{
+ if(!reads.length)return [];
+ await locked(tx);
+ const first=reads[0]!,uid=await requiredUnit(tx,first.unitId,first.generation);
  const rows=await related(tx,'system.tracked-read','system.tracked-read-unit',uid);
- const digest=queryDigest(options.query),seq=Math.max(0,...rows.map(row=>Number(row.values.seq)))+1;
- const membership=options.membership??readMembership(options.rows);
- await child(tx,'system.tracked-read','system.tracked-read-unit','system.unit',uid,{query_digest:digest,query:options.query,membership,members:options.rows.length,seq,at:options.at},rows.find(row=>row.values.query_digest===digest)?.uid);
- return {unitId:options.unitId,generation:options.generation,queryDigest:digest,query:options.query,membership,members:options.rows.length,seq,at:options.at};
+ let seq=Math.max(0,...rows.map(row=>Number(row.values.seq)));
+ const identities=new Map(rows.map(row=>[String(row.values.query_digest),row.uid]));
+ const out:TrackedRead[]=[];
+ for(const options of reads){
+  const digest=queryDigest(options.query),membership=options.membership??readMembership(options.rows);
+  const selectedSeq=++seq;
+  const retained=await child(tx,'system.tracked-read','system.tracked-read-unit','system.unit',uid,{query_digest:digest,query:options.query,membership,members:options.rows.length,seq:selectedSeq,at:options.at},identities.get(digest));
+  identities.set(digest,retained);
+  out.push({unitId:options.unitId,generation:options.generation,queryDigest:digest,query:options.query,membership,members:options.rows.length,seq:selectedSeq,at:options.at});
+ }
+ return out;
+}
+export async function recordUnitReadIn(tx:SqlExecutor,options:{readonly unitId:string;readonly generation:number;readonly query:string;readonly rows:readonly unknown[];readonly at:number;readonly membership?:string}):Promise<TrackedRead>{
+ return (await recordUnitReadBatchIn(tx,[options]))[0]!;
 }
 export async function recordUnitReads(database:OrchestratorDatabase,reads:readonly Parameters<typeof recordUnitReadIn>[1][]):Promise<readonly TrackedRead[]>{
  if(!reads.length)return [];const first=reads[0]!;
- if(reads.some(row=>row.unitId!==first.unitId||row.generation!==first.generation))throw new Error('recordUnitReads requires one unit generation');
- return transaction(database,'write',async tx=>{const out:TrackedRead[]=[];for(const row of reads)out.push(await recordUnitReadIn(tx,row));return out;});
+ if(reads.some(row=>row.unitId!==first.unitId||row.generation!==first.generation))throw new Error(`${import.meta.path}: recordUnitReads requires one unit generation`);
+ return transaction(database,'write',tx=>recordUnitReadBatchIn(tx,reads));
 }
 export async function readUnitReads(database:FillStateSnapshotDatabase,unitId:string,generation:number):Promise<readonly TrackedRead[]>{return snapshotTransaction(database,async tx=>{
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return [];
@@ -412,19 +424,35 @@ export async function readRunPlans(database:FillStateSnapshotDatabase,runId:stri
  }
  return out.sort((a,b)=>byCodePoint(a.unitId,b.unitId));
 });}
-export async function appendProgress(database:OrchestratorDatabase,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{return transaction(database,'write',tx=>appendProgressIn(tx,event));}
-async function appendProgressIn(tx:SqlExecutor,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
- await locked(tx);const uid=await requiredRun(tx,event.runId),events=await related(tx,'system.progress','system.progress-run',uid),seq=Math.max(0,...events.map(row=>Number(row.values.seq)))+1;
- const progressUid=await child(tx,'system.progress','system.progress-run','system.run',uid,{seq,at:event.at,stage:event.stage,unit_name:event.unitId,generation:event.generation??0,kind:event.kind,summary:event.summary});
- if(event.unitId&&event.generation!==null){
-  const unitUid=await requiredUnit(tx,event.unitId,event.generation),{contract,binding}=await orchestrationBinding(tx);
-  await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.progress-unit',from:{kind:'system.progress',uid:progressUid,key:{}},to:{kind:'system.unit',uid:unitUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion}]});
+export async function appendProgress(database:OrchestratorDatabase,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
+ return (await appendProgresses(database,[event]))[0]!;
+}
+async function appendProgressBatchIn(tx:SqlExecutor,events:readonly Omit<FillProgressEvent,'seq'>[]):Promise<readonly FillProgressEvent[]>{
+ await locked(tx);
+ const first=events[0]!,uid=await requiredRun(tx,first.runId),existing=await related(tx,'system.progress','system.progress-run',uid);
+ let seq=Math.max(0,...existing.map(row=>Number(row.values.seq)));
+ const {contract,binding}=await orchestrationBinding(tx);
+ const vertices:import('./contract.js').VertexDraft[]=[],edges:import('./contract.js').EdgeDraft[]=[];
+ const unitUids=new Map<string,string>(),out:FillProgressEvent[]=[];
+ for(const event of events){
+  const progressUid=newUid(),selectedSeq=++seq;
+  vertices.push({kind:'system.progress',uid:progressUid,key:{},values:{seq:selectedSeq,at:event.at,stage:event.stage,unit_name:event.unitId,generation:event.generation??0,kind:event.kind,summary:event.summary},producer:binding.sourceUid,producerVersion:binding.contractVersion});
+  const from={kind:'system.progress',uid:progressUid,key:{}};
+  edges.push({kind:'system.progress-run',from,to:{kind:'system.run',uid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion});
+  if(event.unitId&&event.generation!==null){
+   const key=JSON.stringify([event.unitId,event.generation]);
+   let unitUid=unitUids.get(key);
+   if(unitUid===undefined){unitUid=await requiredUnit(tx,event.unitId,event.generation);unitUids.set(key,unitUid);}
+   edges.push({kind:'system.progress-unit',from,to:{kind:'system.unit',uid:unitUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion});
+  }
+  out.push({...event,seq:selectedSeq});
  }
- return {...event,seq};
+ await publishGraphDrafts(tx,contract,{vertices,edges,removals:[]});
+ return out;
 }
 export async function appendProgresses(database:OrchestratorDatabase,events:readonly Omit<FillProgressEvent,'seq'>[]):Promise<readonly FillProgressEvent[]>{
- if(!events.length)return [];if(events.some(event=>event.runId!==events[0]!.runId))throw new Error('appendProgresses requires one run');
- return transaction(database,'write',async tx=>{const out:FillProgressEvent[]=[];for(const event of events)out.push(await appendProgressIn(tx,event));return out;});
+ if(!events.length)return [];if(events.some(event=>event.runId!==events[0]!.runId))throw new Error(`${import.meta.path}: appendProgresses requires one run`);
+ return transaction(database,'write',tx=>appendProgressBatchIn(tx,events));
 }
 export async function readProgress(database:FillStateSnapshotDatabase,runId:string,options:{readonly limit?:number}={}):Promise<readonly FillProgressEvent[]>{return snapshotTransaction(database,async tx=>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];

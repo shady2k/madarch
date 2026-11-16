@@ -56,7 +56,7 @@ test('newest assertions replace producer refinement order while retaining every 
           await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'note', key: { name: 'two' }, values: { body: producer }, validFrom: `2020-01-0${names.indexOf(producer) + 1}T00:00:00Z`, producer, producerVersion: '1.0.0' }], removals: [] });
         });
       }
-      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, declaredKindReads(manifest));
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, declaredKindReads(manifest), undefined, owner.graphContract);
       const result = await reader.byPrefix('note', 'note:', 10);
       const entity = result.rows.find((one) => one.key === 'note:one')!;
       expect(result.rows.find((one) => one.key === 'note:two')?.properties['body']).toBe('middle');
@@ -67,7 +67,7 @@ test('newest assertions replace producer refinement order while retaining every 
       expect(detail).toBeDefined();
       expect(detail!.opinions?.filter((one) => one.field === 'body').map((one) => one.producer).sort()).toEqual(sources.toSorted());
       expect(new Set(detail!.evidence?.map((one) => one.path))).toEqual(new Set(names.map((name) => `${name}.md`)));
-      const records = await owner.run(tx => readKindAssertions(tx, 'vertex', 'note', ['body', 'detail']));
+      const records = await owner.run(tx => readKindAssertions(tx, 'vertex', 'note', ['body', 'detail'], { contract: owner.graphContract }));
       expect(records.find(row => row.key['name'] === 'one')?.assertions.filter(a => a.property === 'body').every(a => a.evidence.length === 1)).toBe(true);
     } finally { await owner.close(); }
   } finally { rmSync(folder, { recursive: true, force: true }); }

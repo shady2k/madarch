@@ -1,12 +1,20 @@
 import { expect, test } from 'bun:test';
 import { readKindAssertions } from '../src/graph/records.js';
+import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import type { SqlExecutor } from '../src/sql-driver.js';
+
+const contract: GraphContract = {
+  vertex: [{ name: 'fixture', table: generatedTableName('fixture', 'vertex'), key: ['name'], capability: 'fixture', fields: [{ name: 'name', type: 'text' }, { name: 'amount', type: 'integer' }, { name: 'flag', type: 'boolean' }] }],
+  edge: [{ name: 'fixture', from: ['fixture'], to: ['fixture'], repeats: true, discriminator: 'role', cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'links', in: 'linked by' }, ru: { out: 'links', in: 'linked by' } }, fields: [{ name: 'amount', type: 'integer' }], capability: 'fixture' }],
+  dictionary: [],
+};
 
 const now = '2026-11-15T12:00:00.000Z';
 function executor(values: readonly { property: string; value: unknown; operation?: string; validFrom?: string; source?: string; context?: number; recordedAt?: string; subjectId?: number }[]): SqlExecutor {
   return { async query<Row extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]) {
     let rows: Record<string, unknown>[];
-    if (sql.includes('FROM assertion a')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
+    if (sql.includes('WITH anchors AS')) rows = [];
+    else if (sql.includes('FROM assertion a')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
       id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
       property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
       unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
@@ -22,23 +30,23 @@ function executor(values: readonly { property: string; value: unknown; operation
 }
 
 test('0039.25: existence is selected from assertions, not retained identity', async () => {
-  const present = await readKindAssertions(executor([{ property: '$exists', value: true }]), 'vertex', 'fixture', []);
+  const present = await readKindAssertions(executor([{ property: '$exists', value: true }]), 'vertex', 'fixture', [], { contract });
   expect(present).toHaveLength(1);
   expect(present[0]?.activeSources).toEqual(['source']);
-  expect(await readKindAssertions(executor([{ property: '$exists', value: false }]), 'vertex', 'fixture', [])).toEqual([]);
-  expect(await readKindAssertions(executor([{ property: '$exists', value: true, operation: 'retract' }]), 'vertex', 'fixture', [])).toEqual([]);
-  expect(await readKindAssertions(executor([{ property: '$exists', value: true, validFrom: '2026-11-16T00:00:00.000Z' }]), 'vertex', 'fixture', [])).toEqual([]);
+  expect(await readKindAssertions(executor([{ property: '$exists', value: false }]), 'vertex', 'fixture', [], { contract })).toEqual([]);
+  expect(await readKindAssertions(executor([{ property: '$exists', value: true, operation: 'retract' }]), 'vertex', 'fixture', [], { contract })).toEqual([]);
+  expect(await readKindAssertions(executor([{ property: '$exists', value: true, validFrom: '2026-11-16T00:00:00.000Z' }]), 'vertex', 'fixture', [], { contract })).toEqual([]);
 });
 
 test('0039.25: missing generated typed storage refuses instead of returning a smaller graph', async () => {
   const broken: SqlExecutor = { async query() { throw new Error('missing typed assertion table'); } };
-  await expect(readKindAssertions(broken, 'vertex', 'fixture', ['amount'])).rejects.toThrow('missing typed assertion table');
+  await expect(readKindAssertions(broken, 'vertex', 'fixture', ['amount'], { contract })).rejects.toThrow('missing typed assertion table');
 });
 
 test('0039.30: valid time selector is shared with existence and values', async () => {
   const tx = executor([{ property: '$exists', value: true }, { property: 'amount', value: 4, validFrom: '2026-11-16T00:00:00.000Z' }]);
-  expect((await readKindAssertions(tx, 'vertex', 'fixture', ['amount']))[0]?.values['amount']).toBeUndefined();
-  expect((await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { validAt: '2026-11-17T00:00:00.000Z' }))[0]?.values['amount']).toBe(4);
+  expect((await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract }))[0]?.values['amount']).toBeUndefined();
+  expect((await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, validAt: '2026-11-17T00:00:00.000Z' }))[0]?.values['amount']).toBe(4);
 });
 
 test('0039.30: edge identities, selected evidence, source streams and cutoffs are retained exactly', async () => {
@@ -49,12 +57,12 @@ test('0039.30: edge identities, selected evidence, source streams and cutoffs ar
     { property: 'amount', value: 1 },
     { property: 'amount', value: 2, recordedAt: '2026-11-16T00:00:00.000Z' },
   ]);
-  const [edge] = await readKindAssertions(tx, 'edge', 'fixture', ['amount', 'amount']);
+  const [edge] = await readKindAssertions(tx, 'edge', 'fixture', ['amount', 'amount'], { contract });
   expect(edge).toMatchObject({ id: 1, uid: 'subject', key: {}, from: 4, to: 5, discriminator: 'role', values: { '$exists': true, amount: 1 }, activeSources: ['first'] });
   expect(edge?.assertions).toHaveLength(5);
   expect(edge?.selectedAssertions.map(assertion => [assertion.property, assertion.value])).toEqual([['$exists', true], ['amount', 1]]);
-  expect((await readKindAssertions(tx, 'edge', 'fixture', ['amount'], { recordedAt: '2026-11-17T00:00:00.000Z' }))[0]?.values['amount']).toBe(2);
-  expect(await readKindAssertions(tx, 'edge', 'fixture', [], { contexts: [2] })).toEqual([]);
+  expect((await readKindAssertions(tx, 'edge', 'fixture', ['amount'], { contract, recordedAt: '2026-11-17T00:00:00.000Z' }))[0]?.values['amount']).toBe(2);
+  expect(await readKindAssertions(tx, 'edge', 'fixture', [], { contract, contexts: [2] })).toEqual([]);
 });
 
 test('0039.25: reconciliation retains only true existence sources of the exact subject', async () => {
@@ -63,7 +71,7 @@ test('0039.25: reconciliation retains only true existence sources of the exact s
     { property: '$exists', value: true, source: 'holder' },
     { property: '$exists', value: true, source: 'foreign', subjectId: 2 },
     { property: 'flag', value: true, source: 'field-only' },
-  ]), 'vertex', 'fixture', ['flag']);
+  ]), 'vertex', 'fixture', ['flag'], { contract });
   expect(rows.map(row => [row.uid, row.activeSources])).toEqual([['subject', ['holder']], ['other', ['foreign']]]);
   expect(Object.keys(rows[0]!)).not.toContain('from');
   expect(Object.keys(rows[0]!)).not.toContain('to');
@@ -74,12 +82,12 @@ test('0039.30: subject UID bounds apply before assertion loading and preserve co
   const calls: { sql: string; parameters?: readonly unknown[] }[] = [];
   const base = executor([{ property: '$exists', value: true }, { property: 'amount', value: 1 }, { property: 'amount', value: 2, recordedAt: '2026-11-16T00:00:00.000Z' }]);
   const tx: SqlExecutor = { async query(sql, parameters) { calls.push({ sql, ...(parameters === undefined ? {} : { parameters }) }); return await base.query(sql, parameters); } };
-  const rows = await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { subjectUids: ['subject'], recordedAt: '2026-11-17T00:00:00.000Z', contextRecordedThrough: { 1: '2' } });
+  const rows = await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: ['subject'], recordedAt: '2026-11-17T00:00:00.000Z', contextRecordedThrough: { 1: '2' } });
   expect(calls[0]?.sql).toContain('n.uid=ANY($2::uuid[])');
   expect(calls[0]?.parameters).toEqual(['fixture', ['subject']]);
   expect(calls.filter(call => call.sql.includes('FROM assertion a')).every(call => call.parameters?.some(parameter => Array.isArray(parameter) && parameter.length === 1 && parameter[0] === 1))).toBe(true);
   expect(rows[0]?.values['amount']).toBe(1);
   calls.length = 0;
-  expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { subjectUids: [] })).toEqual([]);
+  expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: [] })).toEqual([]);
   expect(calls).toEqual([]);
 });

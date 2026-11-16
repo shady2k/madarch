@@ -80,6 +80,12 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { producers?: string[] }[]; 'derives-from'?: string[] }][]) {
       if (gone.has(name)) continue;
       const declared = kind.fields ?? [];
+      // A fieldless structural kind cannot stand for a history its excluded producer never writes.
+      if (declared.length === 0 && (kind['derives-from'] ?? []).some((parent) => gone.has(parent)) && !filled.has(name)) {
+        gone.add(name);
+        changed = true;
+        continue;
+      }
       if (declared.length === 0 || filled.has(name)) continue;
       if (declared.every((field) => field.producers?.includes('person') === true)) continue;
       gone.add(name);
@@ -140,10 +146,18 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     }
   }
   for (const name of gone) manifest.deleteIn(['kinds', name]);
-  for(const [id,binding] of Object.entries(body['semantic-bindings']??{}) as [string,{kind:string}][]) if(gone.has(binding.kind)) manifest.deleteIn(['semantic-bindings',id]);
-  // An edge whose end left with its kinds leaves too: a relation names kinds the manifest declares.
-  const edges = (body.edges ?? []) as { from: string[]; to: string[] }[];
-  manifest.set('edges', edges.filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || !gone.has(name))));
+  // A relation keeps the endpoints this fixture declares, rather than losing all endpoints with one excluded kind.
+  const edges = ((body.edges ?? []) as { name: string; from: string[]; to: string[] }[])
+    .map((edge) => ({ ...edge, from: edge.from.filter((name) => name === 'any' || !gone.has(name)), to: edge.to.filter((name) => name === 'any' || !gone.has(name)) }))
+    .filter((edge) => edge.from.length > 0 && edge.to.length > 0);
+  manifest.set('edges', edges);
+  for (const [id, binding] of Object.entries(body['semantic-bindings'] ?? {}) as [string, { kind: string; edges?: Record<string, { kind: string; direction: 'from' | 'to' }> }][]) {
+    const declared = !gone.has(binding.kind) && Object.values(binding.edges ?? {}).every((role) => {
+      const edge = edges.find((edge) => edge.name === role.kind);
+      return edge?.[role.direction].some((name) => name === 'any' || name === binding.kind) === true;
+    });
+    if (!declared) manifest.deleteIn(['semantic-bindings', id]);
+  }
   writeFolderManifest(folder, manifest.toString());
 }
 

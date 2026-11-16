@@ -36,7 +36,7 @@ test('ordinary declarations preserve canonical keys and present each assertion s
         { kind: 'doc.term', key: { name: 'unplaced' }, values: { definition: 'No source place' }, producer: 'fixture', producerVersion: '1' },
       ], removals: [] });
     });
-    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, generated);
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, generated, undefined, owner.graphContract);
     const files = await reader.find('code.file:src/a.ts');
     expect(files).toHaveLength(1);
     expect(files[0]?.properties).toMatchObject({ recordKey: 'code.file:src/a.ts', path: 'src/a.ts', language: 'TypeScript' });

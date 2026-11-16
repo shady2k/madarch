@@ -57,7 +57,10 @@ describe('the templates madarch init offers', () => {
     expect(draft.kinds).toBe(5);
     const read = readKinds(draft.folder);
     expect(read.present).toBe(true);
-    if (read.present) expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['document', 'code.file', 'code.repository', 'code.commit']));
+    if (read.present) {
+      expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['document', 'code.file', 'code.repository', 'code.commit']));
+      expect(read.manifest.findings).toEqual([]);
+    }
     const checked = checkStarterTemplate(fixture);
     expect({ ok: checked.ok, problems: checked.problems }).toEqual({ ok: true, problems: [] });
     expect(checked.kinds).toEqual(expect.arrayContaining(['document', 'code.file', 'code.repository', 'code.commit']));

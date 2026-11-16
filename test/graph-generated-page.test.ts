@@ -1,7 +1,7 @@
 import { testHostBinding } from './host-binding-fixture.js';
 import { expect, test } from 'bun:test';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindWriteCapability, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -20,14 +20,19 @@ test('generated pages count before the cursor, preserve empty totals, and read p
       vertices: ['Alpha', 'Beta', 'Zulu', 'removed'].map((slug) => ({ kind: 'fixture.page', key: { slug }, values: { body: `body ${slug}` }, producer: 'fixture', producerVersion: '1' })),
       removals: [],
     }, 1, { binding }));
-    await owner.exec("UPDATE node SET removed = true WHERE key->>'slug' = 'removed'");
+    await owner.transaction('write', async (tx) => {
+      bindWriteCapability(tx, binding);
+      const removed = await tx.query<{ id: number }>(
+        "SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 AND n.key->>'slug'=$2", ['fixture.page', 'removed']);
+      await writeAssertion(tx, contract, { sort: 'vertex', kind: 'fixture.page', subjectId: removed.rows[0]!.id, property: '$exists', operation: 'assert', value: false });
+    });
     await owner.transaction('snapshot', async (tx) => {
       const statements: string[] = [];
       const measured = { query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
         statements.push(sql);
         return await tx.query<Row>(sql, values);
       } };
-      const reader = new GraphReader(owner, () => 'now', undefined, measured, undefined, generated);
+      const reader = new GraphReader(owner, () => 'now', undefined, measured, undefined, generated, undefined, owner.graphContract);
       const first = await reader.list('fixture.page', { limit: 1 });
       expect(first.rows.map((entity) => entity.key)).toEqual(['fixture.page:Alpha']);
       expect(first.rows[0]?.properties['body']).toBe('body Alpha');

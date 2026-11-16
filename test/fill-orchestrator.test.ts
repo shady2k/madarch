@@ -296,6 +296,13 @@ test('concurrent tracked reads and progress keep their durable sequence allocati
   const allocatedEvents = eventBatches.flat().sort((a, b) => a.seq - b.seq);
   expect(allocatedEvents.map((event) => event.seq)).toEqual([last + 7, last + 8, last + 9, last + 10, last + 11]);
   expect((await readProgress(opened.owner, runId)).slice(-5)).toEqual(allocatedEvents);
+  const freshDuplicates = await recordUnitReads(opened.owner, [1, 2].map((value) => ({
+    unitId: unit.unitId, generation: unit.generation, query: 'new-in-batch', rows: [value], at: NOW + 6,
+  })));
+  expect(freshDuplicates.map((read) => read.seq)).toEqual([17, 18]);
+  const freshRetained = (await readUnitReads(opened.owner, unit.unitId, unit.generation)).filter((read) => read.query === 'new-in-batch');
+  expect(freshRetained).toEqual([freshDuplicates[1]!]);
+  expect(freshRetained[0]!.membership).toBe(readMembership([2]));
 });
 
 test('a failed progress batch rolls back its events without rolling back committed tracked reads', async () => {

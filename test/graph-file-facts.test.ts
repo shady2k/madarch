@@ -2,6 +2,8 @@
  * A product may declare code.file's lines and no class. The file facts read only the columns the manifest declares; the
  * absent class is unknown, never a query for a column the generated table does not hold.
  */
+import { type GraphContract } from '../src/graph/contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
 import { expect, test } from 'bun:test';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
 import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
@@ -11,9 +13,14 @@ function reader(columns: readonly string[], row: Record<string, unknown>): { rea
   const queries: string[] = [];
   const tx = { query: async (sql: string) => { queries.push(sql); return { rows: [row] }; } } as unknown as OuterTransaction;
   const file: GeneratedKindRead = { kind: GIT_KINDS.file, table: 'ordinary_file', key: ['repository', 'path'], columns, types: {} };
+  const contract: GraphContract = withAssertionContract({
+    vertex: [{ name: file.kind, table: file.table, capability: 'disk', key: file.key,
+      fields: columns.map(name => ({ name, type: name === 'lines' ? 'integer' : 'text' })) }],
+    edge: [], dictionary: [],
+  });
   return {
     queries,
-    reader: new GraphReader({} as DatabaseOwner, () => '', undefined, tx, new Set([GIT_KINDS.file]), new Map([[GIT_KINDS.file, file]])),
+    reader: new GraphReader({} as DatabaseOwner, () => '', undefined, tx, new Set([GIT_KINDS.file]), new Map([[GIT_KINDS.file, file]]), undefined, contract),
   };
 }
 

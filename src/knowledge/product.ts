@@ -2340,10 +2340,8 @@ export class KnowledgeProduct {
     if (!(action === 'pause' ? ['running'] : ['created', 'planning', 'running', 'pausing', 'paused']).includes(run.state)) return { ok: false as const, status: 409, message: `${here()}: run ${runId} is ${run.state} and cannot ${action}` };
     if (run.state === 'paused') {
       // A paused worker has ended and holds no live sessions; use the same durable cancellation as its host.
-      const manifest = await this.manifestRead(product.folder);
-      if (!manifest.present) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: run control requires the product's declarations`);
-      const contract = graphContractOf(manifest.manifest);
-      await cancelRun({ database: await this.fillDatabase(owner), product: product.name, clock: Date.now, authority: new Map(), sink: undefined, operations: { setRunState: async (id, state) => await setProductOperationRunState(owner, contract, id, state) } }, { runId, cause: 'stopped from the fill run page' });
+      const database = await this.fillDatabase(owner);
+      await cancelRun({ database, product: product.name, clock: Date.now, authority: new Map(), sink: undefined, operations: { setRunState: async (id, state) => await setProductOperationRunState(owner, database.graphContract, id, state) } }, { runId, cause: 'stopped from the fill run page' });
     } else {
       await askRunControl(await this.fillDatabase(owner), { runId, action, at: Date.now() });
     }

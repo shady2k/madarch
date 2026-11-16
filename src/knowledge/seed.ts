@@ -34,7 +34,8 @@ interface CatalogMetadata {
   groups: Record<string, { parent?: string }>;
   roles: Record<string, { lead: string[]; open: string[] }>;
   documents: { expect: string[] };
-  edges?: { from: string[]; to: string[] }[];
+  edges?: { name: string; from: string[]; to: string[] }[];
+  'semantic-bindings'?: Record<string, { kind: string; edges?: Record<string, { kind: string; direction: 'from' | 'to' }> }>;
 }
 
 const CATALOG_METADATA = parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as CatalogMetadata;
@@ -56,6 +57,17 @@ function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Re
     };
     return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
   }));
+  // A partial product declares only its retained relation endpoints, including the kinds its semantic roles name.
+  const edges = CATALOG_METADATA.edges?.map((edge) => ({
+    ...edge,
+    from: edge.from.filter((name) => name === 'any' || names.has(name)),
+    to: edge.to.filter((name) => name === 'any' || names.has(name)),
+  })).filter((edge) => edge.from.length > 0 && edge.to.length > 0);
+  const semanticBindings = Object.fromEntries(Object.entries(CATALOG_METADATA['semantic-bindings'] ?? {})
+    .filter(([, binding]) => names.has(binding.kind) && Object.values(binding.edges ?? {}).every((role) => {
+      const edge = edges?.find((edge) => edge.name === role.kind);
+      return edge?.[role.direction].some((name) => name === 'any' || name === binding.kind) === true;
+    })));
   return stringify({
     ...CATALOG_METADATA,
     groups: Object.fromEntries(Object.entries(CATALOG_METADATA.groups).filter(([name]) => used.has(name))),
@@ -63,8 +75,8 @@ function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Re
     roles: Object.fromEntries(Object.entries(CATALOG_METADATA.roles)
       .map(([name, role]) => [name, { ...role, lead: role.lead.filter((group) => used.has(group)) }] as const)
       .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
-    // An edge with an `any` end stands on every entity, so the starter set keeps it whatever kinds it holds.
-    edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => name === 'any' || names.has(name))),
+    edges,
+    'semantic-bindings': semanticBindings,
     ...(values === undefined || Object.keys(values).length === 0 ? {} : { values }),
   });
 }

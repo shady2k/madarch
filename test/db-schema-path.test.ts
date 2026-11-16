@@ -35,6 +35,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { readRun, readRunUnits } from '../src/graph/fill-state.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -295,12 +296,12 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       expect(database?.outcome).toBe('completed');
       expect(database?.produced).toBeGreaterThan(0);
       expect(database?.reason).toContain(`src/schema.ts:${String(COMPOSED_LINE)}`);
-      const run = await partialOwner.run((tx) => tx.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1', [database!.runId]));
-      expect(run.rows[0]?.state).toBe('succeeded');
+      const run = await readRun(partialOwner, database!.runId);
+      expect(run?.state).toBe('succeeded');
       // The owner rule: a final run leaves no blocked or waiting unit. The database published, so its dependants ran.
-      const units = await partialOwner.run((tx) => tx.query<{ unit_id: string; state: string }>('SELECT unit_id, state FROM fill_unit_generation WHERE run_id = $1', [database!.runId]));
+      const units = await readRunUnits(partialOwner, database!.runId);
       for (const kind of ['code.table', 'code.column', 'code.index']) {
-        expect(units.rows.find((unit) => unit.unit_id.includes(`:${kind}`))?.state).toBe('published');
+        expect(units.find((unit) => unit.unitId.includes(`:${kind}`))?.state).toBe('published');
       }
     } finally { await partialOwner.close(); }
 
@@ -317,15 +318,22 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       if (!read.present) throw new Error('the fixture manifest is absent');
       // Every table the SQL declares is in the graph, and nothing for the table the SQL composes at run time.
       const contract = graphContractOf(read.manifest);
-      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest));
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest), contract);
       const tables = await reader.list('code.table', { limit: 100 });
       expect(tables.rows.map((row) => row.properties['name']).sort()).toEqual(['child', 'parent']);
       const columns = await reader.list('code.column', { limit: 200 });
-      expect(columns.rows.map((row) => `${String(row.properties['table'])}.${String(row.properties['name'])}`).filter((one) => one.startsWith('app/child.')).sort()).toEqual(['app/child.amount', 'app/child.id', 'app/child.note', 'app/child.parent_id']);
+      const child = tables.rows.find((row) => row.properties['name'] === 'child');
+      if (child === undefined) throw new Error(`${import.meta.path}:362: fixture table child is absent`);
+      const childColumns = [];
+      for (const column of columns.rows) {
+        const table = await reader.edgesOf(column, 'code.column-table', 'out', 2);
+        if (table.rows.some((edge) => edge.other.uid === child.uid)) childColumns.push(column);
+      }
+      expect(childColumns.map((row) => `app/child.${String(row.properties['name'])}`).sort()).toEqual(['app/child.amount', 'app/child.id', 'app/child.note', 'app/child.parent_id']);
       const indexes = await reader.list('code.index', { limit: 100 });
       expect(indexes.rows.map((row) => row.properties['name'])).toEqual(['child_parent']);
       // The foreign key is an edge between the two columns (code.foreign-key), naming the constraint and its target.
-      const keyColumn = columns.rows.find((row) => row.properties['name'] === 'parent_id' && row.properties['table'] === 'app/child')!;
+      const keyColumn = childColumns.find((row) => row.properties['name'] === 'parent_id')!;
       const keys = await reader.edgesOf(keyColumn, 'code.foreign-key', 'out', 20);
       expect(keys.rows.map((row) => row.other.properties['name'])).toEqual(['id']);
       expect(keys.rows[0]!.properties['target_column']).toBe('id');
@@ -347,7 +355,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       graphContract: withManifestContract(await readPinnedGraphContract(folder)),
     });
     try {
-      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest));
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest), contract);
       expect((await reader.list('code.table', { limit: 100 })).rows.map((row) => row.properties['name']).sort()).toEqual(['child', 'parent']);
       expect((await reader.find('code.table:app/madarch_substitution')).length).toBe(0);
     } finally { await owner.close(); }
