@@ -70,7 +70,7 @@ function fixture(options: { readonly agent?: boolean } = {}) {
   const home = join(root, 'home');
   const product = makeProduct(home, 'decision-shop', repository, 'app');
   const starter = parseDocument(readFolderManifestText(product)).toJS() as Record<string, any>;
-  const codeKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
+  const codeKinds = ['code.repository', 'code.directory', 'code.file', 'code.blob', 'code.gitlink', 'code.commit', 'code.author'];
   const kinds: Record<string, unknown> = Object.fromEntries(codeKinds.map((name) => [name, starter['kinds'][name]]));
   kinds['doc.decision'] = {
     id: 'practice.decision',
@@ -95,10 +95,14 @@ function fixture(options: { readonly agent?: boolean } = {}) {
   };
   const names = new Set(Object.keys(kinds));
   const plugins = (starter['plugins'] as { id: string }[]).filter((plugin) => ['disk', 'git', ...(options.agent === false ? [] : ['agent-fill'])].includes(plugin.id));
-  // The starter's metadata whole (its properties, purposes, roles and documents), with the fixture's kinds and plugins.
-  const { kinds: _starterKinds, edges: _starterEdges, plugins: _starterPlugins, ...metadata } = starter;
+  // This fixture declares the disk/git graph and the immutable blobs that ground the agent's evidence.
+  // Reader questions and detector roles belong to other products, not this decision fixture's semantic contract.
+  const semanticRoles = ['repository', 'directory', 'file', 'source', 'author', 'commit', 'evidence-support'];
+  const semanticBindings = Object.fromEntries(semanticRoles.map((role) => [role, starter['semantic-bindings'][role]]));
+  const { kinds: _starterKinds, edges: _starterEdges, plugins: _starterPlugins, 'semantic-bindings': _starterBindings, ...metadata } = starter;
   writeFolderManifest(product, stringify({
     ...metadata,
+    'semantic-bindings': semanticBindings,
     kinds,
     edges: (starter['edges'] as { from: string[]; to: string[] }[]).filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || names.has(name))),
     plugins,

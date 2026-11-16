@@ -301,9 +301,11 @@ describe('every field of a catalog row is required, and a wrong one is refused n
     expectRefused(withKind(SMALL, 'test.kind', { 'template-policy': 'member', source: 'markdown', file: 'docs/test.md' }), 'kind "test.kind": "template-policy" is "member", and the kind declares no "member": a member\'s row names the relation to the parent whose page it stands on');
   });
 
-  test('a kind the engine cannot make yet declares no page: a source or a member is refused', () => {
+  test('a graph kind without a page accepts graph source, but refuses a document source or member presentation', () => {
+    // Graph-only metadata is valid under 0039; page presentation remains forbidden.
+    expect(read1(withKind(SMALL, 'test.kind', { source: 'graph', key: '[]' }))).toEqual([]);
     expectRefused(withKind(SMALL, 'test.kind', { source: 'markdown' }), 'kind "test.kind": a kind with template-policy none may declare only source graph');
-    expectRefused(withKind(SMALL, 'test.kind', { member: '{ relation: c4.uses, direction: out }' }), 'kind "test.kind": "member" belongs to a kind that shows a page, and "template-policy" is "none"');
+    expectRefused(withKind(SMALL, 'test.kind', { source: 'graph', member: '{ relation: c4.uses, direction: out }' }), 'kind "test.kind": "member" belongs to a kind that shows a page, and "template-policy" is "none"');
   });
 });
 
