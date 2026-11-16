@@ -72,9 +72,15 @@ async function producerRows(tx:SqlExecutor,rows:readonly StoredAssertion[]):Prom
  return rows.filter(row=>!sources.has(row.source));
  });
 }
-async function resolutionSource(tx:SqlExecutor,principal:string,product:string):Promise<string>{
- const uid=keyUid('system.resolution-source',[principal]);
- await bootstrapWriteIdentity(tx,'source',uid,product);return uid;
+async function resolutionSource(tx:SqlExecutor,contract:GraphContract,principal:string,product:string):Promise<string>{
+ const uid=keyUid('system.resolution-source',[principal]);const previous=requireWriteCapability(tx);
+ await bootstrapWriteIdentity(tx,'source',uid,product,previous.context);
+ try{
+  bindWriteCapability(tx,{...previous,sourceUid:uid,permissions:[{kind:'source',properties:['$exists'],assert:true,retractOwn:false}]});
+  const source=(await tx.query<{id:string}>('SELECT id::text AS id FROM node WHERE uid=$1::uuid',[uid])).rows[0]!;
+  await writeAssertion(tx,contract,{sort:'vertex',kind:'source',subjectId:source.id,property:'$exists',operation:'assert',value:true,validFrom:'0001-01-01T00:00:00.000Z'},previous.context);
+ }finally{bindWriteCapability(tx,previous);}
+ return uid;
 }
 /** Materialize a persisted question at the same temporal/context snapshot as its slot. */
 async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors):Promise<DisputeView|null>{
@@ -234,7 +240,7 @@ export async function resolveDispute(tx:SqlExecutor,declared:GraphContract,bindi
  if(JSON.stringify(expected)!==JSON.stringify(actual)||!actual.includes(input.chosenAssertionUid))throw new Error(`${import.meta.path}:161: REVISION_CONFLICT dispute candidates changed`);
  const uid=newUid();const previous=await links(tx,input.questionUid,'system.dispute-question-resolution',selectors);
  const currentSegment=segmentAt(current,now);question['segment_from']=currentSegment.from;question['segment_to']=currentSegment.to;
- const decisionSource=await resolutionSource(tx,capability.principalUid,capability.productUid);
+ const decisionSource=await resolutionSource(tx,contract,capability.principalUid,capability.productUid);
  const chosen=current.find(row=>row.id===input.chosenAssertionUid)!;
  let assertionUid:string;
  try{

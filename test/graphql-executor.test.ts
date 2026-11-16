@@ -5,6 +5,7 @@ import { loadAssertions } from '../src/graph/assertion-read.js';
 import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
 import {readDispute} from '../src/graph/dispute-read.js';
 import { writeAssertion } from '../src/graph/write.js';
+import { keyUid } from '../src/graph/uid.js';
 import { createHash } from 'node:crypto';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 /**
@@ -137,6 +138,7 @@ beforeAll(async () => {
       ],
       removals: [],
     }, 1, { author: 'two@1' });
+    await reconcileDisputes(tx, contract);
     await bindTestWriteCapability(tx, contract, '7e2372f4-0000-7000-8000-000000000001');
     await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'B' }, producer: 'neutral', producerVersion: '1' }],
@@ -527,15 +529,17 @@ describe('the GraphQL executor', () => {
     expect(repository.urlAssertions[0].source.id).toBe('3fc4ccfe-0000-7000-8000-000000000001');
     const file = data['file'] as Record<string, any>;
     expect(file.demoRelated.edges[0].node.assertions[0].source.id).toBe('7692c3ad-0000-7000-8000-000000000001');
-    // Fifty-one producers on one edge: the list is the 50 newest, never every opinion the graph holds.
+    // Fifty-one authenticated producers add their opinions to the original source's opinion.
     await owner.transaction('write', async (tx) => {
-    await bindTestWriteCapability(tx, contract);
-      await bindTestWriteCapability(tx, contract, '0af96a8e-0000-7000-8000-000000000001');
-    await publishGraphDrafts(tx, contract, {
-        vertices: [],
-        edges: Array.from({ length: 51 }, (_, at) => ({ kind: 'demo.related', from: { kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, to: { kind: 'demo.file', key: { path: 'b.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, producer: `many-${String(at)}`, producerVersion: '1' })),
-        removals: [],
-      }, 1, { author: 'many@1' });
+      for (let at = 0; at < 51; at += 1) {
+        const sourceUid = `0af96a8e-0000-7000-8000-${String(at + 1).padStart(12, '0')}`;
+        await bindTestWriteCapability(tx, contract, sourceUid);
+        await publishGraphDrafts(tx, contract, {
+          vertices: [],
+          edges: [{ kind: 'demo.related', from: { kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, to: { kind: 'demo.file', key: { path: 'b.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, producer: `many-${String(at)}`, producerVersion: '1' }],
+          removals: [],
+        }, 1, { author: 'many@1' });
+      }
     });
     const bounded = await graphql(`query ($file: ID!) { entity(id: $file) { ... on DemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { file: fileA });
     const related = (bounded['entity'] as Record<string, any>).demoRelated.edges[0].node.assertions;
@@ -772,10 +776,10 @@ test('a durable resolution selects the same value for fields, filters, order and
   expect(exposed.state).toBe('RESOLVED');
   expect(exposed.candidates.map((row: any) => row.id).sort()).toEqual([...question!.candidates].sort());
   expect(exposed.resolution.value).toBe('Chosen resolution');
-  expect(exposed.resolution.source.id).toBe(gj.sourceUid);
+  expect(exposed.resolution.source.id).toBe(keyUid('system.resolution-source', [gj.principalUid]));
   expect(exposed.supersededResolutions).toEqual([]);
   expect(entity.contested).not.toContain('description');
-  expect(entity.descriptionAssertions.filter((row: any) => row.selected).map((row: any) => row.id)).toEqual([chosen.id]);
+  expect(entity.descriptionAssertions.filter((row: any) => row.selected).map((row: any) => row.id)).toEqual([exposed.resolution.id]);
   expect((result['allDemoRepository'] as Record<string, any>).totalCount).toBe(1);
   expect((result['allDemoRepository'] as Record<string, any>).edges[0].node.description).toBe('Chosen resolution');
   expect((result['allDemoRepositoryAggregate'] as Record<string, any>).count).toBe(1);
