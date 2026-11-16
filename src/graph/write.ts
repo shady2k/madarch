@@ -211,7 +211,9 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
   WHERE ${subjectId}=$1::bigint AND a.property=$2 AND a.language IS NOT DISTINCT FROM $3::text AND a.context_id=$4 AND producer.uid=$5::uuid
    AND a.valid_from<=coalesce($6::timestamptz,clock_timestamp()) AND (a.valid_to IS NULL OR a.valid_to>coalesce($6::timestamptz,clock_timestamp()))
   ORDER BY a.recorded_sequence DESC LIMIT 1`,[input.subjectId,input.property,input.language??null,context,binding.sourceUid,input.validFrom??null])).rows[0];
- const repeat=input.operation==='assert'&&current?.operation==='assert'&&sameValue(current.value,input.value);
+ const priorValue=field.type==='timestamp'&&current?.value!==null&&current?.value!==undefined?new Date(String(current.value)).toISOString():current?.value;
+ const nextValue=field.type==='timestamp'&&input.value!==null&&input.value!==undefined?new Date(String(input.value)).toISOString():input.value;
+ const repeat=input.operation==='assert'&&current?.operation==='assert'&&sameValue(priorValue,nextValue);
  const uid=repeat?current.uid:newUid();
  const made=repeat?{nodeId:current.id}:await identity(executor,'system.assertion',uid,{},binding.productUid,context);
  if(!repeat){

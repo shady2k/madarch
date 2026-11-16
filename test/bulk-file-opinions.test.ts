@@ -2,7 +2,7 @@
 import { expect,test } from 'bun:test';
 import { generatedTableName,type GraphContract } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
-import { loadAssertions,selectAssertionSlots } from '../src/graph/assertion-read.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 const graph:GraphContract={vertex:[{name:'file',table:generatedTableName('file','vertex'),key:['path'],fields:[{name:'path',type:'text'},{name:'language',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
 test('0039.25: batch and singleton publication preserve the same source histories and effective values',async()=>{
@@ -19,7 +19,7 @@ test('0039.25: batch and singleton publication preserve the same source historie
  await expect(owner.transaction('write',async tx=>{await publishGraphDrafts(tx,graph,{vertices:[{kind:'file',key:{path:'0.txt'},values:{language:'rollback'},producer:'fixture',producerVersion:'1'}],removals:[]});throw new Error('rollback');})).rejects.toThrow('rollback');
  expect(await owner.run(tx=>loadAssertions(tx,'vertex','file',['language']))).toEqual(history);
  const now=new Date().toISOString();
- snapshots.push({history:history.map(a=>[a.subject,a.source,a.property,a.value,a.operation]),selected:[...selectAssertionSlots(history,{validAt:now,recordedAt:now,contexts:[1]}).values()].map(s=>s.selected!.value)});
+ snapshots.push({history:history.map(a=>[a.subject,a.source,a.property,a.value,a.operation]),selected:(await owner.run(tx=>loadAssertions(tx,'vertex','file',['language'],undefined,{validAt:now,recordedAt:now,contexts:[1]}))).filter(a=>a.selected).map(a=>a.value)});
  }
  expect(snapshots[0]).toEqual(snapshots[1]);
  }finally{for(const owner of owners)await owner.close();}

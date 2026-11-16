@@ -202,8 +202,7 @@ test('disputed SQL existence fails closed after later writes and restores projec
   await tx.query('SAVEPOINT absent_projection');
   await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
   await tx.query('ROLLBACK TO SAVEPOINT absent_projection');
-  const {refreshDisputeSelection}=await import('../src/graph/disputes.js');
-  await refreshDisputeSelection(tx,graph);
+
   const fresh=(await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows;
   expect(fresh).toHaveLength(1);
   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
@@ -229,8 +228,7 @@ test('disputed SQL existence fails closed after later writes and restores projec
   await tx.query('SAVEPOINT before_projection');
   await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
   await tx.query('ROLLBACK TO SAVEPOINT before_projection');
-  const {refreshDisputeSelection}=await import('../src/graph/disputes.js');
-  await refreshDisputeSelection(tx,graph);
+
   expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
  });
  }finally{await owner.close();}

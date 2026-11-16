@@ -2,7 +2,7 @@
 import { expect, test } from 'bun:test';
 import { assertionValueTableName, generatedTableName, type GraphContract, type VertexDraft } from '../src/graph/contract.js';
 import { ensureVertex, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
-import { loadAssertions, selectAssertionSlots } from '../src/graph/assertion-read.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
 
@@ -23,9 +23,13 @@ async function fixture(work: (owner: Awaited<ReturnType<typeof createTestDatabas
 }
 async function selected(owner: Awaited<ReturnType<typeof createTestDatabaseOwner>>, field = 'definition') {
   return await owner.transaction('snapshot', async tx => {
-    const assertions = await loadAssertions(tx, 'vertex', 'fixture.term', [field]);
     const now = new Date().toISOString();
-    return [...selectAssertionSlots(assertions, { validAt: now, recordedAt: now, contexts: [1] }).values()];
+    const assertions = await loadAssertions(tx, 'vertex', 'fixture.term', [field], undefined, { validAt: now, recordedAt: now, contexts: [1] });
+    const subjects = [...new Set(assertions.map(row=>row.subjectId))];
+    return subjects.map(subjectId=>{
+      const active = assertions.filter(row=>row.subjectId===subjectId && row.active);
+      return {selected: active.find(row=>row.selected)??null, contested: new Set(active.map(row=>JSON.stringify(row.value))).size>1};
+    });
   });
 }
 
