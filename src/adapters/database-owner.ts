@@ -279,16 +279,30 @@ class PostgresOwner implements DatabaseOwner {
         let statements = 0;
         let rows = 0;
         const counts: StatementCounts = { select: 0, insert: 0, update: 0, delete: 0, other: 0, rows: 0 };
+        let tail: Promise<void> = Promise.resolve();
+        let accepting = true;
         const counted: OuterTransaction = {
-          query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
-            statements += 1;
-            const answer = (await spannedStatement(sql, async () => await this.named(async () => await client.query(sql, values === undefined ? undefined : [...values])) as { rows: unknown[] }, counts)) as { rows: Row[] };
-            rows += answer.rows.length;
+          query: <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+            if (!accepting) return Promise.reject(new Error(`the database owner "${this.location}" transaction has ended`));
+            const parameters = values === undefined ? undefined : [...values];
+            const answer = tail.then(async () => {
+              statements += 1;
+              const result = (await spannedStatement(sql, async () => await this.named(async () => await client.query(sql, parameters)) as { rows: unknown[] }, counts)) as { rows: Row[] };
+              rows += result.rows.length;
+              return result;
+            });
+            tail = answer.then(() => undefined, () => undefined);
             return answer;
           },
         };
         EXECUTOR_OWNER.set(counted, this);
-        const held = await this.ownWork.run(true, () => work(counted));
+        let held: T;
+        try {
+          held = await this.ownWork.run(true, () => work(counted));
+        } finally {
+          accepting = false;
+          await tail;
+        }
         if (kind === 'write') await refuseAborted(client, this.location);
         await this.named(async () => await client.query('COMMIT'));
         span.setAttribute('db.statements', statements);
