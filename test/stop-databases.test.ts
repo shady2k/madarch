@@ -12,8 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { ensureDaemon } from '../src/product/daemon.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
+import { KINDS_FILE } from '../src/product/manifest/kinds.js';
+import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { clusterPaths, openCluster, fallbackSignalAllowed, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
@@ -60,6 +63,23 @@ function fixture(): Fixture {
   mkdirSync(join(draft.folder, 'repos'), { recursive: true });
   execFileSync('ln', ['-s', code, join(draft.folder, 'repos', 'code')]);
   commitProduct(draft.folder, 'link code');
+  const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_HOME: base, MADARCH_OWN_WIKI: 'off', MADARCH_APP: app };
+  return { home, folder: draft.folder, name: 'shop', app, env };
+}
+
+/** A catalogue-only product: this case tests cancellation at a SQL lock, not starter-catalogue throughput. */
+function catalogueShutdownFixture(): Fixture {
+  const base = mkdtempSync(join(root, 'catalogue-case-'));
+  const home = join(base, 'products');
+  const app = join(base, 'app');
+  mkdirSync(join(app, 'dist'), { recursive: true });
+  writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>Built</title>');
+  writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true, scripts: { build: 'true' } }));
+  const draft = createDraft({ home, name: 'shop', template: 'none', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+  if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+  mkdirSync(join(draft.folder, 'madarch'), { recursive: true });
+  writeFolderManifest(draft.folder, 'kinds:\n  note: { source: graph, origin: person }\n');
+  commitProduct(draft.folder, 'declare the catalogue shutdown fixture');
   const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_HOME: base, MADARCH_OWN_WIKI: 'off', MADARCH_APP: app };
   return { home, folder: draft.folder, name: 'shop', app, env };
 }
@@ -168,6 +188,48 @@ test('SIGTERM of the daemon stops the product PostgreSQL server', async () => {
   await openStore(fix, `${base}/products/${fix.name}`);
   process.kill(pid, 'SIGTERM');
   await noServers(fix.home);
+}, 120_000);
+
+test('SIGTERM cancels a blocked watched catalogue before the daemon exits', async () => {
+  const fix = catalogueShutdownFixture();
+  const first = await daemon(fix);
+  const readyDeadline = Date.now() + 30_000;
+  let published = false;
+  while (Date.now() < readyDeadline) {
+    const response = await fetch(`${first.base}/products/${fix.name}/api/status`);
+    const status = await response.json() as { publication?: string };
+    if (response.ok && status.publication === 'done') { published = true; break; }
+    await Bun.sleep(100);
+  }
+  if (!published) throw new Error(`${fix.folder}:1: the initial catalogue was not published within 30000 ms`);
+  const recorded = servers(fix.home);
+  if (recorded.length !== 1) throw new Error(`${fix.home}:1: expected one prepared store, found ${JSON.stringify(recorded)}`);
+  const dataDir = recorded[0]!.dataDir;
+  const psql = join(postgresInstallFolder(fix.env), 'bin', postgresProgram('psql'));
+  const connection = ['-X', '-h', clusterPaths(join(dataDir, '..')).socketDir, '-U', 'postgres', '-d', 'madarch'];
+  const blocker = Bun.spawn([psql, ...connection, '-v', 'ON_ERROR_STOP=1'], {
+    env: { ...fix.env, PGAPPNAME: 'stop-test-catalogue-blocker' }, stdin: 'pipe', stdout: 'ignore', stderr: 'pipe',
+  });
+  children.push(blocker);
+  const query = (sql: string): string => execFileSync(psql, [...connection, '-A', '-t', '-c', sql], { env: fix.env, encoding: 'utf8' }).trim();
+  try {
+    // startupBinding's catalogue installation lock (src/graph/manifest-publication.ts) keeps a real publication
+    // in flight. The SQL blocker is not a cluster lease and must not keep a stopping daemon's server alive.
+    blocker.stdin.write('BEGIN; SELECT pg_advisory_xact_lock(739141);\n');
+    blocker.stdin.flush();
+    await waitUntil('the test session to hold the catalogue lock', () => query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='stop-test-catalogue-blocker' AND l.locktype='advisory' AND l.granted") === '1');
+    const kindsFile = join(fix.folder, KINDS_FILE);
+    writeFileSync(kindsFile, `${readFileSync(kindsFile, 'utf8')}\n# Refresh the catalogue while its installation lock is held.\n`);
+    await waitUntil('the watched catalogue to wait behind the test session', () => query("SELECT count(*) FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS (SELECT 1 FROM pg_stat_activity blocker WHERE blocker.application_name='stop-test-catalogue-blocker' AND blocker.pid=ANY(pg_blocking_pids(a.pid)))") !== '0', 30_000);
+    process.kill(first.pid, 'SIGTERM');
+    await waitUntil(`the daemon ${String(first.pid)} with a blocked watched catalogue to exit`, () => !alive(first.pid));
+    await waitUntil(`the recorded PostgreSQL server ${String(recorded[0]!.pid)} to exit`, () => !alive(recorded[0]!.pid));
+    await noServers(fix.home);
+  } finally {
+    blocker.kill('SIGKILL');
+    await blocker.exited;
+    if (alive(first.pid)) { process.kill(first.pid, 'SIGKILL'); killMadarchOf(fix.home); }
+  }
 }, 120_000);
 
 test('SIGKILL of the daemon leaves no server after the next start, and opens the store cleanly', async () => {
