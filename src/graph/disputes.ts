@@ -1,4 +1,4 @@
-/** Durable graph disputes and value-pinned resolutions (0039 items 16,17,27). */
+/** Writer-side dispute judgement and ordinary resolution assertions (0039 items 16,17,27). */
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, EvidenceDraft } from './contract.js';
 import { withAssertionContract, isDisputableProperty } from './system-contract.js';
@@ -19,8 +19,8 @@ import { withSpan } from '../obs/trace.js';
 
 type Selectors = Parameters<typeof selectAssertions>[1];
 interface Segment {from:string;to:string|null}
-const kinds=['system.dispute-question','system.dispute-resolution'];
-const edgeKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.dispute-supersedes','system.resolution-assertion','system.dispute-resolution-question'];
+const kinds=['system.dispute-question','system.dispute-resolution','system.problem'];
+const edgeKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.dispute-supersedes','system.resolution-assertion','system.dispute-resolution-question','system.problem-about'];
 function subject(row:AssertionRow):string{return row.subject.type==='vertex'?row.subject.uid:row.subject.id;}
 async function links(tx:SqlExecutor,uid:string,kind:string,selectors?:Selectors):Promise<string[]>{
  return await withSpan('graph.dispute.links',{},async()=>{
@@ -119,6 +119,7 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
   const active=selectAssertions(await loadAssertions(tx,'vertex',node.kind,['$exists'],[Number(node.id)]),selectors);
   if(active.contested||active.selected?.value!==true)return false;
   const state=states[index]!;
+  let stale=state.currentApplicability==='stale';
   if(support){
    const here=support.direction==='from'?'from_node':'to_node';
    const supportEdges=(await tx.query<{id:number}>(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.${here}=$1::bigint AND k.name=$2`,[node.id,support.edgeKind])).rows;
@@ -126,9 +127,14 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
    for(const edge of supportEdges){
     const stream=supportAssertions.filter(row=>row.subjectId===Number(edge.id)&&selectors.contexts.includes(row.context)&&Date.parse(row.validFrom)<=Date.parse(selectors.validAt)&&(row.validTo===null||Date.parse(row.validTo)>Date.parse(selectors.validAt))&&Date.parse(row.recordedAt)<=Date.parse(selectors.recordedAt)).sort((a,b)=>a.recordedSequence>b.recordedSequence?-1:1);
     if(stream[0]?.operation==='retract')return false;
+    if(selectAssertions(supportAssertions.filter(row=>row.subjectId===Number(edge.id)),selectors).selected?.value===false)stale=true;
    }
   }
   if(state.historicalValidity==='invalid'||state.currentApplicability==='ended')return false;
+  if(stale){
+   const problem=keyUid('system.resolution-stale-evidence',[uid,attachment.target]);
+   await internal(tx,contract,()=>save(tx,contract,'system.problem',problem,{rule:'resolution-stale-evidence',fingerprint:`${uid}:${attachment.target}`,reason:'Resolution evidence is stale; its source must reconcile current support.'},[{kind:'system.problem-about',target:uid,targetKind:'system.dispute-resolution'}]));
+  }
  }
  return true;
  });
@@ -172,7 +178,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
      const subjectKind=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM ${assertion.subject.type==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint`,[assertion.subjectId])).rows[0]!.kind;
      const previous=requireWriteCapability(tx);
      try{
-      bindWriteCapability(tx,{...binding,sourceUid:assertion.source,permissions:[{kind:subjectKind,properties:[assertion.property],assert:true,retractOwn:true}]});
+      bindWriteCapability(tx,{...binding,sourceUid:assertion.source,permissions:[{kind:subjectKind,properties:[assertion.property],assert:false,retractOwn:true}]});
       await writeAssertion(tx,contract,{sort:assertion.subject.type,kind:subjectKind,subjectId:String(assertion.subjectId),property:assertion.property,language:assertion.language,operation:'retract',validFrom:from,validTo:assertion.validTo},binding.context);
      }finally{bindWriteCapability(tx,previous);}
     }
