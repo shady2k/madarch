@@ -133,17 +133,17 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         const edgeKind = literal(kind.name);
         const endpointCode = index * 2 + 1;
         const cardinalityCode = endpointCode + 1;
-        failures.push(`SELECT ${endpointCode} AS code WHERE EXISTS(
+        failures.push(`WHEN EXISTS(
           SELECT 1 FROM active_edges e WHERE e.kind=${edgeKind} AND (
             NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${kind.from.map(literal).join(',')}]::text[]))
-            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[]))))`);
+            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
         for (const [direction, ends, bound] of [['from',kind.from,kind.cardinality.to],['to',kind.to,kind.cardinality.from]] as const) {
           if (bound === 'many') continue;
-          failures.push(`SELECT ${cardinalityCode} AS code WHERE EXISTS(
+          failures.push(`WHEN EXISTS(
             SELECT 1 FROM active_vertices n LEFT JOIN active_edges e
               ON e.context_id=n.context_id AND e.${direction}_node=n.id AND e.kind=${edgeKind}
             WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
-            GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'})`);
+            GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
         }
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
@@ -157,7 +157,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         SELECT ctx.id AS context_id,k.name AS kind,active.id FROM context ctx
         CROSS JOIN (VALUES ${vertexKinds.map(name => `(${literal(name)})`).join(',')}) k(name)
         CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id) active(id)
-      ) SELECT coalesce(min(code),0) INTO violation FROM (${failures.join(' UNION ALL ')}) failures;
+      ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
       ${refusals.join('\n')}`);
     }
     await tx.query(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
