@@ -88,8 +88,8 @@ describe('serveWiki with a product or a manifestless directory', () => {
         { name: 'path', type: 'text', producers: ['fixture'] },
         { name: 'markdown', type: 'text', producers: ['fixture'] },
         { name: 'source_text', type: 'text', producers: ['fixture'] },
-        { name: 'anchors', type: 'json', producers: ['fixture'] },
-        { name: 'links', type: 'json', producers: ['fixture'] },
+        { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+        { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
       ],
     });
     writeFileSync(kindsFile, manifest.toString());
@@ -121,7 +121,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     try {
       await owner.transaction('write', async (tx) => {
         await bindTestWriteCapability(tx, contract);
-        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title: 'Linked source' } }, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }], removals: [] });
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title: 'Linked source' }, keyEdges: { 'document-repository': { kind: 'code.repository', key: { name: 'source' } } } }, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }], removals: [] });
         });
     } finally { await owner.close(); }
     // The document is a graph entity (decision 0036, section 8): read through the one read API.

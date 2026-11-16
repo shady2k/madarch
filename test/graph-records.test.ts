@@ -354,7 +354,7 @@ test('an empty disk-only tree is available from its successful inventory publica
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty tree'], { cwd: empty });
   const fixture = join(root, 'product-empty-tree');
   makeProduct(fixture, empty, 'empty-tree');
-  useFixturePlugins(fixture, ['disk']);
+  useFixturePlugins(fixture, ['disk'], GIT_CONTRACT.vertex.map(kind => kind.name));
   restrictRepositoryDeclarations(fixture);
   execFileSync('git', ['add', '-A'], { cwd: fixture });
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Only inventory'], { cwd: fixture });
@@ -432,14 +432,14 @@ describe('a git date of a zero or a negative offset', () => {
     }
     expect(listed.rows).toHaveLength(listed.total);
     // The later offsets fill replaces disk/git opinions in this shared store; read its standing file.
-    const file = listed.rows.find((one) => one.key === 'code.file:offsets/a.txt');
+    const file = listed.rows.find((one) => one.properties['path'] === 'a.txt' && one.properties['repositoryName'] === 'offsets');
     if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
     expect(typeof file.properties['path']).toBe('string');
     expect(typeof file.properties['mode']).toBe('string');
     expect(file.evidence ?? []).toEqual([]);
     expect(file.opinions ?? []).toEqual([]);
     // The single entity's read is the one that states the sources, and the value is the same one.
-    const one = (await reader.find('code.file:offsets/a.txt'))[0];
+    const one = (await reader.find(file.key))[0];
     expect(one?.properties['mode']).toBe(file.properties['mode']);
     expect((one?.evidence ?? []).length).toBeGreaterThan(0);
     expect((one?.opinions ?? []).length).toBeGreaterThan(0);

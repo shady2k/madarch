@@ -69,6 +69,7 @@ function manifest(edgeLabels: string | null): string {
     '  - name: sample.covers',
     '    from: [item]',
     '    to: [item]',
+    '    cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }',
     ...(edgeLabels === null ? [] : [edgeLabels]),
   ].join('\n') + '\n';
 }

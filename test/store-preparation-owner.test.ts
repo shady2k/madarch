@@ -20,7 +20,8 @@ test('owner prepares pinned contracts and new source databases for attach-only r
       try {
         await runInTrace(trace, async () => {
           // Object key order does not change the declared contract.
-          const equivalent = { dictionary: repositoryContract.dictionary, edge: repositoryContract.edge, vertex: repositoryContract.vertex };
+          const { vertex, edge, dictionary, ...metadata } = repositoryContract;
+          const equivalent = { ...metadata, dictionary, edge, vertex };
           await requestStorePreparation(join(store, '.'), equivalent);
           await requestStorePreparation(store);
         });

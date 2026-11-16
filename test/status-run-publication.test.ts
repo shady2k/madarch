@@ -1,4 +1,4 @@
-import { readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
@@ -14,7 +14,8 @@ import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { setManifestPublicationState } from '../src/product/manifest-publication-state.js';
 import { prepareTestProduct } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { commitProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 
 test('pending and failed publication read persisted runs without opening the catalogue', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-status-run-'));
@@ -36,8 +37,21 @@ test('pending and failed publication read persisted runs without opening the cat
     expect((await reader.status()).fill.run).toBeUndefined();
     await owner.close();
     owner = undefined;
+    mkdirSync(join(draft.folder, 'madarch'), { recursive: true });
+    writeFolderManifest(draft.folder, `kinds:
+  note:
+    source: graph
+    key: [name]
+    fields:
+      - { name: name, type: text, producers: [person] }
+`);
+    commitProduct(draft.folder, 'Declare the status fixture catalogue');
+    const validated = validateProductManifests(draft.folder);
+    if (!validated.ok) throw new Error(validated.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
+    if (validated.value === undefined) throw new Error(`${draft.folder}/madarch/catalog.yaml:1: the fixture catalogue is absent`);
     release = await prepareTestProduct(draft.folder, home, storeRoot);
     owner = await createDatabaseOwner({ store: storeDatabasePath(store), connectOnly: true });
+    await publishValidatedManifests(owner, validated.value);
     const manifest = await owner.run(tx => readPublishedManifest(tx));
     if (manifest === undefined) throw new Error('prepared fixture manifest missing');
     const database = { transaction: owner.transaction.bind(owner), graphContract: withAssertionContract(withManifestContract(graphContractOf(manifest))) };

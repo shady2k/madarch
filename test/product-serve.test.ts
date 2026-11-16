@@ -200,13 +200,21 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const manifest = parseDocument(readFileSync(path, 'utf8'));
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
-    ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
+    ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], 'key-edges': [], title: 'title',
     fields: [...['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
       { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
       { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
     ],
   });
   writeFileSync(path, manifest.toString());
+  // These serving fixtures declare independent documents, not repository children.
+  const catalogPath = join(folder, 'madarch/catalog.yaml');
+  const catalog = parseDocument(readFileSync(catalogPath, 'utf8'));
+  const edges = (catalog.toJSON() as { edges: { name: string }[] }).edges;
+  const parentEdge = edges.findIndex((edge) => edge.name === 'document-repository');
+  if (parentEdge < 0) throw new Error(`${catalogPath}:1: the fixture document parent edge is absent`);
+  catalog.setIn(['edges', parentEdge, 'cardinality', 'from', 'min'], 0);
+  writeFileSync(catalogPath, catalog.toString());
   const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });
   if (committed.status !== 0) throw new Error(new TextDecoder().decode(committed.stderr));
   preparationOwners.push(await prepareTestProduct(folder, home));
