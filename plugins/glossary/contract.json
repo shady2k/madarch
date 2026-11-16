@@ -30,7 +30,14 @@
             "example": [
               "run"
             ],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           {
             "name": "code",
@@ -39,7 +46,14 @@
             "example": [
               "fillRun"
             ],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           {
             "name": "usages",
@@ -54,12 +68,96 @@
                 "count": 2
               }
             ],
-            "required": true
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "lineStart": {
+                    "type": "integer"
+                  },
+                  "lineEnd": {
+                    "type": "integer"
+                  },
+                  "count": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "repository",
+                  "path",
+                  "lineStart",
+                  "lineEnd",
+                  "count"
+                ],
+                "additionalProperties": false
+              }
+            }
           }
         ]
+      },
+      {
+        "kind": "code.blob",
+        "key": [
+          "digest"
+        ],
+        "fields": [
+          {
+            "name": "digest",
+            "type": "text",
+            "meaning": "SHA-256 of the exact UTF-8 content.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "required": true
+          },
+          {
+            "name": "content",
+            "type": "text",
+            "meaning": "The immutable source text.",
+            "example": "source",
+            "required": true
+          }
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "digest",
+          "contentField": "content",
+          "digestAlgorithm": "sha256"
+        }
       }
     ],
-    "edges": []
+    "edges": [
+      {
+        "kind": "code.blob-about",
+        "from": "code.blob",
+        "to": [
+          "code.file",
+          "code.repository"
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "captures",
+            "in": "captured by"
+          },
+          "ru": {
+            "out": "снимок",
+            "in": "снят в"
+          }
+        },
+        "fields": []
+      }
+    ]
   },
   "rights": {
     "network": "none",

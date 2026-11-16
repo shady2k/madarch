@@ -11,6 +11,9 @@ relation-constraints:
   - contains
   in:
   - partOf
+evidence:
+  immutable: true
+  digestField: hash
 template-policy: page
 source: graph
 fields:

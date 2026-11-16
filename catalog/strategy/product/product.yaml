@@ -26,18 +26,13 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the product is known by, such as madarch; it is the product's key.
+    agent: The name the product is known by, such as madarch; it is the product's
+      key.
 - name: purpose
   type: text
   nullable: true
   binding:
     agent: What the product does for the people it serves, in one or two sentences.
-- name: audience
-  type: json
-  nullable: true
-  reference: role
-  binding:
-    agent: The roles the product serves, by the keys of those roles in the graph.
 - name: status
   type: text
   nullable: true

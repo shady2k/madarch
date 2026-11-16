@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,11 +37,12 @@ test('upgrades a populated catalogue without resetting authored history and pres
   let original: Record<string, unknown>[] = [];
   try {
     await prepareStore(first, { contract: before });
+    const binding = await testHostBinding(first, before, 'manifest');
     await first.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, before, { vertices: [{
         kind: 'manifest.kind', key: { name: 'term' }, values: { declaration: { taken: true } },
         producer: 'manifest', producerVersion: '1',
-      }], removals: [] }, 1, { author: 'person:fixture', words: 'Keep this declaration' });
+      }], removals: [] }, 1, { binding, author: 'manifest@1', words: 'Keep this declaration' });
       await tx.query('ALTER TABLE edge ADD CONSTRAINT edge_check CHECK (from_node <> to_node)');
       await tx.query("UPDATE madarch_meta.schema_stamp SET stamp = $1 WHERE name = 'one-graph'", [oldStamp]);
     });
@@ -51,7 +53,8 @@ test('upgrades a populated catalogue without resetting authored history and pres
   try {
     expect(await prepareStore(upgraded, { contract })).toEqual({ reset: false });
     expect((await upgraded.run((tx) => tx.query(`SELECT n.uid, p.id, p.declaration FROM node n JOIN "${kindTable}" p ON p.node_id = n.id`))).rows).toEqual(original);
-    expect((await upgraded.run((tx) => tx.query("SELECT words FROM operation WHERE author = 'person:fixture'"))).rows).toEqual([{ words: 'Keep this declaration' }]);
+    expect((await upgraded.run((tx) => tx.query("SELECT words FROM operation WHERE author = 'manifest@1'"))).rows).toEqual([{ words: 'Keep this declaration' }]);
+    const binding = await testHostBinding(upgraded, contract, 'manifest');
     await upgraded.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
         kind: MANIFEST_RELATION_EDGE,
@@ -59,7 +62,7 @@ test('upgrades a populated catalogue without resetting authored history and pres
         to: { kind: 'manifest.kind', key: { name: 'term' } },
         discriminator: 'related', values: { relation: 'related', declaration: { from: 'term', to: 'term' } },
         producer: 'manifest', producerVersion: '1',
-      }] }, 1);
+      }] }, 1, { binding });
     });
     // The same preparation used before a fill must retain the metadata contract and its rows.
     expect(await prepareStore(upgraded, { contract: withManifestContract(contract) })).toEqual({ reset: false });

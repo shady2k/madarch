@@ -26,12 +26,6 @@ fields:
     ru: Имя
   binding:
     agent: The name the code or the document gives this machine, such as FillRun or Task life cycle; it is the machine's key.
-- name: subject
-  type: json
-  nullable: true
-  reference: domain-entity
-  binding:
-    agent: The domain entity whose life the states describe, by the key of that entity in the graph.
 - name: lifecycle_of
   type: text
   nullable: true
@@ -41,7 +35,8 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: What the machine holds and what it governs, in one or two sentences, from the states and transitions it has in the graph.
+    agent: What the machine holds and what it governs, in one or two sentences, from
+      the states and transitions it has in the graph.
 key:
 - name
 derives-from:

@@ -41,9 +41,8 @@ fields:
   binding:
     agent: What follows from the rule for the people who build and run the product.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the principle is in force.
 key:

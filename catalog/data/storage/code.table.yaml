@@ -14,9 +14,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: database
-  type: text
-  binding: db-schema@1.database
 - name: name
   type: text
   binding: db-schema@1.name
@@ -29,12 +26,10 @@ fields:
   nullable: true
   binding: db-schema@1.unsupported
 key:
-- database
 - name
 card: true
 er: links
 details:
-- database
 - schema
 - unsupported
 labels:
@@ -49,3 +44,8 @@ description:
   ru: Таблица — именованный набор строк с одинаковыми столбцами, который база данных хранит вместе. Столбцы задают поля строки, ключи отличают строки, а индексы помогают их находить.
 derives-from:
 - code.database
+
+key-edges:
+- role: code.table-database
+  edge: code.table-database
+  side: from

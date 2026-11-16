@@ -29,15 +29,15 @@ fields:
     en: Identifier
     ru: Идентификатор
   binding:
-    agent: The number or name the decision is known by, such as ADR 0033; it is the decision's key.
+    agent: The number or name the decision is known by, such as ADR 0033; it is the
+      decision's key.
 - name: title
   type: text
   binding:
     agent: What the decision is about, in one line.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the decision stands, is proposed or is replaced.
 - name: date
@@ -64,18 +64,13 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: 'What the decision settled: accepted, rejected, «this is really kind Y», a value chosen, a question closed.'
+    agent: 'What the decision settled: accepted, rejected, «this is really kind Y»,
+      a value chosen, a question closed.'
 - name: decision_reason
   type: text
   nullable: true
   binding:
     agent: Why the decision went that way, in the words of the person who made it.
-- name: decided_by
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who decided.
 - name: decided_at
   type: timestamp
   nullable: true

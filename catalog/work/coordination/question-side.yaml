@@ -1,0 +1,44 @@
+id: practice.question-side
+purpose: understand
+audience:
+- developer
+- analyst
+- product-lead
+definition: A question side is one source-backed claim in a contested question.
+sources:
+- https://arc42.org/overview
+acquisition:
+- agent-from-graph
+- conversation
+relation-constraints:
+  out: [partOf]
+  in: [hasPart]
+template-policy: none
+source: graph
+fields:
+- name: position
+  type: integer
+  binding:
+    agent: The zero-based order of the claim among the sides of its question.
+- name: claim
+  type: text
+  binding:
+    agent: What this side claims, backed by the assertion evidence edges.
+key:
+- position
+key-edges:
+- role: question-side-question
+  edge: question-side-question
+  side: from
+labels:
+  en:
+    one: Question side
+    many: Question sides
+  ru:
+    one: Позиция по вопросу
+    many: Позиции по вопросу
+description:
+  en: A side records one claim in a contested question. Its assertion evidence points
+    to the exact source behind the claim.
+  ru: Позиция фиксирует одно утверждение в спорном вопросе. Свидетельства утверждения
+    указывают на точный источник.

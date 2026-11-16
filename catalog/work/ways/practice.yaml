@@ -47,9 +47,8 @@ fields:
   binding:
     agent: Why the practice matters, from what went wrong without it.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the practice is in force.
 - name: since_date

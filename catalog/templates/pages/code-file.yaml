@@ -15,12 +15,12 @@ sections:
       kind
       label
       template
-      repository
+      codeFileRepository(first: 1) { edges { node { node { id label } } } }
       path
     params:
       titlePath: label
       kindPath: kind
-      trail: { repository: repository, path: path }
+      trail: { repository: codeFileRepository.edges.0.node.node.label, path: path }
   - id: tabs
     after: header
     component: tabs
@@ -42,13 +42,13 @@ sections:
       lines
       bytes
       addedAt
-      addedIn
+      codeFileAddedIn(first: 1) { edges { node { node { id label ... on CodeCommit { hash } } } } }
       removedAt
-      removedIn
+      codeFileRemovedIn(first: 1) { edges { node { node { id label ... on CodeCommit { hash } } } } }
       lastChange
       commitCount
-      repository
-      directory
+      codeFileRepository(first: 1) { edges { node { node { id label } } } }
+      codeFileDirectory(first: 1) { edges { node { node { id label } } } }
       contested
     params:
       rows:
@@ -56,12 +56,12 @@ sections:
         - { label: { en: Type, ru: Тип }, path: class, format: class }
         - { label: { en: Lines, ru: Строк }, path: lines, format: number }
         - { label: { en: Size, ru: Размер }, path: bytes, format: bytes }
-        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: addedIn, format: hash } }
-        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: removedIn, format: hash } }
+        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: codeFileAddedIn.edges.0.node.node.hash, format: hash } }
+        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: codeFileRemovedIn.edges.0.node.node.hash, format: hash } }
         - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
-        - { label: { en: Repository, ru: Репозиторий }, path: repository }
-        - { label: { en: Folder, ru: Папка }, path: directory }
+        - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
+        - { label: { en: Folder, ru: Папка }, path: codeFileDirectory.edges.0.node.node.label }
   - id: latest
     component: facts
     on: root

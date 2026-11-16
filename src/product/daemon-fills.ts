@@ -2,10 +2,13 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
+import { readPinnedGraphContract, readPinnedPluginInstallations } from './preparation-contract.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { readProduct } from './manifest.js';
 import { openFillDatabase, fillProgressOf, type FillActivity, type FillOrchestratorService, type FillProduct, type FillProgressAnswer, type FillRunControl, type FillRunControlAnswer, type FillRunRequest, type FillRunResult, type RefusedFillRun } from '../fill/orchestrator-host.js';
 import type { RunStatus } from '../fill/orchestrator.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
 
 export interface DaemonFills {
@@ -31,6 +34,7 @@ export interface DaemonFills {
 interface HeldStore {
   readonly storeFolder: string;
   readonly owner: Awaited<ReturnType<typeof openFillDatabase>>;
+  fillState: FillStateDatabase;
   service?: FillOrchestratorService;
   /** True while one of this store's runs is in flight: the store's fill is one run at a time. */
   running?: boolean;
@@ -55,17 +59,18 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
   /** The store of one product, by the one function every caller resolves it with. */
   const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
   /** Opens one store's owner, or answers the opening already under way for it: one owner per store, whichever asks. */
-  const openStore = async (storeFolder: string): Promise<HeldStore> => {
+  const openStore = async (storeFolder: string, productFolder: string): Promise<HeldStore> => {
     const held = stores.get(storeFolder);
     if (held !== undefined) return held;
     const pending = opening.get(storeFolder);
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
-      await requestStorePreparation(storeDatabasePath(storeFolder));
+      const contract = await readPinnedGraphContract(productFolder);
+      await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(productFolder));
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
-      const one: HeldStore = { storeFolder, owner };
+      const one: HeldStore = { storeFolder, owner, fillState: { transaction: owner.transaction.bind(owner), graphContract: contract } };
       stores.set(storeFolder, one);
       return one;
     })();
@@ -81,12 +86,12 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
     const storeFolder = storeFolderOfProduct(productFolder);
     if (!existsSync(storeDatabasePath(storeFolder)) && !opening.has(storeFolder)) return undefined;
-    return await openStore(storeFolder);
+    return await openStore(storeFolder, productFolder);
   };
   /** The store a run writes: opened here, because a run writes what a read may not create. */
   const store = async (productFolder: string): Promise<HeldStore> => {
     if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
-    return await openStore(storeFolderOfProduct(productFolder));
+    return await openStore(storeFolderOfProduct(productFolder), productFolder);
   };
   const withService = async <T>(productFolder: string, work: (service: FillOrchestratorService) => Promise<T>): Promise<T | undefined> => {
     const held = await opened(productFolder);
@@ -105,7 +110,10 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const result = await runFill({
       product: request.product.folder,
       database: held.owner,
-      prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(held.storeFolder), contract),
+      prepareContract: async (contract) => {
+        await requestStorePreparation(storeDatabasePath(held.storeFolder), contract, await readPinnedPluginInstallations(request.product.folder));
+        held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: withManifestContract(contract) };
+      },
       runId: request.runId,
       home: held.storeFolder,
       store: held.storeFolder,
@@ -129,17 +137,17 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
   return {
     async publishManifests(validated: ValidatedManifests): Promise<void> {
       const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
-      const { createFillStateSchema } = await import('../fill/state-store.js');
-      const { createOrchestratorSchema } = await import('../fill/orchestrator-store.js');
+
+      const { createOrchestratorSchema } = await import('../graph/fill-orchestration.js');
       const { createOneGraphSchema } = await import('../graph/one-graph.js');
-      const { withManifestContract } = await import('../graph/manifest-contract.js');
       const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
       const folder = storeFolderOfProduct(validated.folder);
       const contract = graphContractOf(validated.manifest);
-      await requestStorePreparation(storeDatabasePath(folder), contract);
+      await requestStorePreparation(storeDatabasePath(folder), contract, await readPinnedPluginInstallations(validated.folder));
       const held = await store(validated.folder);
-      await createFillStateSchema(held.owner);
-      await createOrchestratorSchema(held.owner);
+
+      held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: withManifestContract(contract) };
+      await createOrchestratorSchema(held.fillState);
       await createOneGraphSchema(held.owner, withManifestContract(contract));
       const started = performance.now();
       try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); }
@@ -169,23 +177,23 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       if (held.service !== undefined) return await held.service.progress(folder);
       const read = readProduct(resolve(folder));
       if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
-      return await fillProgressOf(held.owner, read.product.name);
+      return await fillProgressOf(held.fillState, read.product.name);
     },
     async filled(folder: string): Promise<boolean> {
       const held = await opened(folder);
       if (held === undefined) return false;
-      const { hasSuccessfulFill } = await import('../fill/state-store.js');
-      return await hasSuccessfulFill(held.owner);
+      const { hasSuccessfulFill } = await import('../graph/fill-state.js');
+      return await hasSuccessfulFill(held.fillState);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
       const held = await opened(request.product.folder);
       if (held === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
       if (held.service !== undefined) return await held.service.activity({ product: request.product });
-      const { readChain, readRun } = await import('../fill/state-store.js');
-      const chain = await readChain(held.owner, request.product.name);
+      const { readChain, readRun } = await import('../graph/fill-state.js');
+      const chain = await readChain(held.fillState, request.product.name);
       if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
       const activeRunId = chain.context.activeRunId ?? null;
-      const active = activeRunId === null ? null : await readRun(held.owner, activeRunId);
+      const active = activeRunId === null ? null : await readRun(held.fillState, activeRunId);
       return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
     },
     async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {

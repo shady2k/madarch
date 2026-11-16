@@ -1,31 +1,12 @@
-/**
- * The contracts a product's manifest declares, and the table names derived
- * from them (decision 0034, item 14; its amendment of 2026-11-10, A2 and A3): a
- * vertex kind's fields and key, an edge kind's ends, repeat rule and attributes,
- * and a dictionary's values. A capability publishes the contract of what it
- * produces; a manifest that declares a kind filled by it takes that contract. The
- * engine's DDL lives in `adapters/schemas`; this module holds only pure contracts
- * and naming. Every name of a product's kind stands in a contract or a
- * capability's declaration, never in the mechanism.
- *
- * **The key belongs to the vertex.** A contract declares the fields that make its
- * entity unique; they are not columns of the entity's table but the vertex's key
- * (`node.key`), and a producer names an entity by their values. A key field may
- * name another kind: its value is then that entity, named by its kind and key.
- *
- * **An opinion is a row.** The table built for a kind holds one row per opinion
- * about one vertex (or edge): who said it and when, whether it is open, confirmed
- * or closed, the reason and the person of a confirmation, the evidence it rests
- * on, the language of a text value, the opinion a translation came from with that
- * source's digest, the context, and the kind's fields as that producer states
- * them. No field of the kind is a column of the vertex itself.
- *
- * A table is made from a validated name and a fixed type map. A declaration that
- * changes adds a column, replaces a key constraint, or — when a removed or
- * retyped field still holds rows — refuses by naming the kind and the field; it
- * never drops data in silence.
- */
+/** Typed graph declarations and identity-only references (0039 items 1,2,25). */
 import { createHash } from 'node:crypto';
+import type { JsonSchema, ValueTypes } from './value-types.js';
+
+/** Typed assertion value storage, decision 0039 item 25. */
+export function assertionValueTableName(kind: string, sort: 'vertex' | 'edge', property: string): string {
+  return `a_${createHash('sha256').update(`${sort}\0${kind}\0${property}`, 'utf8').digest('hex').slice(0, 32)}`;
+}
+
 
 /** The sort of table a generated name belongs to: a vertex's opinions, an edge's, or a dictionary. */
 export type TableSort = 'vertex' | 'edge' | 'dictionary';
@@ -36,25 +17,27 @@ export type TableSort = 'vertex' | 'edge' | 'dictionary';
  * whose names differ only in punctuation or after the slug's cut keep different tables.
  */
 export function generatedTableName(kind: string, sort: TableSort): string {
-  const slug = kind.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').slice(0, 40) || 'kind';
+  const slug = [...kind.toLowerCase()].map(char => 'abcdefghijklmnopqrstuvwxyz0123456789'.includes(char) ? char : '_').join('').slice(0, 40) || 'kind';
   const digest = createHash('sha256').update(`${sort}\0${kind}`, 'utf8').digest('hex').slice(0, 8);
   const prefix = sort === 'vertex' ? 'k' : sort === 'edge' ? 'e' : 'd';
   return `${prefix}_${slug}_${digest}`;
 }
 
 /** The PostgreSQL types a field may map to. */
-export type FieldType = 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
+export const FIELD_TYPES = ['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json'] as const;
+export type FieldType = typeof FIELD_TYPES[number];
+export function fieldTypeOf(value: unknown): FieldType | undefined {
+  return FIELD_TYPES.find(type => type === value);
+}
 
 export interface FieldContract {
   readonly name: string;
   readonly type: FieldType;
+  readonly valueType?: string;
+  readonly schema?: JsonSchema;
   /** Whether the column admits null; a new column of a new table is NOT NULL unless this is true. */
   readonly nullable?: boolean;
-  /**
-   * The kind a key field names: its value is one entity of that kind, named by the kind and the entity's key values,
-   * never by a node id (decision 0034, item 14: "a reference inside a key by the referenced entity's kind and key").
-   */
-  readonly reference?: string;
+
 }
 
 /** A dictionary holds each value once, with its own natural key. */
@@ -68,7 +51,16 @@ export interface DictionaryContract {
   readonly indexes?: readonly { readonly name: string; readonly columns: readonly string[] }[];
 }
 
+export type Cardinality = 'one' | 'optional' | 'many' | 'some';
+export interface EdgeCardinality { readonly from: Cardinality; readonly to: Cardinality }
+export interface EdgeWords { readonly [language: string]: { readonly out: string; readonly in: string }; readonly en: { readonly out: string; readonly in: string }; readonly ru: { readonly out: string; readonly in: string } }
+export interface KeyEdgeContract { readonly role: string; readonly edge: string; readonly direction: 'from' | 'to'; readonly onDelete: 'restrict' | 'cascade' }
+
 export interface VertexContract {
+  readonly evidence?: {readonly immutable:true;readonly digestField?:string;readonly contentField?:string;readonly digestAlgorithm?:'sha256'};
+  readonly contractUid?: string;
+  readonly identity?: {readonly namespace: string; readonly origin: readonly string[]};
+  readonly keyEdges?: readonly KeyEdgeContract[];
   readonly name: string;
   readonly table: string;
   /** Every field the kind declares, its key fields included; the key's own fields are no columns of the table. */
@@ -84,6 +76,9 @@ export interface VertexContract {
 }
 
 export interface EdgeContract {
+  readonly contractUid?: string;
+  readonly cardinality: EdgeCardinality;
+  readonly labels: EdgeWords;
   readonly name: string;
   /** The attribute table, when the edge kind has fields. */
   readonly table?: string;
@@ -101,40 +96,31 @@ export interface EdgeContract {
 }
 
 export interface GraphContract {
+  readonly valueTypes?: ValueTypes;
   readonly vertex: readonly VertexContract[];
   readonly edge: readonly EdgeContract[];
   readonly dictionary: readonly DictionaryContract[];
 }
 
-/** Where a file value was read: the repository, the commit or content digest, the path and the lines (decision 0035, item 7). */
-export interface ClaimEvidenceDraft {
-  readonly repository?: string;
-  readonly commit?: string;
-  readonly path?: string;
-  readonly lineStart?: number;
-  readonly lineEnd?: number;
+/** Evidence is graph lineage, never a hidden string identity (0039.14,31). */
+export interface EvidenceDraft {
+ readonly target: EntityRefDraft;
+ readonly relation?: string;
+ readonly locator?: Readonly<Record<string, unknown>>;
 }
-
-/** One tagged evidence entry the graph stores (the amendment's point 7): a file place, a conversation, an opinion. */
-export type EvidenceEntry =
-  | { readonly type: 'file'; readonly repository?: string; readonly commit_or_digest?: string; readonly path?: string; readonly line_start?: number; readonly line_end?: number }
-  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string; readonly words?: string }
-  | { readonly type: 'url'; readonly url: string; readonly at?: string }
-  | { readonly type: 'opinion'; readonly id: string };
-
-/** One evidence entry as a draft states it: a plugin's file place, or any tagged entry a producer gives. */
-export type EvidenceDraft = ClaimEvidenceDraft | EvidenceEntry;
+export type EvidenceEntry = EvidenceDraft;
 
 /** One entity a producer names: its kind and the values of its key's fields (decision 0034, item 14). */
 export interface EntityRefDraft {
+  readonly keyEdges?: Readonly<Record<string, EntityRefDraft>>;
   readonly kind: string;
   readonly key: Readonly<Record<string, KeyValueDraft>>;
-  /** The stable uid, for an entity a key cannot name (a keyless kind's entity). */
+  /** Stable identity; references may resolve an existing entity by uid with an empty key. Births still require the declared key. */
   readonly uid?: string;
 }
 
 /** One key field's value: text, a number, a boolean, or the entity a reference field names. */
-export type KeyValueDraft = string | number | boolean | EntityRefDraft;
+export type KeyValueDraft = string | number | boolean;
 
 /**
  * One vertex a producer publishes: its kind, its natural key, the field values it states, the evidence those values
@@ -143,6 +129,9 @@ export type KeyValueDraft = string | number | boolean | EntityRefDraft;
  * field it has no opinion on.
  */
 export interface VertexDraft {
+  readonly validFrom?: string;
+  readonly validTo?: string | null;
+  readonly keyEdges?: Readonly<Record<string, EntityRefDraft>>;
   /** Replace only these fields; fields outside the scope keep their prior opinions. */
   readonly selectedFields?: readonly string[];
   /** The stable uid of a keyless entity written again; absent, the writer makes a new one. */
@@ -165,6 +154,8 @@ export interface VertexDraft {
  * here, with the other drafts, so a stage may write it without reaching into the store's writer.
  */
 export interface EdgeDraft {
+  readonly validFrom?: string;
+  readonly validTo?: string | null;
   readonly kind: string;
   readonly from: EntityRefDraft;
   readonly to: EntityRefDraft;
@@ -187,6 +178,7 @@ export interface EdgeRemovalDraft {
 
 /** One entity a producer no longer holds: its opinions are closed and it leaves the reads (a removal of a term). */
 export interface VertexRemovalDraft {
+  readonly keyEdges?: Readonly<Record<string, EntityRefDraft>>;
   /** Withdraw only these fields, preserving the producer's other fields. */
   readonly selectedFields?: readonly string[];
   readonly kind: string;
@@ -201,7 +193,8 @@ export interface VertexRemovalDraft {
 /** The empty contract: a product that declares no kind filled by a capability. */
 export const EMPTY_CONTRACT: GraphContract = { vertex: [], edge: [], dictionary: [] };
 
-/** The columns a reader or a writer names without the kind's own: the opinion's own, in the order `OPINION_COLUMNS`. */
-export const OPINION_FIELDS = ['id', 'said_by', 'said_at', 'state', 'confirmed_field', 'reason', 'confirmed_with', 'evidence', 'lang', 'translated_from', 'source_digest', 'context_id'] as const;
-
-
+/** Immutable canonical contract revision bound by the authenticated operation host. */
+export function graphContractVersion(contract:GraphContract):string{
+ const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value!==null&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical((value as Record<string,unknown>)[key])])):value;
+ return createHash('sha256').update(JSON.stringify(canonical(contract))).digest('hex');
+}

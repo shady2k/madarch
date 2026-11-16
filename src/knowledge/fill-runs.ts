@@ -1,6 +1,6 @@
 /** A named run's durable projection; trace usage never supplies lifecycle or identity. */
-import { type FillStateDatabase, readRun, readRunUnitHistory } from '../fill/state-store.js';
-import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../fill/orchestrator-store.js';
+import { type FillStateDatabase, readRun, readRunUnitHistory } from '../graph/fill-state.js';
+import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../graph/fill-orchestration.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
 import type { FillRunView } from './model.js';
 import { isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
@@ -18,7 +18,7 @@ export async function readFillRunDetail(owner: FillStateDatabase, runId: string,
   const groups = (selected?.groups ?? []).map((group) => {
     const ids = new Set(plans.filter((plan) => plan.stageUnitId === group.stageUnitId).map((plan) => `${plan.unitId}@${plan.generation}`));
     const matching = units.filter((unit) => ids.has(`${unit.unitId}@${unit.generation}`));
-    const state = matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : ['running', 'validating', 'draft', 'leased', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded', 'skipped'].find((held) => matching.some((unit) => unit.state === held))!;
+    const state = matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : ['running', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded', 'skipped'].find((held) => matching.some((unit) => unit.state === held))!;
     return { kind: group.kind, group: group.group, plugin: group.plugin, done: matching.filter((unit) => unit.state === 'published').length, total: matching.length, state, phase: state === 'unplanned' ? 'waiting' : state === 'published' ? 'done' : state === 'superseded' ? 'skipped' : unitPhaseOf(state as import('../fill/fsm.js').UnitState) };
   });
   const completed = units.filter((unit) => unit.state === 'published').length;

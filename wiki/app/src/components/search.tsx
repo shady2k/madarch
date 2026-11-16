@@ -15,6 +15,10 @@ import { Metadata, Paragraph, Stack } from './ui/typography.js';
 import { follow } from './relations.js';
 import type { SectionContext } from './types.js';
 
+const RESULTS_CONTROL = {
+  testId: "search-page-results",
+} as const;
+
 /** One row of the search's answer: the entity and the line it is shown by. */
 export interface SearchHit {
   readonly node: Record<string, unknown>;
@@ -127,7 +131,7 @@ export function SearchPageSection({ context }: { readonly context: SectionContex
   return (
     <Stack>
       <Metadata>{t('knowledge.searchResults')}</Metadata>
-      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty', { text: words })}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId="search-page-results" />}
+      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty', { text: words })}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId={RESULTS_CONTROL.testId} />}
     </Stack>
   );
 }

@@ -19,17 +19,19 @@ relation-constraints:
   - assigns
   - authored
 template-policy: page
+extends: system:person
 source: graph
 fields:
 - name: name
   type: text
+  nullable: true
   labels:
     en: Name
     ru: Имя
   binding:
-    agent: The name the person is known by in the product, such as the owner's name; it is the person's key.
+    agent: The name the person is known by in the product, such as the owner's name.
 - name: email
-  type: text
+  type: email
   nullable: true
   binding:
     agent: The address the person commits and signs in with, from the commits and the identity they sign in by in the graph.
@@ -38,8 +40,6 @@ fields:
   nullable: true
   binding:
     agent: The identity the person signs in with, once the product is served with sign-in; locally the owner needs none.
-key:
-- name
 labels:
   en:
     one: Person

@@ -1,0 +1,56 @@
+id: manifest.workflow-stage
+purpose: structure
+audience:
+- architect
+- developer
+definition: A workflow stage is one ordered executable step declared by a product
+  workflow.
+sources:
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The stage name in the executable workflow declaration.
+- name: position
+  type: integer
+  labels:
+    en: Position
+    ru: Позиция
+  binding:
+    agent: The zero-based position of this stage in its workflow declaration.
+- name: executor
+  type: text
+  nullable: true
+  binding:
+    agent: The executor declared for the stage, such as plugin or agent.
+key:
+- name
+key-edges:
+- role: manifest.workflow-stage-workflow
+  edge: workflow-stages
+  side: to
+labels:
+  en:
+    one: Workflow stage
+    many: Workflow stages
+  ru:
+    one: Стадия процесса
+    many: Стадии процесса
+description:
+  en: An executable stage belongs to one workflow and has an explicit position in
+    its sequence. It is distinct from a stage of planned product work.
+  ru: Исполняемая стадия принадлежит одному процессу и имеет явное место в его последовательности.
+    Это не этап запланированной работы над продуктом.

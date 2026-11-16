@@ -58,7 +58,7 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
       ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000 }, asked.operation)
       : await diagram(asked, owner);
     await owner?.close();
-    self.postMessage({ kind: 'answer', answer });
+    self.postMessage({ kind: 'read-complete', answer });
   } catch (error) {
     await owner?.close().catch(() => undefined);
     self.postMessage({ kind: 'error', message: error instanceof Error ? error.message : String(error) });

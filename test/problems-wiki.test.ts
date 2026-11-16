@@ -38,11 +38,11 @@ describe('the wiki section', () => {
 
   test('an answer that reaches no page keeps its old kind and gains its rule', async () => {
     const listing = await listProblems(input(folder(), {
-      unplaced: [{ kind: 'question', slug: 'discount', title: 'Which discount?', reason: 'the question names no page' }],
+      unplaced: [{ kind: 'question', id: 'inquiry:discount', file: 'notes/inquiries/discount.md', slug: 'discount', title: 'Which discount?', reason: 'the question names no page' }],
     }));
     const unplaced = listing.problems.find((problem) => problem.kind === 'unplaced')!;
-    expect(unplaced).toMatchObject({ section: 'wiki', rule: 'wiki.unplaced', sonar: 'code-smell', severity: 'minor', fixer: 'person', place: { label: 'docs/questions/discount.md', href: '/src?path=docs%2Fquestions%2Fdiscount.md' } });
-    expect(unplaced.entity).toMatchObject({ href: '/questions/discount', key: 'question:discount' });
+    expect(unplaced).toMatchObject({ section: 'wiki', rule: 'wiki.unplaced', sonar: 'code-smell', severity: 'minor', fixer: 'person', place: { label: 'notes/inquiries/discount.md', href: '/src?path=notes%2Finquiries%2Fdiscount.md' } });
+    expect(unplaced.entity).toMatchObject({ label: 'Which discount?', href: '/src?path=notes%2Finquiries%2Fdiscount.md', key: 'inquiry:discount' });
   });
 
   

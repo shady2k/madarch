@@ -26,16 +26,25 @@ fields:
     agent: The name the connection is written by, such as blocks or relates.
 - name: from_kinds
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The kinds the connection starts at.
 - name: to_kinds
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The kinds the connection reaches.
 - name: labels
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:link-type-labels:v1
   nullable: true
   binding:
     agent: The words each end of the connection is shown by, in each interface language.

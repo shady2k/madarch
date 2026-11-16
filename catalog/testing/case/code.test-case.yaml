@@ -28,23 +28,20 @@ details:
 - cases
 - suite
 fields:
-- name: file
-  type: json
-  reference: code.file
-  binding:
-    agent: The file that declares the test, by the key of that file in the graph.
 - name: name
   type: text
   labels:
     en: Name
     ru: Имя
   binding:
-    agent: The name the code gives the test; it is the test case's key inside its file.
+    agent: The name the code gives the test; it is the test case's key inside its
+      file.
 - name: test_kind
   type: text
   nullable: true
   binding:
-    agent: 'What kind of test it is: a unit test, an integration test, an end-to-end test.'
+    agent: 'What kind of test it is: a unit test, an integration test, an end-to-end
+      test.'
 - name: framework
   type: text
   nullable: true
@@ -56,7 +53,7 @@ fields:
   binding:
     agent: The language the test is written in.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: The path of the file that declares the test, as the file entity holds it.
@@ -76,7 +73,6 @@ fields:
   binding:
     agent: The suite the test belongs to, as the test framework groups it.
 key:
-- file
 - name
 labels:
   en:
@@ -88,3 +84,8 @@ labels:
 description:
   en: A test case sets up a known state, performs one action or a short sequence of actions and compares the result with the expected one. In code it is usually a function that a test runner calls; the case fails when the result differs from what should happen.
   ru: 'Тест — проверка с известным начальным состоянием, набором действий и ожидаемым результатом, которую можно запускать снова и снова. В коде это обычно функция, которую вызывает средство запуска тестов: она сравнивает полученный результат с ожидаемым и сообщает о расхождении.'
+
+key-edges:
+- role: code.test-case-file
+  edge: code.test-case-file
+  side: from

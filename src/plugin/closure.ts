@@ -57,6 +57,10 @@ export const PluginManifest = Type.Object(
         Type.String({ minLength: 1 }),
         Type.Object({ kind: Type.String({ minLength: 1 }), version: Type.Literal('earlier'), producer: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
       ]))),
+      support: Type.Optional(Type.Object({
+        vertices: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
+        edges: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
+      }, { additionalProperties: false })),
       refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
       coverage: Type.Optional(Type.Literal('gaps')),
       partition: Type.Optional(Type.Literal('key')),

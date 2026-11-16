@@ -11,12 +11,12 @@ export const SCALAR_NAMES: Readonly<Record<'text' | 'integer' | 'bigint' | 'bool
 };
 
 /** Field names the mechanism owns on every entity, and the suffixes it owns for its own fields. */
-export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'opinions', 'contested', 'backlinks'];
-export const RESERVED_FIELD_SUFFIXES: readonly string[] = ['Of', 'Aggregate', 'Opinions'];
+export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'assertions', 'contested', 'backlinks'];
+export const RESERVED_FIELD_SUFFIXES: readonly string[] = ['Of', 'Aggregate', 'Assertions'];
 
 /** Type names the mechanism owns: the roots and the records it defines itself, the scalars, and the suffixes its generated types take. */
 export const RESERVED_TYPE_NAMES: readonly string[] = [
-  'Query', 'Entity', 'CatalogueEntity', 'CatalogueField', 'PageTemplate', 'Bootstrap', 'Revision', 'Opinion', 'Evidence', 'Group', 'Bucket', 'Ranked',
+  'Query', 'Entity', 'CatalogueEntity', 'CatalogueField', 'PageTemplate', 'Bootstrap', 'Revision', 'Assertion', 'AssertionSubject', 'VertexIdentity', 'GraphEdge', 'AssertionOperation', 'EvidenceHistoricalValidity', 'EvidenceCurrentApplicability', 'EvidenceAvailability', 'AssertionQuestion', 'AssertionQuestionState', 'AssertionEvidence', 'Group', 'Bucket', 'Ranked',
   'String', 'Int', 'Float', 'Boolean', 'ID', 'BigInt', 'DateTime', 'JSON',
 ];
 export const RESERVED_TYPE_SUFFIXES: readonly string[] = ['Connection', 'Edge', 'Where', 'Order', 'OrderField', 'Aggregate'];

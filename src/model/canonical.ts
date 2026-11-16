@@ -15,7 +15,7 @@ export function canonicalJsonDigest(value: unknown): string {
 }
 
 /** The value's canonical JSON text, or the refusal naming where the value is not JSON. */
-function canonicalJson(value: unknown, path: string): string {
+export function canonicalJson(value: unknown, path = ''): string {
   if (value === null) return 'null';
   switch (typeof value) {
     case 'string':

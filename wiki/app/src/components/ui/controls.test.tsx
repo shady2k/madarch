@@ -64,3 +64,20 @@ test('invalid fields retain accessible names and error descriptions', async () =
   expect(container.querySelector('input')?.getAttribute('aria-describedby')).toBe('required');
   expect(container.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('required');
 });
+
+
+test('filter Select keeps the native selection, accessible name and disabled state', async () => {
+  const { Select } = await import('./select.js');
+  const container = mount();
+  const changes: string[] = [];
+  await act(async () => { root!.render(<Select variant="filter" aria-label="Area" value="all" options={[{ value: 'all', label: 'All' }, { value: 'code', label: 'Code' }]} onChange={(event) => changes.push(event.target.value)} />); });
+  const select = container.querySelector('select')!;
+  expect(select.getAttribute('aria-label')).toBe('Area');
+  expect(select.value).toBe('all');
+  expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  await act(async () => { select.value = 'code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(changes).toEqual(['code']);
+  await act(async () => { root!.render(<Select className="mt-1 w-full max-w-96" aria-label="Model" disabled options={[]} />); });
+  expect(container.querySelector('select')?.disabled).toBe(true);
+  expect(container.querySelector('svg')).toBeNull();
+});

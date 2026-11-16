@@ -37,6 +37,7 @@ class FindingsReader {
     const rows = this.rows.filter((one) => one.kind === kind && one.key.startsWith(prefix));
     return { total: rows.length, rows };
   }
+  async find(key: string): Promise<GraphEntity[]> { return this.rows.filter(row => row.key === key); }
   async relationEdges(): Promise<{ total: number; rows: [] }> { return { total: 0, rows: [] }; }
   async list(kind: string): Promise<{ total: number; rows: GraphEntity[]; next: null }> {
     const rows = this.rows.filter((one) => one.kind === kind);
@@ -55,7 +56,7 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       const read = async (findingKinds?: readonly string[], dismissed?: ReadonlySet<string>) => await collectProblems({
         productFolder: product, owner: unusedOwner, graph,
         files: workingTreeFiles(product),
-        manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
+        manifest: { file: '', semanticBindings: new Map([['problem-task', { kind: 'fixture.task', fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' }, edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } }, line: 1 }]]), roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
         ...(findingKinds === undefined ? {} : { findingKinds }),
         ...(dismissed === undefined ? {} : { dismissed }),
         // A rule the manifest does not declare is a note, never a row (views.ts): the fixture declares the two.

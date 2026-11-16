@@ -38,14 +38,16 @@ fields:
 - name: tracker
   type: text
   binding:
-    agent: The tracker the task is written in, such as the product’s own journal or a Git host.
+    agent: The tracker the task is written in, such as the product’s own journal or
+      a Git host.
 - name: key
   type: text
   labels:
     en: Key
     ru: Ключ
   binding:
-    agent: The identifier the tracker gives the task; tracker and key together are the task's natural key.
+    agent: The identifier the tracker gives the task; tracker and key together are
+      the task's natural key.
 - name: title
   type: text
   binding:
@@ -54,17 +56,16 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: What has to change and how a reader sees that it is done, in the words of the task.
+    agent: What has to change and how a reader sees that it is done, in the words
+      of the task.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Where the task stands, as the tracker keeps it.
 - name: priority
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: How urgent the task is compared with the others, as the tracker keeps it.
 - name: scope
@@ -78,11 +79,11 @@ fields:
   binding:
     agent: What has to hold for the task to be done, in the words of its acceptance.
 - name: labels
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
-    agent: 'The labels the task carries, by the keys of those value-set entries in the graph.'
+    agent: The labels the task carries, by the keys of those value-set entries in
+      the graph.
 key:
 - tracker
 - key

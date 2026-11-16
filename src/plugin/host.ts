@@ -7,9 +7,10 @@
  * log. Pause and resume freeze the whole tree; stop asks it to finish and
  * exits, and after a grace period becomes a cancel; a cancel kills the tree.
  *
- * Every answer is held against the plugin's own introduction: a kind, a field
- * or an edge kind the plugin did not declare is refused, and a partial unit's
- * removals are dropped. A failed or timed-out unit is recorded as not
+ * Facts are admitted immediately through the trusted operation host. Each
+ * operation is held against the plugin declaration and active unit. A unit
+ * completion carries only its status and problems; it publishes no facts.
+ * A failed or timed-out unit is recorded as not
  * extracted with its cause, never dropped silently, and every iteration and
  * every decision of the host leaves a span and a log line.
  */
@@ -24,8 +25,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
-import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
+import { graphReadsOf, PluginOutputPlan, PluginFactsApplyRequest, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
 import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, protocolMessageProblem, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
@@ -105,13 +105,13 @@ export interface UnitTrace {
 
 /** One unit's outcome: extracted and validated, or not extracted with its cause. */
 export type UnitOutcome =
-  | (UnitTrace & { readonly state: 'extracted'; readonly unitId: string; readonly result: ValidatedUnit })
+  | (UnitTrace & { readonly state: 'extracted'; readonly unitId: string; readonly result: PluginUnitResult })
   | (UnitTrace & { readonly state: 'not-extracted'; readonly unitId: string; readonly cause: UnitCause });
 
 /** The graph request methods the host answers, and the capability each one needs from the contract. */
-type GraphMethod = 'graph.files' | 'graph.value' | 'graph.unresolved' | 'graph.removedEnds' | 'graph.unevidenced';
+type GraphMethod = 'graph.files' | 'graph.value' | 'graph.removedEnds' | 'graph.unevidenced';
 const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
-  'graph.files': 'files', 'graph.value': 'value', 'graph.unresolved': 'unresolved', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
+  'graph.files': 'files', 'graph.value': 'value', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
 };
 
 /**
@@ -120,14 +120,12 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
  */
 export interface GraphAnswerer {
-  files(pattern: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
-  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<unknown>;
-  /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
-  unresolved?(query: PluginGraphPageRequest): Promise<{ readonly references: readonly PluginGraphUnresolvedReference[]; readonly next?: string }>;
+  files(pattern: string, snapshot?: import('../graph/plugin-turns.js').PluginSnapshot): Promise<readonly import('./protocol.js').PluginEntityRef[]>;
+  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, keyEdges?: Readonly<Record<string, import('./protocol.js').PluginEntityRef>>, snapshot?: import('../graph/plugin-turns.js').PluginSnapshot): Promise<unknown>;
   /** A page of the edges one of whose ends is removed (piece 2). Absent: refused. */
   removedEnds?(query: PluginGraphPageRequest): Promise<{ readonly edges: readonly PluginGraphRemovedEnd[]; readonly next?: string }>;
-  /** A page of the open opinions of evidence-required fields that state none (piece 4). Absent: refused. */
-  unevidenced?(query: PluginGraphPageRequest): Promise<{ readonly opinions: readonly PluginGraphUnevidencedOpinion[]; readonly next?: string }>;
+  /** A page of the active assertions of evidence-required fields that state none (piece 4). Absent: refused. */
+  unevidenced?(query: PluginGraphPageRequest): Promise<{ readonly assertions: readonly PluginGraphUnevidencedAssertion[]; readonly next?: string }>;
 }
 
 /**
@@ -215,6 +213,10 @@ export interface PluginHostOptions {
   readonly tools?: Readonly<Record<string, TrustedTool>>;
   /** The graph a plugin that declared the `graph` right reads through its queries; absent, every query is refused. */
   readonly graph?: GraphAnswerer;
+  /** Trusted host binding. The producer names no source, principal or attempt. */
+  readonly operations?: {
+    apply(unitId: string, key: string, operation: unknown, preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[], contractVersion?: string): Promise<unknown>;
+  };
   /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
   readonly agent?: PluginAgentOptions;
   /** The host's own scratch root for this run: snapshots, logs and the seccomp filter. */
@@ -259,8 +261,10 @@ export interface PluginSession {
 /** One unit in flight: the deadline that bounds it, the silence allowed and the bytes it answered with. */
 interface InFlight {
   readonly unitId: string;
+  readonly acceptsOperations: boolean;
   readonly startedAt: number;
   lastSign: number;
+  pendingOperations: number;
   bytes: number;
   readonly progress: PluginProgress[];
   readonly error: PluginErrorReport | undefined;
@@ -294,7 +298,6 @@ export class PluginHost {
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
-  private readonly resultChunks = new Map<string, { count: number; bytes: Buffer[] }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private paused = false;
   private nextId = 1;
@@ -319,7 +322,7 @@ export class PluginHost {
   async open(): Promise<PluginSession> {
     const limits = this.limits;
     const workFolder = join(this.options.workRoot, 'plugin');
-    mkdirSync(workFolder, { recursive: true });
+    withSpanSync('plugin.workspace', {}, () => mkdirSync(workFolder, { recursive: true }));
     const closure = await withSpan('plugin.closure', { 'madarch.plugin.folder': this.options.pluginFolder }, async () => {
       const read = this.options.closure ?? closureOf(this.options.pluginFolder);
       log.info('plugin closure hashed', { folder: read.folder, files: read.files.length, hash: read.hash });
@@ -343,7 +346,7 @@ export class PluginHost {
     if (this.agentPart !== undefined) {
       const prompt = this.agentPart.prompt;
       if (prompt.startsWith('/') || prompt.split('/').some((part) => part === '..' || part === '.' || part === '') || prompt.includes('\\')) throw new ClosureRefusal('agent-prompt', `${WHERE}:1: agent.prompt must name a file inside the closure`, join(this.options.pluginFolder, 'plugin.json'));
-      try { this.agentPrompt = readFileSync(join(snapshot.folder, prompt), 'utf8'); }
+      try { this.agentPrompt = withSpanSync('plugin.agent.prompt', {}, () => readFileSync(join(snapshot.folder, prompt), 'utf8')); }
       catch (error) { throw new ClosureRefusal('agent-prompt', `${WHERE}:1: cannot read agent prompt ${join(snapshot.folder, prompt)}: ${(error as Error).message}`, join(this.options.pluginFolder, 'plugin.json')); }
     }
     const platform = this.options.platform ?? `${process.platform}-${process.arch}`;
@@ -427,6 +430,29 @@ ${text === '' ? '(empty)' : text}` };
     });
   }
 
+  private async answerOperation(id: string | number, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
+    return await withSpan('plugin.operation.apply', {}, async () => {
+      if (!Value.Check(PluginFactsApplyRequest, params)) {
+        this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:437: facts.apply requires unitId, nonempty key and operation`));
+        return { outcome: 'refused', size: 0, cause: 'malformed-operation' };
+      }
+      const request = params as PluginFactsApplyRequest;
+      if (this.inFlight.get(request.unitId)?.acceptsOperations !== true || this.options.operations === undefined) {
+        this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:441: facts.apply requires an active unit and a trusted operation host`));
+        return { outcome: 'refused', size: 0, cause: 'operation-not-bound' };
+      }
+      try {
+        const answer = await this.options.operations.apply(request.unitId, request.key, request.operation, request.preconditions, request.contractVersion);
+        const size = Buffer.byteLength(JSON.stringify(answer));
+        this.write(successText(id, answer));
+        return { outcome: 'answered', size };
+      } catch (error) {
+        this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:451: operation refused: ${error instanceof Error ? error.message : String(error)}`));
+        return { outcome: 'failed', size: 0, cause: 'operation-failed' };
+      }
+    });
+  }
+
   /** One message from the plugin: a request (its introduction), an answer to a unit, or a notification. */
   private receive(value: unknown, bytes: number): void {
     if (this.failure !== undefined) return;
@@ -458,41 +484,34 @@ ${text === '' ? '(empty)' : text}` };
         log?.settle(slot, taken ? 'answered' : 'refused', 0, taken ? undefined : 'introduce-refused');
         return;
       }
+      if (value.method === 'facts.apply') {
+        const slot = log?.begin(value.method);
+        const held = this.inFlight.get((value.params as { unitId: string }).unitId);
+        if (held !== undefined) this.countBytes(held, bytes);
+        if (this.failure !== undefined) {
+          log?.settle(slot, 'refused', 0, 'unit-output-too-large');
+          return;
+        }
+        if (held !== undefined) held.pendingOperations += 1;
+        void this.answerOperation(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause)).finally(() => { if (held !== undefined) held.pendingOperations -= 1; });
+        return;
+      }
       if (value.method === 'agent.run') {
         const slot = log?.begin(value.method);
         void this.answerAgent(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
-      if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.unresolved' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
+      if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
         const slot = log?.begin(value.method);
         void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
       const slot = log?.begin(String(value.method));
-      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files, graph.value, graph.unresolved, graph.removedEnds and graph.unevidenced`));
+      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files, graph.value, graph.removedEnds and graph.unevidenced`));
       log?.settle(slot, 'refused', 0, 'method-not-found');
       return;
     }
     if (isNotification(value)) {
-      if (value.method === 'unit.resultChunk') {
-        const chunk = value.params;
-        if (!Value.Check(PluginResultChunk, chunk)) {
-          this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk must carry a unitId, sequence and base64 data` });
-          return;
-        }
-        const held = this.inFlight.get(chunk.unitId);
-        if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk names no active unit` }); return; }
-        const decoded = Buffer.from(chunk.data, 'base64');
-        this.countBytes(held, decoded.byteLength);
-        if (this.failure !== undefined) return;
-        const accumulated = this.resultChunks.get(chunk.unitId) ?? { count: 0, bytes: [] };
-        if (chunk.sequence !== accumulated.count) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunks must arrive in sequence` }); return; }
-        accumulated.count += 1;
-        accumulated.bytes.push(decoded);
-        this.resultChunks.set(chunk.unitId, accumulated);
-        held.lastSign = Date.now();
-        return;
-      }
       const beat = heartbeatOf(value);
       if (beat !== undefined) {
         this.sign(beat.unitId, bytes);
@@ -525,7 +544,7 @@ ${text === '' ? '(empty)' : text}` };
       this.unitByRequest.delete(key);
       const held = unitId === undefined ? undefined : this.inFlight.get(unitId);
       if (value.error === undefined) {
-        if (held !== undefined && !this.resultChunks.has(held.unitId)) this.countBytes(held, bytes);
+        if (held !== undefined) this.countBytes(held, bytes);
         waiter.resolve(value.result);
         return;
       }
@@ -571,7 +590,7 @@ ${text === '' ? '(empty)' : text}` };
           this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.value takes { kind, key, field }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
           return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
         }
-        const value = await this.options.graph.value(params.kind, params.key, params.field);
+        const value = await this.options.graph.value(params.kind, params.key, params.field, params.keyEdges);
         this.write(successText(id, { value }));
         return { outcome: 'answered', size: typeof value === 'string' ? value.length : 0 };
       }
@@ -580,12 +599,6 @@ ${text === '' ? '(empty)' : text}` };
         const first = [...Value.Errors(PluginGraphPageRequest, params)][0];
         this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: ${method} takes { after?, limit? }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
         return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
-      }
-      if (method === 'graph.unresolved') {
-        if (this.options.graph.unresolved === undefined) return this.graphUnavailable(id, method);
-        const answer = await this.options.graph.unresolved(params);
-        this.write(successText(id, answer));
-        return { outcome: 'answered', size: answer.references.length };
       }
       if (method === 'graph.removedEnds') {
         if (this.options.graph.removedEnds === undefined) return this.graphUnavailable(id, method);
@@ -596,7 +609,7 @@ ${text === '' ? '(empty)' : text}` };
       if (this.options.graph.unevidenced === undefined) return this.graphUnavailable(id, method);
       const answer = await this.options.graph.unevidenced(params);
       this.write(successText(id, answer));
-      return { outcome: 'answered', size: answer.opinions.length };
+      return { outcome: 'answered', size: answer.assertions.length };
     } catch (error) {
       this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the graph answered ${JSON.stringify(method)} with a failure: ${(error as Error).message}`, { cause: 'graph-failed' }));
       return { outcome: 'failed', size: 0, cause: 'graph-failed' };
@@ -812,18 +825,17 @@ ${text === '' ? '(empty)' : text}` };
       const now = Date.now();
       let settle: (outcome: UnitOutcome) => void = () => undefined;
       const answered = new Promise<UnitOutcome>((resolve) => { settle = resolve; });
-      const held: InFlight = { unitId: unit.unitId, startedAt: now, lastSign: now, bytes: 0, progress: [], error: undefined, settle };
+      const held: InFlight = { unitId: unit.unitId, acceptsOperations: true, startedAt: now, lastSign: now, pendingOperations: 0, bytes: 0, progress: [], error: undefined, settle };
       this.inFlight.set(unit.unitId, held);
       const answer = new Promise<unknown>((resolve, reject) => {
         this.pending.set(id, { resolve, reject });
       });
       this.write(requestText(id, 'unit', { unit }));
       const outcome = await Promise.race([
-        answer.then((result) => this.acceptAnswer(unit, held, id, result)).catch((cause: UnitCause) => this.notExtracted(held, cause)),
+        answer.then((result) => this.acceptAnswer(unit, held, result)).catch((cause: UnitCause) => this.notExtracted(held, cause)),
         answered,
       ]);
       this.inFlight.delete(unit.unitId);
-      this.resultChunks.delete(unit.unitId);
       this.pending.delete(id);
       this.unitByRequest.delete(id);
       const limit = this.outputLimit();
@@ -832,32 +844,18 @@ ${text === '' ? '(empty)' : text}` };
         this.fail({ code: 'unit-output-too-large', message: `${WHERE}:1: unit ${unit.unitId} answered with ${String(outcome.bytes)} bytes, more than the ${String(limit)} a unit may answer: the plugin was stopped` });
         return refused;
       }
-      annotateSpan({ 'madarch.plugin.outcome': outcome.state, 'madarch.plugin.bytes': outcome.bytes, 'madarch.plugin.ms': outcome.durationMs, 'madarch.plugin.vertices': outcome.state === 'extracted' ? outcome.result.vertices.length : 0, 'madarch.plugin.edges': outcome.state === 'extracted' ? outcome.result.edges.length : 0, 'madarch.plugin.removals_dropped': outcome.state === 'extracted' ? outcome.result.removalsDropped : 0 });
+      annotateSpan({ 'madarch.plugin.outcome': outcome.state, 'madarch.plugin.bytes': outcome.bytes, 'madarch.plugin.ms': outcome.durationMs });
       if (outcome.state === 'not-extracted') {
         log.warn(`unit not extracted: ${outcome.cause.message}`, { unitId: unit.unitId, code: outcome.cause.code });
         span.setStatus({ code: 2, message: outcome.cause.code });
       } else {
-        log.info('unit extracted', { unitId: unit.unitId, vertices: outcome.result.vertices.length, edges: outcome.result.edges.length, bytes: outcome.bytes, ms: outcome.durationMs });
+        log.info('unit extracted', { unitId: unit.unitId, bytes: outcome.bytes, ms: outcome.durationMs });
       }
       return outcome;
     });
   }
 
   /** Holds one unit's answer to the declaration, and records a refusal as the unit's cause. */
-  private decodeResult(unitId: string, value: unknown): unknown {
-    const answer = value as { unitId?: unknown; chunkCount?: unknown } | null;
-    if (answer === null || typeof answer !== 'object' || answer.unitId !== unitId) throw { code: 'malformed-result', message: `${WHERE}:1: answer must name its unit` };
-    const chunks = this.resultChunks.get(unitId);
-    this.resultChunks.delete(unitId);
-    if (chunks === undefined && answer.chunkCount === undefined) return answer;
-    if (chunks === undefined || answer.chunkCount !== chunks.count || Object.keys(answer).some((field) => field !== 'unitId' && field !== 'chunkCount')) throw { code: 'malformed-result', message: `${WHERE}:1: final chunk count must match the complete result fragments` };
-    try {
-      const decoded: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.bytes)));
-      if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unitId) throw new Error('fragmented result names the wrong unit');
-      return decoded;
-    } catch (error) { throw { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` }; }
-  }
-
   private async planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan> {
     if (this.declared?.planOutput !== true) throw { code: 'plan-unsupported', message: `${WHERE}:1: plugin does not declare planOutput` };
     if (this.failure !== undefined) throw this.failure.cause;
@@ -866,42 +864,37 @@ ${text === '' ? '(empty)' : text}` };
     const now = Date.now();
     let failed!: (cause: UnitCause) => void;
     const failure = new Promise<never>((_resolve, reject) => { failed = reject; });
-    const held: InFlight = { unitId: unit.unitId, startedAt: now, lastSign: now, bytes: 0, progress: [], error: undefined, settle: (outcome) => { if (outcome.state === 'not-extracted') failed(outcome.cause); } };
+    const held: InFlight = { unitId: unit.unitId, acceptsOperations: false, startedAt: now, lastSign: now, pendingOperations: 0, bytes: 0, progress: [], error: undefined, settle: (outcome) => { if (outcome.state === 'not-extracted') failed(outcome.cause); } };
     this.inFlight.set(unit.unitId, held);
     this.unitByRequest.set(id, unit.unitId);
     const response = new Promise<unknown>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
     this.write(requestText(id, 'planOutput', { unit, ...(cursor === undefined ? {} : { cursor }) }));
     try {
-      const value = this.decodeResult(unit.unitId, await Promise.race([response, failure])) as { unitId: string; partitions?: unknown; next?: unknown };
+      const value = await Promise.race([response, failure]) as { unitId: string; partitions?: unknown; next?: unknown };
       const { unitId: _unitId, ...page } = value;
       if (!Value.Check(PluginOutputPlan, page)) throw { code: 'malformed-plan', message: `${WHERE}:1: planOutput must return bounded partitions and an optional next cursor` };
       return page;
     } finally {
       this.inFlight.delete(unit.unitId);
-      this.resultChunks.delete(unit.unitId);
       this.pending.delete(id);
       this.unitByRequest.delete(id);
     }
   }
 
-  private acceptAnswer(unit: PluginUnitRequest, held: InFlight, id: string, result: unknown): UnitOutcome {
-    const declared = this.declared!;
-    let answer = result as { unitId?: unknown; chunkCount?: unknown; vertices?: unknown; edges?: unknown; removals?: unknown } | undefined;
+  private acceptAnswer(unit: PluginUnitRequest, held: InFlight, result: unknown): UnitOutcome {
+    if (held.pendingOperations !== 0) return this.notExtracted(held, { code: 'operation-pending', message: `${WHERE}:1: unit completion cannot precede its facts.apply responses` });
+    const answer = result as { unitId?: unknown } | undefined;
     if (answer === null || typeof answer !== 'object' || answer.unitId !== unit.unitId) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ${unit.unitId} was answered with ${answer === undefined ? 'no result' : `a result for ${String((answer as { unitId?: unknown }).unitId)}`}: an answer names the unit it answers` });
     }
-    try { answer = this.decodeResult(unit.unitId, answer) as typeof answer; }
-    catch (cause) { return this.notExtracted(held, cause as UnitCause); }
     const shape = [...Value.Errors(PluginUnitResult, answer)][0];
     if (shape !== undefined) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: the answer to unit ${unit.unitId} is not a unit result: ${shape.instancePath === '' ? 'the result' : shape.instancePath.slice(1)} ${shape.message}` });
     }
-    const checked = validateUnitResult(declared.outputs, answer as Parameters<typeof validateUnitResult>[1]);
-    if (!checked.ok) return this.notExtracted(held, refusalCause(checked.refusal, id));
     return {
       state: 'extracted',
       unitId: unit.unitId,
-      result: checked.unit,
+      result: answer as PluginUnitResult,
       bytes: held.bytes,
       durationMs: Date.now() - held.startedAt,
       counters: this.sandbox?.counters() ?? { memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 },
@@ -995,10 +988,6 @@ function canonicalRights(rights: PluginRights): Record<string, unknown> {
 }
 
 /** A validation refusal as the unit's cause, with the plugin's folder in the message. */
-function refusalCause(refusal: ResultRefusal, id: string): UnitCause {
-  return { code: refusal.code, message: `${WHERE}:1: within the answer to ${id}, ${refusal.message}` };
-}
-
 /** One unit the runner hands out, with the plugin it goes to: a unit's plugin is chosen by the caller. */
 export interface RunnerUnit {
   readonly pluginFolder: string;

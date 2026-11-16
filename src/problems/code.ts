@@ -9,6 +9,8 @@
  * manifest, with the starter set's defaults.
  */
 import { byCodePoint } from '../model/order.js';
+import { semanticEntities } from '../knowledge/semantic-bindings.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import { pluralForm } from '../knowledge/plural.js';
 import { entityAddress } from '../knowledge/resolve.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
@@ -66,8 +68,21 @@ const fileLink = (path: string, line?: number): ProblemLink => ({
 const valueLink = (label: string): ProblemLink => ({ label, href: null, key: null });
 
 /** Loads every fact the code rules read. A fact set read short is named in the notes. */
-export async function readCodeSnapshot(graph: GraphReader): Promise<CodeSnapshot> {
+export async function readCodeSnapshot(graph: GraphReader, manifest: KindsManifest): Promise<CodeSnapshot> {
   const notes: string[] = [];
+  const semantic = async (role: string): Promise<GraphEntity[]> => {
+    try {
+      const rows = await semanticEntities(graph, manifest, role);
+      if (role === 'detector-route') for (const row of rows) {
+        const owners = row.properties['ownerKeys'];
+        if (!Array.isArray(owners) || owners.length !== 1 || typeof owners[0] !== 'string') throw new Error(`${manifest.file}:${manifest.semanticBindings!.get(role)!.line}: ${row.key}: route detector requires exactly one explicit owner UID`);
+        row.properties['ownerKey'] = owners[0];
+      }
+      if (role === 'detector-operation' && !Object.hasOwn(manifest.semanticBindings!.get(role)!.edges ?? {}, 'ownerKeys')) notes.push(`${manifest.file}:${manifest.semanticBindings!.get(role)!.line}: detector-operation has no declared ownership relation; owner-dependent route coverage is not judged`);
+      return rows;
+    }
+    catch (error) { notes.push(`the ${role} rule capability could not be read: ${(error as Error).message}`); return []; }
+  };
   const read = async (kind: string, prefix = `${kind}:`): Promise<GraphEntity[]> => {
     const found = await graph.byPrefix(kind, prefix, LIMIT);
     if (found.total > found.rows.length) notes.push(`the code section reads the first ${found.rows.length} of ${found.total} ${kind} facts: the rest are not judged`);
@@ -90,9 +105,9 @@ export async function readCodeSnapshot(graph: GraphReader): Promise<CodeSnapshot
     }));
   };
   const [files, symbols, cycles, routes, operations, dependencies, packages, envVars, envDefinitions, inputs, builds, sinks, debts, flows, serves, defines, usesDependency] = await Promise.all([
-    readFiles(), read('code.symbol'), read('code.cycle'), read('code.route'), read('code.operation'),
-    read('code.dependency'), read('code.package'), read('code.env-var'), read('code.env-definition'),
-    read('code.input'), read('code.sql-build'), read('code.sql-sink'), read('code.debt'),
+    readFiles(), read('code.symbol'), semantic('detector-cycle'), semantic('detector-route'), semantic('detector-operation'),
+    semantic('detector-dependency'), read('code.package'), read('code.env-var'), read('code.env-definition'),
+    read('code.input'), read('code.sql-build'), read('code.sql-sink'), semantic('detector-debt'),
     relation('code.flows-into'), relation('code.serves'), relation('code.defines'), relation('code.uses-dependency'),
   ]);
   return { files, symbols, cycles, routes, operations, dependencies, packages, envVars, envDefinitions, inputs, builds, sinks, debts, flows, serves, defines, usesDependency, notes };
@@ -186,9 +201,9 @@ function draft(rule: Rule, severity: ProblemSeverity, fields: Omit<ProblemDraft,
 /** Files and modules that import one another in a ring; the graph's own `code.cycle` nodes. */
 function dependencyCycles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   return [...snapshot.cycles].sort((a, b) => byCodePoint(a.key, b.key)).map((cycle) => {
-    const level = text(cycle.properties['level']) ?? 'file';
-    const members = strings(cycle.properties['members']);
-    const edges = strings(cycle.properties['edges']);
+    const level = text(cycle.properties['cycleLevel']) ?? 'file';
+    const members = strings(cycle.properties['memberKeys']);
+    const edges = strings(cycle.properties['cycleLinks']);
     const names = members.map(pathOfKey);
     const path = cycle.span?.path ?? (names[0] ?? '');
     const what = level === 'file' ? 'files' : 'modules';
@@ -272,7 +287,7 @@ function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: Problem
   }
   const byService = new Map<string, GraphEntity[]>();
   for (const route of snapshot.routes) {
-    const service = text(route.properties['service']) ?? '';
+    const service = text(route.properties['ownerKey']) ?? '';
     byService.set(service, [...(byService.get(service) ?? []), route]);
   }
   const problems: ProblemDraft[] = [];
@@ -286,7 +301,7 @@ function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: Problem
       // A route the contract serves with a secured operation answers without a token even when its own path root
       // has no protected sibling (the review's fifth finding): the contract's auth group is the service's, and a
       // `public: true` operation is the contract's own statement that the route is meant to be open.
-      const securedByContract = served !== undefined && served.properties['public'] !== true;
+      const securedByContract = served !== undefined && served.properties['openToCallers'] !== true;
       if (!protectedRoots.has(root) && !securedByContract) continue;
       const path = route.span?.path ?? pathOfKey(route.key);
       const handler = text(route.properties['handlerKey']);
@@ -402,7 +417,7 @@ function deadExports(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeveri
  */
 function debtMarkers(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, marker: string): ProblemDraft[] {
   return snapshot.debts
-    .filter((debt) => debt.properties['marker'] === marker)
+    .filter((debt) => debt.properties['markerWord'] === marker)
     .map((debt) => {
       const path = debt.span?.path ?? text(debt.properties['path']) ?? '';
       const body = text(debt.properties['text']) ?? '';
@@ -524,7 +539,7 @@ const usedTargets = (snapshot: CodeSnapshot): Set<string> => new Set(snapshot.us
 function declaredUnused(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const used = usedTargets(snapshot);
   return snapshot.dependencies
-    .filter((dependency) => dependency.properties['scope'] === 'direct' && !used.has(dependency.key))
+    .filter((dependency) => dependency.properties['dependencyClass'] === 'explicit' && !used.has(dependency.key))
     .map((dependency) => {
       const path = dependency.span?.path ?? pathOfKey(dependency.key);
       const name = text(dependency.properties['name']) ?? dependency.label;
@@ -598,15 +613,15 @@ function routesWithoutOperations(snapshot: CodeSnapshot, rule: Rule, severity: P
   // a contract that names no owner still covers the services its matches show.
   const covered = new Set<string>();
   for (const operation of snapshot.operations) {
-    const owner = text(operation.properties['service']);
+    const owner = text(operation.properties['ownerKey']);
     if (owner !== undefined && owner !== '') covered.add(owner);
   }
   for (const route of snapshot.routes) if (servedRoutes.has(route.key)) {
-    const service = text(route.properties['service']);
+    const service = text(route.properties['ownerKey']);
     if (service !== undefined && service !== '') covered.add(service);
   }
   return snapshot.routes
-    .filter((route) => !servedRoutes.has(route.key) && covered.has(text(route.properties['service']) ?? ''))
+    .filter((route) => !servedRoutes.has(route.key) && covered.has(text(route.properties['ownerKey']) ?? ''))
     .map((route) => {
       const path = route.span?.path ?? pathOfKey(route.key);
       return draft(rule, severity, {

@@ -18,11 +18,6 @@ details:
 - name
 - source
 fields:
-- name: symbol
-  type: json
-  reference: code.symbol
-  binding:
-    agent: The symbol that reads the value, by the key of that symbol in the graph.
 - name: name
   type: text
   labels:
@@ -34,9 +29,9 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: 'Where the value comes from, as the code names it: a parameter, a header, a field of the body, an environment variable.'
+    agent: 'Where the value comes from, as the code names it: a parameter, a header,
+      a field of the body, an environment variable.'
 key:
-- symbol
 - name
 derives-from:
 - code.symbol
@@ -50,3 +45,8 @@ labels:
 description:
   en: 'An input is a value the code receives from beyond its own boundary: a request parameter, a header, a field of a message, a line of a file. Its source decides how far it can be trusted and which checks it needs.'
   ru: 'Входные данные — значение, которое код получает извне своей границы: параметр запроса, заголовок, поле сообщения или строка файла. От источника зависит, насколько ему можно доверять и какие проверки нужны.'
+
+key-edges:
+- role: code.input-symbol
+  edge: code.input-symbol
+  side: from

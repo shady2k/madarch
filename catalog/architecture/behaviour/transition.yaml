@@ -17,36 +17,13 @@ relation-constraints:
 template-policy: member
 source: graph
 fields:
-- name: machine
-  type: json
-  reference: state-machine
-  binding:
-    agent: The state machine the transition belongs to, by the key of that machine in the graph.
-- name: from
-  type: json
-  reference: state
-  binding:
-    agent: The state the move leaves, by its key.
-- name: to
-  type: json
-  reference: state
-  binding:
-    agent: The state the move enters, by its key.
-- name: event
-  type: json
-  nullable: true
-  reference: event
-  binding:
-    agent: The event that causes the move, where the machine names one.
 - name: guard
   type: text
   nullable: true
   binding:
-    agent: The condition that must hold for the move to happen, as the code or the document states it.
-key:
-- machine
-- from
-- to
+    agent: The condition that must hold for the move to happen, as the code or the
+      document states it.
+key: []
 derives-from:
 - code.symbol
 member:
@@ -63,3 +40,14 @@ labels:
 description:
   en: A transition says that when a named event occurs and a guard holds, the thing leaves one state and enters another, often running an action on the way. It is the arrow between two states in a state machine.
   ru: Переход говорит, что при наступлении названного события и выполнении условия вещь покидает одно состояние и входит в другое, часто выполняя действие по пути. Это стрелка между двумя состояниями в конечном автомате.
+
+key-edges:
+- role: transition-machine
+  edge: transition-machine
+  side: from
+- role: transition-from
+  edge: transition-from
+  side: from
+- role: transition-to
+  edge: transition-to
+  side: from

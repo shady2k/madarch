@@ -1,3 +1,5 @@
+import { withManifestContract } from '../graph/manifest-contract.js';
+import { withAssertionContract } from '../graph/system-contract.js';
 /**
  * The published manifest a GraphQL schema is derived from (decision 0036, section 1): every kind the product
  * takes, with the typed fields its manifest declares and the fields the plugin that fills it declares, and every
@@ -13,8 +15,6 @@ export interface PublishedField {
   readonly name: string;
   readonly type: FieldType;
   readonly nullable?: boolean;
-  /** The kind a reference field names. */
-  readonly reference?: string;
 }
 
 /** One kind the product takes: its name, its fields and its natural key. */
@@ -56,7 +56,6 @@ function fieldOf(declared: FieldDecl | PluginFieldDecl): PublishedField {
     name: declared.name,
     type: declared.type,
     ...(nullable ? { nullable: true } : {}),
-    ...(declared.reference === undefined ? {} : { reference: declared.reference }),
   };
 }
 
@@ -120,7 +119,7 @@ function edgeFieldsOf(edge: EdgeDecl, manifest: KindsManifest): PublishedField[]
  */
 export function publishedManifestOf(manifest: KindsManifest): PublishedManifest {
   return {
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: fieldsOf(kind, manifest), key: keyOf(kind, manifest) })),
+    kinds: [...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: fieldsOf(kind, manifest), key: keyOf(kind, manifest) })), ...withAssertionContract(withManifestContract({ vertex: [], edge: [], dictionary: [] })).vertex.filter((kind) => !manifest.kinds.has(kind.name)).map((kind) => ({ name: kind.name, fields: kind.fields, key: kind.key }))],
     edges: [...(manifest.edges?.values() ?? [])].map((edge) => ({
       name: edge.name,
       from: edge.from,
@@ -128,7 +127,7 @@ export function publishedManifestOf(manifest: KindsManifest): PublishedManifest 
       repeats: edge.repeats,
       ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
       fields: edgeFieldsOf(edge, manifest),
-      labels: edge.labels,
+      labels: { ...edge.labels },
     })),
     relations: [...(manifest.catalog?.schema.relationLabels ?? new Map()).entries()]
       .map(([name, labels]) => ({ name, labels }))

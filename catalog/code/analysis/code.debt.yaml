@@ -21,13 +21,8 @@ details:
 - path
 - line
 fields:
-- name: repository
-  type: json
-  reference: code.repository
-  binding:
-    agent: The repository the marker stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   binding:
     agent: The path of the file the marker stands in, as the file entity holds it.
 - name: line
@@ -44,7 +39,6 @@ fields:
   binding:
     agent: What the marker says, in the words the comment gives it.
 key:
-- repository
 - path
 - line
 derives-from:
@@ -59,3 +53,8 @@ labels:
 description:
   en: 'A debt marker is a comment such as TODO or FIXME in which a developer records something left undone: a shortcut, a missing case or a known weakness. The marker names the debt; the debt itself is the weakness it points at.'
   ru: 'Маркер долга — комментарий вида TODO или FIXME, в котором разработчик записывает недоделанное: упрощение, пропущенный случай или известную слабость. Маркер называет долг, а сам долг — та слабость, на которую он указывает.'
+
+key-edges:
+- role: code.debt-repository
+  edge: code.debt-repository
+  side: from

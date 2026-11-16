@@ -18,13 +18,8 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: set
-  type: json
-  reference: value-set
-  producers:
-  - person
 - name: value
-  type: text
+  type: value-set-value
   producers:
   - person
 - name: label_en
@@ -46,19 +41,17 @@ fields:
   producers:
   - person
 reference-set-entry:
-  set: set
+  set: value-set-entry-set
   value: value
   label-en: label_en
   label-ru: label_ru
   description: description
   order: order
 key:
-- set
 - value
 origin: person
 nav: loop
 details:
-- set
 - value
 - label_en
 - label_ru
@@ -76,3 +69,8 @@ description:
   ru: 'Значение справочника — одно значение одного справочника: его подпись на каждом языке интерфейса, что оно означает и какое место занимает в порядке. Сущности, которые держат это значение, указывают на запись, поэтому её обратные ссылки показывают все сущности, которые ею пользуются.'
 derives-from:
 - value-set
+
+key-edges:
+- role: value-set-entry-set
+  edge: value-set-entry-set
+  side: from

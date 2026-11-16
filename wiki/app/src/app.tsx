@@ -26,7 +26,7 @@ import {
 } from './components/ui/shell.js';
 import { Skeleton } from './components/ui/skeleton.js';
 import { PageBreadcrumb } from './components/ui/breadcrumb.js';
-import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
+import { PageSection, Paragraph, Stack, STACK_LAYOUT } from './components/ui/typography.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
 import { RoleFirstVisit } from './components/role-first.js';
 import { STALE_STRUCTURE } from './stale.js';
@@ -323,7 +323,7 @@ export function App(): ReactElement {
   // The first read: the frame stands with its shapes, and nothing of the product is drawn yet.
   if (bootstrap === null) {
     return (
-      <Stack layout="shell" data-testid="wiki-loading">
+      <Stack layout={STACK_LAYOUT.shell} data-testid="wiki-loading">
         <ShellSidebar loading aria-hidden="true"><ShellNavigationLoading /></ShellSidebar>
         <ShellMain>
           <ShellToolbarLoading />
@@ -349,9 +349,9 @@ export function App(): ReactElement {
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <RoleFirstVisit base={base} onChosen={applyRole} />
-      <Stack layout="shell" data-testid="wiki-app">
+      <Stack layout={STACK_LAYOUT.shell} data-testid="wiki-app">
         <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
-          <Stack layout="navigation">{navigationPanel(() => undefined)}</Stack>
+          <Stack layout={STACK_LAYOUT.navigation}>{navigationPanel(() => undefined)}</Stack>
         </ShellSidebar>
         <ShellMain>
           <ShellFixed data-testid="shell-fixed">

@@ -17,6 +17,7 @@ import { at, dateOf, formatValue, hostOf, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import { edgesOf, entityHref, nextOf, totalOf } from './connection.js';
 import { follow } from './relations.js';
+import { isFieldFormat } from '../../../../src/page-contract/schema.js';
 import type { SectionContext } from './types.js';
 
 interface Column {
@@ -87,7 +88,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     const href = entityHref(node);
     return columns.map((column, index) => {
       const value = at(row, column.path);
-      const format = typeof column.format === 'string' ? column.format : 'text';
+      const format = isFieldFormat(column.format) ? column.format : 'text';
       if (format === 'commit' && isCommit(value)) {
         return <CommitLine commit={value as CommitNode} base={context.base} open={context.open} language={language} withDate={false} withAuthor={false} />;
       }
@@ -162,8 +163,8 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           <PaginationSummary>{`${String(before + 1)}–${String(before + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
           {canPage ? (
             <>
-              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
-              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>{t('common.previousSymbol')}</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>{t('common.nextSymbol')}</Button>
             </>
           ) : null}
         </PaginationBar>

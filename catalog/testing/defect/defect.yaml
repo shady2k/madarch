@@ -24,7 +24,8 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: What is wrong, in one line, such as Checkout drops the basket; it is the defect's key.
+    agent: What is wrong, in one line, such as Checkout drops the basket; it is the
+      defect's key.
 - name: severity
   type: text
   nullable: true
@@ -46,9 +47,8 @@ fields:
   binding:
     agent: What happened instead.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: 'Where the defect stands: open, being repaired, fixed, refused.'
 key:

@@ -24,16 +24,16 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the product gives the part, such as Catalogue rewrite; it is the stage's key.
+    agent: The name the product gives the part, such as Catalogue rewrite; it is the
+      stage's key.
 - name: acceptance_criterion
   type: text
   nullable: true
   binding:
     agent: What a person checks to accept the stage.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Where the stage stands, as the work kinds keep it.
 key:

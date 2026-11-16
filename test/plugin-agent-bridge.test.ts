@@ -1,32 +1,39 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AcpConnection, AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
+import type { AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
-import type { PluginUnitResult } from '../src/plugin/protocol.js';
+import type { PluginContractDeclaration, PluginEntityRef } from '../src/plugin/protocol.js';
 
-const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
+const outputs: PluginContractDeclaration = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
+const content = 'first\nsecond';
+const evidenceTarget = { kind: 'fixture.evidence', key: { digest: createHash('sha256').update(content).digest('hex') } };
 const graph = {
-  files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }, { kind: 'file', key: { repository: 'repo', path: 'private/b.md' } }],
-  value: async () => 'first\nsecond',
+  files: async (): Promise<readonly PluginEntityRef[]> => [{ kind: 'code.file', key: { path: 'orphan.md' } }, { kind: 'code.file', key: { path: 'unbound.md' }, keyEdges: {} }, { kind: 'code.file', key: { path: 'docs/a.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }, { kind: 'code.file', key: { path: 'private/b.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }],
+  value: async (kind: string, key: PluginEntityRef['key']) => kind === 'fixture.evidence' && key['digest'] !== evidenceTarget.key.digest ? null : content,
 };
-const result: PluginUnitResult = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
+const result: Awaited<ReturnType<PluginAgentBridge['run']>> = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { target: evidenceTarget, path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
 function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs']) {
   const state = { closed: 0, frozen: 0, thawed: 0 };
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
-    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, ...extra,
+    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } },
+    evidenceContracts: [{ name: 'fixture.evidence', evidence: { immutable: true, digestField: 'digest', contentField: 'content', digestAlgorithm: 'sha256' } }], ...extra,
     connect: async (spec, options) => {
       expect(spec.env).toEqual({ SECRET: 'must not pass' });
       expect(options.env).toEqual(extra.environment);
       expect(options.exactEnv).toBeUndefined();
-      const session = {
-        sessionId: 'session', model: 'fake-model', configOptions: [], models: null,
+      const session: AcpSession = {
+        sessionId: 'session', model: 'fake-model', configOptions: [], models: null, modes: null,
+        setConfigOption: async () => { throw new Error('No fixture config options'); },
+        setModel: async () => { throw new Error('No fixture models'); },
+        cancel: async () => undefined, running: () => false,
         usage: () => ({ reported: false, turns: 1, reports: 0 }),
         prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 }, stopReason: 'end_turn', text: JSON.stringify(await turn(options, opts?.signal)), updates: [] }),
-      } as unknown as AcpSession;
-      return { initialize: async () => ({}), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } } as unknown as AcpConnection & { freeze(): void; thaw(): void };
+      };
+      return { spec, executable: '/fixture', stderr: () => '', closed: new Promise<void>(() => undefined), initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } };
     },
   }, graph, outputs);
   return { bridge, state };
@@ -115,7 +122,7 @@ describe('plugin agent graph bridge', () => {
   test('leaves out an entry whose evidence the graph cannot take, names the place, and shortens nothing else', async () => {
     // The owner's rule (2026-11-15): a produced result is kept entry by entry. An entry whose evidence is missing, outside
     // the graph or outside its lines is left out and named; the answers beside it stand.
-    for (const evidence of [undefined, { repository: 'repo', path: 'docs/a.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 1 }, { repository: 'repo', path: 'private/b.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 2, lineEnd: 3 }]) {
+    for (const evidence of [undefined, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md' }, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md', lineStart: 1 }, { target: { kind: 'code.file', key: { path: 'private/b.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }, path: 'private/b.md' }, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md', lineStart: 2, lineEnd: 3 }]) {
       const { bridge, state } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], evidence }] }));
       const kept = await bridge.run('unit', {});
       expect(kept.vertices).toEqual([]);
@@ -133,14 +140,13 @@ describe('plugin agent graph bridge', () => {
     expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
   });
 
-  test('keeps the valid entries when another entry\'s evidence is not canonical', async () => {
-    // An entry citing "repo/docs/../a.md" is no file of the graph, and the vertex beside it must still be published
-    // (owner's decision, 2026-11-15: a produced result is kept, entry by entry).
+  test('keeps the valid entries when another entry\'s immutable evidence is unavailable', async () => {
+    // Unavailable immutable evidence refuses only its entry; the independently cited entry still stands.
     const { bridge } = setup(async () => ({
       unitId: 'ignored',
       vertices: [
         result.vertices![0]!,
-        { ...result.vertices![0], key: { id: 'b' }, evidence: { repository: 'repo', path: 'docs/../a.md', lineStart: 1, lineEnd: 1 } },
+        { ...result.vertices![0], key: { id: 'b' }, evidence: { target: { kind: 'fixture.evidence', key: { digest: 'missing' } }, path: 'docs/../a.md', lineStart: 1, lineEnd: 1 } },
       ],
       end: { state: 'complete' },
     }));

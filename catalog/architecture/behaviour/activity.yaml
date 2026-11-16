@@ -26,17 +26,12 @@ fields:
     ru: Имя
   binding:
     agent: The name the behaviour is known by, such as Place an order; it is the activity's key.
-- name: subject
-  type: json
-  nullable: true
-  reference: code.symbol
-  binding:
-    agent: The symbol that carries the behaviour out, by the key of that symbol in the graph.
 - name: description
   type: text
   nullable: true
   binding:
-    agent: What the activity does, in one or two sentences, from the actions it holds in the graph.
+    agent: What the activity does, in one or two sentences, from the actions it holds
+      in the graph.
 key:
 - name
 derives-from:

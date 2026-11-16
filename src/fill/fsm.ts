@@ -4,89 +4,10 @@
  * below are the whole of what each machine allows, XState performs every step,
  * and persistence is `state-store.ts`.
  *
- * A unit has a logical identity, immutable generations (a new input set opens a
- * new generation) and attempts (retries inside a generation). A lease carries a
- * fencing token that grows across the whole unit, never only inside one
- * generation: every step a worker takes names its generation and the token in
- * force, and a step naming an older generation or an older token is refused, so a
- * worker that lost its lease cannot start, draft, publish, block or fail the
- * generation that replaced it even while that generation holds no lease. The one
- * step the run's own sweep takes — moving a generation whose lease lapsed into its
- * retry wait, and waking a wait whose time has come — is no worker's and names no
- * token; a worker's retry names the token of the attempt that sent it, so a late
- * attempt's failure is refused rather than spent on the attempt that replaced it.
- * A published generation stays an immutable record: it is never retried or
- * cancelled, only marked stale and linked to its replacement.
- *
- * ```mermaid
-stateDiagram-v2
-  [*] --> planned
-  blocked --> cancelled: cancel
-  blocked --> failed: fail [generation-current & fence-current & fail-cause]
-  blocked --> stale: invalidate [replacement-named]
-  blocked --> skipped: skip [skip-cause-named]
-  blocked --> ready: unblock [generation-current & resolution-named]
-  draft --> blocked: block [generation-current & fence-current & block-reason-named]
-  draft --> cancelled: cancel
-  draft --> failed: fail [generation-current & fence-current & fail-cause]
-  draft --> stale: invalidate [replacement-named]
-  draft --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
-  draft --> skipped: skip [skip-cause-named]
-  draft --> validating: validate-draft [generation-current & fence-current]
-  leased --> blocked: block [generation-current & fence-current & block-reason-named]
-  leased --> cancelled: cancel
-  leased --> failed: fail [generation-current & fence-current & fail-cause]
-  leased --> stale: invalidate [replacement-named]
-  leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
-  leased --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
-  leased --> skipped: skip [skip-cause-named]
-  leased --> running: start [generation-current & fence-current]
-  planned --> ready: admit [generation-current]
-  planned --> cancelled: cancel
-  planned --> failed: fail [generation-current & fence-current & fail-cause]
-  planned --> stale: invalidate [replacement-named]
-  planned --> skipped: skip [skip-cause-named]
-  published --> stale: invalidate [replacement-named]
-  ready --> blocked: block [generation-current & fence-current & block-reason-named]
-  ready --> cancelled: cancel
-  ready --> failed: fail [generation-current & fence-current & fail-cause]
-  ready --> stale: invalidate [replacement-named]
-  ready --> leased: lease [fence-advances]
-  ready --> skipped: skip [skip-cause-named]
-  retry_wait --> cancelled: cancel
-  retry_wait --> failed: fail [generation-current & fence-current & fail-cause]
-  retry_wait --> stale: invalidate [replacement-named]
-  retry_wait --> ready: retry [generation-current & retry-elapsed]
-  retry_wait --> skipped: skip [skip-cause-named]
-  running --> blocked: block [generation-current & fence-current & block-reason-named]
-  running --> cancelled: cancel
-  running --> failed: fail [generation-current & fence-current & fail-cause]
-  running --> stale: invalidate [replacement-named]
-  running --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
-  running --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
-  running --> skipped: skip [skip-cause-named]
-  running --> draft: submit-draft [generation-current & fence-current]
-  running --> waiting_children: wait-for-children [generation-current & fence-current & children-sealed]
-  validating --> blocked: block [generation-current & fence-current & block-reason-named]
-  validating --> cancelled: cancel
-  validating --> failed: fail [generation-current & fence-current & fail-cause]
-  validating --> stale: invalidate [replacement-named]
-  validating --> published: publish [generation-current & fence-current & reads-fresh]
-  validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
-  validating --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-validation-problem]
-  validating --> skipped: skip [skip-cause-named]
-  waiting_children --> blocked: block [generation-current & fence-current & block-reason-named]
-  waiting_children --> cancelled: cancel
-  waiting_children --> failed: fail [generation-current & fence-current & fail-cause]
-  waiting_children --> failed: fail [generation-current & fence-current & cause-child-failed]
-  waiting_children --> stale: invalidate [replacement-named]
-  waiting_children --> ready: join [generation-current & children-accepted-partial]
-  waiting_children --> ready: join [generation-current & children-published-and-fresh]
-  waiting_children --> skipped: skip [skip-cause-named]
-  cancelled --> [*]
-  failed --> [*]
-  skipped --> [*]
-  stale --> [*]```
+ * Unit generations and retry metadata remain here during the graph conversion.
+ * Queue attempts and graph locks own execution authority (decision 0039). A
+ * start records the externally supplied attempt fence; this machine issues no
+ * lease or token. Later steps compare that recorded value for consistency.
  *
  * The run machine walks created → planning → running → succeeded,
  * completed_partial, blocked or failed, pauses through pausing → paused →
@@ -107,7 +28,7 @@ import { createFillMachine, transition } from './fsm-core.js';
 
 /** The states of a unit generation, in the order decision 0027 lists them. */
 export const UNIT_STATES = [
-  'planned', 'ready', 'leased', 'running', 'draft', 'validating', 'published',
+  'planned', 'ready', 'running', 'published',
   'waiting_children', 'retry_wait', 'blocked', 'failed', 'stale', 'cancelled', 'skipped',
 ] as const;
 export type UnitState = typeof UNIT_STATES[number];
@@ -116,7 +37,7 @@ export type UnitState = typeof UNIT_STATES[number];
 export interface UnitContext {
   /** The generation this row is; a new input set opens the next generation of the same unit. */
   readonly generation: number;
-  /** Attempts spent on this generation, the first lease included. */
+  /** Attempts spent on this generation, the first queue attempt included. */
   readonly attempt: number;
   /** The fencing token in force: it grows across the unit's generations, and a step naming an older one is refused. */
   readonly fence: number;
@@ -134,7 +55,7 @@ export interface UnitContext {
 export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'bound-exhausted' | 'child-failed';
 
 /** What sent a unit back to a retry wait. */
-export type UnitRetryCause = 'lease-expired' | 'transient-failure' | 'validation-problem';
+export type UnitRetryCause = 'lease-expired' | 'transient-failure';
 
 /** One child of a split, as the parent's join judges it. */
 export interface UnitChildOutcome {
@@ -156,22 +77,15 @@ export interface UnitChildOutcome {
 export type UnitFailedChildPolicy = 'propagate' | 'block' | 'accept-partial';
 
 /**
- * A step a caller asks of a unit generation. Every step that advances a live
- * generation names that generation, and every step that blocks or ends it names
- * the fencing token in force as well, so a message from an attempt the unit
- * already left is refused wherever the unit stands. Three exceptions, each
- * deliberate: `lease` names the token it takes rather than one in force, because
- * only the store issues it and does so for the generation it just loaded;
- * `invalidate` and `cancel` name neither, because they are the run control's
- * authority over whatever generation stands.
+ * A scheduler metadata transition. Start records the fence of a queue attempt
+ * already checked under the graph run/unit locks by the caller. Generation and
+ * fence comparisons reject inconsistent metadata; they do not grant execution
+ * authority. Run control may invalidate or cancel the current generation.
  */
 export type UnitEvent =
   | { readonly type: 'admit'; readonly at: number; readonly generation: number }
-  | { readonly type: 'lease'; readonly at: number; readonly fence: number; readonly attempt: number }
-  | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly fence: number }
-  | { readonly type: 'submit-draft'; readonly at: number; readonly generation: number; readonly fence: number }
-  | { readonly type: 'validate-draft'; readonly at: number; readonly generation: number; readonly fence: number }
-  | { readonly type: 'publish'; readonly at: number; readonly generation: number; readonly fence: number; readonly readsFresh: boolean }
+  | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly fence: number; readonly attempt?: number }
+  | { readonly type: 'complete'; readonly at: number; readonly generation: number; readonly fence: number }
   | { readonly type: 'wait-for-children'; readonly at: number; readonly generation: number; readonly fence: number; readonly children: readonly UnitChildOutcome[] }
   | { readonly type: 'join'; readonly at: number; readonly generation: number; readonly children: readonly UnitChildOutcome[]; readonly failedChildPolicy: UnitFailedChildPolicy }
   | { readonly type: 'retry'; readonly at: number; readonly generation: number; readonly cause: UnitRetryCause; readonly retryAt: number | null; readonly fence: number | null }
@@ -182,23 +96,16 @@ export type UnitEvent =
   | { readonly type: 'cancel'; readonly at: number; readonly cause: string }
   | { readonly type: 'skip'; readonly at: number; readonly cause: string };
 
-/** The step that takes a lease, which only the store may issue: it writes the lease row with the token. */
-export type UnitLeaseEvent = Extract<UnitEvent, { readonly type: 'lease' }>;
-
-/** Every unit step but the lease, which `leaseUnit` takes; `advanceUnit` refuses it. */
-export type UnitAdvanceEvent = Exclude<UnitEvent, UnitLeaseEvent>;
+/** A scheduler metadata step. Queue ownership is checked by the caller's transaction. */
+export type UnitAdvanceEvent = UnitEvent;
 
 const named = (value: string): boolean => value.trim() !== '';
 const fenced = (event: { readonly fence: number | null }): boolean => event.fence !== null;
 
 /** Every unit guard, named and pure: it reads the persisted generation and the event, nothing else. */
 const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
-  'fence-advances': {
-    describe: 'the new lease takes a greater fencing token than the unit holds',
-    check: (context, event) => event.type === 'lease' && event.fence > context.fence,
-  },
   'fence-current': {
-    describe: 'the step names the fencing token in force, so a late worker holding an older lease is refused',
+    describe: 'the step names the attempt fence recorded at start',
     check: (context, event) => 'fence' in event && fenced(event) && event.fence === context.fence,
   },
   'generation-current': {
@@ -225,10 +132,6 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     describe: 'the attempt failed transiently',
     check: (_context, event) => event.type === 'retry' && event.cause === 'transient-failure',
   },
-  'cause-validation-problem': {
-    describe: 'validation found a problem the unit may fix in another attempt',
-    check: (_context, event) => event.type === 'retry' && event.cause === 'validation-problem',
-  },
   'fail-cause': {
     describe: 'the step fails the unit for the run\'s spent budget, for a bound its run declares, or because the attempt ended with no retry left',
     check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || event.cause === 'bound-exhausted' || context.retriesLeft === 0),
@@ -254,10 +157,6 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
       && event.children.some((child) => child.failed)
       && event.children.every((child) => child.failed || (child.published && child.fresh)),
   },
-  'reads-fresh': {
-    describe: 'the reads the generation recorded are unchanged at publication',
-    check: (_context, event) => event.type === 'publish' && event.readsFresh,
-  },
   'block-reason-named': {
     describe: 'the block names what it waits on',
     check: (_context, event) => event.type === 'block' && named(event.reason),
@@ -276,21 +175,21 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
   },
 };
 
-const revokeAndRetract = ['revoke-lease', 'retract-draft', 'emit-progress'] as const;
-const retractAndEmit = ['retract-draft', 'emit-progress'] as const;
-const retryActionsFenced = ['spend-retry', 'wait-for-retry', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'] as const;
+const revokeAndRetract = ['revoke-lease', 'emit-progress'] as const;
+const retractAndEmit = ['emit-progress'] as const;
+const retryActionsFenced = ['spend-retry', 'wait-for-retry', 'revoke-lease', 'schedule-retry', 'emit-progress'] as const;
 const blockActions = ['emit-progress'] as const;
 const blockActionsFenced = ['revoke-lease', 'emit-progress'] as const;
-const invalidateActions = ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress'] as const;
+const invalidateActions = ['link-replacement', 'revoke-lease', 'emit-progress'] as const;
 const invalidatePublishedActions = ['link-replacement', 'revoke-lease', 'emit-progress'] as const;
-const cancelActions = ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress'] as const;
+const cancelActions = ['revoke-authority', 'revoke-lease', 'emit-progress'] as const;
 
 /** Every unit action, named: context updates XState applies, then effects the orchestrator performs. */
 const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   'take-fence': {
     kind: 'context',
-    describe: 'records the lease\'s fencing token and its attempt number on the generation',
-    apply: (context, event) => (event.type === 'lease' ? { ...context, fence: event.fence, attempt: event.attempt } : context),
+    describe: 'records the supplied queue attempt fence and attempt number',
+    apply: (context, event) => (event.type === 'start' ? { ...context, fence: event.fence, attempt: event.attempt ?? context.attempt + 1 } : context),
   },
   'spend-retry': {
     kind: 'context',
@@ -323,7 +222,7 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   },
   'revoke-lease': {
     kind: 'effect',
-    describe: 'the orchestrator revokes the generation\'s lease, if it holds one, so no late worker may advance it',
+    describe: 'the orchestrator settles or releases the queue attempt under its graph locks',
   },
   'schedule-retry': {
     kind: 'effect',
@@ -331,27 +230,15 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   },
   'suspend-parent': {
     kind: 'effect',
-    describe: 'the orchestrator releases the parent\'s lease while its children run',
+    describe: 'the orchestrator releases the parent queue attempt while its children run',
   },
   'resume-join': {
     kind: 'effect',
     describe: 'the orchestrator re-enqueues the parent\'s join',
   },
-  'record-draft': {
-    kind: 'effect',
-    describe: 'the orchestrator records the draft set the unit wrote',
-  },
-  'record-validation': {
-    kind: 'effect',
-    describe: 'the orchestrator records that validation started on the draft',
-  },
   'record-publication': {
     kind: 'effect',
     describe: 'the database owner writes the one publication record of this generation',
-  },
-  'retract-draft': {
-    kind: 'effect',
-    describe: 'the orchestrator retracts the generation\'s unpublished draft set, so a rerun starts clean',
   },
   'revoke-authority': {
     kind: 'effect',
@@ -368,7 +255,7 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
 };
 
 /** The states a unit waits in with a lease in force: their steps name the token as well as the generation. */
-const LEASED_STATES = ['leased', 'running', 'draft', 'validating'] as const;
+const LEASED_STATES = ['running'] as const;
 
 /** Every state a generation is live in: each may go stale, each may fail, and each may be cancelled. */
 const LIVE_UNIT_STATES = ['planned', 'ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const;
@@ -394,11 +281,8 @@ const unitTransition = (
  */
 const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitions'] = [
   unitTransition('planned', 'admit', 'ready', { guards: ['generation-current'], actions: ['enqueue-ready', 'emit-progress'] }),
-  unitTransition('ready', 'lease', 'leased', { guards: ['fence-advances'], actions: ['take-fence', 'emit-progress'] }),
-  unitTransition('leased', 'start', 'running', { guards: ['generation-current', 'fence-current'], actions: ['emit-progress'] }),
-  unitTransition('running', 'submit-draft', 'draft', { guards: ['generation-current', 'fence-current'], actions: ['record-draft', 'emit-progress'] }),
-  unitTransition('draft', 'validate-draft', 'validating', { guards: ['generation-current', 'fence-current'], actions: ['record-validation', 'emit-progress'] }),
-  unitTransition('validating', 'publish', 'published', { guards: ['generation-current', 'fence-current', 'reads-fresh'], actions: ['record-publication', 'emit-progress'] }),
+  unitTransition('ready', 'start', 'running', { guards: ['generation-current'], actions: ['take-fence', 'emit-progress'] }),
+  unitTransition('running', 'complete', 'published', { guards: ['generation-current', 'fence-current'], actions: ['record-publication', 'emit-progress'] }),
   unitTransition('running', 'wait-for-children', 'waiting_children', { guards: ['generation-current', 'fence-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] }),
   // The join under the run's resolved policy for a failed child: every child published and fresh, or
   // the failed ones accepted as partial. A propagated failure fails the parent itself, below.
@@ -406,15 +290,6 @@ const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitio
   unitTransition('waiting_children', 'join', 'ready', { label: 'accepted-partial', guards: ['generation-current', 'children-accepted-partial'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
   // A worker's own retry names the token of the attempt that asked for it: the retry a lapsed attempt sends
   // late must not move the attempt that replaced it, and the lease it held is revoked with it.
-  unitTransition('validating', 'retry', 'retry_wait', { label: 'validation-problem', guards: ['generation-current', 'fence-current', 'retries-remain', 'retry-time-named', 'cause-validation-problem'], actions: retryActionsFenced }),
-  // An attempt may die at any step, and its lease is what says so: the same lapse is retried from the
-  // states a draft has already been recorded in, since a worker killed between `validate-draft` and
-  // `publish` — or between `submit-draft` and `validate-draft` — holds nothing publishable and would
-  // otherwise hold the run for ever.
-  unitTransition('draft', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
-  unitTransition('validating', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
-  unitTransition('leased', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
-  unitTransition('leased', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'fence-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActionsFenced }),
   unitTransition('running', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
   unitTransition('running', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'fence-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActionsFenced }),
   unitTransition('retry_wait', 'retry', 'ready', { guards: ['generation-current', 'retry-elapsed'], actions: ['clear-retry', 'enqueue-ready', 'emit-progress'] }),
@@ -439,7 +314,7 @@ const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitio
   ...LIVE_UNIT_STATES.map((from) => unitTransition(from, 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions })),
   unitTransition('published', 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidatePublishedActions }),
   // Cancellation is the run control's authority over whatever generation stands, so it names none.
-  unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'retract-draft', 'emit-progress'] }),
+  unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'emit-progress'] }),
   ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
   // The run ends and this generation never finished: a final record that names the failed unit it waited on,
   // instead of a pending state a reader could mistake for work still to come.
@@ -511,8 +386,6 @@ export interface RunEvidence {
   readonly waiting: number;
   /** True when every required capability's coverage is met. */
   readonly coverageMet: boolean;
-  /** Publication effects not yet applied. */
-  readonly pendingPublications: number;
 }
 
 /** A step a caller asks of a run. Each carries the evidence its transition's guards read. */
@@ -570,10 +443,6 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
   'required-coverage-unmet': {
     describe: 'required coverage is not met, so the run may only complete partially',
     check: (_context, event) => 'evidence' in event && !event.evidence.coverageMet,
-  },
-  'no-pending-publication': {
-    describe: 'no publication effect is still pending',
-    check: (_context, event) => 'evidence' in event && event.evidence.pendingPublications === 0,
   },
   'starvation-path-named': {
     describe: 'the block names the starvation path, consumer → capability → producer',
@@ -681,8 +550,8 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   runTransition('planning', 'start', 'running', { guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] }),
   runTransition('planning', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('planning', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
-  runTransition('running', 'complete', 'succeeded', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met', 'no-pending-publication'], actions: ['record-completion', 'emit-progress'] }),
-  runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
+  runTransition('running', 'complete', 'succeeded', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met'], actions: ['record-completion', 'emit-progress'] }),
+  runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
   runTransition('running', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('running', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
   // A run whose process died is ended by the next start, never left standing `running` with no one to
@@ -697,7 +566,7 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   // reopens its planning epoch for the stages that are due and closes it again when they are planned.
   runTransition('running', 'replan', 'planning', { guards: ['replan-stages-named'], actions: ['reopen-planning-epoch', 'emit-progress'] }),
   ...(['created', 'planning', 'running', 'pausing', 'paused'] as const).map((from) => runTransition(from, 'cancel', 'cancelling', { actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] })),
-  runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] }),
+  runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting'], actions: ['record-cancelled', 'emit-progress'] }),
 ];
 
 /** The run machine: one fill run's life, as decision 0027 declares it. */
@@ -812,7 +681,7 @@ export function unitPhaseOf(state: UnitState): UnitPhase {
     case 'failed': return 'failed';
     case 'skipped': case 'stale': return 'skipped';
     case 'cancelled': return 'cancelled';
-    case 'leased': case 'running': case 'draft': case 'validating': return 'running';
+    case 'running': return 'running';
     case 'planned': case 'ready': case 'waiting_children': case 'retry_wait': case 'blocked': return 'waiting';
   }
 }
@@ -844,7 +713,6 @@ export interface ChainEvidence {
   readonly runnable: number;
   readonly inFlight: number;
   readonly waiting: number;
-  readonly pendingPublications: number;
 }
 
 /** A step a caller asks of a product's chain. */
@@ -862,7 +730,7 @@ const chainGuards: MachineSpec<ChainState, ChainEvent, ChainContext>['guards'] =
   'nothing-outstanding': {
     describe: 'no unit is runnable, in flight or waiting, and no publication effect is pending',
     check: (_context, event) => 'evidence' in event && event.evidence.runnable === 0 && event.evidence.inFlight === 0
-      && event.evidence.waiting === 0 && event.evidence.pendingPublications === 0,
+      && event.evidence.waiting === 0,
   },
 };
 

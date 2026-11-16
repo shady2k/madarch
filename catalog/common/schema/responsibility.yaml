@@ -18,23 +18,11 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: responsible
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who answers for the entity.
 - name: executor_type
   type: text
   nullable: true
   binding:
     agent: 'Who carries the work out: a person or an agent.'
-- name: executor
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who carries the work out, where a person does it.
 labels:
   en:
     one: Responsibility

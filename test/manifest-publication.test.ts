@@ -5,14 +5,21 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
-import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { manifestDeclaration, withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
+import { readKindAssertions } from '../src/graph/records.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { bindWriteCapability, publishGraphDrafts } from '../src/graph/write.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { personBinding } from '../src/graph/system-installation.js';
+import { activateGraphProducer, bindGraphProducer, registerGraphPrincipal } from '../src/graph/producer-binding.js';
+import { newUid } from '../src/graph/uid.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -38,12 +45,6 @@ test('publishes complete metadata and declaration evidence without repository co
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
     await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
-    // An existing store's old constraint is relaxed without resetting its declarations.
-    await owner.run((tx) => tx.query('ALTER TABLE edge ADD CONSTRAINT edge_check CHECK (from_node <> to_node)'));
-    await owner.run((tx) => tx.query("UPDATE madarch_meta.schema_stamp SET stamp = 'before-self-relations' WHERE name = 'one-graph'"));
-    await prepareStore(owner, { contract: withManifestContract(EMPTY_CONTRACT) });
-    const constraints = await owner.run((tx) => tx.query<{ n: string }>("SELECT count(*)::text AS n FROM pg_constraint WHERE conrelid = 'edge'::regclass AND conname = 'edge_check'"));
-    expect(constraints.rows[0]!.n).toBe('0');
     const read = validateProductManifests(folder);
     expect(read.ok).toBe(true);
     if (!read.ok) throw new Error(JSON.stringify(read.findings));
@@ -52,24 +53,26 @@ test('publishes complete metadata and declaration evidence without repository co
     const manifest = await owner.run((tx) => readPublishedManifest(tx));
     expect([...manifest!.kinds.keys()]).toEqual(['term']);
     expect([...manifest!.workflows!.workflows.keys()]).toEqual(['future']);
-    const rows = await owner.run((tx) => tx.query<{ evidence: { path: string; line_start: number; commit_or_digest: string }[] }>(`SELECT evidence FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
-    expect(rows.rows[0]!.evidence[0]!.path).toBe('madarch/kinds/fixture/fixture/term.yaml');
-    expect(rows.rows[0]!.evidence[0]!.line_start).toBe(1);
-    expect(rows.rows[0]!.evidence[0]!.commit_or_digest).toHaveLength(40);
-    let queries = 0;
-    const counted = { ...owner, transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: Parameters<typeof owner.transaction<T>>[1]): Promise<T> => owner.transaction(kind, async (tx) => work({ ...tx, query: async (...args: Parameters<typeof tx.query>) => { queries++; return tx.query(...args); } } as typeof tx)) };
-    expect(await publishValidatedManifests(counted, read.value)).toBe(0);
-    expect(queries).toBeLessThan(10);
-    const regrounded = { ...read.value, vertices: read.value.vertices.map((one) => ({ ...one, evidence: [{ repository: folder, path: 'madarch/catalog.yaml', lineStart: 9, lineEnd: 9, commit: 'b'.repeat(40) }] })) };
+    const rows = await owner.run(tx => loadAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    const kind = rows.at(-1)!;
+    expect(kind.evidence).toHaveLength(1);
+    const snapshots = await owner.run(tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content']));
+    const snapshot = snapshots.find(row => row.uid === kind.evidence[0])!;
+    expect(snapshot.values['content']).toContain('term');
+    const locators = await owner.run(tx => tx.query<{ discriminator: string }>(`SELECT e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [kind.id]));
+    expect(JSON.parse(locators.rows[0]!.discriminator).locator).toMatchObject({ lineStart: 1, lineEnd: 1 });
+    expect(await publishValidatedManifests(owner, read.value)).toBe(0);
+    const regrounded = { ...read.value, vertices: read.value.vertices.map(one => ({ ...one, evidence: one.evidence?.map(e => ({ ...e, locator: { ...e.locator, lineStart: 2, lineEnd: 2 } })) })) };
     expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
-    const grounds = await owner.run((tx) => tx.query<{ evidence: { line_start: number; commit_or_digest: string }[] }>(`SELECT evidence FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
-    expect(grounds.rows[0]!.evidence[0]!.line_start).toBe(9);
-    expect(grounds.rows[0]!.evidence[0]!.commit_or_digest).toBe('b'.repeat(40));
+    const grounds = await owner.run(tx => loadAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    expect(grounds.at(-1)!.evidence).toEqual(kind.evidence);
+    const changedLocators = await owner.run(tx => tx.query<{ discriminator: string }>(`SELECT e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [grounds.at(-1)!.id]));
+    expect(JSON.parse(changedLocators.rows[0]!.discriminator).locator).toMatchObject({ lineStart: 2, lineEnd: 2 });
     expect(await publishValidatedManifests(owner, regrounded)).toBe(0);
-    const edited = { ...regrounded, vertices: regrounded.vertices.map((one) => one.kind === 'manifest.kind' ? { ...one, values: { declaration: { changed: true } } } : one) };
+    const edited = { ...regrounded, vertices: regrounded.vertices.map((one) => one.kind === 'manifest.kind' ? { ...one, values: { declaration: JSON.stringify({ ...JSON.parse(String(one.values!['declaration'])), title: 'Changed title' }) } } : one) };
     expect(await publishValidatedManifests(owner, edited)).toBeGreaterThan(0);
-    const declaration = await owner.run((tx) => tx.query<{ declaration: unknown }>(`SELECT declaration FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
-    expect(declaration.rows[0]!.declaration).toEqual({ changed: true });
+    const declaration = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    expect(JSON.parse(String(declaration[0]!.values['declaration']))).toMatchObject({ title: 'Changed title' });
     expect(await publishValidatedManifests(owner, edited)).toBe(0);
     // An older matching opinion is closed history, not proof that the latest declaration is unchanged.
     expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
@@ -78,6 +81,41 @@ test('publishes complete metadata and declaration evidence without repository co
     expect((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.size).toBe(1);
     const contents = await owner.run((tx) => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name LIKE 'code.%'"));
     expect(contents.rows[0]!.count).toBe('0');
+  } finally { await owner.close(); }
+}, 30_000);
+
+
+test('workflow stages are protected metadata with parent edges, identities and declaration evidence', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns] }\n  beta: { status: planned, stages: [plugin-turns] }\n');
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
+    const read = validateProductManifests(folder);
+    if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+    expect(read.value.manifest.kinds.has('manifest.workflow-stage')).toBe(false);
+    const stage = manifestDeclaration('workflow-stage');
+    const parent = manifestDeclaration('workflow');
+    const edge = stage.keyEdges![0]!;
+    expect(read.value.vertices.filter(draft => draft.kind === stage.name)).toHaveLength(2);
+    expect(await publishValidatedManifests(owner, read.value)).toBeGreaterThan(0);
+    const rows = await owner.run(tx => readKindAssertions(tx, 'vertex', stage.name, ['position', 'declaration']));
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map(row => row.uid)).size).toBe(2);
+    expect(rows.map(row => row.values['position'])).toEqual([0, 0]);
+    const relations = await owner.run(tx => tx.query<{ stage: string; workflow: string; kind: string }>(`SELECT s.uid::text AS stage,p.key->>'name' AS workflow,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node s ON s.id=e.from_node JOIN node p ON p.id=e.to_node JOIN entity pk ON pk.id=p.entity_id WHERE ek.name=$1 ORDER BY workflow`, [edge.edge]));
+    expect(relations.rows.map(row => [row.workflow, row.kind])).toEqual([['alpha', parent.name], ['beta', parent.name]]);
+    const lineage = await owner.run(tx => loadAssertions(tx, 'vertex', stage.name, ['position']));
+    expect(lineage).toHaveLength(2);
+    expect(lineage.every(assertion => assertion.evidence.length === 1)).toBe(true);
+    expect(await publishValidatedManifests(owner, read.value)).toBe(0);
+    writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns] }\n  beta: { status: planned, stages: [] }\n');
+    const changed = validateProductManifests(folder);
+    if (!changed.ok || changed.value === undefined) throw new Error(JSON.stringify(changed));
+    expect(await publishValidatedManifests(owner, changed.value)).toBeGreaterThan(0);
+    const remaining = await owner.run(tx => readKindAssertions(tx, 'vertex', stage.name, ['position']));
+    expect(remaining.map(row => row.uid)).toEqual([relations.rows[0]!.stage]);
+    expect(await publishValidatedManifests(owner, changed.value)).toBe(0);
   } finally { await owner.close(); }
 }, 30_000);
 
@@ -104,8 +142,8 @@ test('reports all invalid declarations with full paths and retains the last vali
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
     await watch.refresh(folder);
     expect((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.size).toBe(0);
-    const rows = await owner.run((tx) => tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
-    expect(rows.rows[0]!.count).toBe('0');
+    const rows = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', []));
+    expect(rows).toEqual([]);
   } finally { watch.stop(); await owner.close(); }
 }, 30_000);
 
@@ -301,4 +339,88 @@ kinds:
     expect(reports).toEqual([]);
   } finally { watch.stop(); await owner.close(); }
 
+}, 30_000);
+
+test('startup binding keeps product, source and principal identities and renews only the operation', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    const first = await owner.transaction('write', tx => startupBinding(tx, withManifestContract(EMPTY_CONTRACT), 'manifest'));
+    const second = await owner.transaction('write', tx => startupBinding(tx, withManifestContract(EMPTY_CONTRACT), 'manifest'));
+    for (const key of ['productUid', 'sourceUid', 'principalUid'] as const) {
+      expect(second.binding[key]).toBe(first.binding[key]);
+      expect(first.binding[key][14]).toBe('7');
+    }
+    expect(second.binding.operationUid).not.toBe(first.binding.operationUid);
+    expect(first.binding.operationUid[14]).toBe('7');
+    const other = await owner.transaction('write', tx => startupBinding(tx, withManifestContract(EMPTY_CONTRACT), 'start'));
+    expect(other.binding.productUid).toBe(first.binding.productUid);
+    expect(other.binding.principalUid).toBe(other.binding.sourceUid);
+    expect(other.binding.principalUid).not.toBe(first.binding.principalUid);
+    expect(other.binding.sourceUid).not.toBe(first.binding.sourceUid);
+    const personContract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
+    const personGrant = await personBinding(owner, personContract);
+    const person = { binding: await owner.transaction('write', tx => activateGraphProducer(tx, personContract, personGrant)) };
+    const samePersonGrant = await personBinding(owner, personContract);
+    const samePerson = { binding: await owner.transaction('write', tx => activateGraphProducer(tx, personContract, samePersonGrant)) };
+    expect(person.binding.principalUid).toBe(samePerson.binding.principalUid);
+    expect(person.binding.principalUid).not.toBe(first.binding.principalUid);
+    expect(person.binding.principalUid[14]).toBe('7');
+    expect(person.binding.sourceUid).toBe(person.binding.principalUid);
+    expect(samePerson.binding.sourceUid).toBe(person.binding.sourceUid);
+    expect(person.binding.sourceUid).not.toBe(first.binding.sourceUid);
+    const identity = await owner.run(tx => tx.query<{ kind: string }>('SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid', [person.binding.principalUid]));
+    expect(identity.rows).toEqual([{ kind: 'person' }]);
+  } finally { await owner.close(); }
+});
+
+test('plugin release changes preserve one source while distinct actors persist across store sessions', async () => {
+  const contract = { vertex: [{ name: 'fixture.release', table: generatedTableName('fixture.release', 'vertex'), capability: 'fixture', key: ['name'], fields: [{ name: 'name', type: 'text' as const }, { name: 'observed', type: 'text' as const }] }], edge: [], dictionary: [] };
+  const options = { store: mkdtempSync(join(root, 'identities-')), graphContract: contract };
+  let owner = await createTestDatabaseOwner(options);
+  const actorContract = withAssertionContract(contract);
+  const actorBinding = async (installation: string) => {
+    const uid = await owner.transaction('write', async tx => {
+      await startupBinding(tx, actorContract, 'fixture-person-installer');
+      const found = (await readKindAssertions(tx, 'vertex', 'person', ['installation'])).filter(row => row.values['installation'] === installation);
+      if (found.length > 1) throw new Error(`${import.meta.path}:390: duplicate fixture person ${installation}`);
+      const uid = found[0]?.uid ?? newUid();
+      await publishGraphDrafts(tx, actorContract, { vertices: [{ kind: 'person', uid, key: {}, values: { installation, label: installation, scope: 'fixture', version: '1' }, producer: 'fixture-person-installer', producerVersion: '1' }], removals: [] });
+      return uid;
+    });
+    const principal = await registerGraphPrincipal(owner, { producer: `person:${uid}`, version: '1', uid, kind: 'person', sourceUid: uid, principalUid: uid, scope: 'fixture' });
+    const grant = bindGraphProducer(owner, actorContract, { principal, vertices: { 'fixture.release': ['name', 'observed'] }, edges: {} });
+    return { binding: await owner.transaction('write', tx => activateGraphProducer(tx, actorContract, grant)) };
+  };
+  try {
+    const release = async (version: string) => await owner.transaction('write', async tx => {
+      const authenticated = await startupBinding(tx, contract, 'fixture-plugin');
+      bindWriteCapability(tx, authenticated.binding);
+      await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'fixture.release', key: { name: 'release' }, values: { observed: version }, producer: 'fixture-plugin', producerVersion: version }], removals: [] });
+      return authenticated.binding;
+    });
+    const first = await release('1.0.0');
+    const upgraded = await release('2.0.0');
+    expect(upgraded.sourceUid).toBe(first.sourceUid);
+    expect(upgraded.principalUid).toBe(first.principalUid);
+    const firstPerson = await actorBinding('first-person');
+    const secondPerson = await actorBinding('second-person');
+    expect(secondPerson.binding.principalUid).not.toBe(firstPerson.binding.principalUid);
+    expect(secondPerson.binding.sourceUid).toBe(secondPerson.binding.principalUid);
+    expect(secondPerson.binding.sourceUid).not.toBe(firstPerson.binding.sourceUid);
+    expect(firstPerson.binding.sourceUid).not.toBe(first.sourceUid);
+    const assertions = await owner.run(tx => loadAssertions(tx, 'vertex', 'fixture.release', ['observed']));
+    expect(assertions.map(assertion => assertion.value)).toEqual(['1.0.0', '2.0.0']);
+    expect(new Set(assertions.map(assertion => assertion.source))).toEqual(new Set([first.sourceUid]));
+    await owner.close();
+    owner = await createTestDatabaseOwner(options);
+    const reopened = await owner.transaction('write', tx => startupBinding(tx, contract, 'fixture-plugin'));
+    const reopenedFirst = await actorBinding('first-person');
+    const reopenedSecond = await actorBinding('second-person');
+    expect(reopened.binding.productUid).toBe(first.productUid);
+    expect(reopened.binding.sourceUid).toBe(first.sourceUid);
+    expect(reopened.binding.principalUid).toBe(first.principalUid);
+    expect(reopenedFirst.binding.principalUid).toBe(firstPerson.binding.principalUid);
+    expect(reopenedSecond.binding.principalUid).toBe(secondPerson.binding.principalUid);
+    expect(reopenedSecond.binding.principalUid).not.toBe(reopenedFirst.binding.principalUid);
+  } finally { await owner.close(); }
 }, 30_000);

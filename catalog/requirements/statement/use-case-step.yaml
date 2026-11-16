@@ -17,39 +17,15 @@ relation-constraints:
 template-policy: member
 source: graph
 fields:
-- name: use_case
-  type: json
-  reference: doc.use-case
-  binding:
-    agent: The use case the step belongs to, by the key of that use case in the graph.
 - name: order
   type: integer
   binding:
     agent: Where the step stands in the use case, lowest first.
-- name: actor
-  type: json
-  nullable: true
-  reference: role
-  binding:
-    agent: The role that acts in the step, where a person acts.
 - name: action
   type: text
   binding:
     agent: What happens in the step, in one sentence.
-- name: system_action
-  type: json
-  nullable: true
-  reference: code.operation
-  binding:
-    agent: The operation that answers the step, where the graph links one.
-- name: extension_of
-  type: json
-  nullable: true
-  reference: use-case-step
-  binding:
-    agent: The step this one extends, where the flow leaves the main path.
 key:
-- use_case
 - order
 member:
   relation: partOf
@@ -67,3 +43,8 @@ labels:
 description:
   en: 'A use-case step is one move of a use case: the actor does something, the system answers, or the flow takes an extension because a condition holds. Read in order, the steps are the main path of the use case and its alternatives.'
   ru: 'Шаг сценария использования — один ход сценария: действующее лицо что-то делает, система отвечает или поток уходит в расширение, потому что выполнилось условие. Прочитанные по порядку, шаги — это основной путь сценария и его альтернативы.'
+
+key-edges:
+- role: use-case-step-use-case
+  edge: use-case-step-use-case
+  side: from

@@ -32,6 +32,9 @@ fields:
     agent: What the term means in this product, in one or two sentences.
 - name: also_called
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The other words the product uses for the same thing.

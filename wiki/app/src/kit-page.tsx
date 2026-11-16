@@ -32,7 +32,7 @@ import { FactChart } from './components/ui/fact-chart.js';
 import { Figure, FigureCaption } from './components/ui/figure.js';
 import { FilterBar, FilterField, FilterResults, PaginationBar, PaginationSummary } from './components/ui/filter-bar.js';
 import {
-  GraphBox, GraphCanvas, GraphEdge, GraphEdges, GraphMetadata, GraphViewport, graphLinkClass,
+  GraphBox, GraphCanvas, GraphEdge, GraphEdges, GraphMetadata, GraphViewport, GraphLabel,
 } from './components/ui/graph.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
@@ -75,6 +75,18 @@ import {
   PlainList, Preformatted, SectionTitle, SmallTitle, Stack, Text, TextLink,
 } from './components/ui/typography.js';
 
+const EXAMPLE_GEOMETRY = {
+  contentsStart: "kit-intro",
+  swatchBackground: "var(--text)",
+  drawingPath: "M0 40 L120 0",
+  graphPath: "M20 20 L180 80",
+  firstChoice: "one",
+  chartDisplay: "bar",
+  segmentedTestId: "kit-segmented",
+  embeddedWidth: "100%",
+  columnWidth: "lg",
+} as const;
+
 const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label: 'Forms' }];
 
 export function KitPage(): ReactElement {
@@ -87,7 +99,7 @@ export function KitPage(): ReactElement {
     <KitPageLayout title={state('title')} description={state('intro')}>
       <Alert><AlertTitle>{state('approvalTitle')}</AlertTitle><AlertDescription>{state('approval')}</AlertDescription></Alert>
 
-      <KitSection title="Typography">
+      <KitSection title={state('componentTypography')}>
         <KitState label={state('typography')}>
           <PageArticle>
             <PageHeader><PageTitle>{state('sample')}</PageTitle><Metadata>{state('description')}</Metadata></PageHeader>
@@ -104,74 +116,74 @@ export function KitPage(): ReactElement {
         </KitState>
       </KitSection>
 
-      <KitSection title="Button">
+      <KitSection title={state('componentButton')}>
         <KitState label={state('default')}><Button variant="default" size="default">{state('action')}</Button></KitState>
         <KitState label={state('ghost')}><Button size="default">{state('action')}</Button></KitState>
         <KitState label={state('disabled')}><Button variant="default" size="default" disabled>{state('action')}</Button></KitState>
-        <KitState label="Icon"><ShellIconLink href="/" aria-label={state('hint')}><CircleHelpIcon aria-hidden="true" size={18} /></ShellIconLink></KitState>
+        <KitState label={state('componentIcon')}><ShellIconLink href="/" aria-label={state('hint')}><CircleHelpIcon aria-hidden="true" size={18} /></ShellIconLink></KitState>
       </KitSection>
 
-      <KitSection title="Input / Textarea">
+      <KitSection title={state('componentInputTextarea')}>
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
         <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select aria-label={state('name')} options={[{ value: 'one', label: state('sample') }, { value: 'two', label: state('description') }]} /></Form></KitState>
       </KitSection>
 
-      <KitSection title="Checkbox / Radio / Switch / Toggle">
-        <KitState label="Checkbox"><Checkbox aria-label={state('name')} defaultChecked /></KitState>
-        <KitState label="RadioGroup">
-          <RadioGroup defaultValue="one" aria-label={state('name')}><RadioGroupItem value="one" aria-label={state('selected')} /><RadioGroupItem value="two" aria-label={state('default')} /></RadioGroup>
+      <KitSection title={state('componentCheckboxRadioSwitchToggle')}>
+        <KitState label={state('componentCheckbox')}><Checkbox aria-label={state('name')} defaultChecked /></KitState>
+        <KitState label={state('componentRadiogroup')}>
+          <RadioGroup defaultValue={EXAMPLE_GEOMETRY.firstChoice} aria-label={state('name')}><RadioGroupItem value="one" aria-label={state('selected')} /><RadioGroupItem value="two" aria-label={state('default')} /></RadioGroup>
         </KitState>
-        <KitState label="Choice">
+        <KitState label={state('componentChoice')}>
           <RadioGroup value={choice} onValueChange={setChoice} aria-label={state('name')}>
             {['one', 'two'].map((value) => (
               <ChoiceCard key={value}><RadioInput name="kit-choice" value={value} checked={choice === value} onChange={() => { setChoice(value); }} /><ChoiceDescription>{state('sample')}</ChoiceDescription></ChoiceCard>
             ))}
           </RadioGroup>
         </KitState>
-        <KitState label="Switch"><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></KitState>
-        <KitState label="Toggle"><Toggle aria-label={state('action')} pressed={toggled} onPressedChange={setToggled}>{state('action')}</Toggle></KitState>
-        <KitState label="Progress"><Progress value={45} aria-label={state('loading')} className="w-48" /><Progress value={null} aria-label={state('indeterminate')} className="w-48" /></KitState>
+        <KitState label={state('componentSwitch')}><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></KitState>
+        <KitState label={state('componentToggle')}><Toggle aria-label={state('action')} pressed={toggled} onPressedChange={setToggled}>{state('action')}</Toggle></KitState>
+        <KitState label={state('componentProgress')}><Progress value={45} aria-label={state('loading')} className="w-48" /><Progress value={null} aria-label={state('indeterminate')} className="w-48" /></KitState>
       </KitSection>
 
-      <KitSection title="Badge / Alert / Card / Skeleton">
+      <KitSection title={state('componentBadgeAlertCardSkeleton')}>
         <KitState label={state('default')}><Badge>{state('sample')}</Badge><Badge variant="outline">{state('outline')}</Badge><Badge variant="solid">{state('selected')}</Badge></KitState>
         <KitState label={state('error')}><Alert variant="problem"><AlertTitle>{state('error')}</AlertTitle><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label="Card"><Card><CardHeader><CardTitle>{state('sample')}</CardTitle><CardDescription>{state('description')}</CardDescription></CardHeader><CardContent>{state('content')}</CardContent></Card></KitState>
+        <KitState label={state('componentCard')}><Card><CardHeader><CardTitle>{state('sample')}</CardTitle><CardDescription>{state('description')}</CardDescription></CardHeader><CardContent>{state('content')}</CardContent></Card></KitState>
         <KitState label={state('loading')}><Skeleton className="h-6 w-40" /><Skeleton className="h-10 w-64" /></KitState>
-        <KitState label="Confirmation"><ConfirmationPanel>{state('content')}</ConfirmationPanel></KitState>
+        <KitState label={state('componentConfirmation')}><ConfirmationPanel>{state('content')}</ConfirmationPanel></KitState>
       </KitSection>
 
-      <KitSection title="Table">
+      <KitSection title={state('componentTable')}>
         <Table>
-          <TableColumns><TableColumn width="lg" /></TableColumns>
+          <TableColumns><TableColumn width={EXAMPLE_GEOMETRY.columnWidth} /></TableColumns>
           <TableHeader><TableRow><TableHead>{state('name')}</TableHead><TableHead>{state('description')}</TableHead></TableRow></TableHeader>
           <TableBody><TableRow><TableCell>{state('sample')}</TableCell><TableCell>{state('content')}</TableCell></TableRow></TableBody>
         </Table>
-        <FactChart display="bar" rows={[{ label: state('sample'), value: 3 }, { label: state('content'), value: 7 }]} labelTitle={state('name')} valueTitle={state('description')} />
+        <FactChart display={EXAMPLE_GEOMETRY.chartDisplay} rows={[{ label: state('sample'), value: 3 }, { label: state('content'), value: 7 }]} labelTitle={state('name')} valueTitle={state('description')} />
       </KitSection>
 
-      <KitSection title="FilterBar">
+      <KitSection title={state('componentFilterbar')}>
         <FilterResults>
           <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
         </FilterResults>
-        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label="next"><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label={state('componentNext')}><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
       </KitSection>
 
-      <KitSection title="Tabs">
-        <Tabs defaultValue="one">
+      <KitSection title={state('componentTabs')}>
+        <Tabs defaultValue={EXAMPLE_GEOMETRY.firstChoice}>
           <TabsList aria-label={state('tabs')}><TabsTrigger value="one">{state('sample')}</TabsTrigger><TabsTrigger value="two">{state('content')}</TabsTrigger></TabsList>
           <TabsContent value="one">{state('sample')}</TabsContent>
           <TabsContent value="two">{state('content')}</TabsContent>
         </Tabs>
         <ShellTabs aria-label={state('tabs')}>
-          <ShellTab active><ShellTabTrigger>{state('sample')}</ShellTabTrigger><ShellTabClose aria-label={state('close')}>×</ShellTabClose></ShellTab>
+          <ShellTab active><ShellTabTrigger>{state('sample')}</ShellTabTrigger><ShellTabClose aria-label={state('close')}>{t('common.closeSymbol')}</ShellTabClose></ShellTab>
           <ShellTab active={false}><ShellTabTrigger>{state('content')}</ShellTabTrigger></ShellTab>
         </ShellTabs>
       </KitSection>
 
-      <KitSection title="Dialog" description={state('overlayHint')}>
+      <KitSection title={state('componentDialog')} description={state('overlayHint')}>
         <KitState label={state('open')}>
           <DialogPreview title={state('notice')} description={state('description')} footer={<Button size="default" disabled>{state('disabled')}</Button>}>
             <Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert>
@@ -187,7 +199,7 @@ export function KitPage(): ReactElement {
         </Dialog>
       </KitSection>
 
-      <KitSection title="Menus">
+      <KitSection title={state('componentMenus')}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DropdownMenuTrigger>
           <DropdownMenuContent>
@@ -203,7 +215,7 @@ export function KitPage(): ReactElement {
         </Tooltip>
       </KitSection>
 
-      <KitSection title="Navigation">
+      <KitSection title={state('componentNavigation')}>
         <NavigationGroup>
           <NavigationGroupTrigger icon={CircleHelpIcon} open empty={false}><NavigationLabel>{state('sample')}</NavigationLabel><NavigationCount>2</NavigationCount></NavigationGroupTrigger>
           <NavigationSubheading icon={CircleHelpIcon}><NavigationLabel>{state('content')}</NavigationLabel></NavigationSubheading>
@@ -223,32 +235,32 @@ export function KitPage(): ReactElement {
         </Breadcrumb>
       </KitSection>
 
-      <KitSection title="Disclosure / Figure / Contents">
+      <KitSection title={state('componentDisclosureFigureContents')}>
         <Disclosure><DisclosureSummary>{state('content')}</DisclosureSummary><Paragraph>{state('sample')}</Paragraph></Disclosure>
-        <Figure><DrawingSurface width={120} height={40}><Drawing width={120} height={40}><DrawingGroup><DrawingRect x={0} y={0} width={120} height={40} /><DrawingPath d="M0 40 L120 0" /><DrawingText x={4} y={16}>{state('sample')}</DrawingText></DrawingGroup></Drawing></DrawingSurface><FigureCaption>{state('description')}</FigureCaption></Figure>
-        <ColourSwatch background="var(--text)" />
-        <TableOfContents title={state('content')} items={CONTENTS} activeId="kit-intro" />
+        <Figure><DrawingSurface width={120} height={40}><Drawing width={120} height={40}><DrawingGroup><DrawingRect x={0} y={0} width={120} height={40} /><DrawingPath d={EXAMPLE_GEOMETRY.drawingPath} /><DrawingText x={4} y={16}>{state('sample')}</DrawingText></DrawingGroup></Drawing></DrawingSurface><FigureCaption>{state('description')}</FigureCaption></Figure>
+        <ColourSwatch background={EXAMPLE_GEOMETRY.swatchBackground} />
+        <TableOfContents title={state('content')} items={CONTENTS} activeId={EXAMPLE_GEOMETRY.contentsStart} />
         <ContentsSidebar><ResponsiveContents title={state('content')} items={CONTENTS} /></ContentsSidebar>
       </KitSection>
 
-      <KitSection title="Graph">
+      <KitSection title={state('componentGraph')}>
         <GraphViewport>
           <GraphCanvas width={240} height={120}>
-            <GraphEdges><GraphEdge active d="M20 20 L180 80" /></GraphEdges>
-            <GraphBox x={10} y={10} width={100} height={40} active><Text className={graphLinkClass}>{state('sample')}</Text><GraphMetadata>{state('name')}</GraphMetadata></GraphBox>
+            <GraphEdges><GraphEdge active d={EXAMPLE_GEOMETRY.graphPath} /></GraphEdges>
+            <GraphBox x={10} y={10} width={100} height={40} active><GraphLabel>{state('sample')}</GraphLabel><GraphMetadata>{state('name')}</GraphMetadata></GraphBox>
           </GraphCanvas>
         </GraphViewport>
       </KitSection>
 
-      <KitSection title="Reading">
-        <KitState label="Inline"><InlineCode>const value = 1;</InlineCode><Strong>{state('sample')}</Strong></KitState>
-        <KitState label="Code"><CodeFrame><Preformatted><SyntaxToken colors={{ color: 'var(--text)' }}>const value = 1;</SyntaxToken></Preformatted></CodeFrame></KitState>
-        <KitState label="Text"><TechnicalText>{state('sample')}</TechnicalText><ClippedLabel>{state('description')}</ClippedLabel><FileTitle>example.ts</FileTitle></KitState>
-        <KitState label="Quote"><ReadingContent compact><Blockquote>{state('sample')}</Blockquote></ReadingContent></KitState>
-        <KitState label="Segmented"><SegmentedChoice label={state('name')} testId="kit-segmented" value={segment} options={[{ value: 'one', label: state('sample'), testId: 'kit-seg-1' }, { value: 'two', label: state('content'), testId: 'kit-seg-2' }]} onChange={setSegment} /></KitState>
+      <KitSection title={state('componentReading')}>
+        <KitState label={state('componentInline')}><InlineCode>const value = 1;</InlineCode><Strong>{state('sample')}</Strong></KitState>
+        <KitState label={state('componentCode')}><CodeFrame><Preformatted><SyntaxToken colors={{ color: 'var(--text)' }}>const value = 1;</SyntaxToken></Preformatted></CodeFrame></KitState>
+        <KitState label={state('componentText')}><TechnicalText>{state('sample')}</TechnicalText><ClippedLabel>{state('description')}</ClippedLabel><FileTitle>example.ts</FileTitle></KitState>
+        <KitState label={state('componentQuote')}><ReadingContent compact><Blockquote>{state('sample')}</Blockquote></ReadingContent></KitState>
+        <KitState label={state('componentSegmented')}><SegmentedChoice label={state('name')} testId={EXAMPLE_GEOMETRY.segmentedTestId} value={segment} options={[{ value: 'one', label: state('sample'), testId: 'kit-seg-1' }, { value: 'two', label: state('content'), testId: 'kit-seg-2' }]} onChange={setSegment} /></KitState>
       </KitSection>
 
-      <KitSection title="Search">
+      <KitSection title={state('componentSearch')}>
         <SearchContainer><Input aria-label={state('name')} placeholder={state('name')} /></SearchContainer>
         <SearchResults>
           <SearchGroupTitle>{state('name')}</SearchGroupTitle>
@@ -257,8 +269,8 @@ export function KitPage(): ReactElement {
         </SearchResults>
       </KitSection>
 
-      <KitSection title="Embedded">
-        <EmbeddedFrame title={state('sample')} src="about:blank" width="100%" height={120} />
+      <KitSection title={state('componentEmbedded')}>
+        <EmbeddedFrame title={state('sample')} src="about:blank" width={EXAMPLE_GEOMETRY.embeddedWidth} height={120} />
         <Stack className="mt-2"><Text>{state('description')}</Text></Stack>
       </KitSection>
     </KitPageLayout>

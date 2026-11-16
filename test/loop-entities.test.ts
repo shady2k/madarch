@@ -6,9 +6,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft } from '../src/product/draft.js';
 import { localIdentity } from '../src/loop/answer.js';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
-import { graphQuestions } from '../src/loop/graph.js';
 import { decide } from '../src/loop/plan.js';
-import { FakeGraph } from './fake-graph.js';
 import { gitEnv } from './git-env.js';
 const folders: string[] = [];
 const scratch = (): string => {
@@ -78,7 +76,7 @@ describe('the refresh decides which pages need an agent unit', () => {
       answered({ slug: 'q3', status: 'open', answer: null, about: ['domain:orders'] }),
       answered({ slug: 'q4', about: ['domain:orders'], resolvedBy: ['domain:orders'] }),
     ] });
-    expect(plan.pages.map((p) => [p.path, p.reasons.map((r) => (r.kind === 'answer' ? r.question : r.kind))])).toEqual([['docs/domains/orders.md', ['q1']], ['docs/domains/payments.md', ['q2']], ['docs/product.md', ['q2']]]);
+    expect(plan.pages.map((p) => [p.path, p.reasons.map((r) => (r.kind === 'question-answered' ? r.question : r.kind))])).toEqual([['docs/domains/orders.md', ['q1']], ['docs/domains/payments.md', ['q2']], ['docs/product.md', ['q2']]]);
   });
 
   test('a question or correction about no page is told, never dropped', () => {
@@ -115,22 +113,13 @@ describe('the refresh decides which pages need an agent unit', () => {
 describe('structured question opinions and identity', () => {
   const question = (): Question => ({ ...QUESTION, id: 'question:discount-percentage', file: 'docs/questions/discount-percentage.md' });
 
-  test('lists the structured question opinion without reading its file', async () => {
-    const graph = new FakeGraph();
-    const item = question();
-    graph.add(item.id, 'question', item.title, { ...item, producer: null, language: 'en', asked_in: item.askedIn, asked_at: item.askedAt, resolved_by: item.resolvedBy, resolved_at: item.resolvedAt, written_at: item.writtenAt });
-    expect(await graphQuestions(graph.reader())).toEqual([expect.objectContaining(item)]);
-  });
-
-  test('reads an answered structured opinion and renders it without reopening its retired file', async () => {
-    const graph = new FakeGraph();
+  test('renders a presentation answer without reopening a retired file', () => {
     const item: Question = { ...question(), status: 'answered', answer: { text: 'Ten percent.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00Z' } };
-    graph.add(item.id, 'question', item.title, { ...item, producer: 'person', language: 'en', asked_in: item.askedIn, asked_at: item.askedAt, resolved_by: item.resolvedBy, resolved_at: item.resolvedAt, written_at: item.writtenAt });
-    const [read] = await graphQuestions(graph.reader());
-    expect(read?.answer).toEqual(item.answer);
-    expect(read?.status).toBe('answered');
-    expect(renderQuestion(read!)).toContain('> Ten percent.');
-    expect(renderQuestion(read!)).toContain('Ada Reader <ada@example.test>');
+    const rendered = renderQuestion(item, { kind: 'inquiry', id: 'inquiry:stable-identity' });
+    expect(rendered).toContain('> Ten percent.');
+    expect(rendered).toContain('Ada Reader <ada@example.test>');
+    expect(rendered).toContain('kind: inquiry');
+    expect(rendered).toContain('id: inquiry:stable-identity');
   });
 
   test('git identity: the author variables win, then the configuration', async () => {

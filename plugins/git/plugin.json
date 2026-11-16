@@ -28,19 +28,22 @@
       ],
       "refines": [
         "disk"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.commit"
+        ],
+        "edges": []
+      }
     },
     {
       "kind": "code.file",
       "fields": [
-        "repository",
         "path",
         "last_change",
         "commit_count",
         "added_at",
-        "added_in",
-        "removed_at",
-        "removed_in"
+        "removed_at"
       ],
       "refines": [
         "disk"
@@ -56,7 +59,13 @@
           "version": "earlier",
           "producer": "disk"
         }
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.commit"
+        ],
+        "edges": []
+      }
     },
     {
       "kind": "code.commit",
@@ -69,7 +78,13 @@
           "producer": "disk"
         }
       ],
-      "partition": "key"
+      "partition": "key",
+      "support": {
+        "vertices": [
+          "code.commit"
+        ],
+        "edges": []
+      }
     },
     {
       "kind": "code.author",
@@ -81,7 +96,13 @@
           "version": "earlier",
           "producer": "disk"
         }
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.commit"
+        ],
+        "edges": []
+      }
     }
   ],
   "concurrency": 1,

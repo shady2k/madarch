@@ -115,11 +115,12 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     return result;
   };
   for (const name of kinds.keys()) prerequisites(name);
+  const supportKinds = new Set(input.plugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
   const expanded: ExpandedOutput[] = [];
   for (const plugin of input.plugins) {
     if (plugin.manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${plugin.manifest.name} declares no output; declare produces, including Problem records for checks`);
     for (const [index, declaration] of plugin.manifest.produces.entries()) {
-      const names = declaration.kind === '*' ? [...kinds.keys()] : [declaration.kind];
+      const names = declaration.kind === '*' ? [...kinds.keys()].filter((name) => !supportKinds.has(name)) : [declaration.kind];
       for (const name of names) {
         const kind = kinds.get(name);
         if (kind === undefined) refuse(plugin, ['produces', index, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
@@ -170,6 +171,23 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     const reads = readVersions.get(name)!;
     reads.set(entry.kind, [...new Set([...(reads.get(entry.kind) ?? []), ...entry.reads])]);
   }
+  const ordinaryScope = new Set<string>();
+  const collectOrdinary = (kind: string): void => {
+    if (ordinaryScope.has(kind)) return;
+    ordinaryScope.add(kind);
+    for (const parent of kinds.get(kind)?.derivesFrom ?? []) collectOrdinary(parent);
+    for (const read of effectiveReadsOf(input, kind, new Set(input.selectedKinds ?? kinds.keys()))) collectOrdinary(typeof read === 'string' ? read : read.kind);
+  };
+  for (const kind of input.selectedKinds ?? kinds.keys()) collectOrdinary(kind);
+  const supportOwners = (kind: string, reader: ExpandedOutput, producer?: string): ExpandedOutput[] => {
+    const candidates = entries.filter((entry) => entry.declaration.support?.vertices.includes(kind) && (producer === undefined || entry.plugin.manifest.name === producer));
+    const readKinds = new Set(reader.reads.map((read) => typeof read === 'string' ? read : read.kind));
+    const sources = candidates.filter((entry) => readKinds.has(entry.kind));
+    const scoped = candidates.filter((entry) => ordinaryScope.has(entry.kind));
+    const owners = sources.length > 0 ? sources : scoped.length > 0 ? scoped : candidates;
+    if (owners.length > 1) refuse(reader.plugin, ['produces', reader.index, 'reads'], `support read ${kind} has ambiguous owner units: ${owners.map((entry) => `${entry.plugin.manifest.name}:${entry.kind}`).sort(byCodePoint).join(', ')}; name an earlier producer or select its source kind`);
+    return owners;
+  };
   const reachable = (from: string, to: string, edges: ReadonlyMap<string, ReadonlySet<string>>, seen = new Set<string>()): boolean => {
     if (seen.has(from)) return false;
     seen.add(from);
@@ -218,7 +236,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
       if (!kinds.has(kind)) refuse(entry.plugin, path, `${kind} is not a declared kind in produces, reads or derives-from`);
       // A plugin's own reads are its inputs, whatever the catalogue says a kind rests on: an output kind need not declare a
       // derives-from for each source its producer reads, and the unit's turn is ordered after the producers of those reads.
-      if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind)) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
+      if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind) && supportOwners(kind, entry, read.producer).length === 0) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
     }
   }
   for (const [name, output] of allOutputs) for (const kind of output.keys()) {
@@ -229,12 +247,17 @@ export function planFillDeclarations(input: FillDeclarationInput) {
       const versions = reads.filter((read) => (typeof read === 'string' ? read : read.kind) === readKind);
       const earlier = versions.filter((read): read is Exclude<FillRead, string> => typeof read !== 'string');
       const needsLatest = earlier.length === 0 || versions.some((read) => typeof read === 'string');
+      const reader = entries.find((entry) => entry.plugin.manifest.name === name && entry.kind === kind)!;
+      if (needsLatest && ![...allOutputs.values()].some((output) => output.has(readKind))) for (const owner of supportOwners(readKind, reader)) edges.add(unitId(owner.plugin.manifest.name, owner.kind));
       if (needsLatest) for (const [producer, outputs] of allOutputs) {
         // A unit that reads its own kind reads what stands before its turn: it never waits for itself.
         if (producer === name && readKind === kind) continue;
         if (outputs.has(readKind)) edges.add(unitId(producer, readKind));
       }
-      for (const read of earlier) edges.add(unitId(read.producer, readKind));
+      for (const read of earlier) {
+        if (allOutputs.get(read.producer)?.has(readKind)) edges.add(unitId(read.producer, readKind));
+        else for (const owner of supportOwners(readKind, reader, read.producer)) edges.add(unitId(owner.plugin.manifest.name, owner.kind));
+      }
     }
   }
   const requested = input.selectedKinds ?? [...kinds.keys()];
@@ -255,8 +278,13 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     if (!kinds.has(name)) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml'));
     collect(name);
   }
+  let selectedCount: number;
+  do {
+    selectedCount = selected.size;
+    for (const [id, unit] of unitInfo) if (selected.has(unit.kind)) for (const dependency of unitEdges.get(id)!) collect(unitInfo.get(dependency)!.kind);
+  } while (selected.size !== selectedCount);
   // A kind that declares no field has nothing for a producer to state: it needs none, and it is no silence.
-  for (const name of selected) if ((kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
+  for (const name of selected) if ((kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name)) && !entries.some((entry) => selected.has(entry.kind) && entry.declaration.support?.vertices.includes(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
   const sortedUnits: string[] = [];
   const visiting: string[] = [];
   const visited = new Set<string>();
@@ -427,6 +455,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // The agent's wildcard capability is every kind's filler of last resort (decision 0035, item 22): one output per
   // declared kind, so the plan can name the fields the agent fills beside each deterministic producer and keep exactly
   // the fields no claim covers. A kind that declares no field has nothing for any producer to state, so it is no gap.
+  const supportKinds = new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
   const fielded = (name: string): boolean => (manifest.kinds.get(name)?.fields ?? []).length > 0;
   // The agent fills the gaps of the kinds the fill was asked for: a kind that only joins the fill as an input of an asked
   // kind runs its deterministic producers, and its own agent gaps wait for a fill that asks for it (madarch-64o5.63).
@@ -451,7 +480,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       if (output.kind !== '*') return [output];
       // A manifest read for its declarations alone (no kind selected) expands the wildcard over every fielded kind, so
       // its reads are judged by the same rule; nothing of it is planned.
-      const fieldedKinds = [...manifest.kinds.keys()].filter(fielded);
+      const fieldedKinds = [...manifest.kinds.keys()].filter((name) => fielded(name) && !supportKinds.has(name));
       const scoped = fieldedKinds.filter((kind) => asked.size === 0 || asked.has(kind));
       const chosen = scoped.length > 0 ? scoped : fieldedKinds;
       if (chosen.length === 0) return [output];
@@ -464,7 +493,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // The declarations the plan hands the planner: one source of the reads a kind's turn takes.
   const input: FillDeclarationInput = { kinds: declared, plugins: executable };
   const askedKinds = new Set(requested);
-  const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
+  const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => [...(output.kind === '*' ? [...manifest.kinds.keys()].filter((name) => !supportKinds.has(name)) : [output.kind]), ...(output.support?.vertices ?? [])])));
   const selected = new Set<string>();
   const collect = (name: string): void => {
     if (selected.has(name)) return;

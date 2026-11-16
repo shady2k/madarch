@@ -1,6 +1,7 @@
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
-import { ensureVertex, publishOpinion, journalFor, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
@@ -19,10 +20,11 @@ export async function publishFixtureOpinions(folder: string, knowledgeRoot: stri
     await owner.ready;
     for (const opinion of opinions) {
       await owner.transaction('write', async (tx) => {
-        const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: opinion.kind, key: opinion.key }, 1, journal);
-        await publishOpinion(tx, contract, { kind: opinion.kind, nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1', values: opinion.values }, 1, journal);
-        await writeJournal(tx, journal);
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, {
+          vertices: [{ kind: opinion.kind, key: opinion.key, values: opinion.values, producer: 'fixture', producerVersion: '1' }],
+          removals: [],
+        });
       });
     }
   } finally {

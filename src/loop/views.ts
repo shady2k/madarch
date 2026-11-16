@@ -12,7 +12,6 @@ import { pageOpinionKinds } from '../knowledge/markdown.js';
 import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
 import type { ProductFileSource } from '../plugin/product-files.js';
-import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import type { Author } from './entities.js';
@@ -206,8 +205,8 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
     }, input.settings, notes));
   }
   for (const miss of input.unplaced ?? []) {
-    const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
-    const entity = miss.kind === 'question' ? { label: miss.slug, href: questionAddress(miss.slug), key: `question:${miss.slug}` } : null;
+    const file = miss.file;
+    const entity = { label: miss.title, href: sourceAddress(null, miss.file), key: miss.id };
     add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings, notes));
   }
   // Grounds and links that name nothing.
@@ -215,7 +214,6 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const page of pages) {
     for (const statement of page.statements) {
       for (const target of [...statement.grounds, ...statement.mentions]) {
-        if (/^(question|correction):/.test(target)) continue;
         const key = `${page.id}\u0000${statement.id}\u0000${target}`;
         if (seen.has(key)) continue;
         seen.add(key);

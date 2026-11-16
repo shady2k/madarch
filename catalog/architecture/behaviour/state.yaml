@@ -17,11 +17,6 @@ relation-constraints:
 template-policy: member
 source: graph
 fields:
-- name: machine
-  type: json
-  reference: state-machine
-  binding:
-    agent: The state machine the state belongs to, by the key of that machine in the graph.
 - name: name
   type: text
   labels:
@@ -45,7 +40,6 @@ fields:
   binding:
     agent: Whether this state ends the life the machine describes.
 key:
-- machine
 - name
 derives-from:
 - code.symbol
@@ -63,3 +57,8 @@ labels:
 description:
   en: A state is one of the situations a thing can be in for a period, such as unpaid, shipped or closed, and the conditions that hold while it is there. Staying in it, leaving it and what may happen during it are defined by the machine.
   ru: 'Состояние — одна из ситуаций, в которых вещь может находиться некоторое время: не оплачено, отправлено или закрыто, — и условия, которые в ней верны. Машина задаёт, как в него приходят, как из него выходят и что во время него может произойти.'
+
+key-edges:
+- role: state-belongs-to-machine
+  edge: state-belongs-to-machine
+  side: from

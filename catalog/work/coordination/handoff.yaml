@@ -24,18 +24,6 @@ fields:
   nullable: true
   binding:
     agent: The branch the work hands over, by the name the repository gives it.
-- name: from
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who hands the work over.
-- name: to
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who takes the work up.
 - name: at
   type: timestamp
   nullable: true

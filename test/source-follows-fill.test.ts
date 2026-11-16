@@ -3,6 +3,8 @@
  * filled commit). The api instance may have answered before the fill landed; the text it reads is the store's, so the
  * commit it reports and the kinds it reads must be the store's too — the follow step the old page context ran.
  */
+import { parse, stringify } from 'yaml';
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -35,10 +38,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: repository
-  type: text
-  producers:
-  - person
 - name: path
   type: text
   producers:
@@ -47,14 +46,12 @@ fields:
   type: text
   producers:
   - person
-- name: commit
-  type: text
-  nullable: true
-  producers:
-  - person
 key:
-- repository
 - path
+key-edges:
+- role: source-repository
+  edge: source-repository
+  side: from
 labels:
   en:
     one: Source text
@@ -87,11 +84,15 @@ async function publishSource(path: string, text: string, commit: string): Promis
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'source', key: { repository: 'code', path } }, 1, journal);
-      await publishOpinion(tx, contract, { kind: 'source', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
-        values: { source_text: text, commit } }, 1, journal);
-      await writeJournal(tx, journal);
+      await bindTestWriteCapability(tx, contract);
+      const source = { kind: 'fixture-text', key: { path }, keyEdges: { 'source-repository': { kind: 'code.repository', key: { name: 'code' } } } };
+      const repository = { kind: 'code.repository', key: { name: 'code' } };
+      const revision = { kind: 'code.commit', key: { hash: commit } };
+      const provenance = { producer: 'fixture', producerVersion: '1' };
+      await publishGraphDrafts(tx, contract, { vertices: [{ ...source, ...provenance, values: { source_text: text } }, { ...revision, ...provenance }], removals: [], edges: [
+        { kind: 'source-repository', from: source, to: repository, ...provenance },
+        { kind: 'source-commit', from: source, to: revision, ...provenance },
+      ] });
     });
   } finally { await owner.close(); }
 }
@@ -106,11 +107,19 @@ beforeAll(async () => {
   git(repository, 'add', '-A');
   git(repository, 'commit', '-qm', 'first');
   folder = makeProduct(home, 'source-follow', repository, 'code');
-  // The fixture declares the source-text kind it writes: the starter catalogue's own source kind became part of code.file
-  // (madarch-64o5.109), and the read is generic over a kind that declares `source_text`, so the product declares one.
+  // The fixture declares its own source role and graph relationships; no field name selects it.
   mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
-  writeFileSync(join(folder, 'madarch/kinds/common/attachment/source.yaml'), SOURCE_KIND);
-  useFixturePlugins(folder, ['disk', 'git'], ['source']);
+  writeFileSync(join(folder, 'madarch/kinds/common/attachment/fixture-text.yaml'), SOURCE_KIND);
+  const declaration = parse(readFolderManifestText(folder));
+  declaration['semantic-bindings'].source = { kind: 'fixture-text', fields: { path: 'path', content: 'source_text' }, edges: {
+    repository: { kind: 'source-repository', direction: 'from' }, commit: { kind: 'source-commit', direction: 'from' },
+  } };
+  for (const [name, target, required] of [['source-repository', 'code.repository', true], ['source-commit', 'code.commit', false]] as const) {
+    declaration.edges.push({ name, from: ['fixture-text'], to: [target], cardinality: { from: { min: required ? 1 : 0, max: 1 }, to: { min: 0, max: null } },
+      ...(required ? { 'on-parent-delete': 'restrict' } : {}), labels: { en: { out: name, in: 'source text' }, ru: { out: 'источник', in: 'исходный текст' } } });
+  }
+  writeFolderManifest(folder, stringify(declaration));
+  useFixturePlugins(folder, ['disk', 'git'], ['fixture-text']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', 'the product and its one repository');

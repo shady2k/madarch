@@ -351,8 +351,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
     options.started?.(child.pid, folder);
-    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
-    if (ended === 'timeout') {
+    const ended = await Promise.race([child.exited, new Promise<'deadline-expired'>((resolve) => { timer = setTimeout(() => resolve('deadline-expired'), timeout); })]);
+    if (ended === 'deadline-expired') {
       child.kill('SIGKILL');
       throw new Error(`the archify renderer did not finish within ${String(timeout)} ms`);
     }

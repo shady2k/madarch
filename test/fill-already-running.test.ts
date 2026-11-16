@@ -3,6 +3,7 @@
  * `fill-chain/no-transition`, an internal code that named nothing they could act on — a fill of one product runs one at a
  * time (decision 0027), and the answer is that one is already running, since when, and where its progress is.
  */
+import {fixtureOperations} from './fill-operation-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -14,7 +15,9 @@ import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/databas
 import { createFillOrchestratorService, type FillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
-import { createFillStateSchema, readChain } from '../src/fill/state-store.js';
+import { readChain } from '../src/graph/fill-state.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import type { GraphContract } from '../src/graph/contract.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
@@ -32,6 +35,7 @@ let folder: string;
 let closePreparation: (() => Promise<void>) | undefined;
 let product: string;
 let owner: DatabaseOwner;
+let graphContract: GraphContract;
 
 /**
  * The stage the background fill runs: it reads one unit and answers it only when the test lets go, so the run really
@@ -48,7 +52,6 @@ const blocker: FillStage = {
   defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
   plan: () => ({ units: [{ id: 'one', scope: 'one' }], coverage: 'planned' }),
   execute: async () => { await blocked; return { outcome: 'draft' }; },
-  validate: () => ({ ok: true }),
 };
 
 /** One `madarch fill` of the product, as the command answered: its exit code and both its streams. */
@@ -91,16 +94,17 @@ describe('a fill started while the product\'s fill runs', () => {
     execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(IDENTITY) });
     execFileSync('git', ['commit', '--quiet', '-m', 'The product'], { cwd: folder, env: gitEnv(IDENTITY) });
     closePreparation = await prepareTestProduct(folder, home);
+    graphContract = await readPinnedGraphContract(folder);
     // The store the command and this test share: `<home>/.madarch/knowledge/<product id>/graph`.
     const storeFolder = productStoreFolder(folder, join(home, '.madarch', 'knowledge'));
     mkdirSync(storeFolder, { recursive: true });
     owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
     await owner.ready;
-    await createFillStateSchema(owner);
+
     service = createFillOrchestratorService({
       owner,
       registry: new StageRegistry().register(blocker),
-      wiring: () => ({ snapshot: () => ({ repository: folder, defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:registry' }), configuration: () => undefined, graph: () => ({ query: async () => [] }), inputs: () => ({ commit: 'a1b2c3d4' }) }),
+      wiring: () => ({ graphContract, operations:fixtureOperations(owner),snapshot: () => ({ repository: folder, defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:registry' }), configuration: () => undefined, graph: () => ({ query: async () => [] }), inputs: () => ({ commit: 'a1b2c3d4' }) }),
     });
     // The background fill: a run whose unit stands in flight while the command asks for the product.
     background = service.run({ product: { name: product, folder }, runId: 'fill-background', workers: 1 });

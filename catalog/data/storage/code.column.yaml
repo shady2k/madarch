@@ -14,9 +14,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: table
-  type: text
-  binding: db-schema@1.table
 - name: name
   type: text
   binding: db-schema@1.name
@@ -38,10 +35,12 @@ fields:
   binding: db-schema@1.unique
 - name: check
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding: db-schema@1.check
 key:
-- table
 - name
 details:
 - type
@@ -62,3 +61,8 @@ description:
   ru: 'Столбец — одно поле таблицы базы данных: у него есть имя, тип и правила, например запрет пустого значения или требование уникальности. Столбцы таблицы вместе говорят, что описывает одна её строка.'
 derives-from:
 - code.table
+
+key-edges:
+- role: code.column-table
+  edge: code.column-table
+  side: from

@@ -21,13 +21,21 @@ fields:
   - disk
   - git
 - name: url
-  type: text
+  type: git-remote
   nullable: true
   producers:
   - disk
 - name: default_branch
   type: text
   nullable: true
+  producers:
+  - disk
+- name: tree_snapshot
+  type: text
+  nullable: true
+  labels:
+    en: Tree snapshot digest
+    ru: Дайджест снимка дерева
   producers:
   - disk
 - name: history_shallow

@@ -17,11 +17,6 @@ relation-constraints:
 template-policy: member
 source: graph
 fields:
-- name: process
-  type: json
-  reference: business-process
-  binding:
-    agent: The business process the event stands in, by the key of that process in the graph.
 - name: name
   type: text
   labels:
@@ -33,14 +28,14 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: 'Whether the event starts the process, happens inside it or ends it: start, intermediate or end.'
+    agent: 'Whether the event starts the process, happens inside it or ends it: start,
+      intermediate or end.'
 - name: trigger
   type: text
   nullable: true
   binding:
     agent: What causes the event, from the event's own declaration in the graph.
 key:
-- process
 - name
 derives-from:
 - business-process
@@ -58,3 +53,8 @@ labels:
 description:
   en: 'A process event marks a moment in a business process: the message or the time that starts it, something that happens while it runs, or the outcome that ends it. The sequence flow between the steps leaves from and reaches these events.'
   ru: 'Событие процесса отмечает момент в бизнес-процессе: сообщение или время, которое его запускает, происшествие во время него или результат, которым он заканчивается. Поток между шагами выходит из таких событий и приходит в них.'
+
+key-edges:
+- role: process-event-process
+  edge: process-event-process
+  side: from

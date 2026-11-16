@@ -64,7 +64,7 @@ kinds:
     relation-constraints: { out: [], in: [] }
     template-policy: page
     fields:
-      - { name: dictionary, type: json, reference: dictionary, producers: [person] }
+      - { name: dictionary, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, properties: { kind: { const: dictionary }, key: { type: object, properties: { name: { type: string } }, required: [name], additionalProperties: false } }, required: [kind, key], additionalProperties: false }, reference: dictionary, producers: [person] }
       - { name: value, type: text, producers: [person] }
       - { name: caption_en, type: text, producers: [person] }
       - { name: caption_ru, type: text, producers: [person] }

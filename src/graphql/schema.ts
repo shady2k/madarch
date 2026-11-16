@@ -45,6 +45,38 @@ interface EnumDef {
   readonly values: readonly string[];
 }
 
+/** The assertion engine's GraphQL envelopes; product declarations never own these fields. */
+export const ASSERTION_SCHEMA_TYPES: readonly TypeDef[] = [
+  { name: 'AssertionEvidence', fields: [
+      { name: 'targetUid', type: 'ID!' }, { name: 'target', type: 'Entity' }, { name: 'relation', type: 'String!' },
+      { name: 'locator', type: 'JSON' },
+      { name: 'historicalValidity', type: 'EvidenceHistoricalValidity!' },
+      { name: 'currentApplicability', type: 'EvidenceCurrentApplicability!' },
+      { name: 'availability', type: 'EvidenceAvailability!' }, { name: 'issues', type: '[String!]!' },
+    ] },
+  { name: 'VertexIdentity', fields: [{ name: 'id', type: 'ID!' }, { name: 'entity', type: 'Entity!' }] },
+  { name: 'GraphEdge', fields: [{ name: 'id', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'from', type: 'Entity!' }, { name: 'to', type: 'Entity!' }] },
+  { name: 'Assertion', fields: [
+      { name: 'id', type: 'ID!' }, { name: 'subject', type: 'AssertionSubject!' },
+      { name: 'property', type: 'String!' }, { name: 'value', type: 'JSON' },
+      { name: 'operation', type: 'AssertionOperation!' }, { name: 'source', type: 'Entity!' },
+      { name: 'author', type: 'Entity!' }, { name: 'unit', type: 'Entity' },
+      { name: 'validFrom', type: 'DateTime!' }, { name: 'validTo', type: 'DateTime' },
+      { name: 'recordedAt', type: 'DateTime!' }, { name: 'evidence', type: '[AssertionEvidence!]!' },
+      { name: 'selected', type: 'Boolean!' }, { name: 'question', type: 'AssertionQuestion' },
+    ] },
+  { name: 'AssertionQuestion', fields: [
+      { name: 'id', type: 'ID!' }, { name: 'state', type: 'AssertionQuestionState!' },
+      { name: 'candidates', type: '[Assertion!]!' }, { name: 'resolution', type: 'Assertion' },
+      { name: 'supersededResolutions', type: '[Assertion!]!' },
+    ] },
+];
+
+/** The temporal and context selectors every GraphQL root receives. */
+export const ASSERTION_SCHEMA_SELECTORS: readonly ArgumentDef[] = [
+  { name: 'context', type: 'Int' }, { name: 'validAt', type: 'DateTime' }, { name: 'recordedAt', type: 'DateTime' },
+];
+
 /** The operators one scalar's filter keeps (the narrowed set of the contract's first step: eq, in, contains, lt and gt). */
 const WHERE_OPERATORS: Readonly<Record<FieldType, readonly string[]>> = {
   text: ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'],
@@ -115,44 +147,37 @@ class Builder {
     this.claimOwnTypes();
     this.buildKinds();
     this.buildEdges();
-    this.buildReferences();
     this.buildRoots();
   }
 
   /** The types, interfaces, scalars and enums the mechanism owns; a manifest name may not take one of them. */
   private claimOwnTypes(): void {
-    for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
+    for (const name of ['Entity', 'Query', 'PageInfo', 'AssertionSubject', 'AssertionOperation', 'EvidenceHistoricalValidity', 'EvidenceCurrentApplicability', 'EvidenceAvailability', 'AssertionQuestionState', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
+    for (const definition of ASSERTION_SCHEMA_TYPES) {
+      this.registry.claimGeneratedType(definition.name, `the schema's own type "${definition.name}"`);
+      this.type(definition.name, definition.fields);
+    }
     this.type('TemplateFinding', [
       { name: 'file', type: 'String!' }, { name: 'line', type: 'Int!' },
       { name: 'path', type: 'String!' }, { name: 'message', type: 'String!' },
     ]);
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
-    this.type('Evidence', [
-      { name: 'type', type: 'String!' },
-      { name: 'repository', type: 'String' },
-      { name: 'path', type: 'String' },
-      { name: 'lineStart', type: 'Int' },
-      { name: 'lineEnd', type: 'Int' },
-      { name: 'revision', type: 'String' },
-      { name: 'id', type: 'String' },
-      { name: 'url', type: 'String' },
-      { name: 'at', type: 'String' },
-      { name: 'words', type: 'String' },
-    ]);
-    this.type('Opinion', [
-      { name: 'value', type: 'JSON' },
-      { name: 'producer', type: 'String!' },
-      { name: 'version', type: 'String' },
-      { name: 'lang', type: 'String' },
-      { name: 'statedAt', type: 'DateTime!' },
-      { name: 'evidence', type: '[Evidence!]!' },
-    ]);
+
+
+
+    this.enumeration('AssertionOperation', ['ASSERT', 'RETRACT']);
+    this.enumeration('EvidenceHistoricalValidity', ['VALID', 'INVALID', 'UNKNOWN']);
+    this.enumeration('EvidenceCurrentApplicability', ['CURRENT', 'STALE', 'ENDED', 'UNKNOWN']);
+    this.enumeration('EvidenceAvailability', ['AVAILABLE', 'UNAVAILABLE', 'UNKNOWN']);
+    this.enumeration('AssertionQuestionState', ['OPEN', 'RESOLVED', 'DISMISSED']);
+
+
     this.type('Backlink', [
       { name: 'relation', type: 'String!' },
       { name: 'label', type: 'String!' },
@@ -269,7 +294,6 @@ class Builder {
       { name: 'name', type: 'String!' },
       { name: 'type', type: 'String!' },
       { name: 'nullable', type: 'Boolean!' },
-      { name: 'reference', type: 'String' },
       { name: 'producers', type: '[String!]!' },
     ]);
     this.type('CatalogueEntityEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'CatalogueEntity!' }]);
@@ -312,13 +336,6 @@ class Builder {
     this.enums.set(name, { name, values });
   }
 
-  /** The type name a contract field's reference names, refused when the manifest declares no such kind. */
-  private referencedType(reference: string, declaration: string): string {
-    const held = this.kindTypes.get(reference);
-    if (held === undefined) throw new SchemaRefusal(`${declaration} references the kind "${reference}", and the manifest declares no such kind: declare it or change the reference`);
-    return held;
-  }
-
   private buildKinds(): void {
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
       const name = typeNameOf(kind.name);
@@ -333,14 +350,11 @@ class Builder {
         const fieldName = fieldNameOf(field.name);
         const declaration = `the field "${field.name}" of the kind "${kind.name}"`;
         this.registry.claimField(name, fieldName, declaration);
-        const scalar = field.reference === undefined ? SCALAR_NAMES[field.type] : this.referencedType(field.reference, declaration);
+        const scalar = SCALAR_NAMES[field.type];
         fields.push({ name: fieldName, type: scalar });
-        const opinions = `${fieldName}Opinions`;
-        this.registry.claimGeneratedField(name, opinions, `the opinions of the field "${field.name}" of the kind "${kind.name}"`);
-        fields.push({ name: opinions, type: '[Opinion!]!' });
-        const count = `${fieldName}OpinionsCount`;
-        this.registry.claimGeneratedField(name, count, `the opinion count of the field "${field.name}" of the kind "${kind.name}"`);
-        fields.push({ name: count, type: 'Int!' });
+        const assertions = `${fieldName}Assertions`;
+        this.registry.claimGeneratedField(name, assertions, `the assertions of the field "${field.name}" of the kind "${kind.name}"`);
+        fields.push({ name: assertions, type: '[Assertion!]!' });
       }
       this.type(name, fields, ['Entity']);
       this.buildWhereAndOrder(kind.name, name, kind.fields);
@@ -355,7 +369,7 @@ class Builder {
 
   /** The filter and the order of one type, from its scalar fields; a reference field filters through no operator of its own yet. */
   private buildWhereAndOrder(kind: string, type: string, fields: readonly PublishedField[]): void {
-    const scalars = fields.filter((field) => field.reference === undefined);
+    const scalars = fields;
     if (scalars.length === 0) return;
     const where = `${type}Where`;
     const order = `${type}Order`;
@@ -399,20 +413,17 @@ class Builder {
       const fields: FieldDef[] = [
         { name: 'id', type: 'ID!' },
         { name: 'discriminator', type: 'String!' },
-        { name: 'opinions', type: '[Opinion!]!' },
+        { name: 'assertions', type: '[Assertion!]!' },
       ];
       for (const attribute of edge.fields) {
         const fieldName = fieldNameOf(attribute.name);
         const declaration = `the field "${attribute.name}" of the edge "${edge.name}"`;
         this.registry.claimField(record, fieldName, declaration);
-        const scalar = attribute.reference === undefined ? SCALAR_NAMES[attribute.type] : this.referencedType(attribute.reference, declaration);
+        const scalar = SCALAR_NAMES[attribute.type];
         fields.push({ name: fieldName, type: scalar });
-        const opinions = `${fieldName}Opinions`;
-        this.registry.claimGeneratedField(record, opinions, `the opinions of the field "${attribute.name}" of the edge "${edge.name}"`);
-        fields.push({ name: opinions, type: '[Opinion!]!' });
-        const count = `${fieldName}OpinionsCount`;
-        this.registry.claimGeneratedField(record, count, `the opinion count of the field "${attribute.name}" of the edge "${edge.name}"`);
-        fields.push({ name: count, type: 'Int!' });
+        const assertions = `${fieldName}Assertions`;
+        this.registry.claimGeneratedField(record, assertions, `the assertions of the field "${attribute.name}" of the edge "${edge.name}"`);
+        fields.push({ name: assertions, type: '[Assertion!]!' });
       }
       fields.push({ name: 'node', type: 'Entity!' });
       this.type(record, fields);
@@ -444,28 +455,6 @@ class Builder {
         this.registry.claimGeneratedField(type, fieldName, `the inverse of the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }
-    }
-  }
-
-  /** Every reference field's inverse on the referenced type: the source type's connection, `<field>Of<SourceType>`. */
-  private buildReferences(): void {
-    const inverses: { type: string; field: FieldDef; declaration: string }[] = [];
-    for (const kind of this.manifest.kinds) {
-      const source = this.kindTypes.get(kind.name)!;
-      for (const field of kind.fields) {
-        if (field.reference === undefined) continue;
-        const target = this.referencedType(field.reference, `the field "${field.name}" of the kind "${kind.name}"`);
-        const name = `${fieldNameOf(field.name)}Of${source}`;
-        inverses.push({
-          type: target,
-          field: { name, type: `${source}Connection!`, args: connectionArgs(this.whereOf.get(source), this.orderOf.get(source)) },
-          declaration: `the inverse of the reference "${field.name}" of the kind "${kind.name}"`,
-        });
-      }
-    }
-    for (const inverse of inverses.sort((left, right) => byCodePoint(`${left.type}.${left.field.name}`, `${right.type}.${right.field.name}`))) {
-      this.registry.claimGeneratedField(inverse.type, inverse.field.name, inverse.declaration);
-      this.addField(inverse.type, inverse.field);
     }
   }
 
@@ -512,7 +501,8 @@ class Builder {
         { name: 'orderBy', type: '[RelatedOrder!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' },
       ] },
     );
-    this.type('Query', fields);
+    const selectors = ASSERTION_SCHEMA_SELECTORS;
+    this.type('Query', fields.map((field) => ({ ...field, args: [...(field.args ?? []), ...selectors] })));
   }
 
   private addField(type: string, field: FieldDef): void {
@@ -522,7 +512,7 @@ class Builder {
   }
 
   render(): string {
-    const blocks: string[] = ['scalar BigInt', 'scalar DateTime', 'scalar JSON'];
+    const blocks: string[] = ['scalar BigInt', 'scalar DateTime', 'scalar JSON', 'union AssertionSubject = VertexIdentity | GraphEdge'];
     const held = [...this.types.values()].filter((type) => type.name !== 'Query').sort((left, right) => byCodePoint(left.name, right.name));
     for (const type of held) {
       blocks.push(type.name === 'Entity' ? renderInterface(type) : renderType(type));

@@ -27,6 +27,9 @@ fields:
     agent: The name the manifest gives the field set, such as task-status.
 - name: fields
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:field-set-fields:v1
   nullable: true
   binding:
     agent: The fields the set holds, each with its name and the interface words it is shown by.

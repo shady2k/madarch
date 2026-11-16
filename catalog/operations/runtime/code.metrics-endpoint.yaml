@@ -20,15 +20,9 @@ details:
 - ports
 - format
 - library
-- service
 fields:
-- name: service
-  type: text
-  reference: code.service
-  producers:
-  - operations
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -41,6 +35,9 @@ fields:
   - operations
 - name: ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   producers:
   - operations
@@ -55,7 +52,6 @@ fields:
   producers:
   - operations
 key:
-- service
 - path
 derives-from:
 - code.service
@@ -70,3 +66,8 @@ labels:
 description:
   en: A metrics endpoint exposes the service's current metric values in a form a collector can read, usually on an internal port. It is scraped at intervals, so each reading is a point in the service's history.
   ru: Выдача метрик открывает текущие значения метрик сервиса в виде, который может прочитать сборщик, обычно на внутреннем порту. Её опрашивают через промежутки, поэтому каждое чтение — точка в истории сервиса.
+
+key-edges:
+- role: code.metrics-endpoint-service
+  edge: code.metrics-endpoint-service
+  side: from

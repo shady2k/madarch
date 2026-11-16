@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The db-schema path end to end (decision 0035, items 6, 7, 15, 17 and 18; task madarch-47vw.3): the plugin reads the SQL
@@ -20,6 +21,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { closureOf } from '../src/plugin/closure.js';
+import type { FactsOperation } from '../src/plugin-sdk.js';
 import { PluginHost } from '../src/plugin/host.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
@@ -102,7 +104,9 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
 
   test('it answers the tables, their columns, the index and the foreign key, and names the composed table as partial', async () => {
     const closure = closureOf(folder);
+    const operations: FactsOperation[] = [];
     const host = new PluginHost({
+      operations: {async apply(_unitId,_key,operation){operations.push(operation as FactsOperation);return {accepted:true};}},
       pluginFolder: folder,
       closure,
       repository: work,
@@ -111,7 +115,7 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
-        files: async (pattern) => (pattern.endsWith('.ts') ? [{ kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } }] : []),
+        files: async (pattern) => (pattern.endsWith('.ts') ? [{ kind: 'code.file', key: { path: 'src/schema.ts' }, keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} }] : []),
         value: async () => readFileSync(sourceFile, 'utf8'),
       },
     });
@@ -119,7 +123,7 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
     try {
       const outcome = await session.runUnit({ unitId: 'db-schema', kind: 'code.database', key: { pattern: '**/*.ts' }, inputs: { patterns: ['**/*.ts'] } });
       if (outcome.state !== 'extracted') throw new Error(`the unit was not extracted: ${outcome.cause.code}: ${outcome.cause.message}`);
-      const tables = outcome.result.vertices.filter((vertex) => vertex.kind === 'code.table').map((vertex) => String(vertex.key['name'])).sort();
+      const tables = operations.flatMap(operation=>operation.vertices??[]).filter((vertex) => vertex.kind === 'code.table').map((vertex) => String(vertex.key['name'])).sort();
       // The composed CREATE TABLE names its table at run time: it is no table of the answer, and the unit says so.
       expect(tables).toEqual(['child', 'parent']);
       expect(outcome.result.end.state).toBe('partial');
@@ -127,7 +131,7 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       // Every unreadable literal is named with its file and its line: the composed CREATE TABLE stands where it is written.
       expect(cause).toContain(`app/src/schema.ts:${String(COMPOSED_LINE)}`);
 
-      const columns = outcome.result.vertices.filter((vertex) => vertex.kind === 'code.column' && vertex.key['table'] === 'app/child');
+      const columns = operations.flatMap(operation=>operation.vertices??[]).filter((vertex) => vertex.kind === 'code.column' && vertex.keyEdges?.['code.column-table']?.key['name'] === 'child');
       expect(columns.map((column) => column.key['name']).sort()).toEqual(['amount', 'id', 'note', 'parent_id']);
       const note = columns.find((column) => column.key['name'] === 'note');
       expect(note?.values).toMatchObject({ type: 'text', nullable: false, primary_key: false, default: "''" });
@@ -136,27 +140,34 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       const id = columns.find((column) => column.key['name'] === 'id');
       expect(id?.values).toMatchObject({ type: 'bigint', primary_key: true, nullable: false });
 
-      const indexes = outcome.result.vertices.filter((vertex) => vertex.kind === 'code.index');
-      expect(indexes.map((index) => [index.key['name'], index.values?.['unique'], index.values?.['columns']])).toEqual([['child_parent', true, ['parent_id']]]);
+      const indexes = operations.flatMap(operation=>operation.vertices??[]).filter((vertex) => vertex.kind === 'code.index');
+      expect(indexes.map((index) => [index.key['name'], index.values?.['unique']])).toEqual([['child_parent', true]]);
 
-      const key = outcome.result.edges.filter((edge) => edge.kind === 'code.foreign-key');
-      expect(key.map((edge) => [edge.from.key, edge.to.key, edge.values?.['column']])).toEqual([[{ table: 'app/child', name: 'parent_id' }, { table: 'app/parent', name: 'id' }, 'parent_id']]);
+      const key = operations.flatMap(operation=>operation.edges??[]).filter((edge) => edge.kind === 'code.foreign-key');
+      expect(key.map((edge) => [edge.from.key, edge.from.keyEdges?.['code.column-table']?.key, edge.to.key, edge.to.keyEdges?.['code.column-table']?.key])).toEqual([[{ name: 'parent_id' }, {name:'child'}, { name: 'id' }, {name:'parent'}]]);
+      expect(operations.flatMap(operation=>operation.edges??[]).filter(edge=>edge.kind==='code.index-column').map(edge=>[edge.from.key,edge.to.key,edge.values?.['position']])).toEqual([[{name:'child_parent'},{name:'parent_id'},0]]);
       // A table is declared in the file that holds its SQL: the edge names the file vertex the host answered for.
-      const declared = outcome.result.edges.filter((edge) => edge.kind === 'code.declared-in');
-      expect(declared.map((edge) => edge.to.key)).toEqual([{ repository: 'app', path: 'src/schema.ts' }, { repository: 'app', path: 'src/schema.ts' }]);
-      const parent = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'parent');
-      expect(parent?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts' });
-      const child = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'child');
-      expect(child?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE });
+      const declared = operations.flatMap(operation=>operation.edges??[]).filter((edge) => edge.kind === 'code.declared-in');
+      expect(declared.map((edge) => edge.to.key)).toEqual([{ path: 'src/schema.ts' }, { path: 'src/schema.ts' }]);
+      const parent = operations.flatMap(operation=>operation.vertices??[]).find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'parent');
+      expect(parent?.evidence).toMatchObject({ target:{kind:'code.blob',key:{digest:createHash('sha256').update(SOURCE).digest('hex')}}, path: 'src/schema.ts' });
+      const child = operations.flatMap(operation=>operation.vertices??[]).find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'child');
+      expect(child?.evidence).toMatchObject({ target:{kind:'code.blob',key:{digest:createHash('sha256').update(SOURCE).digest('hex')}}, path: 'src/schema.ts', lineStart: CHILD_LINE });
+      operations.length=0;
       const selected = await session.runUnit({ unitId: 'selected-database', kind: 'code.database', key: {}, inputs: {
         patterns: ['**/*.ts'], contract: { vertices: [{ kind: 'code.database', fields: [{ name: 'repository' }] }] }, edgeOutputs: [],
       } });
       if (selected.state !== 'extracted') throw new Error(JSON.stringify(selected));
-      expect(selected.result.vertices.map((vertex) => vertex.kind)).toEqual(['code.database']);
+      expect(operations.flatMap(operation=>operation.vertices??[]).map((vertex) => vertex.kind)).toEqual(['code.blob','code.database']);
+      const selectedDatabase=operations.flatMap(operation=>operation.vertices??[]).find(vertex=>vertex.kind==='code.database');
+      const selectedBlob=operations.flatMap(operation=>operation.vertices??[]).find(vertex=>vertex.kind==='code.blob');
+      expect(selectedBlob?.values?.['content']).toBe(SOURCE);
+      expect(selectedBlob?.key['digest']).toBe(createHash('sha256').update(SOURCE).digest('hex'));
       // The repository and the name are the database's key, as the catalogue declares them; neither is a value.
-      expect(selected.result.vertices[0]?.key).toEqual({ repository: 'app', name: 'app' });
-      expect(selected.result.vertices[0]?.values).toEqual({});
-      expect(selected.result.edges).toEqual([]);
+      expect(selectedDatabase?.key).toEqual({ name: 'app' });
+      expect(selectedDatabase?.values).toBeUndefined();
+      expect(selectedDatabase?.keyEdges?.['code.database-repository']).toEqual({kind:'code.repository',key:{name:'app'}});
+      expect(operations.flatMap(operation=>operation.edges??[])).toEqual([{kind:'code.blob-about',from:{kind:'code.blob',key:{digest:createHash('sha256').update(SOURCE).digest('hex')}},to:{kind:'code.file',key:{path:'src/schema.ts'},keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}}}}]);
       expect(selected.result.end).toEqual(outcome.result.end);
     } finally {
       await session.close();
@@ -177,7 +188,9 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
     const requested: string[] = [];
     const closure = closureOf(join(PLUGINS, 'plugins', 'db-schema'));
     const work = mkdtempSync(join(tmpdir(), 'madarch-schema-scope-'));
+    const operations: FactsOperation[] = [];
     const host = new PluginHost({
+      operations: {async apply(_unitId,_key,operation){operations.push(operation as FactsOperation);return {accepted:true};}},
       pluginFolder: join(PLUGINS, 'plugins', 'db-schema'), closure, repository: work, workRoot: join(work, 'host'),
       trust: 'production', releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
@@ -185,7 +198,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
         files: async (pattern) => {
           requested.push(pattern);
           return Object.keys(sources).filter((path) => pattern === 'src/*.ts' ? path.startsWith('src/') : true)
-            .map((path) => ({ kind: 'code.file', key: { repository: 'app', path } }));
+            .map((path) => ({ kind: 'code.file', key: { path },keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} }));
         },
         value: async (_kind, key) => sources[String(key['path'])] ?? null,
       },
@@ -194,7 +207,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
     try {
       const result = await session.runUnit({ unitId: 'scope', kind: 'code.table', key: {}, inputs: { patterns: ['src/*.ts', 'src/*.ts'] } });
       if (result.state !== 'extracted') throw new Error(JSON.stringify(result));
-      const tables = result.result.vertices.filter((v) => v.kind === 'code.table');
+      const tables = operations.flatMap(operation=>operation.vertices??[]).filter((v) => v.kind === 'code.table');
       expect(tables.map((v) => v.key['name']).sort()).toEqual(['known', 'madarch_meta.schema_stamp', 'sample']);
       const sample = tables.find((v) => v.key['name'] === 'sample');
       expect(sample?.values?.['unsupported']).toContain('composite UNIQUE');
@@ -204,7 +217,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       expect(sample?.values?.['unsupported']).toContain('access method hash');
       expect(sample?.values?.['unsupported']).toContain('src/a.ts:');
       expect(sample?.values?.['unsupported']).toContain('src/b.ts:');
-      const columns = result.result.vertices.filter((v) => v.kind === 'code.column' && v.key['table'] === 'app/sample');
+      const columns = operations.flatMap(operation=>operation.vertices??[]).filter((v) => v.kind === 'code.column' && v.keyEdges?.['code.column-table']?.key['name'] === 'sample');
       expect(columns.map((v) => v.key['name']).sort()).toEqual(['a', 'b']);
       expect(columns.every((v) => v.values?.['unique'] === false)).toBe(true);
       expect(result.result.end.state).toBe('partial');
@@ -214,9 +227,10 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       expect(result.result.end.cause).toContain('app/src/shadow.ts:1');
       expect(requested.every((pattern) => pattern === 'src/*.ts')).toBe(true);
       requested.length = 0;
+      operations.length=0;
       const empty = await session.runUnit({ unitId: 'empty', kind: 'code.table', key: {}, inputs: { patterns: [] } });
       if (empty.state !== 'extracted') throw new Error(JSON.stringify(empty));
-      expect(empty.result.vertices).toEqual([]);
+      expect(operations.flatMap(operation=>operation.vertices??[])).toEqual([]);
       expect(requested).toEqual([]);
     } finally { await session.close(); rmSync(work, { recursive: true, force: true }); }
   }, 120_000);
@@ -254,7 +268,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
     }
     // The fixture keeps no agent plugin: the field is a person's own writing, so no fill waits for one.
-    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, producers: ['person'] });
+    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { repository: { type: 'string' }, path: { type: 'string' }, lineStart: { type: 'integer' }, lineEnd: { type: 'integer' } }, required: ['repository', 'path'], additionalProperties: false }, nullable: true, producers: ['person'] });
     writeFolderManifest(folder, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');

@@ -1,7 +1,8 @@
+import { withAssertionContract } from '../src/graph/system-contract.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { createFillStateSchema, readChain } from '../src/fill/state-store.js';
-import { createOrchestratorSchema, readRunControl } from '../src/fill/orchestrator-store.js';
+import { readChain } from '../src/graph/fill-state.js';
+import { createOrchestratorSchema, readRunControl } from '../src/graph/fill-orchestration.js';
 /** Explicit preparation precedes every connect-only graph role (madarch-8bdc.10). */
 import { describe, expect, test } from 'bun:test';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -74,7 +75,8 @@ describe('explicit store preparation and connect-only clients', () => {
         const statements: string[] = [];
         const answers = await Promise.allSettled(Array.from({ length: 8 }, async (_, role) => {
           const connection = await createDatabaseOwner({ cluster, database, connectOnly: true });
-          const client = observed(connection, statements);
+          const observedOwner = observed(connection, statements);
+          const client = { ...observedOwner, transaction: observedOwner.transaction.bind(observedOwner), graphContract: withAssertionContract(withManifestContract(repositoryContract)) };
           try {
           switch (role) {
             case 0: await createOneGraphSchema(client, withManifestContract(repositoryContract)); break;
@@ -86,7 +88,7 @@ describe('explicit store preparation and connect-only clients', () => {
               break;
             }
             case 3:
-              await createFillStateSchema(client);
+
               expect(await readChain(client, 'fixture')).toBeNull();
               break;
             case 4:
@@ -94,7 +96,7 @@ describe('explicit store preparation and connect-only clients', () => {
               expect(await readRunControl(client, 'fixture')).toBeNull();
               break;
             case 5:
-              await createFillStateSchema(client);
+
               expect(await readChain(client, 'fixture')).toBeNull();
               break;
             default: {

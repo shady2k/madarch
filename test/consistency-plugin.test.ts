@@ -13,7 +13,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
 import { parseDocument } from 'yaml';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -23,18 +23,25 @@ import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns
 import { runFill } from '../src/fill/run.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
-import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../src/graph/index.js';
+import { removedEdgeEnds, unevidencedAssertions } from '../src/graph/index.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
 import { generatedTableName } from '../src/graph/contract.js';
+import { loadAssertions, activeExistenceSql } from '../src/graph/assertion-read.js';
+import { graphContractVersion, type GraphContract } from '../src/graph/contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { installSystemSources, registerSystemSource } from '../src/graph/system-installation.js';
+import { activateGraphProducer, bindGraphProducer, type ProducerBinding } from '../src/graph/producer-binding.js';
+import { readKindAssertions } from '../src/graph/records.js';
+import { selectAssertions } from '../src/graph/assertion-selection.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'plugin-consistency');
 let root = '';
 let product = '';
-let repositoryFolder = '';
 let fixtureClosure = '';
-let owner: DatabaseOwner | undefined;
+let owner: TestDatabaseOwner | undefined;
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -115,13 +122,14 @@ problems:
   useRepositoryPlugins(folder);
   const declared = parseDocument(readFolderManifestText(folder));
   const starter = parseDocument(starterManifestText()).toJS();
-  for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
-  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
+  for (const section of ['catalog', 'value-types', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
+  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
-    source: 'graph', key: ['repository', 'path'],
+    source: 'graph', key: ['path'], 'key-edges': [{role:'repository',edge:'probe.referrer-repository',side:'from'}],
     // The fixture writes this record itself: its fields are a person's authored write, not a plugin's.
-    fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['person'] }, { name: 'path', type: 'text', producers: ['person'] }],
+    fields: [{ name: 'path', type: 'text', producers: ['person'] }],
   });
+  declared.addIn(['edges'], {name:'probe.referrer-repository',from:['probe.referrer'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}});
   const descriptions: Record<string, { en: string; ru: string }> = {
     'probe.finding': { en: 'A consistency finding emitted by the fixture plugin.', ru: 'Находка проверки согласованности тестового плагина.' },
     'probe.opinion': { en: 'An opinion with two fields requiring evidence.', ru: 'Утверждение с двумя полями, требующими основания.' },
@@ -149,20 +157,62 @@ problems:
   return closure;
 }
 
+const fixtureGrants = new WeakMap<DatabaseOwner, Map<string, { person: ProducerBinding; other: ProducerBinding }>>();
+
+/** Retain the person's author identity while granting a second source its own assertion history. */
+async function fixtureBindings(contract: GraphContract) {
+  if (owner === undefined) throw new Error('the store was not opened');
+  const version = graphContractVersion(contract);
+  const held = fixtureGrants.get(owner);
+  const existing = held?.get(version);
+  if (existing !== undefined) return existing;
+  const installedContract = withAssertionContract(contract);
+  const { person } = await installSystemSources(owner, installedContract);
+  const other = await registerSystemSource(owner, installedContract, {
+    type: 'plugin', installationKey: 'fixture:other', scope: 'consistency fixture', version: '1', principalUid: person.uid,
+  });
+  const vertices = Object.fromEntries(['probe.opinion', 'probe.keyed', 'probe.referrer', 'code.repository'].map(name => {
+    const kind = contract.vertex.find(kind => kind.name === name);
+    if (kind === undefined) throw new Error(`fixture vertex ${name} is not declared`);
+    return [name, kind.fields.map(field => field.name)];
+  }));
+  const edges = Object.fromEntries(['code.contains', 'probe.referrer-repository'].map(name => {
+    const kind = contract.edge.find(kind => kind.name === name);
+    if (kind === undefined) throw new Error(`fixture edge ${name} is not declared`);
+    return [name, kind.fields.map(field => field.name)];
+  }));
+  const grants = {
+    person: bindGraphProducer(owner, contract, { principal: person.principal, vertices, edges }),
+    other: bindGraphProducer(owner, contract, { principal: other.principal, vertices, edges }),
+  };
+  const versions = held ?? new Map();
+  versions.set(version, grants);
+  fixtureGrants.set(owner, versions);
+  return grants;
+}
+
+function fixtureReadContract(): GraphContract {
+  const read = readKinds(product);
+  if (!read.present) throw new Error('fixture manifest is absent');
+  return withAssertionContract(withManifestContract(graphContractOf(read.manifest)));
+}
+
 /** The findings the fixture plugin stated, as the Problems page reads them. */
 async function findings(): Promise<{ rule: string; subject: string; target: string; cause: string }[]> {
   if (owner === undefined) throw new Error('the store was not opened');
-  const table = generatedTableName('probe.finding', 'vertex');
-  const found = await owner.transaction('snapshot', async (tx) => await tx.query<{ rule: string; subject: string; target: string; cause: string }>(
-    `SELECT o.rule AS rule, o.subject AS subject, o.target AS target, o.cause AS cause FROM ${table} o WHERE o.state = 'open' ORDER BY o.id`,
-  ));
-  return found.rows;
+  return await owner.transaction('snapshot', async tx => {
+    const now = new Date().toISOString();
+    const options = {validAt:now,recordedAt:now,contexts:[1]};
+    const ids = await tx.query<{id:number}>(`SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='probe.finding' AND ${activeExistenceSql('vertex','n',['probe.finding'],options)}`);
+    const fields = ['rule','subject','target','cause'] as const;
+    const assertions = await loadAssertions(tx,'vertex','probe.finding',fields,ids.rows.map(row=>Number(row.id)));
+    return ids.rows.map(row => Object.fromEntries(fields.map(field=>[field,selectAssertions(assertions.filter(a=>a.subjectId===Number(row.id)&&a.property===field),options).selected?.value ?? ''])) as {rule:string;subject:string;target:string;cause:string});
+  });
 }
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-consistency-'));
   const repository = join(root, 'repo');
-  repositoryFolder = repository;
   mkdirSync(join(repository, 'src'), { recursive: true });
   mkdirSync(join(repository, 'docs'), { recursive: true });
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
@@ -180,7 +230,7 @@ beforeAll(async () => {
   expect(declared.manifest.findings).toEqual([]);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
-  owner = await createTestDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ authenticated:false, btreeGist: true, graphContract: graphContractOf(declared.manifest) });
 });
 
 afterAll(async () => {
@@ -196,7 +246,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state, JSON.stringify(run)).toBe('succeeded');
+    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope_key','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
     // The check declares its finding output and uses the ordinary plugin stage.
     expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
     expect(run.units.some((unit) => unit.stageId === 'plugin-turns' && unit.unitId.startsWith('plugin-turns/disk:'))).toBe(true);
@@ -209,209 +259,97 @@ describe('a declared fixture plugin reads consistency records through the host',
     const read = readKinds(product);
     if (!read.present) throw new Error('manifest absent');
     const contract = graphContractOf(read.manifest);
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    const bindings = await fixtureBindings(contract);
+    await owner.transaction('write', async (tx) => { await activateGraphProducer(tx, contract, bindings.person); return await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
       removals: [],
-    }, 1));
+    }, 1); });
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
     const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state, JSON.stringify(run)).toBe('succeeded');
+    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope_key','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
     const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
     expect(found.map((one) => one.target.split(':')[1]).sort()).toEqual(['first', 'second']);
     expect(new Set(found.map((one) => one.target)).size).toBe(2);
   }, 300_000);
 
-  test('one dangling edge and one reference to a missing key are exactly two findings, and a fix clears them', async () => {
+  test('missing parent and dangling edge writes refuse atomically rather than becoming consistency findings (0039.1,2,28)', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
-    if (!read.present) return;
+    if (!read.present) throw new Error('manifest absent');
     const contract = graphContractOf(read.manifest);
-    // Normal withdrawal removes incident edges. Keep one damaged historical edge explicitly for the consistency probe.
-    const damaged = await owner.transaction('snapshot', async (tx) => await tx.query<{
-      entity_id: string; from_node: string; to_node: string; discriminator: string; context_id: string;
-    }>(`SELECT e.entity_id::text, e.from_node::text, e.to_node::text, e.discriminator, e.context_id::text
-        FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
-        WHERE k.name = 'code.contains' AND n.key->>'path' = 'src/a.ts'`));
-    expect(damaged.rows).toHaveLength(1);
-    for (const producer of ['disk', 'git']) {
-      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, producer }, 1))).toBe(true);
-    }
-    await owner.transaction('write', async (tx) => {
-      const edge = damaged.rows[0]!;
-      await tx.query('INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)',
-        [edge.entity_id, edge.from_node, edge.to_node, edge.discriminator, edge.context_id]);
-    });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [{ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
-      removals: [],
-    }, 1));
-    expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
-    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['code.contains']);
-    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
-    const preparedOwner = owner;
-    const alone = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
-    expect(alone.ok).toBe(true);
-    if (!alone.ok) return;
-    expect(alone.state, JSON.stringify(alone)).toBe('succeeded');
-    expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:probe.finding')]);
-    expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion').map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
-    const beforeOutcomes = await readProducerOutcomes(owner, { runId: 'alone' });
-    expect(beforeOutcomes).toEqual(expect.arrayContaining([expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'completed' })]));
-    const snapshot = await owner.transaction('snapshot', async (tx) => await tx.query<{ writes: { kind: string; value: { producer?: string; producerVersion?: string; evidence?: unknown[] } }[] }>(
-      `SELECT d.writes FROM fill_unit_draft d JOIN fill_unit_generation g USING (unit_id, generation)
-       JOIN fill_publication p USING (unit_id, generation) WHERE g.run_id = $1`, ['alone']));
-    const statements = snapshot.rows.flatMap((row) => row.writes).filter((write) => write.kind === 'vertex');
-    expect(statements.length).toBeGreaterThan(0);
-    expect(statements.every((write) => write.value.producer === 'plugin-consistency' && typeof write.value.producerVersion === 'string')).toBe(true);
+    const bindings = await fixtureBindings(contract);
+    const count = () => owner!.transaction('snapshot', async tx => (await tx.query<{count:number}>('SELECT count(*)::int AS count FROM assertion')).rows[0]!.count);
+    const before = await count();
+    await expect(owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await publishGraphDrafts(tx,contract,{vertices:[{kind:'probe.referrer',key:{path:'ghost.ts'},keyEdges:{repository:{kind:'code.repository',key:{name:'ghost'}}},producer:'test',producerVersion:'1'}],removals:[]});})).rejects.toThrow('REQUIRED_PARENT');
+    expect(await count()).toBe(before);
+    await expect(owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'code.contains',from:{kind:'code.repository',key:{name:'repo'}},to:{kind:'code.file',key:{path:'missing.ts'},keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'repo'}}}},producer:'test',producerVersion:'1'}],removals:[]});})).rejects.toThrow('MISSING_ENDPOINT');
+    expect(await count()).toBe(before);
+    expect((await removedEdgeEnds(owner)).rows).toEqual([]);
+  },30_000);
 
-    // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [
-        { kind: 'code.repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
-        { kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
-      ],
-      removals: [],
-    }, 1));
-    writeFileSync(join(repositoryFolder, 'src', 'a.ts'), 'export const a = 2;\n');
-    git(repositoryFolder, 'add', '-A');
-    git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
-    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
-    const fixed = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
-    expect(fixed.ok).toBe(true);
-    if (!fixed.ok) return;
-    expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
-    const afterOutcomes = await readProducerOutcomes(owner, { runId: 'fixed' });
-    const before = beforeOutcomes.find((one) => one.kind === 'probe.finding')!;
-    const after = afterOutcomes.find((one) => one.kind === 'probe.finding')!;
-    expect(after.runId).toBe('fixed');
-    expect(after.unitId).toBe(before.unitId);
-    expect(after.generation).toBeGreaterThan(before.generation);
-    expect(['completed', 'empty']).toContain(after.outcome);
-
-    const unchanged = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
-    expect(unchanged.ok).toBe(true);
-    if (unchanged.ok) expect(unchanged.units).toEqual([]);
-    // Give the remaining check input its missing evidence, then run the scripted producer again.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' },
-        evidence: [{ repository: 'repo', path: 'docs/glossary.md', commit: 'evidenced-input', lineStart: 1, lineEnd: 1 }],
-        producer: 'plugin-consistency', producerVersion: '1.0.0' }], removals: [],
-    }, 1));
-    const clean = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'],
-      targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
-      prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
-    expect(clean.ok).toBe(true);
-    if (!clean.ok) return;
-    expect(clean.state, JSON.stringify(clean)).toBe('succeeded');
-    expect(await findings()).toEqual([]);
-    const cleanOutcomes = await readProducerOutcomes(owner, { runId: 'zero-problems' });
-    expect(cleanOutcomes.filter((one) => one.plugin === 'plugin-consistency')).toEqual([
-      expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'empty', produced: 0 }),
-    ]);
-    expect(cleanOutcomes.filter((one) => one.plugin !== 'plugin-consistency').map(({ plugin, kind, outcome }) => ({ plugin, kind, outcome }))).toEqual([
-      { plugin: 'disk', kind: 'code.directory', outcome: 'unchanged' },
-      { plugin: 'disk', kind: 'code.file', outcome: 'unchanged' },
-      { plugin: 'disk', kind: 'code.repository', outcome: 'unchanged' },
-      { plugin: 'git', kind: 'code.file', outcome: 'unchanged' },
-      { plugin: 'git', kind: 'code.repository', outcome: 'unchanged' },
-    ]);
-    const retained = await readProducerOutcomes(owner, { runId: 'alone' });
-    expect(retained).toEqual(beforeOutcomes);
-
-  }, 300_000);
-  test('a reference leaves the read when its target stands, and the read pages by a cursor', async () => {
+  test('missing-parent refusal leaves no child; declaring the parent admits it, and withdrawing one source preserves another (0039.2,26)', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const read = readKinds(product);
-    if (!read.present) return;
+    const read = readKinds(product); if (!read.present) throw new Error('manifest absent');
     const contract = graphContractOf(read.manifest);
-    const fileVertex = (name: string) => ({ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1));
-    const first = await unresolvedReferences(owner, { limit: 1 });
-    expect(first.rows).toHaveLength(1);
-    expect(first.next).toBeDefined();
-    const second = await unresolvedReferences(owner, { after: first.next, limit: 1 });
-    expect(second.rows).toHaveLength(1);
-    // The target stands now: the row the writer kept is no longer a problem, while the other still is.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'code.repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
-    const after = await unresolvedReferences(owner, { limit: 10 });
-    expect(after.rows.filter((one) => one.target.label.startsWith('page-')).map((one) => one.target.label)).toEqual(['page-b']);
-    await owner.transaction('write', async (tx) => {
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
-      for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b') OR key->>'name' IN ('page-a', 'page-b'))`);
-      await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b')`);
-      await tx.query(`DELETE FROM node WHERE key->>'name' IN ('page-a', 'page-b')`);
+    const bindings = await fixtureBindings(contract);
+    const key = {path:'withdrawn.ts'};
+    const keyEdges = {repository:{kind:'code.repository',key:{name:'withdrawn-parent'}}};
+    const child = {kind:'probe.referrer',key,keyEdges,producer:'test',producerVersion:'1'};
+    await expect(owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await publishGraphDrafts(tx,contract,{vertices:[child],removals:[]});})).rejects.toThrow('REQUIRED_PARENT');
+    const stored = () => owner!.transaction('snapshot',async tx=>(await tx.query("SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='probe.referrer' AND n.key->>'path'='withdrawn.ts'")).rows);
+    expect(await stored()).toEqual([]);
+    await owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await publishGraphDrafts(tx,contract,{vertices:[{kind:'code.repository',key:{name:'withdrawn-parent'},producer:'test',producerVersion:'1'},child],removals:[]});});
+    expect(await stored()).toHaveLength(1);
+    await owner.transaction('write',async tx=>{
+      await activateGraphProducer(tx, contract, bindings.other);
+      await publishGraphDrafts(tx,contract,{vertices:[{...child,producer:'other'}],removals:[]});
     });
-  }, 120_000);
+    expect(await stored()).toHaveLength(1);
+    await owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await removeEntity(tx,contract,{...child},1);});
+    const now = new Date().toISOString();
+    const selected = await owner.transaction('snapshot',async tx=>(await tx.query(`SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='probe.referrer' AND n.key->>'path'='withdrawn.ts' AND ${activeExistenceSql('vertex','n',['probe.referrer'],{validAt:now,recordedAt:now,contexts:[1]})}`)).rows);
+    expect(selected).toHaveLength(1);
+    expect((await removedEdgeEnds(owner)).rows).toEqual([]);
+  },30_000);
 
-  test('a withdrawn referrer no longer yields a missing reference, while another producer still holds it', async () => {
+  test.each(['d1','d2'])('dangling repeated edge %s is refused without retaining unresolved rows (0039.1)', async discriminator => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const read = readKinds(product);
-    if (!read.present) return;
+    const read = readKinds(product); if (!read.present) throw new Error('manifest absent');
     const contract = graphContractOf(read.manifest);
-    const key = { repository: { kind: 'code.repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [
-        { kind: 'probe.referrer', key, values: {}, producer: 'test', producerVersion: '1' },
-        { kind: 'probe.referrer', key, values: {}, producer: 'other', producerVersion: '1' },
-      ],
-      removals: [],
-    }, 1));
-    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'probe.referrer', key, producer: 'test' }, 1));
-    const found = await unresolvedReferences(owner, { limit: 20 });
-    expect(found.rows.filter((one) => one.target.label === 'withdrawn-ghost').map((one) => one.producer)).toEqual(['other@1']);
-    await owner.transaction('write', async (tx) => {
-      for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost')`);
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' = 'withdrawn-ghost'`);
-      await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost'`);
-    });
-  }, 120_000);
-
-  test('two dangling edges of one kind and one target carry their discriminator and row id', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const read = readKinds(product);
-    if (!read.present) return;
-    const contract = graphContractOf(read.manifest);
-    const edge = (discriminator: string) => ({
-      kind: 'code.contains',
-      from: { kind: 'code.directory', key: { repository: 'repo', path: 'src' } },
-      to: { kind: 'code.file', key: { repository: 'edge-ghost', path: 'e.ts' } },
-      discriminator,
-      producer: 'test', producerVersion: '1',
-    });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], edges: [edge('d1'), edge('d2')], removals: [] }, 1));
-    const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'code.contains' && one.target.key['repository'] === 'edge-ghost');
-    expect(found.map((one) => one.edge?.discriminator).sort()).toEqual(['d1', 'd2']);
-    expect(new Set(found.map((one) => one.id)).size).toBe(2);
-    await owner.transaction('write', async (tx) => await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.file' AND target_key->>'repository' = 'edge-ghost'`));
-  }, 120_000);
+    const bindings = await fixtureBindings(contract);
+    const before = await owner.transaction('snapshot',async tx=>(await tx.query('SELECT * FROM assertion ORDER BY recorded_sequence')).rows);
+    await expect(owner.transaction('write',async tx=>{await activateGraphProducer(tx, contract, bindings.person);return await publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'code.contains',from:{kind:'code.repository',key:{name:'repo'}},to:{kind:'code.file',key:{path:'e.ts'},keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'edge-ghost'}}}},discriminator,producer:'test',producerVersion:'1'}],removals:[]});})).rejects.toThrow('MISSING_ENDPOINT');
+    expect(await owner.transaction('snapshot',async tx=>(await tx.query('SELECT * FROM assertion ORDER BY recorded_sequence')).rows)).toEqual(before);
+  },30_000);
 
   test('an opinion with two evidence-required fields is two pages at limit one, and every key field is emitted', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    const bindings = await fixtureBindings(contract);
+    await owner.transaction('write', async (tx) => { await activateGraphProducer(tx, contract, bindings.person); return await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'probe.opinion', key: { id: 'paged' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' },
         { kind: 'probe.keyed', key: { id: 'keyed', title: 'the title' }, values: {}, producer: 'plugin-consistency', producerVersion: '1.0.0' },
       ],
       removals: [],
-    }, 1));
+    }, 1); });
     const opinion = { kind: 'probe.opinion', table: generatedTableName('probe.opinion', 'vertex'), producer: 'plugin-consistency', fields: ['first', 'second'], key: ['id'] };
-    const first = await unevidencedOpinions(owner, [opinion], { limit: 1 });
+    const first = await unevidencedAssertions(owner, [opinion], { limit: 1 });
     expect(first.rows.map((one) => one.field)).toEqual(['first']);
     expect(first.next).toBeDefined();
-    const second = await unevidencedOpinions(owner, [opinion], { after: first.next, limit: 1 });
+    const second = await unevidencedAssertions(owner, [opinion], { after: first.next, limit: 1 });
     expect(second.rows.map((one) => one.field)).toEqual(['second']);
-    const keyed = await unevidencedOpinions(owner, [{ kind: 'probe.keyed', table: generatedTableName('probe.keyed', 'vertex'), producer: 'plugin-consistency', fields: ['id', 'title'], key: ['id', 'title'] }], { limit: 10 });
-    expect(keyed.rows.map((one) => one.field)).toEqual(['id', 'title']);
-    await owner.transaction('write', async (tx) => {
-      await tx.query(`DELETE FROM ${opinion.table} WHERE node_id IN (SELECT id FROM node WHERE key->>'id' = 'paged')`);
-      await tx.query(`DELETE FROM ${generatedTableName('probe.keyed', 'vertex')} WHERE node_id IN (SELECT id FROM node WHERE key->>'id' = 'keyed')`);
-      await tx.query(`DELETE FROM node WHERE key->>'id' IN ('paged', 'keyed')`);
+    const keyed = await unevidencedAssertions(owner, [{ kind: 'probe.keyed', table: generatedTableName('probe.keyed', 'vertex'), producer: 'plugin-consistency', fields: ['id', 'title'], key: ['id', 'title'] }], { limit: 10 });
+    expect(keyed.rows).toEqual([]); // Immutable key fields have no source assertions to evidence.
+    await owner.transaction('write', async tx => {
+      await activateGraphProducer(tx, contract, bindings.person);
+      await removeEntity(tx,contract,{kind:'probe.opinion',key:{id:'paged'},producer:'plugin-consistency'});
+      await removeEntity(tx,contract,{kind:'probe.keyed',key:{id:'keyed',title:'the title'},producer:'plugin-consistency'});
     });
   }, 120_000);
 

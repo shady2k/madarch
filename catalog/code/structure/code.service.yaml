@@ -22,7 +22,6 @@ template-policy: page
 source: graph
 details:
 - language
-- frameworks
 - infrastructure
 - testFramework
 fields:
@@ -33,17 +32,12 @@ fields:
     ru: Имя
   binding:
     agent: The name the people who run the product give this service, such as madarch or billing-api; it is the service's key.
-- name: repository
-  type: json
-  nullable: true
-  reference: code.repository
-  binding:
-    agent: The repository whose folder holds the service, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
-    agent: The folder inside the repository where the service stands, as the folder entity holds it in the graph.
+    agent: The folder inside the repository where the service stands, as the folder
+      entity holds it in the graph.
 - name: language
   type: text
   nullable: true
@@ -51,6 +45,9 @@ fields:
     agent: The language most of the service is written in, from its files in the graph.
 - name: frameworks
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The frameworks the service is built with, from the packages it imports in the graph.
@@ -58,12 +55,15 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: What runs the service, from the images, deployments and processes that carry it in the graph.
+    agent: What runs the service, from the images, deployments and processes that
+      carry it in the graph.
 - name: purpose
   type: text
   nullable: true
   binding:
-    agent: What the service answers for, in one or two sentences, from its modules, the operations and channels it serves and the documents that mention it in the graph.
+    agent: What the service answers for, in one or two sentences, from its modules,
+      the operations and channels it serves and the documents that mention it in the
+      graph.
 key:
 - name
 derives-from:

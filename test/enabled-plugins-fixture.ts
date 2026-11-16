@@ -61,6 +61,11 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
   // and a kind left with no producer is an abnormal state the fill reports as an error (madarch-64o5.60). A kind whose
   // fields people author stays: the manifest names a person as its producer.
   let filled = new Set<string>();
+  for(const plugin of kept){
+    const definition=join(folder,'plugins',plugin.id,'plugin.json');
+    const declared=JSON.parse(readFileSync(definition,'utf8')) as {produces?:{kind:string}[]};
+    for(const output of declared.produces??[]) filled.add(output.kind);
+  }
   for (const plugin of kept) {
     for (const kind of plugin.outputs ?? []) filled.add(kind);
     const contract = join(folder, 'plugins', plugin.id, 'contract.json');
@@ -88,6 +93,12 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     for (const id of dropped) for (const plugin of kept) if (plugin.id === id) for (const kind of plugin.outputs ?? []) if (!gone.has(kind)) { gone.add(kind); changed = true; }
   }
   filled.clear();
+  for(const plugin of kept){
+    if(dropped.has(plugin.id))continue;
+    const definition=join(folder,'plugins',plugin.id,'plugin.json');
+    const declared=JSON.parse(readFileSync(definition,'utf8')) as {produces?:{kind:string}[]};
+    for(const output of declared.produces??[]) filled.add(output.kind);
+  }
   for (const plugin of kept) {
     if (dropped.has(plugin.id)) continue;
     for (const kind of plugin.outputs ?? []) filled.add(kind);
@@ -129,6 +140,7 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     }
   }
   for (const name of gone) manifest.deleteIn(['kinds', name]);
+  for(const [id,binding] of Object.entries(body['semantic-bindings']??{}) as [string,{kind:string}][]) if(gone.has(binding.kind)) manifest.deleteIn(['semantic-bindings',id]);
   // An edge whose end left with its kinds leaves too: a relation names kinds the manifest declares.
   const edges = (body.edges ?? []) as { from: string[]; to: string[] }[];
   manifest.set('edges', edges.filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || !gone.has(name))));

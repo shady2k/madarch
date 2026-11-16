@@ -20,6 +20,7 @@ import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } 
 import { unimplementedRuleNotes } from './rules.js';
 import { entityAddress } from '../knowledge/addresses.js';
 import { graphProblemTasks } from '../loop/graph.js';
+import { problemFingerprint } from '../loop/problem-task.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -59,7 +60,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   const notes: ProblemNote[] = [];
   const drafts: ProblemDraft[] = [];
   try {
-    const snapshot = await readCodeSnapshot(input.graph);
+    const snapshot = await readCodeSnapshot(input.graph, input.manifest);
     const judged = evaluateCode(snapshot, input.settings);
     drafts.push(...judged.problems);
     notes.push(...judged.notes);
@@ -104,7 +105,12 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   });
   // «Создать задачу» already opened a task for some of these problems: each row links to its task instead of offering a
   // second one (madarch-64o5.104). A task of a problem the page no longer lists is not linked, and is not judged here.
-  const tasks = await graphProblemTasks(input.graph);
+  const taskProblems = await Promise.all(listing.problems.map(async (problem) => {
+    const targets = typeof problem.entity?.key !== 'string' ? [] : await input.graph.find(problem.entity.key);
+    if (targets.length > 1 || (targets[0] !== undefined && targets[0].uid === undefined)) throw new Error(`${input.manifest.file}:1: problem ${problem.rule} requires an unambiguous graph target UID`);
+    return { id: problem.id, rule: problem.rule, fingerprint: problemFingerprint(problem, targets[0]?.uid ?? null) };
+  }));
+  const tasks = await graphProblemTasks(input.graph, input.manifest, taskProblems);
   const problems = tasks.size === 0 ? listing.problems : listing.problems.map((problem) => {
     const task = tasks.get(problem.id);
     return task === undefined ? problem : { ...problem, task: { label: task.title, href: task.href, key: `task:${task.uid}` } };

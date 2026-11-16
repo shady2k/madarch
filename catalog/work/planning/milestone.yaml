@@ -22,16 +22,16 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the product gives the dated point, such as Version 1.0; it is the milestone's key.
+    agent: The name the product gives the dated point, such as Version 1.0; it is
+      the milestone's key.
 - name: target_date
   type: timestamp
   nullable: true
   binding:
     agent: The date the milestone is planned to be reached.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Where the milestone stands, as the work kinds keep it.
 - name: criterion

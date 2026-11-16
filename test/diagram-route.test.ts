@@ -12,7 +12,6 @@ import type { DiagramNeighbourhood } from '../src/graph/graphql-read.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import { callProductTool } from '../src/mcp/authored.js';
-import type { WriteSource } from '../src/graph/graph-writes.js';
 
 /** One entity of the stub graph: a repository and two files that contain edges reach. */
 function entity(uid: string, kind: string): Record<string, unknown> {
@@ -163,8 +162,7 @@ test('an entity the graph does not hold is refused', async () => {
 });
 
 test('the MCP tool answers through the same function', async () => {
-  const source: WriteSource = { producer: 'test', version: '1' } as unknown as WriteSource;
-  const answer = await callProductTool(product, source, 'render_diagram', { entity: '1', format: 'mermaid' });
+  const answer = await callProductTool(product, { producer: 'test-reader', version: '1' }, 'render_diagram', { entity: '1', format: 'mermaid' });
   expect(answer.isError).toBe(false);
   const held = answer.answer as { format: string; source: string };
   expect(held.format).toBe('mermaid');
@@ -295,7 +293,7 @@ test('read budgets default to thirty seconds and accept server or environment se
   const part = createKnowledgePart({ json: (status: number, body: unknown) => Response.json(body, { status }), refused: (status: number, error: unknown) => ({ response: Response.json({ error }, { status }) }), errorLog: () => undefined }, held, () => [], {});
   const route = await part.diagram(new Request('http://localhost/render/diagram?entity=1&format=mermaid&depth=2'));
   expect(route.response.status).toBe(400);
-  const mcp = await callProductTool(held, {} as WriteSource, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
+  const mcp = await callProductTool(held, { producer: 'test-reader', version: '1' }, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
   expect(mcp.isError).toBe(true);
   expect(reads).toBe(0);
 });

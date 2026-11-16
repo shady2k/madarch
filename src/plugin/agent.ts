@@ -1,8 +1,10 @@
 /** Host-side ACP agent bridge: graph-only reads, explicit writes and validated extraction results. */
+import { createHash } from 'node:crypto';
 import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
+import { Type, type Static } from 'typebox';
 import { englishOnly } from './english-task.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
@@ -12,8 +14,12 @@ import { withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
 import { UnitBoundStop } from '../fill/unit-bound.js';
 import type { GraphAnswerer } from './host.js';
-import { PluginUnitResult, type PluginContractDeclaration } from './protocol.js';
+import { PluginUnitResult, PluginFactsApplyRequest, type PluginContractDeclaration } from './protocol.js';
+
 import { canonicalKey, validateUnitResult } from './results.js';
+
+const AgentExtraction = Type.Object({ ...PluginUnitResult.properties, ...PluginFactsApplyRequest.properties.operation.properties }, { additionalProperties: false });
+type AgentExtraction = Static<typeof AgentExtraction>;
 
 const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
 
@@ -45,6 +51,7 @@ export interface PluginAgentOptions {
   readonly connect: (spec: AcpAgentSpec, options: ConnectAcpOptions) => Promise<PluginAgentConnection>;
   /** A catalogue agent's contract, derived by the host from the product's bound kinds. */
   readonly outputs?: PluginContractDeclaration;
+  readonly evidenceContracts?: readonly Pick<import('../graph/contract.js').VertexContract, 'name' | 'evidence'>[];
   /** Host-owned meter for this plugin unit; task text cannot choose its kind or field. */
   readonly meter?: AgentMeter;
   /**
@@ -81,14 +88,14 @@ export class PluginAgentBridge {
   private closed = false;
   constructor(private readonly part: AgentPart, private readonly options: PluginAgentOptions, private readonly graph: GraphAnswerer, private readonly outputs: PluginContractDeclaration) {}
 
-  async run(unitId: string, task: unknown): Promise<PluginUnitResult> {
+  async run(unitId: string, task: unknown): Promise<AgentExtraction> {
     if (this.closed) throw new Error(`${WHERE}: the plugin agent bridge is closed`);
     if (this.activeUnits.has(unitId)) throw new Error(`${WHERE}: unit ${unitId} already has an agent turn`);
     return await withSpan('plugin.agent.run', { 'madarch.plugin.unit': unitId, 'madarch.agent': this.options.adapter.id }, async (span) => {
       const files = await this.graph.files('**/*');
       const byPath = new Map<string, (typeof files)[number]>();
       for (const file of files) {
-        const repository = file.key['repository'];
+        const repository = file.keyEdges?.['code.file-repository']?.key['name'];
         const path = file.key['path'];
         if (typeof repository !== 'string' || typeof path !== 'string') continue;
         const name = virtualPath(`${repository}/${path}`);
@@ -118,7 +125,7 @@ export class PluginAgentBridge {
               const name = virtualPath(params.path);
               const file = byPath.get(name);
               if (file === undefined) throw new Error(`${WHERE}: graph read denied for ${name}`);
-              const content = await this.graph.value(file.kind, file.key, 'content');
+              const content = await this.graph.value(file.kind, file.key, 'content', file.keyEdges);
               if (typeof content !== 'string') throw new Error(`${WHERE}: graph file ${name} has no text content`);
               log.debug('plugin agent file read', { unitId, path: name });
               const lines = content.split('\n');
@@ -215,8 +222,8 @@ export class PluginAgentBridge {
         }
         const dropped: { where: string; reason: string }[] = [];
         const keeps = async (name: 'vertices' | 'edges', entry: unknown, index: number): Promise<boolean> => {
-          const single = { unitId, vertices: name === 'vertices' ? [entry] : [], edges: name === 'edges' ? [entry] : [], end: { state: 'complete' as const } };
-          if (!Value.Check(PluginUnitResult, single)) {
+          const single: unknown = { unitId, vertices: name === 'vertices' ? [entry] : [], edges: name === 'edges' ? [entry] : [], end: { state: 'complete' as const } };
+          if (!Value.Check(AgentExtraction, single)) {
             dropped.push({ where: `${name}[${String(index)}]`, reason: `it is no ${name === 'vertices' ? 'vertex' : 'edge'} of the protocol` });
             return false;
           }
@@ -230,26 +237,20 @@ export class PluginAgentBridge {
             dropped.push({ where: `${name}[${String(index)}]`, reason });
             return false;
           }
-          const evidence = (entry as { evidence?: { repository?: unknown; path?: unknown; lineStart?: unknown; lineEnd?: unknown } }).evidence;
-          // A path the graph cannot name ("docs/../a.md", an absolute one, a backslash) refuses only its own entry: the
-          // entries beside it stand (owner's rule, 2026-11-15).
-          let named: string | undefined;
-          try {
-            named = typeof evidence?.repository === 'string' && typeof evidence.path === 'string' ? virtualPath(`${evidence.repository}/${evidence.path}`) : undefined;
-          } catch {
-            named = undefined;
-          }
-          const reason = typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined
-            ? 'it names no graph file and line range as its evidence'
-            : named === undefined || byPath.get(named) === undefined
-              ? `its evidence ${JSON.stringify(`${evidence.repository}/${evidence.path}`)} is no file of the graph`
+          const evidence = (entry as { evidence?: import('./protocol.js').PluginEvidence }).evidence;
+          const declaration = evidence === undefined ? undefined : this.options.evidenceContracts?.find(kind => kind.name === evidence.target.kind && kind.evidence?.immutable === true);
+          const descriptor = declaration?.evidence;
+          let content: unknown;
+          if (evidence !== undefined && descriptor?.contentField !== undefined) content = await this.graph.value(evidence.target.kind, evidence.target.key, descriptor.contentField, evidence.target.keyEdges);
+          const reason = evidence === undefined || descriptor === undefined || typeof content !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined
+            ? 'it names no declared immutable graph content and line range as its evidence'
+            : descriptor.digestField !== undefined && evidence.target.key[descriptor.digestField] !== createHash('sha256').update(content).digest('hex')
+              ? 'its immutable evidence digest does not match the graph content'
               : undefined;
           if (reason !== undefined) {
             dropped.push({ where: `${name}[${String(index)}]`, reason });
             return false;
           }
-          const file = byPath.get(named!)!;
-          const content = await this.graph.value(file.kind, file.key, 'content');
           const start = evidence!.lineStart as number;
           const end = evidence!.lineEnd as number;
           if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) {
@@ -290,8 +291,8 @@ export class PluginAgentBridge {
           ? agentEnd ?? { state: 'complete' }
           : { state: 'partial', cause: agentEnd?.state === 'partial' && typeof agentEnd.cause === 'string' ? `${agentEnd.cause}; ${droppedText}` : droppedText };
         const candidate = { ...envelope, unitId, vertices, edges, end };
-        const result = Value.Check(PluginUnitResult, candidate) ? candidate : { unitId, vertices, edges, end };
-        if (!Value.Check(PluginUnitResult, result)) throw unusable(`invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
+        const result: unknown = Value.Check(AgentExtraction, candidate) ? candidate : { unitId, vertices, edges, end };
+        if (!Value.Check(AgentExtraction, result)) throw unusable(`invalid agent result: ${[...Value.Errors(AgentExtraction, result)][0]?.message}`);
         const whole = validateUnitResult(this.outputs, result);
         if (!whole.ok) throw unusable(whole.refusal.message);
         if (dropped.length > 0) log.warn('plugin agent entries left out', { unitId, leftOut: dropped.length, of: `${String(vertices.length + dropped.length)} vertices and edges` });

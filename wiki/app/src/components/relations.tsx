@@ -82,12 +82,12 @@ export function RelationsSection({ context }: { readonly context: SectionContext
             const previous = cursors.current[page - 1];
             context.reload({ [`${context.section.id}_after`]: previous ?? null });
             setPage(page - 1);
-          }}>←</Button>
+          }}>{t('common.previousSymbol')}</Button>
           <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => {
             cursors.current = [...cursors.current.slice(0, page + 1), next.cursor];
             context.reload({ [`${context.section.id}_after`]: next.cursor ?? null });
             setPage(page + 1);
-          }}>→</Button>
+          }}>{t('common.nextSymbol')}</Button>
         </PaginationBar>
       ) : null}
     </>

@@ -19,13 +19,8 @@ details:
 - ordinal
 - path
 fields:
-- name: repository
-  type: json
-  reference: code.repository
-  binding:
-    agent: The repository the migration stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -35,9 +30,9 @@ fields:
   type: integer
   nullable: true
   binding:
-    agent: Where the migration stands in the order the schema changes are applied, lowest first.
+    agent: Where the migration stands in the order the schema changes are applied,
+      lowest first.
 key:
-- repository
 - path
 derives-from:
 - code.file
@@ -52,3 +47,8 @@ labels:
 description:
   en: A migration is a scripted change to a database's structure or data, such as adding a table or renaming a column. Migrations run in a fixed order, so any database can be brought to the same version.
   ru: 'Миграция — изменение устройства или данных базы, записанное сценарием: добавить таблицу или переименовать столбец. Миграции выполняют в определённом порядке, поэтому любую базу можно привести к одной версии.'
+
+key-edges:
+- role: code.migration-repository
+  edge: code.migration-repository
+  side: from

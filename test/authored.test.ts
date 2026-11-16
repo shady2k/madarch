@@ -1,59 +1,62 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { activateGraphProducer, bindGraphProducer, producerIdentityOf, type ProducerBinding } from '../src/graph/producer-binding.js';
+import { installAgentSession, personBinding } from '../src/graph/system-installation.js';
 import { AuthoredRefusal, authoredEntity, shortestUid } from '../src/graph/authored.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
+import { withSystemContract } from '../src/graph/system-contract.js';
+import { validateValueContracts } from '../src/graph/value-validation.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner;
+let person: ProducerBinding;
 const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/catalog.yaml', '/tmp'), kinds: new Map([
   ['note', { name: 'note', template: 'note.liquid', source: 'graph', origin: 'person', title: 'title', relations: [], line: 1, fields: [
     { name: 'title', type: 'text' }, { name: 'count', type: 'integer', nullable: true }, { name: 'flag', type: 'boolean', nullable: true },
   ] }],
   ['derived', { name: 'derived', template: 'derived.liquid', source: 'graph', origin: 'agent', title: 'title', relations: [], line: 2 }],
-  ['link', { name: 'link', template: 'link.liquid', source: 'graph', origin: 'person', title: 'target', relations: [], line: 3,
-    fields: [{ name: 'target', type: 'json', reference: 'note' }],
-  }],
 ]) };
-const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader <reader@example.invalid>', action, 'note', args));
-beforeAll(async () => { owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) }); await createOneGraphSchema(owner, graphContractOf(manifest)); });
+const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, action, 'note', args));
+beforeAll(async () => { owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest), authenticated: false }); await createOneGraphSchema(owner, graphContractOf(manifest)); person = await personBinding(owner, graphContractOf(manifest)); });
 afterAll(async () => { await owner.close(); });
 
 test('random authored identities preserve opinions, exact words and withdrawal history', async () => {
   const words = '  Original request\r\nwith original whitespace.  ';
   const made = (await call('create', { values: { title: 'A note', count: 3 }, words })).entity!;
-  expect(made.uid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+  expect(made.uid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
   expect((await call('read', { uid: made.id })).entity!.values).toEqual({ title: 'A note', count: 3, flag: null });
   const edited = (await call('edit', { uid: made.uid, values: { title: 'Changed', flag: true }, words: 'edit precisely' })).entity!;
   expect(edited.uid).toBe(made.uid);
   expect(made.id).toMatch(/^fixture-[0-9a-f]+$/u);
   expect(edited.values).toEqual({ title: 'Changed', count: 3, flag: true });
-  await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Other reader', 'delete', 'note', { uid: made.uid, words: 'withdraw precisely' }));
+  await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'delete', 'note', { uid: made.uid, words: 'withdraw precisely' }));
   expect((await call('list')).entities).toEqual([]);
   await expect(call('read', { uid: made.uid })).rejects.toThrow('entity not found');
-  const operations = await owner.run((tx) => tx.query<{ author: string; words: string }>('SELECT author, words FROM operation ORDER BY seq'));
-  expect(operations.rows).toEqual([
-    { author: 'Reader <reader@example.invalid>', words },
-    { author: 'Reader <reader@example.invalid>', words: 'edit precisely' },
-    { author: 'Other reader', words: 'withdraw precisely' },
+  const wordsHistory = await owner.run(tx => loadAssertions(tx, 'vertex', 'system.operation', ['words']));
+  expect(wordsHistory.map(row => row.value)).toEqual([words, 'edit precisely', 'withdraw precisely']);
+  const history = await owner.run(tx => loadAssertions(tx, 'vertex', 'note', ['title']));
+  const source = producerIdentityOf(person);
+  expect(history.filter(row => row.subject.type === 'vertex' && row.subject.uid === made.uid).map(row => ({ source: row.source, value: row.value }))).toEqual([
+    { source: source.sourceUid, value: 'A note' }, { source: source.sourceUid, value: 'Changed' }, { source: source.sourceUid, value: null },
   ]);
-  const history = await owner.run((tx) => tx.query<{ removed: boolean }>('SELECT removed FROM node WHERE uid = $1::uuid', [made.uid]));
-  expect(history.rows[0]!.removed).toBe(true);
 });
 
 test('fields reject missing, undeclared and incorrectly typed values without publishing', async () => {
   for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'text'], [{ title: 'OK', count: 1.5 }, 'integer'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
     await expect(call('create', { values })).rejects.toThrow(message);
   }
-  await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, '', 'Reader', 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');
+  await expect(owner.transaction('write', async (tx) => authoredEntity(tx, manifest, '', person, 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');
   expect((await call('list')).entities).toEqual([]);
 });
 
 test('another person clears a nullable value while retaining the displayed fields', async () => {
   const made = (await call('create', { values: { title: 'Keep the title', count: 9 } })).entity!;
-  const changed = await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'person:another-reader', 'edit', 'note', { uid: made.uid, values: { count: null }, words: 'Clear the count' }));
+  const changed = await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'edit', 'note', { uid: made.uid, values: { count: null }, words: 'Clear the count' }));
   expect(changed.entity!.values).toEqual({ title: 'Keep the title', count: null, flag: null });
   expect((await call('read', { uid: made.uid })).entity!.values).toEqual(changed.entity!.values);
   await call('delete', { uid: made.uid });
@@ -65,14 +68,11 @@ test('prefixes distinguish colliding and withdrawn graph identities', () => {
 
 
 test('withdrawn identities keep old prefixes ambiguous within their kind', async () => {
-  const first = (await call('create', { values: { title: 'First collision' } })).entity!;
-  const second = (await call('create', { values: { title: 'Second collision' } })).entity!;
-  const prior = await owner.run((tx) => tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'note'"));
-  const prefix = [...'0123456789abcdef'].find((digit) => prior.rows.every(({ uid }) => !uid.startsWith(digit)))!;
-  const uids = [`${prefix}0000000-0000-4000-8000-000000000000`, `${prefix}b000000-0000-4000-8000-000000000000`];
-  await owner.transaction('write', async (tx) => {
-    await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [first.uid, uids[0]]);
-    await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [second.uid, uids[1]]);
+  const uids = ['f0000000-0000-4000-8000-000000000000', 'fb000000-0000-4000-8000-000000000000'];
+  const prefix = 'f';
+  await owner.transaction('write', async tx => {
+    await activateGraphProducer(tx, graphContractOf(manifest), person);
+    await publishGraphDrafts(tx, graphContractOf(manifest), { vertices: uids.map((uid, index) => ({ kind: 'note', uid, key: {}, values: { title: `Collision ${index}` }, producer: person.producer, producerVersion: person.version })), removals: [] });
   });
   await call('delete', { uid: uids[0] });
   await expect(call('read', { uid: `fixture-${prefix}` })).rejects.toThrow(`ambiguous prefix: ${uids.map((uid) => `fixture-${uid.replaceAll('-', '')}`).join(', ')}`);
@@ -81,13 +81,13 @@ test('withdrawn identities keep old prefixes ambiguous within their kind', async
   await call('delete', { uid: uids[1] });
 });
 
-test('reference fields require the declared kind and an object key on create and edit', async () => {
-  const link = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6]) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader', action, 'link', args));
-  const made = (await link('create', { values: { target: { kind: 'note', key: {} } } })).entity!;
-  for (const target of [{ kind: 'wrong', key: {} }, { kind: 'note', key: null }, { kind: 'note', key: [] }, { kind: 'note', key: 'bad' }]) {
-    await expect(link('create', { values: { target } })).rejects.toThrow('field "target": expected a reference to note');
-    await expect(link('edit', { uid: made.uid, values: { target } })).rejects.toThrow('field "target": expected a reference to note');
-  }
+test('entity identities in structured values are refused by the contract, not stored as scalar references', () => {
+  const contract = graphContractOf(manifest);
+  expect(() => validateValueContracts({ ...contract, vertex: [...contract.vertex, {
+    name: 'invalid-link', table: 'invalid_link', capability: 'fixture', key: [], fields: [{ name: 'target', type: 'json', schema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { kind: { const: 'note' }, key: { type: 'object', additionalProperties: false } }, required: ['kind', 'key'], additionalProperties: false,
+    } }],
+  }] })).toThrow('entity identity belongs in graph references');
 });
 
 test('revision rejects changed fields but merges unchanged fields against complete closed history', async () => {
@@ -95,7 +95,7 @@ test('revision rejects changed fields but merges unchanged fields against comple
   expect(made.revision).toMatch(/^[0-9]+$/u);
   const changed = (await call('edit', { uid: made.uid, values: { title: 'Changed by first reader' }, ifRevision: made.revision })).entity!;
   expect(BigInt(changed.revision)).toBeGreaterThan(BigInt(made.revision));
-  const merged = (await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Second reader', 'edit', 'note', {
+  const merged = (await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'edit', 'note', {
     uid: made.uid, values: { count: 2 }, ifRevision: made.revision,
   }))).entity!;
   expect(merged.values).toEqual({ title: 'Changed by first reader', count: 2, flag: null });
@@ -106,7 +106,7 @@ test('revision rejects changed fields but merges unchanged fields against comple
     expect(error).toBeInstanceOf(AuthoredRefusal);
     const refusal = error as AuthoredRefusal;
     expect(refusal.status).toBe(412);
-    expect(refusal.conflict).toEqual({ field: 'title', current: 'Changed by first reader', author: 'Reader <reader@example.invalid>' });
+    expect(refusal.conflict).toEqual({ field: 'title', current: 'Changed by first reader', author: producerIdentityOf(person).principalUid });
   }
   await call('edit', { uid: made.uid, values: { title: 'Baseline' }, ifRevision: merged.revision });
   await expect(call('edit', { uid: made.uid, values: { title: 'Stale after restoration' }, ifRevision: made.revision })).rejects.toThrow('changed since revision');
@@ -128,7 +128,7 @@ test('conditional deletes reject every intervening change and invalid revisions 
   const unrelated = (await call('create', { values: { title: 'Different revision owner' } })).entity!;
   await call('edit', { uid: made.uid, values: { count: 2 } });
   const current = (await call('edit', { uid: made.uid, values: { count: 1 } })).entity!;
-  const before = await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'));
+  const before = await owner.run((tx) => tx.query('SELECT * FROM assertion ORDER BY recorded_sequence'));
   for (const ifRevision of [made.revision, '0', 'malformed', '999999999999999999999999', unrelated.revision]) {
     try {
       await call('delete', { uid: made.uid, ifRevision, words: 'Must not be recorded' });
@@ -138,9 +138,23 @@ test('conditional deletes reject every intervening change and invalid revisions 
       expect((error as AuthoredRefusal).status).toBe(412);
     }
     expect((await call('read', { uid: made.uid })).entity).toEqual(current);
-    expect((await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'))).rows).toEqual(before.rows);
+    expect((await owner.run((tx) => tx.query('SELECT * FROM assertion ORDER BY recorded_sequence'))).rows).toEqual(before.rows);
   }
   expect((await call('delete', { uid: made.uid, ifRevision: current.revision })).entity!.uid).toBe(made.uid);
   await expect(call('read', { uid: made.uid })).rejects.toThrow('entity was deleted');
   await call('delete', { uid: unrelated.uid });
+});
+
+
+test('authored mutations reject absent, forged and non-person host bindings', async () => {
+  const before = await owner.run((tx) => tx.query('SELECT * FROM assertion ORDER BY recorded_sequence'));
+  for (const binding of [undefined, { producer: 'person:forged', version: '1' } as ProducerBinding]) {
+    await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', binding, 'create', 'note', { values: { title: 'Refused' } }))).rejects.toThrow(binding === undefined ? 'AUTH_REQUIRED' : 'host-issued');
+  }
+  expect((await owner.run((tx) => tx.query('SELECT * FROM assertion ORDER BY recorded_sequence'))).rows).toEqual(before.rows);
+  const contract = graphContractOf(manifest);
+  const installed = await installAgentSession(owner, withSystemContract(contract), 'authored-refusal');
+  const agent = bindGraphProducer(owner, contract, { principal: installed.principal, vertices: { note: ['title', 'count', 'flag'] }, edges: {} });
+  await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', agent, 'create', 'note', { values: { title: 'Refused' } }))).rejects.toThrow('person principal');
+  expect((await owner.transaction('snapshot', (tx) => authoredEntity(tx, manifest, 'fixture', undefined, 'schema', 'note'))).kind).toBe('note');
 });

@@ -10,7 +10,9 @@
  */
 import { join } from 'node:path';
 import { PluginHost, type GraphAnswerer, type HostLimits, type UnitOutcome } from './host.js';
-import type { PluginContractDeclaration, PluginUnitRequest } from './protocol.js';
+import { PluginFactsApplyRequest, type PluginContractDeclaration, type PluginUnitRequest } from './protocol.js';
+import { Value } from 'typebox/value';
+import { validateUnitResult } from './results.js';
 import { byCodePoint } from '../model/order.js';
 import { readPluginManifest } from './closure.js';
 import type { PluginAgentOptions } from './agent.js';
@@ -73,7 +75,7 @@ export function probeUnit(contract: PluginContractDeclaration, unitId = 'conform
 export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
   if (outcome.state === 'extracted') {
     const end = outcome.result.end.state === 'complete' ? 'complete' : `partial (${outcome.result.end.cause})`;
-    return { ok: true, text: `unit ${outcome.unitId}: extracted ${String(outcome.result.vertices.length)} vertices and ${String(outcome.result.edges.length)} edges, ${end}, ${String(outcome.durationMs)} ms${outcome.result.removalsDropped === 0 ? '' : `, ${String(outcome.result.removalsDropped)} removals dropped for a partial unit`}` };
+    return { ok: true, text: `unit ${outcome.unitId}: ${end}, ${String(outcome.durationMs)} ms` };
   }
   return { ok: false, text: `unit ${outcome.unitId}: not extracted, ${outcome.cause.code}: ${outcome.cause.message}${outcome.stderr.file === '' ? '' : ` (log ${outcome.stderr.file})`}` };
 }
@@ -113,6 +115,7 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
   let session;
   try {
     const agent = options.agent ?? (readPluginManifest(options.pluginFolder).agent?.catalogue === true ? catalogueAgent() : undefined);
+    let declaration: PluginContractDeclaration | undefined;
     const host = new PluginHost({
       ...(agent === undefined ? {} : { agent: { ...agent, onSession: (report) => {
         agent.onSession?.(report);
@@ -127,9 +130,18 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
       ...(options.cgroupParent === undefined ? {} : { cgroupParent: options.cgroupParent }),
       ...(options.platform === undefined ? {} : { platform: options.platform }),
       ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }),
+
+      operations: { apply: async (unitId, key, operation, preconditions, contractVersion) => {
+        if (!Value.Check(PluginFactsApplyRequest, { unitId, key, operation, ...(preconditions === undefined ? {} : { preconditions }), ...(contractVersion === undefined ? {} : { contractVersion }) })) throw new Error('conformance facts.apply has malformed parameters');
+        if (declaration === undefined) throw new Error('conformance facts.apply precedes the introduction');
+        const checked = validateUnitResult(declaration, { unitId, ...(operation as import('./protocol.js').PluginFactsApplyRequest['operation']), end: { state: 'complete' } });
+        if (!checked.ok) throw new Error(checked.refusal.message);
+        return { validation: true, key };
+      } },
       graph: options.graph ?? EMPTY_GRAPH,
     });
     session = await host.open();
+    declaration = session.declared.outputs;
   } catch (error) {
     const failed = error as Error & { code?: string; file?: string; line?: number };
     lines.push({ ok: false, text: `introduction: ${failed.code ?? 'failed'}: ${failed.message}` });

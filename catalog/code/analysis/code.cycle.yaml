@@ -24,18 +24,12 @@ fields:
   nullable: true
   binding:
     agent: 'Whether the ring stands between folders, modules or services: file, module or service.'
-- name: members
-  type: json
-  binding:
-    agent: The files or modules in the ring, by their keys in the graph, in code point order so the same ring always reads the same.
 - name: size
   type: integer
   nullable: true
   binding:
     agent: How many members the ring holds, from the edges between them.
-key:
-- level
-- members
+key: []
 derives-from:
 - code.file
 - code.module

@@ -1,14 +1,21 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
 import { isAbsolute, join, resolve } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { withSpan } from '../obs/trace.js';
+import { readKindAssertions } from './records.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { EdgeDraft, EdgeRemovalDraft, GraphContract, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
-import { MANIFEST_CONTRACT, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from '../graph/manifest-contract.js';
-import { evidenceList, publishGraphDrafts } from '../graph/write.js';
+import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
+import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
+import { acquireGraphWriteLock, activateBoundIdentities, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRef, writeAssertion, type WriteCapability } from '../graph/write.js';
+import { newUid } from './uid.js';
+import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
+import { runningVersion } from '../product/version.js';
+import { withAssertionContract } from './system-contract.js';
+import { sha256Hex } from './digest.js';
 import { byCodePoint } from '../model/order.js';
+import { canonicalJson } from '../model/canonical.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
+import { KINDS_FILE, readKindsFrom, declarationContent, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
@@ -28,14 +35,53 @@ export interface ValidatedManifests {
   /** The starter value sets, written as their own entities beside the catalogue's declarations. */
   readonly starterValues: readonly VertexDraft[];
   readonly templatePaths: readonly string[];
+  readonly snapshots: readonly VertexDraft[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
 
+/** Trusted core startup installs the engine as an actual plugin, never a parallel principal kind. */
+export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions']): Promise<{ contract: GraphContract; binding: WriteCapability }> {
+  const contract = withAssertionContract(declared);
+  await acquireGraphWriteLock(tx);
+  await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]);
+  const installedAt = (await tx.query<{ now: string | Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+  const identityCutoff = new Date(installedAt).toISOString();
+  const products = await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.product' ORDER BY n.uid");
+  if (products.rows.length > 1) throw new Error(`${import.meta.path}:49: installation has more than one product identity`);
+  const productUid = products.rows[0]?.uid ?? newUid();
+  await bootstrapWriteIdentity(tx, 'system.product', productUid, productUid);
+  const installation = JSON.stringify(['system-engine', producer]);
+  const plugins = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], { validAt: identityCutoff, recordedAt: identityCutoff })).filter(record => record.values['installation'] === installation && record.values['scope'] === productUid);
+  if (plugins.length > 1) throw new Error(`${import.meta.path}:56: ambiguous installed engine plugin ${producer}`);
+  const sourceUid = plugins[0]?.uid ?? newUid();
+  const operationUid = newUid();
+  for (const [kind, uid] of [['plugin', sourceUid], ['system.operation', operationUid]] as const) await bootstrapWriteIdentity(tx, kind, uid, productUid);
+  const hostPermissions = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
+  const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: graphContractVersion(contract), permissions: permissions ?? hostPermissions };
+  bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
+  await activateBoundIdentities(tx, contract);
+  for (const [kind, uid] of [['system.product', productUid], ['plugin', sourceUid], ['system.operation', operationUid]] as const) {
+    const subject = (await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [uid])).rows[0]!;
+    await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property: '$exists', operation: 'assert', value: true });
+    if (kind === 'plugin') for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
+      await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property, operation: 'assert', value });
+    }
+  }
+  bindWriteCapability(tx, binding);
+  return { contract, binding };
+}
+
+/** Only trusted manifest/start code receives broad host permissions. */
+export async function bindStartupWriter(tx: SqlExecutor, declared: GraphContract, producer: string): Promise<GraphContract> {
+  return (await startupBinding(tx, declared, producer)).contract;
+}
+
 /** JSON stores maps explicitly; declarations have maps nested in catalogues and workflow stage locations. */
 function encode(value: unknown): unknown {
+  if (value === undefined) return null;
   if (value instanceof Map) return { $map: [...value].map(([key, held]) => [key, encode(held)]) };
   if (Array.isArray(value)) return value.map(encode);
-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, held]) => [key, encode(held)]));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([, held]) => held !== undefined).map(([key, held]) => [key, encode(held)]));
   return value;
 }
 function decode(value: unknown): unknown {
@@ -79,15 +125,21 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   const edges: EdgeDraft[] = [];
   const head = commit === undefined ? headCommitOf(folder) : { commit };
   if (head === undefined) return { ok: false, templatePaths, findings: [{ file: join(folder, '.git', 'HEAD'), line: 1, message: 'the product repository holds no commit: manifest opinions require its checkout commit' }] };
-  const evidence = (path: string, line: number) => [{ repository: folder, path, lineStart: line, lineEnd: line, commit: head.commit }];
-  const add = (category: string, name: string, declaration: unknown, path: string, line: number): void => {
-    vertices.push({ kind: `manifest.${category}`, key: { name }, values: { declaration: encode(declaration) },
+  const snapshots = new Map<string, VertexDraft>();
+  const evidence = (path: string, line: number): import('./contract.js').EvidenceDraft[] => {
+    const content = declarationContent(files, folder, path, line);
+    const digest = sha256Hex(Buffer.from(content, 'utf8'));
+    snapshots.set(digest, { kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'manifest', producerVersion: '1' });
+    return [{ target: { kind: 'system.content-snapshot', key: { digest } }, locator: { digest, lineStart: line, lineEnd: line } }];
+  };
+  const add = (category: Parameters<typeof manifestDeclaration>[0], name: string, declaration: unknown, path: string, line: number): void => {
+    vertices.push({ kind: manifestDeclaration(category).name, key: { name }, values: { declaration: JSON.stringify(encode(declaration)) },
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
   };
   const addEdge = (edgeKind: string, from: string, to: string, declaration: unknown, path: string, line: number, relation?: string): void => {
     edges.push({ kind: edgeKind, from: { kind: 'manifest.kind', key: { name: from } }, to: { kind: 'manifest.kind', key: { name: to } },
       ...(relation === undefined ? {} : { discriminator: relation }),
-      values: { declaration: encode(declaration), ...(relation === undefined ? {} : { relation }) },
+      values: { declaration: JSON.stringify(encode(declaration)), ...(relation === undefined ? {} : { relation }) },
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
   };
   add('catalogue', 'product', manifest, KINDS_FILE, 1);
@@ -111,16 +163,30 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     // A wildcard permits endpoints; it does not declare a relationship between every pair of kinds.
     // Its complete declaration remains a catalogue relation, without invented concrete links.
     for (const from of edge.from) for (const to of edge.to) {
-      if (from !== 'any' && to !== 'any') addEdge(MANIFEST_RELATION_EDGE, from, to, edge, KINDS_FILE, edge.line, name);
+      if (from !== 'any' && to !== 'any') {
+        for (const endpoint of [from, to]) if (!vertices.some(vertex => vertex.kind === 'manifest.kind' && vertex.key['name'] === endpoint)) {
+          const installed = withAssertionContract(withManifestContract(graphContractOf(manifest))).vertex.find(vertex => vertex.name === endpoint);
+          if (installed === undefined) throw new Error(`${import.meta.path}:166: relation ${name} has undeclared endpoint ${endpoint}`);
+          add('kind', endpoint, { contract: installed, protected: true, taken: false, plugins: [] }, KINDS_FILE, edge.line);
+        }
+        addEdge(MANIFEST_RELATION_EDGE, from, to, edge, KINDS_FILE, edge.line, name);
+      }
     }
   }
   for (const [name, entry] of manifest.workflows?.workflows ?? []) {
     add('workflow', name, entry, WORKFLOWS_FILE, entry.line);
+    const stageKind = manifestDeclaration('workflow-stage');
+    for (const [position, stage] of entry.stages.entries()) vertices.push({
+      kind: stageKind.name, key: { name: stage },
+      keyEdges: { [stageKind.keyEdges![0]!.role]: { kind: manifestDeclaration('workflow').name, key: { name } } },
+      values: { position, declaration: JSON.stringify(encode({ name: stage, position })) },
+      evidence: evidence(WORKFLOWS_FILE, entry.stageLines.get(stage) ?? entry.line), producer: 'manifest', producerVersion: '1',
+    });
     // Dependencies are the same derivation a fill plans, not an order guessed by the reader.
     const graph = workflowDependencies(entry.stages);
     for (const edge of graph) add('dependency', JSON.stringify(['workflow', name, edge.from, edge.to, edge.via]), { workflow: name, ...edge }, WORKFLOWS_FILE, entry.stageLines.get(edge.to) ?? entry.line);
   }
-  vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
+  vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalJson([left.keyEdges ?? {}, left.key]), canonicalJson([right.keyEdges ?? {}, right.key])));
   const projectedEdges = new Map<string, EdgeDraft[]>();
   for (const edge of edges) {
     const key = JSON.stringify([edge.kind, edge.from.key, edge.to.key, edge.discriminator ?? '']);
@@ -129,7 +195,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     projectedEdges.set(key, held);
   }
   const combinedEdges = [...projectedEdges.values()].map((held): EdgeDraft => held.length === 1 ? held[0]! : {
-    ...held[0]!, values: { ...held[0]!.values, declaration: { relations: held.map((one) => one.values!['declaration']) } },
+    ...held[0]!, values: { ...held[0]!.values, declaration: JSON.stringify({ relations: held.map((one) => JSON.parse(String(one.values!['declaration']))) }) },
     evidence: held.flatMap((one) => one.evidence ?? []),
   });
   const starterValues: VertexDraft[] = [];
@@ -141,7 +207,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     const setRoles = setKind.referenceSet!;
     const entryRoles = entryKind.referenceSetEntry!;
     const roleValue = (roles: Readonly<Record<string, string>>, role: string, value: string | number | undefined): Record<string, string | number> => value === undefined || roles[role] === undefined ? {} : { [roles[role]!]: value };
-    const evidenceAt = (line: number): { repository: string; path: string; lineStart: number; lineEnd: number; commit: string }[] => [{ repository: folder, path: KINDS_FILE, lineStart: line, lineEnd: line, commit: head.commit }];
+    const evidenceAt = (line: number): import('./contract.js').EvidenceDraft[] => evidence(KINDS_FILE, line);
     for (const [name, set] of manifest.values ?? []) {
       starterValues.push({
         kind: setKind.name,
@@ -157,8 +223,8 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       for (const entry of set.entries) {
         starterValues.push({
           kind: entryKind.name,
+          keyEdges: { [entryRoles['set']!]: { kind: setKind.name, key: { [setRoles['name']!]: name } } },
           key: {
-            [entryRoles['set']!]: { kind: setKind.name, key: { [setRoles['name']!]: name } },
             [entryRoles['value']!]: entry.value,
           },
           values: {
@@ -172,7 +238,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       }
     }
   }
-  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templatePaths } };
+  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templatePaths, snapshots: [...snapshots.values()] } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -196,65 +262,88 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
-  return await owner.transaction('write', async (tx) => {
-    const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
-    const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
-    const wanted = new Set(validated.vertices.map((one) => identity(one.kind, one.key)));
-    const removals: VertexRemovalDraft[] = held.rows.filter((one) => !wanted.has(identity(one.kind, one.key))).map((one) => ({ kind: one.kind, key: one.key, producer: 'manifest' }));
-    // Compare every value and its grounds, so identical refreshes publish no new opinions.
-    const published = await tx.query<{ kind: string; key: Record<string, string>; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.vertex.map((kind) => {
-      const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
-      const values = `jsonb_build_object(${columns.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
-      return `SELECT '${kind.name}' AS kind, n.key, ${values} AS values, p.evidence
-        FROM (SELECT DISTINCT ON (p.node_id) p.* FROM "${kind.table}" p
-          WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-          ORDER BY p.node_id, p.id DESC) p
-        JOIN node n ON n.id = p.node_id AND n.context_id = 1 AND NOT n.removed`;
-    }).join(' UNION ALL '));
-    const current = new Map(published.rows.map((one) => [identity(one.kind, one.key), one]));
-    const vertices = validated.vertices.filter((one) => {
-      const held = current.get(identity(one.kind, one.key));
-      const fields = MANIFEST_CONTRACT.vertex.find((kind) => kind.name === one.kind)!;
-      const values = Object.fromEntries(Object.entries(one.values ?? {}).filter(([name]) => !fields.key.includes(name)));
-      return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
-    });
-    const edgeIdentity = (one: Pick<EdgeDraft, 'kind' | 'from' | 'to' | 'discriminator'>): string =>
-      JSON.stringify([one.kind, one.from.key, one.to.key, one.discriminator ?? '']);
-    const publishedEdges = await tx.query<{ kind: string; from_key: Record<string, string>; to_key: Record<string, string>; discriminator: string; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.edge.map((kind) => {
-      const values = `jsonb_build_object(${kind.fields.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
-      return `SELECT '${kind.name}' AS kind, fn.key AS from_key, tn.key AS to_key, e.discriminator, ${values} AS values, p.evidence
-        FROM (SELECT DISTINCT ON (p.edge_id) p.* FROM "${kind.table}" p
-          WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-          ORDER BY p.edge_id, p.id DESC) p
-        JOIN edge e ON e.id = p.edge_id AND e.context_id = 1
-        JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node`;
-    }).join(' UNION ALL '));
-    const edgeDrafts = new Map(validated.edges.map((one) => [edgeIdentity(one), one]));
-    const currentEdges = new Map(publishedEdges.rows.map((one) => {
-      const draft = { kind: one.kind, from: { kind: 'manifest.kind', key: one.from_key }, to: { kind: 'manifest.kind', key: one.to_key }, discriminator: one.discriminator };
-      return [edgeIdentity(draft), { ...one, draft }];
-    }));
-    const edgeRemovals: EdgeRemovalDraft[] = [...currentEdges].filter(([key]) => !edgeDrafts.has(key))
-      .map(([, one]) => ({ ...one.draft, producer: 'manifest' }));
-    const edges = [...edgeDrafts].filter(([key, one]) => {
-      const held = currentEdges.get(key);
-      return held === undefined || !isDeepStrictEqual(held.values, one.values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
-    }).map(([, one]) => one);
-    let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges, removals, edgeRemovals }, 1, { author: 'manifest' });
+  return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
+    await installDisputeSelection(tx, withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest))));
+    const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
+    await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
+    const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
+    const held = new Map<string, VertexRemovalDraft>();
+    for (const kind of MANIFEST_CONTRACT.vertex) for (const row of await readKindAssertions(tx, 'vertex', kind.name, [])) {
+      const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
+      for (const role of kind.keyEdges ?? []) {
+        const parent = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.to_node JOIN entity pk ON pk.id=p.entity_id WHERE e.from_node=$1 AND ek.name=$2`, [row.id, role.edge]);
+        if (parent.rows.length !== 1) throw new Error(`${import.meta.path}:299: ${kind.name} ${row.uid} requires exactly one metadata parent`);
+        keyEdges[role.role] = { kind: parent.rows[0]!.kind, key: parent.rows[0]!.key };
+      }
+      const draft = { kind: kind.name, key: row.key as Record<string, import('./contract.js').KeyValueDraft>, ...(kind.keyEdges?.length ? { keyEdges } : {}), uid: row.uid, producer: 'manifest' };
+      held.set(identity(draft), draft);
+    }
+    const wanted = new Set(validated.vertices.map(identity));
+    const removals = [...held].filter(([key]) => !wanted.has(key)).map(([, draft]) => draft)
+      .sort((left, right) => Number(right.keyEdges !== undefined) - Number(left.keyEdges !== undefined) || byCodePoint(identity(left), identity(right)));
+    const unchanged = async (sort: 'vertex' | 'edge', draft: VertexDraft | EdgeDraft): Promise<boolean> => {
+      const rows = await readKindAssertions(tx, sort, draft.kind, Object.keys(draft.values ?? {}), { contract: publicationContract });
+      if (rows.length === 0) return false;
+      let record: import('./records.js').AssertionRecord | undefined;
+      if ('key' in draft) {
+        const prior = held.get(identity(draft));
+        record = prior === undefined ? undefined : rows.find(row => row.uid === prior.uid);
+      }
+      else {
+        const from = await resolveEntityRef(tx, publicationContract, draft.from);
+        const to = await resolveEntityRef(tx, publicationContract, draft.to);
+        record = rows.find(row => String(row.from) === String(from.id) && String(row.to) === String(to.id) && (row.discriminator ?? '') === (draft.discriminator ?? ''));
+      }
+      if (record === undefined || !record.activeSources.includes(binding.sourceUid)) return false;
+      const expectedEvidence: string[] = [];
+      for (const [index, evidence] of (draft.evidence ?? []).entries()) {
+        const target = await resolveEntityRef(tx, publicationContract, evidence.target);
+        expectedEvidence.push(JSON.stringify([target.uid, { index, relation: evidence.relation ?? 'supports', locator: evidence.locator ?? {} }]));
+      }
+      for (const [property, value] of Object.entries({ '$exists': true, ...draft.values })) {
+        const selected = record.selectedAssertions.find(assertion => assertion.property === property && assertion.source === binding.sourceUid);
+        if (selected === undefined || JSON.stringify(selected.value) !== JSON.stringify(value)) return false;
+        const evidence = await tx.query<{ uid: string; discriminator: string }>(`SELECT t.uid::text,e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [selected.id]);
+        const actual = evidence.rows.map(row => JSON.stringify([row.uid, JSON.parse(row.discriminator)]));
+        const canonical = (values: string[]) => values.map(value => JSON.stringify(JSON.parse(value), (_key, held) => held !== null && typeof held === 'object' && !Array.isArray(held) ? Object.fromEntries(Object.entries(held).sort(([a], [b]) => byCodePoint(a, b))) : held)).sort();
+        if (JSON.stringify(canonical(actual)) !== JSON.stringify(canonical(expectedEvidence))) return false;
+      }
+      return true;
+    };
+    const vertices: VertexDraft[] = [];
+    for (const draft of validated.vertices) if (!await unchanged('vertex', draft)) vertices.push(draft);
+    let written = await publishGraphDrafts(tx, publicationContract, { vertices, removals }, 1, { author: 'manifest' });
+    const edges: EdgeDraft[] = [];
+    for (const draft of validated.edges) if (!await unchanged('edge', draft)) edges.push(draft);
+    const wantedEdges = new Set(validated.edges.map(e => JSON.stringify([e.kind,e.from.key,e.to.key,e.discriminator ?? ''])));
+    const edgeRemovals: EdgeRemovalDraft[] = [];
+    for (const kind of MANIFEST_CONTRACT.edge) {
+      if (MANIFEST_CONTRACT.vertex.some(vertex => vertex.keyEdges?.some(role => role.edge === kind.name))) continue;
+      const records = await readKindAssertions(tx, 'edge', kind.name, []);
+      for (const record of records) {
+        const ends = await tx.query<{ from_key: Record<string,string>; to_key: Record<string,string> }>('SELECT f.key AS from_key,t.key AS to_key FROM edge e JOIN node f ON f.id=e.from_node JOIN node t ON t.id=e.to_node WHERE e.id=$1',[record.id]);
+        const one=ends.rows[0]!;
+        if (!wantedEdges.has(JSON.stringify([kind.name,one.from_key,one.to_key,record.discriminator ?? '']))) edgeRemovals.push({kind:kind.name,from:{kind:'manifest.kind',key:one.from_key},to:{kind:'manifest.kind',key:one.to_key},discriminator:record.discriminator,producer:'manifest'});
+      }
+    }
+    written += await publishGraphDrafts(tx, publicationContract, { vertices: [], edges, removals: [], edgeRemovals }, 1, { author: 'manifest' });
     const valueContract = authored ?? graphContractOf(validated.manifest);
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
-    if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
+    if (valueKinds.size > 0) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
+    await refreshDisputeSelection(tx, publicationContract);
+    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return written;
-  });
+  }));
 }
 
 
 /** The complete validated metadata, never a read of the checkout or a fallback to it. */
 export async function readPublishedManifest(tx: SqlExecutor): Promise<KindsManifest | undefined> {
-  const table = MANIFEST_CONTRACT.vertex.find((one) => one.name === 'manifest.catalogue')!.table;
-  const rows = await tx.query<{ declaration: unknown }>(`SELECT p.declaration FROM "${table}" p JOIN node n ON n.id = p.node_id WHERE n.key->>'name' = 'product' AND NOT n.removed AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest' ORDER BY p.id DESC LIMIT 1`);
-  const value = rows.rows[0]?.declaration;
-  return value === undefined ? undefined : decode(value) as KindsManifest;
+  return await withSpan('manifest.readPublished', {}, async () => {
+    const rows = await readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['declaration']);
+    const value = rows.find(row => row.key['name'] === 'product')?.values['declaration'];
+    return value === undefined ? undefined : decode(JSON.parse(String(value))) as KindsManifest;
+  });
 }

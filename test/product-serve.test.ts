@@ -14,7 +14,8 @@ import { readFileSync } from 'node:fs';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 
@@ -200,10 +201,10 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
     ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
-    fields: ['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
-      { name: 'anchors', type: 'json', producers: ['fixture'] },
-      { name: 'links', type: 'json', producers: ['fixture'] },
-    ]),
+    fields: [...['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
+      { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+      { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
+    ],
   });
   writeFileSync(path, manifest.toString());
   const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });
@@ -215,17 +216,15 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const journal = journalFor('fixture@1');
+      await bindTestWriteCapability(tx, contract);
       for (const entry of readdirSync(join(folder, 'docs'), { recursive: true, withFileTypes: true })) {
         if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
         const file = join(entry.parentPath, entry.name);
         const markdown = readFileSync(file, 'utf8');
         const title = /^# (.+)$/m.exec(markdown)?.[1];
         if (title === undefined) throw new Error(`the fixture document ${file} has no title`);
-        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, source_text: markdown, anchors: {}, links: [] } }, 1, journal);
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title } }, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, source_text: markdown, anchors: {}, links: [] } }], removals: [] });
       }
-      await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }
 }

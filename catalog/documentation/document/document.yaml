@@ -19,13 +19,21 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: repository
+- name: content
   type: text
-  reference: code.repository
+  labels: {en: Content, ru: Содержимое}
   binding:
-    agent: The repository the document stands in, by the key of that repository in the graph.
+    agent: The document text from its declared source.
+- name: anchors
+  type: document-anchors
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:document-anchors:v1
+  labels: {en: Sections, ru: Разделы}
+  binding:
+    agent: Every document section keyed by its exact anchor, with title, start and end lines and Markdown excerpt.
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -40,15 +48,9 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: 'The form the document is written in: Markdown, reStructuredText, AsciiDoc or plain text.'
-- name: commit
-  type: text
-  nullable: true
-  reference: code.commit
-  binding:
-    agent: The commit whose text the document was read at, where the graph holds one.
+    agent: 'The form the document is written in: Markdown, reStructuredText, AsciiDoc
+      or plain text.'
 key:
-- repository
 - path
 derives-from:
 - code.file
@@ -62,3 +64,8 @@ labels:
 description:
   en: 'A document is a text written for a person who works with the product: what it is for, how to use it, how it is built or what was decided. It has a title, sections and a place in the repository, and its purpose decides what belongs in it.'
   ru: 'Документ — текст, написанный для человека, который работает с продуктом: для чего он, как им пользоваться, как он устроен или что решили. У документа есть название, разделы и место в репозитории, а его назначение решает, что в нём должно быть.'
+
+key-edges:
+- role: document-repository
+  edge: document-repository
+  side: from

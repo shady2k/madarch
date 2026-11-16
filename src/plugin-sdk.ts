@@ -26,20 +26,22 @@
 export const PROTOCOL_VERSION = 'madarch.plugins/2';
 
 /** One graph read a plugin may declare. */
-export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced';
+export type GraphReadName = 'files' | 'value' | 'removedEnds' | 'unevidenced';
 
-export type KeyValues = Readonly<Record<string, string | number | EntityRef>>;
+export type KeyValues = Readonly<Record<string, string | number | boolean>>;
 
 /** One entity named by its kind and key values. */
 export interface EntityRef {
+  readonly keyEdges?: Readonly<Record<string, EntityRef>>;
   readonly kind: string;
   readonly key: KeyValues;
 }
 
 /** Where one value was read. */
 export interface Evidence {
-  readonly repository?: string;
-  readonly commitOrDigest?: string;
+  readonly target: EntityRef;
+  readonly commit?: string;
+  readonly digest?: string;
   readonly path?: string;
   readonly lineStart?: number;
   readonly lineEnd?: number;
@@ -47,6 +49,7 @@ export interface Evidence {
 
 /** One vertex a unit produced: its key, and the field values of one opinion with the evidence it stands on. */
 export interface VertexResult {
+  readonly keyEdges?: Readonly<Record<string, EntityRef>>;
   readonly kind: string;
   readonly key: KeyValues;
   readonly values?: Readonly<Record<string, unknown>>;
@@ -95,6 +98,7 @@ export interface UnitResult {
 
 /** The unit the host hands a plugin. */
 export interface Unit {
+  readonly keyEdges?: Readonly<Record<string, EntityRef>>;
   readonly unitId: string;
   readonly kind: string;
   readonly key: KeyValues;
@@ -103,12 +107,14 @@ export interface Unit {
 
 /** One vertex the host answers a graph query with: its kind and key values. */
 export interface GraphVertex {
+  readonly keyEdges?: Readonly<Record<string, EntityRef>>;
   readonly kind: string;
   readonly key: KeyValues;
 }
 
 /** One entity a host answer names: its kind, its key and a label a person reads. */
 export interface GraphAddress {
+  readonly keyEdges?: Readonly<Record<string, EntityRef>>;
   readonly kind: string;
   readonly key: KeyValues;
   readonly label: string;
@@ -122,17 +128,6 @@ export interface GraphEdgeAddress {
   readonly discriminator?: string;
 }
 
-/** One reference the writer recorded and no vertex holds: a key reference, or an edge end. */
-export interface GraphUnresolvedReference {
-  readonly id: string;
-  readonly referrer?: GraphAddress;
-  readonly edge?: GraphEdgeAddress;
-  readonly field: string;
-  readonly target: GraphAddress;
-  readonly producer: string;
-  readonly against?: GraphAddress;
-}
-
 /** One edge whose end is removed. */
 export interface GraphRemovedEnd {
   readonly edge: GraphEdgeAddress;
@@ -142,11 +137,11 @@ export interface GraphRemovedEnd {
 }
 
 /** One open opinion of a field whose contract requires evidence and that states none. */
-export interface GraphUnevidencedOpinion {
+export interface GraphUnevidencedAssertion {
   readonly entity: GraphAddress;
   readonly field: string;
   readonly producer: string;
-  readonly opinion: string;
+  readonly assertion: string;
 }
 
 /** One page asked of a consistency read: the cursor a previous page named, and a bound. */
@@ -166,17 +161,23 @@ export interface GraphReads {
   /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
   files(pattern: string): Promise<GraphVertex[]>;
   /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
-  value<T = unknown>(kind: string, key: KeyValues, field: string): Promise<T>;
-  /** One page of the references the writer recorded and no vertex holds. */
-  unresolved(query?: GraphPageQuery): Promise<GraphPage<GraphUnresolvedReference>>;
+  value<T = unknown>(kind: string, key: KeyValues, field: string, keyEdges?: Readonly<Record<string, EntityRef>>): Promise<T>;
   /** One page of the edges one of whose ends is removed. */
   removedEnds(query?: GraphPageQuery): Promise<GraphPage<GraphRemovedEnd>>;
   /** One page of the open opinions of fields whose contract requires evidence and that state none. */
-  unevidenced(query?: GraphPageQuery): Promise<GraphPage<GraphUnevidencedOpinion>>;
+  unevidenced(query?: GraphPageQuery): Promise<GraphPage<GraphUnevidencedAssertion>>;
 }
 
 /** What `extract` is handed beside the unit: the way back to the host while it works. */
+export interface FactsOperation {
+  readonly vertices?: readonly VertexResult[];
+  readonly edges?: readonly EdgeResult[];
+  readonly removals?: readonly EntityRef[];
+}
+
 export interface ExtractContext {
+  /** Applies one atomic operation; retry the same logical key only with identical content. */
+  readonly facts: { apply(key: string, operation: FactsOperation, options?: { readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<unknown> };
   /** Set when the host asked the plugin to stop: a long read should give up at the next check. */
   readonly signal: AbortSignal;
   /** Says the plugin is alive while a long unit runs; the SDK sends one on a timer as well. */
@@ -191,6 +192,7 @@ export interface ExtractContext {
 
 /** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
 export interface FieldDeclaration {
+  readonly schema?: Readonly<Record<string, unknown>>;
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   /** What the field is, in plain words, for the person binding it in the product's manifest. */
@@ -203,8 +205,13 @@ export interface FieldDeclaration {
   readonly evidence?: boolean;
 }
 
+/** One ordered parent role in a natural key (0039 item 28). */
+export interface KeyEdgeDeclaration { readonly role: string; readonly edge: string; readonly direction: 'from' | 'to'; readonly onDelete: 'restrict' | 'cascade' }
+
 /** One vertex kind a plugin declares it produces. */
 export interface VertexKindDeclaration {
+  readonly evidence?: { readonly immutable: true; readonly digestField?: string; readonly contentField?: string; readonly digestAlgorithm?: 'sha256' };
+  readonly keyEdges?: readonly KeyEdgeDeclaration[];
   readonly kind: string;
   readonly key: readonly string[];
   readonly fields?: readonly FieldDeclaration[];
@@ -212,6 +219,8 @@ export interface VertexKindDeclaration {
 
 /** One edge kind a plugin declares it produces. */
 export interface EdgeKindDeclaration {
+  readonly cardinality: { readonly from: 'one' | 'optional' | 'many' | 'some'; readonly to: 'one' | 'optional' | 'many' | 'some' };
+  readonly labels: { readonly en: { readonly out: string; readonly in: string }; readonly ru: { readonly out: string; readonly in: string } };
   readonly kind: string;
   readonly from: string | readonly string[];
   readonly to: string | readonly string[];
@@ -289,22 +298,6 @@ function send(message: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-/** Fragment only transport; the host still validates and publishes one atomic unit result. */
-function answerUnit(id: RpcId, unitId: string, result: UnitResult | OutputPlan): void {
-  const complete = { unitId, ...result };
-  const bytes = Buffer.from(JSON.stringify(complete), 'utf8');
-  const maxBytes = 1_048_576;
-  if (Buffer.byteLength(JSON.stringify({ jsonrpc: '2.0', id, result: complete })) <= maxBytes) { answer(id, complete); return; }
-  // Base64 expands bytes by 4/3; this leaves ample room for the bounded envelope.
-  const fragmentBytes = 512 * 1024;
-  let sequence = 0;
-  for (let offset = 0; offset < bytes.length; offset += fragmentBytes) {
-    send({ jsonrpc: '2.0', method: 'unit.resultChunk', params: { unitId, sequence, data: bytes.subarray(offset, offset + fragmentBytes).toString('base64') } });
-    sequence += 1;
-  }
-  answer(id, { unitId, chunkCount: sequence });
-}
-
 /** Reads standard input one line at a time, calling `onMessage` for each whole message. */
 function readLines(onMessage: (message: Incoming) => void, onEnd: () => void): void {
   let held = '';
@@ -378,19 +371,27 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
         const result = await extract(unit, {
           signal: controller.signal,
+          facts: { apply: async (key, operation, options) => await askHost('facts.apply', { unitId: unit.unitId, key, operation, ...options }) },
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
           graph: {
             files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
-            value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),
-            unresolved: async (query) => await askHost<{ references: GraphUnresolvedReference[]; next?: string }>('graph.unresolved', query ?? {}).then((answer) => ({ rows: answer.references, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+            value: async (kind, key, field, keyEdges) => await askHost<{ value: unknown }>('graph.value', { kind, key, field, ...(keyEdges === undefined ? {} : { keyEdges }) }).then((answer) => answer.value as never),
             removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
-            unevidenced: async (query) => await askHost<{ opinions: GraphUnevidencedOpinion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.opinions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+            unevidenced: async (query) => await askHost<{ assertions: GraphUnevidencedAssertion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.assertions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
           },
         }, typeof params?.['cursor'] === 'string' ? params['cursor'] : undefined);
         if (!running.has(id)) return;
-        answerUnit(id, unit.unitId, result);
+        if (planning) answer(id, { unitId: unit.unitId, ...result });
+        else {
+          const produced = result as UnitResult;
+          const { vertices, edges, removals, ...terminal } = produced;
+          if ((vertices?.length ?? 0) + (edges?.length ?? 0) + (removals?.length ?? 0) > 0) {
+            await askHost('facts.apply', { unitId: unit.unitId, key: 'extract-result', operation: { ...(vertices === undefined ? {} : { vertices }), ...(edges === undefined ? {} : { edges }), ...(removals === undefined || produced.end.state !== 'complete' ? {} : { removals }) } });
+          }
+          answer(id, { unitId: unit.unitId, ...terminal });
+        }
       } catch (error) {
         if (!running.has(id)) return;
         const failed = error as Error & { cause?: string; file?: string; line?: number };

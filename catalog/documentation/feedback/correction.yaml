@@ -1,7 +1,12 @@
 id: practice.correction
 purpose: quality
-audience: [product, analyst, developer, tester]
-definition: A correction is a person's statement that something a product document says is wrong, with the ground it rests on.
+audience:
+- product
+- analyst
+- developer
+- tester
+definition: A correction is a person's statement that something a product document
+  says is wrong, with the ground it rests on.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -20,10 +25,7 @@ details:
 - statement
 - correction_reason
 - status
-- about
-- by
 - at
-- resolved_by
 - resolved_at
 - file
 fields:
@@ -35,35 +37,38 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: 'The ground the correction rests on: what is true instead, and where it is seen.'
+    agent: 'The ground the correction rests on: what is true instead, and where it
+      is seen.'
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Where the correction stands, as the work kinds keep it.
-- name: by
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who made the correction.
 - name: at
   type: timestamp
   nullable: true
   binding:
     agent: When the correction was made.
-- name: resolved_by
-  type: json
-  nullable: true
-  reference: person
-  binding:
-    agent: The person who settled the correction.
 - name: resolved_at
   type: timestamp
   nullable: true
   binding:
     agent: When the correction was settled.
+- name: slug
+  type: text
+  nullable: true
+  binding:
+    agent: The stable slug used by the correction presentation.
+- name: file
+  type: text
+  nullable: true
+  binding:
+    agent: The product-relative Markdown path carrying the correction.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language tag of the correction text.
 nav: loop
 labels:
   en:
@@ -73,5 +78,10 @@ labels:
     one: Поправка
     many: Поправки
 description:
-  en: 'A correction records a person saying that a statement in the product''s documents is wrong, and why they think so: a changed fact, a different rule, an example that contradicts it. It is kept beside the statement until someone confirms and rewrites it.'
-  ru: 'Поправка фиксирует, что человек считает утверждение в документах продукта неверным, и почему: изменился факт, правило другое, пример противоречит. Её держат рядом с утверждением, пока кто-то не подтвердит и не перепишет его.'
+  en: 'A correction records a person saying that a statement in the product''s documents
+    is wrong, and why they think so: a changed fact, a different rule, an example
+    that contradicts it. It is kept beside the statement until someone confirms and
+    rewrites it.'
+  ru: 'Поправка фиксирует, что человек считает утверждение в документах продукта неверным,
+    и почему: изменился факт, правило другое, пример противоречит. Её держат рядом
+    с утверждением, пока кто-то не подтвердит и не перепишет его.'

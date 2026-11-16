@@ -5,8 +5,15 @@
     "vertices": [
       {
         "kind": "code.database",
+        "keyEdges": [
+          {
+            "role": "code.database-repository",
+            "edge": "code.database-repository",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
+        ],
         "key": [
-          "repository",
           "name"
         ],
         "fields": [
@@ -16,30 +23,23 @@
             "meaning": "The database a code repository's SQL writes to, named after the repository.",
             "example": "madarch",
             "required": true
-          },
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "The product's repository whose code holds the SQL.",
-            "example": "madarch",
-            "required": true
           }
         ]
       },
       {
         "kind": "code.table",
         "key": [
-          "database",
           "name"
         ],
-        "fields": [
+        "keyEdges": [
           {
-            "name": "database",
-            "type": "text",
-            "meaning": "The database the table stands in, by its name.",
-            "example": "madarch",
-            "required": true
-          },
+            "role": "code.table-database",
+            "edge": "code.table-database",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
+        ],
+        "fields": [
           {
             "name": "name",
             "type": "text",
@@ -65,18 +65,18 @@
       },
       {
         "kind": "code.column",
+        "keyEdges": [
+          {
+            "role": "code.column-table",
+            "edge": "code.column-table",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
+        ],
         "key": [
-          "table",
           "name"
         ],
         "fields": [
-          {
-            "name": "table",
-            "type": "text",
-            "meaning": "The table that holds the column, as its database and its name.",
-            "example": "madarch/node",
-            "required": true
-          },
           {
             "name": "name",
             "type": "text",
@@ -126,24 +126,31 @@
             "example": [
               "line_end >= line_start"
             ],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         ]
       },
       {
         "kind": "code.index",
+        "keyEdges": [
+          {
+            "role": "code.index-table",
+            "edge": "code.index-table",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
+        ],
         "key": [
-          "table",
           "name"
         ],
         "fields": [
-          {
-            "name": "table",
-            "type": "text",
-            "meaning": "The table the index covers, as its database and its name.",
-            "example": "madarch/edge",
-            "required": true
-          },
           {
             "name": "name",
             "type": "text",
@@ -159,16 +166,6 @@
             "required": true
           },
           {
-            "name": "columns",
-            "type": "json",
-            "meaning": "The columns the index covers, in order.",
-            "example": [
-              "kind_id",
-              "from_node"
-            ],
-            "required": true
-          },
-          {
             "name": "where",
             "type": "text",
             "meaning": "The predicate of a partial index, as the SQL writes it; null when it covers every row.",
@@ -176,38 +173,198 @@
             "required": false
           }
         ]
+      },
+      {
+        "kind": "code.blob",
+        "key": [
+          "digest"
+        ],
+        "fields": [
+          {
+            "name": "digest",
+            "type": "text",
+            "meaning": "SHA-256 of the exact UTF-8 content.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "required": true
+          },
+          {
+            "name": "content",
+            "type": "text",
+            "meaning": "The immutable source text.",
+            "example": "source",
+            "required": true
+          }
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "digest",
+          "contentField": "content",
+          "digestAlgorithm": "sha256"
+        }
       }
     ],
     "edges": [
       {
+        "kind": "code.database-repository",
+        "from": "code.database",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.table-database",
+        "from": "code.table",
+        "to": "code.database",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.column-table",
+        "from": "code.column",
+        "to": "code.table",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.index-table",
+        "from": "code.index",
+        "to": "code.table",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "includes",
+            "in": "included in"
+          },
+          "ru": {
+            "out": "содержит",
+            "in": "входит в"
+          }
+        },
+        "kind": "code.index-column",
+        "from": "code.index",
+        "to": "code.column",
+        "fields": [
+          {
+            "name": "position",
+            "type": "integer",
+            "meaning": "The column position in the index.",
+            "example": 0,
+            "required": true
+          }
+        ]
+      },
+      {
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "has column",
+            "in": "column of"
+          },
+          "ru": {
+            "out": "содержит столбец",
+            "in": "столбец таблицы"
+          }
+        },
         "kind": "code.has-column",
         "from": "code.table",
         "to": "code.column"
       },
       {
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "has index",
+            "in": "index of"
+          },
+          "ru": {
+            "out": "содержит индекс",
+            "in": "индекс таблицы"
+          }
+        },
         "kind": "code.has-index",
         "from": "code.table",
         "to": "code.index"
       },
       {
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "references",
+            "in": "referenced by"
+          },
+          "ru": {
+            "out": "ссылается на",
+            "in": "имеет ссылку от"
+          }
+        },
         "kind": "code.foreign-key",
         "from": "code.column",
         "to": "code.column",
         "fields": [
-          {
-            "name": "column",
-            "type": "text",
-            "meaning": "The column that holds the key.",
-            "example": "kind_id",
-            "required": true
-          },
-          {
-            "name": "target_column",
-            "type": "text",
-            "meaning": "The column it references.",
-            "example": "id",
-            "required": true
-          },
           {
             "name": "constraint",
             "type": "text",
@@ -218,9 +375,46 @@
         ]
       },
       {
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "declared in",
+            "in": "declares"
+          },
+          "ru": {
+            "out": "объявлена в",
+            "in": "объявляет"
+          }
+        },
         "kind": "code.declared-in",
         "from": "code.table",
         "to": "code.file"
+      },
+      {
+        "kind": "code.blob-about",
+        "from": "code.blob",
+        "to": [
+          "code.file",
+          "code.repository"
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "captures",
+            "in": "captured by"
+          },
+          "ru": {
+            "out": "снимок",
+            "in": "снят в"
+          }
+        },
+        "fields": []
       }
     ]
   },

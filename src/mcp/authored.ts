@@ -1,13 +1,10 @@
 /**
- * The agent's graph writes over MCP (owner's rule, 2026-11-13): the graph is written by plugins and by MCP writes only,
- * a write's source is the agent that made it, and every write names its evidence. The tools replace the authored
- * create/update/delete surface: `put_entity` states the agent's opinion of an entity's fields, `put_edge` its opinion of
- * an edge, and `retract` closes only this agent's own open opinions.
- *
- * The producer is `agent:<client>@<session>`: the client's own name from `initialize` (`clientInfo`) and this server
- * process's session. It is written like a plugin's producer, so on one field the agent's and the plugins' opinions
- * meet by decision 0036, section 2 — an agreed value stands, a disagreement is null and contested.
+ * Graph tools share the durable operation host. Writes require a principal provisioned by the host.
+ * Client initialization is display metadata, never authentication. The execution session is provenance;
+ * the producer and the transport operation identity remain stable across sessions.
  */
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 import { randomUUID } from 'node:crypto';
 import { KnowledgeProduct } from '../knowledge/product.js';
 import { withSpan } from '../obs/trace.js';
@@ -15,28 +12,43 @@ import { serveUnitMcp } from '../fill/unit-mcp.js';
 import { runningVersion } from '../product/version.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { WriteRefusal, evidenceOf, type WriteSource } from '../graph/graph-writes.js';
+import type { ProducerBinding } from '../graph/producer-binding.js';
+import { GraphEvidenceEntrySchema } from '../graph/evidence-schema.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import type { McpToolDefinition, UnitToolAnswer } from './types.js';
 
-/** The producer a client's writes carry: `agent:<client>`, its session as the producer's version. */
-export function agentSource(client: string, session: string): WriteSource {
-  const name = client.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 64) || 'mcp-client';
-  return { producer: `agent:${name}`, version: session };
+/** Build host attribution; a client name alone grants no principal or write permission. */
+export function agentSource(client: string, session: string, principal?: WriteSource['principal']): WriteSource {
+  const allowed = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-';
+  let normalized = '';
+  for (const point of client) {
+    if (allowed.includes(point)) normalized += point;
+    else if (!normalized.endsWith('-')) normalized += '-';
+  }
+  let start = 0;
+  let end = normalized.length;
+  while (normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  const name = normalized.slice(start, end).slice(0, 64) || 'mcp-client';
+  return { producer: `agent:${principal?.identity ?? name}`, version: session, ...(principal === undefined ? {} : { principal }) };
 }
 
 const object = (properties: Record<string, unknown>, required: readonly string[]): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
 
-const EVIDENCE = {
-  type: 'array', minItems: 1,
-  description: 'What the write rests on, at least one: {type:"file", path, commit or blob, lineStart, lineEnd?, repository?}, {type:"conversation", id, at?, words} or {type:"url", url, at}.',
-  items: { type: 'object' },
-};
+const END = Type.Object({
+  kind: Type.String(), key: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  keyEdges: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Role to full entity reference map.' })),
+  id: Type.Optional(Type.String()),
+}, { additionalProperties: false });
 
-const END = {
-  type: 'object', additionalProperties: false, required: ['kind'],
-  properties: { kind: { type: 'string', description: 'The kind of this end.' }, key: { type: 'object', description: 'The key fields of the entity.' }, id: { type: 'string', description: 'The stable uid, instead of a key.' } },
-};
+const EVIDENCE = Type.Array(Type.Object({
+  target: END, relation: Type.Optional(Type.String()),
+  locator: Type.Optional(Type.Partial(Type.Object({
+    path: Type.String(), commit: Type.String(), digest: Type.String(),
+    lineStart: Type.Integer(), lineEnd: Type.Integer(), columnStart: Type.Integer(), columnEnd: Type.Integer(), start: Type.Integer(), end: Type.Integer(),
+  }, { additionalProperties: false }))),
+}, { additionalProperties: false }), { minItems: 1, description: 'Declared graph evidence endpoint and optional immutable source locator.' });
 
 /** The read tools: the schema and one operation, through the same executor the wiki's POST /graphql runs. */
 const READ_TOOLS: readonly McpToolDefinition[] = [
@@ -69,17 +81,38 @@ const READ_TOOLS: readonly McpToolDefinition[] = [
 ];
 
 /** The write tools: the agent's opinions and retractions. */
+const validUid = (value: unknown): value is string => typeof value === 'string' && value.length === 36 && [...value].every((point, index) => [8, 13, 18, 23].includes(index) ? point === '-' : '0123456789abcdefABCDEF'.includes(point));
+
+const PRECONDITIONS = Type.Array(Type.Object({ uid: Type.String(), recordedSequence: Type.String({ minLength: 1 }) }, { additionalProperties: false }));
+
+const RESOLVE_DISPUTE = Type.Object({
+  operationKey: Type.String({ minLength: 1 }),
+  questionUid: Type.String({ minLength: 36, maxLength: 36 }),
+  chosenAssertionUid: Type.String({ minLength: 36, maxLength: 36 }),
+  expectedCandidates: Type.Array(Type.String({ minLength: 36, maxLength: 36 }), { minItems: 2, uniqueItems: true }),
+  rationale: Type.String({ minLength: 1 }),
+  evidence: Type.Array(GraphEvidenceEntrySchema, { minItems: 1 }),
+}, { additionalProperties: false });
+
 const WRITE_TOOLS: readonly McpToolDefinition[] = [
+  {
+    name: 'graph_resolve_dispute',
+    description: 'Record an authenticated person’s decision pinned to the exact candidate assertions. Changed candidates are refused; replaying operationKey returns the original receipt. Client metadata grants no authority.',
+    inputSchema: { ...RESOLVE_DISPUTE },
+  },
   {
     name: 'put_entity',
     description: 'State the agent\'s opinion of the given fields of an entity of any kind of the published manifest, created when its key names none. Evidence is required. An unknown field is refused by name.',
     inputSchema: object({
       kind: { type: 'string', description: 'The kind of the published manifest, such as doc.term.' },
       key: { type: 'object', description: 'The kind\'s key fields; omitted when id names the entity.' },
+      keyEdges: { type: 'object', description: 'Identity role to full entity reference map.' },
       id: { type: 'string', description: 'The stable uid of an entity to write again; for a kind with no key it is also the uid its entity takes when it does not stand yet, so a write of the same uid twice states one entity.' },
       values: { type: 'object', description: 'The field values the agent states.' },
       evidence: EVIDENCE,
-      words: { type: 'string', description: 'The agent\'s exact words, kept in the journal.' },
+      preconditions: PRECONDITIONS,
+      contractVersion: { type: 'string', minLength: 1 },
+      words: { type: 'string', description: 'The agent\'s exact words, attached to the assertion operation.' },
     }, ['kind', 'values', 'evidence']),
   },
   {
@@ -92,6 +125,8 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
       discriminator: { type: 'string', description: 'What tells repeated edges between the same ends apart.' },
       values: { type: 'object', description: 'The edge\'s attributes.' },
       evidence: EVIDENCE,
+      preconditions: PRECONDITIONS,
+      contractVersion: { type: 'string', minLength: 1 },
       words: { type: 'string' },
     }, ['kind', 'from', 'to', 'evidence']),
   },
@@ -108,6 +143,8 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
         properties: { kind: { type: 'string' }, from: END, to: END, discriminator: { type: 'string' } },
       },
       evidence: EVIDENCE,
+      preconditions: PRECONDITIONS,
+      contractVersion: { type: 'string', minLength: 1 },
       words: { type: 'string' },
     }, ['evidence']),
   },
@@ -117,23 +154,23 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
 export const PRODUCT_TOOLS: readonly McpToolDefinition[] = [...READ_TOOLS, ...WRITE_TOOLS];
 
 /** One tool call of the product session, its refusal answered as the tool's own content. */
-export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
+export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown, hostBinding?: ProducerBinding): Promise<UnitToolAnswer> {
   return await withSpan('mcp.product', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
     try {
       if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
       if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
       const args = (input ?? {}) as Record<string, unknown>;
       // The declared schema is the boundary: an argument no tool names is refused, and words is the agent's text.
-      const allowed: Record<string, readonly string[]> = {
-        graph_schema: [], graph_query: ['query', 'variables', 'operationName', 'lang'],
-        render_diagram: ['entity', 'format', 'depth', 'aggregateAbove', 'lang'],
-        put_entity: ['kind', 'key', 'id', 'values', 'evidence', 'words'],
-        put_edge: ['kind', 'from', 'to', 'discriminator', 'values', 'evidence', 'words'],
-        retract: ['entity', 'edge', 'evidence', 'words'],
-      };
-      const unknown = Object.keys(args).filter((key) => !(allowed[name] ?? []).includes(key));
-      if (unknown.length > 0) throw new WriteRefusal(`${JSON.stringify(unknown[0])} is not an argument of ${name}: its arguments are ${(allowed[name] ?? []).join(', ') || 'none'}`, unknown[0]);
+      const tool = PRODUCT_TOOLS.find((tool) => tool.name === name)!;
+      const allowed = Object.keys(tool.inputSchema['properties'] as Record<string, unknown>);
+      const unknown = Object.keys(args).filter((key) => !allowed.includes(key));
+      if (unknown.length > 0) throw new WriteRefusal(`${JSON.stringify(unknown[0])} is not an argument of ${name}: its arguments are ${allowed.join(', ') || 'none'}`, unknown[0]);
       if ('words' in args && typeof args['words'] !== 'string') throw new WriteRefusal('words is the agent\'s exact words, as text', 'words');
+      const preconditions = args['preconditions'];
+      if (preconditions !== undefined && (!Value.Check(PRECONDITIONS, preconditions) || preconditions.some(value => !validUid(value.uid) || [...value.recordedSequence].some(point => point < '0' || point > '9')))) throw new WriteRefusal('preconditions must name uid and recordedSequence text', 'preconditions');
+      const contractVersion = args['contractVersion'];
+      if (contractVersion !== undefined && (typeof contractVersion !== 'string' || contractVersion.length === 0)) throw new WriteRefusal('contractVersion must be nonempty text', 'contractVersion');
+      const checks = preconditions as { readonly uid: string; readonly recordedSequence: string }[] | undefined;
       if (name === 'graph_schema') return { answer: { schema: await product.graphqlSchema() }, isError: false };
       if (name === 'graph_query') {
         const query = args['query'];
@@ -169,15 +206,27 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         if ('html' in answer) return { answer: { format: 'archify', html: answer.html }, isError: false };
         return { answer: answer.body, isError: false };
       }
+      if (!hostBinding) throw new WriteRefusal('SOURCE_FORBIDDEN a retained host source grant is required');
+      if (name === 'graph_resolve_dispute') {
+        if (!Value.Check(RESOLVE_DISPUTE, args)) {
+          const failure = [...Value.Errors(RESOLVE_DISPUTE, args)][0];
+          throw new WriteRefusal(failure?.message ?? 'invalid dispute resolution request', failure?.instancePath);
+        }
+        const request = args as unknown as { operationKey: string; questionUid: string; chosenAssertionUid: string; expectedCandidates: string[]; rationale: string; evidence: unknown };
+        if (![request.questionUid, request.chosenAssertionUid, ...request.expectedCandidates].every(validUid)) throw new WriteRefusal('dispute identifiers must be UUIDs', 'questionUid');
+        const answer = await product.resolveDispute(source, { questionUid: request.questionUid, chosenAssertionUid: request.chosenAssertionUid, expectedCandidates: request.expectedCandidates, rationale: request.rationale, evidence: evidenceOf(request.evidence) }, request.operationKey, hostBinding!);
+        return { answer, isError: false };
+      }
       if (name === 'put_entity') {
         const answer = await product.putEntity(source, {
           kind: String(args['kind'] ?? ''),
           ...(args['key'] === undefined ? {} : { key: args['key'] }),
+          ...(args['keyEdges'] === undefined ? {} : { keyEdges: args['keyEdges'] }),
           ...(args['id'] === undefined ? {} : { id: String(args['id']) }),
           values: args['values'],
           evidence: args['evidence'],
           ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-        });
+        }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
         return { answer, isError: false };
       }
       if (name === 'put_edge') {
@@ -188,7 +237,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
           ...(args['values'] === undefined ? {} : { values: args['values'] }),
           evidence: args['evidence'],
           ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-        });
+        }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
         return { answer, isError: false };
       }
       const answer = await product.retract(source, {
@@ -196,7 +245,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         ...(args['edge'] === undefined ? {} : { edge: args['edge'] }),
         evidence: args['evidence'],
         ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-      });
+      }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
       return { answer, isError: false };
     } catch (error) {
       if (error instanceof WriteRefusal) return { answer: { error: { code: 'refused', message: error.message, ...(error.field === undefined ? {} : { field: error.field }) } }, isError: true };
@@ -210,6 +259,8 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
 /** Serves the product's graph writes over MCP: the agent's producer is its `clientInfo` name and this session. */
 export async function serveProductMcp(options: {
   productFolder: string; home?: string; env?: DraftEnv;
+  trustedPrincipal?: WriteSource['principal'];
+  resolverBinding?: ProducerBinding;
   input?: AsyncIterable<string | Uint8Array>; output?: { write(text: string): void };
 }): Promise<number> {
   const env = options.env ?? process.env;
@@ -217,11 +268,16 @@ export async function serveProductMcp(options: {
   const session = randomUUID();
   let client = 'mcp-client';
   try {
+    let agent: ProducerBinding | undefined;
+    const resolver = options.resolverBinding;
     await serveUnitMcp({
       tools: PRODUCT_TOOLS,
       info: { name: 'madarch', version: runningVersion() },
       onClientInfo: (info) => { client = info.name; },
-      call: (name, args) => callProductTool(product, agentSource(client, session), name, args),
+      call: async (name, args, requestId) => {
+        if (['put_entity', 'put_edge', 'retract'].includes(name)) agent ??= await product.provisionAgentBinding(session);
+        return await callProductTool(product, { ...agentSource(client, session, options.trustedPrincipal), operationId: requestId }, name, args, name === 'graph_resolve_dispute' ? resolver : agent);
+      },
       streams: { input: options.input ?? process.stdin, write: (text) => { (options.output ?? process.stdout).write(text); } },
     });
     return 0;

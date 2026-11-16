@@ -21,7 +21,19 @@
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import type { GraphContract } from '../src/graph/contract.js';
+const schemaOwners = new WeakMap<DatabaseOwner,DatabaseOwner>();
+/** Prepare schema before fixture source operations, through the unbound owner. */
+export async function prepareTestStore(owner:DatabaseOwner,options:Parameters<typeof prepareStore>[1]={}) {
+  const result = await prepareStore(schemaOwners.get(owner)??owner,options);
+  if (options.contract !== undefined) Object.assign(owner, { graphContract: withAssertionContract(options.contract) });
+  return result;
+}
+
+import { EMPTY_CONTRACT, type GraphContract } from '../src/graph/contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import type { FillStateDatabase } from '../src/graph/fill-state.js';
+export type TestDatabaseOwner = DatabaseOwner & FillStateDatabase;
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
@@ -130,6 +142,8 @@ export interface TestDatabaseOptions {
   /** Optional diagnostics for a case investigating setup cost. Times are wall-clock milliseconds. */
   readonly timing?: (phase: string, elapsedMs: number) => void;
   readonly graphContract?: GraphContract;
+  /** Disable fixture authentication when testing the untrusted write boundary. */
+  readonly authenticated?: boolean;
   /** Opens `btree_gist`, which the temporal graph's no-overlap constraints need. */
   readonly btreeGist?: boolean;
   /** A store folder of the case's own: its cluster is opened and stopped with the owner. */
@@ -150,13 +164,14 @@ async function dropDatabase(socketDir: string, database: string): Promise<void> 
  * The owner a case's store work is given: a fresh, empty database on the run's
  * server, or the store folder the case names. Nothing a case writes outlives it.
  */
-export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<DatabaseOwner> {
+export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<TestDatabaseOwner> {
+  const graphContract = withAssertionContract(options.graphContract ?? EMPTY_CONTRACT);
   // A store of the case's own opens its own cluster and needs no run server: a compiled driver (`queue-binary-driver.ts`,
   // `fill-crash-driver.ts`) is no test run at all.
   if (options.store !== undefined) {
     const owner = await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }) });
     await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
-    return owner;
+    return Object.assign(owner, { graphContract });
   }
   // Also support drivers that open a database without the suite's preload.
   const serverStart = performance.now();
@@ -191,12 +206,16 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   options.timing?.('database-owner-open', performance.now() - ownerStart);
   if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
   let closed: Promise<void> | undefined;
-  return {
+  const fixtureOwner:TestDatabaseOwner = {
+    graphContract,
     location: owner.location,
     ready: owner.ready,
     allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
     hasVector: owner.hasVector,
-    transaction: (kind, work) => owner.transaction(kind, work),
+    transaction: (kind, work) => owner.transaction(kind, async tx => {
+      if (kind === 'write' && options.authenticated !== false) await bindTestWriteCapability(tx, options.graphContract ?? EMPTY_CONTRACT);
+      return await work(tx);
+    }),
     run: (work) => owner.run(work),
     exec: (text) => owner.exec(text),
     close: () => {
@@ -221,6 +240,8 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
       return closed;
     },
   };
+  schemaOwners.set(fixtureOwner,owner);
+  return fixtureOwner;
 }
 
 /**

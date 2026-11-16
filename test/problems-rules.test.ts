@@ -24,8 +24,8 @@ const entity = (key: string, label: string, properties: Record<string, unknown> 
   key, kind: key.slice(0, key.indexOf(':')), label, properties, nodeIds: [key], scope: 'repo', ...(at === undefined ? {} : { span: at }),
 });
 const edge = (from: string, to: string): RelationEdge => ({
-  from: { key: from, kind: from.slice(0, from.indexOf(':')), label: from },
-  to: { key: to, kind: to.slice(0, to.indexOf(':')), label: to },
+  from: { uid: from, key: from, kind: from.slice(0, from.indexOf(':')), label: from },
+  to: { uid: to, key: to, kind: to.slice(0, to.indexOf(':')), label: to },
   properties: {},
 });
 const empty = (): CodeSnapshot => ({
@@ -52,7 +52,7 @@ describe('the code section', () => {
   test('a dependency cycle names the files, the ring and the lines of the first', () => {
     const problems = evaluateCode(snapshot({
       cycles: [entity('code.cycle:file:src/a.ts|src/b.ts', 'src/a.ts → src/b.ts → src/a.ts', {
-        level: 'file', members: ['code.file:src/a.ts', 'code.file:src/b.ts'], edges: ['code.file:src/a.ts -> code.file:src/b.ts', 'code.file:src/b.ts -> code.file:src/a.ts'],
+        cycleLevel: 'file', memberKeys: ['code.file:src/a.ts', 'code.file:src/b.ts'], cycleLinks: ['code.file:src/a.ts -> code.file:src/b.ts', 'code.file:src/b.ts -> code.file:src/a.ts'],
       }, span('src/a.ts', 7))],
     }), settings()).problems;
     const problem = only(problems, 'dependency.cycle');
@@ -80,10 +80,10 @@ describe('the code section', () => {
   test('a route outside the auth group is a vulnerability only where the same service protects the same path root', () => {
     const problems = evaluateCode(snapshot({
       routes: [
-        entity('code.route:GET /orders', 'GET /orders', { service: 'shop', path: '/orders', authGroup: true }, span('src/routes.ts', 4)),
-        entity('code.route:GET /orders/export', 'GET /orders/export', { service: 'shop', path: '/orders/export', authGroup: false, handlerKey: 'code.symbol:src/routes.ts#exportOrders', handlerPath: 'src/routes.ts' }, span('src/routes.ts', 9)),
-        entity('code.route:GET /healthz', 'GET /healthz', { service: 'shop', path: '/healthz', authGroup: false }, span('src/routes.ts', 14)),
-        entity('code.route:GET /open', 'GET /open', { service: 'public', path: '/open', authGroup: false }, span('src/public.ts', 3)),
+        entity('code.route:GET /orders', 'GET /orders', { ownerKey: 'shop', path: '/orders', authGroup: true }, span('src/routes.ts', 4)),
+        entity('code.route:GET /orders/export', 'GET /orders/export', { ownerKey: 'shop', path: '/orders/export', authGroup: false, handlerKey: 'code.symbol:src/routes.ts#exportOrders', handlerPath: 'src/routes.ts' }, span('src/routes.ts', 9)),
+        entity('code.route:GET /healthz', 'GET /healthz', { ownerKey: 'shop', path: '/healthz', authGroup: false }, span('src/routes.ts', 14)),
+        entity('code.route:GET /open', 'GET /open', { ownerKey: 'public', path: '/open', authGroup: false }, span('src/public.ts', 3)),
       ],
     }), settings()).problems;
     const problem = only(problems, 'security.export-route');
@@ -127,8 +127,8 @@ describe('the code section', () => {
 
   test('TODO and FIXME are two rules, each reading the marker the syntax tree put on a comment', () => {
     const debts = [
-      entity('code.debt:src/a.ts#10', 'TODO: charge tax', { marker: 'TODO', text: 'charge tax', path: 'src/a.ts', line: 10 }, span('src/a.ts', 10)),
-      entity('code.debt:src/a.ts#20', 'FIXME: retry twice', { marker: 'FIXME', text: 'retry twice', path: 'src/a.ts', line: 20 }, span('src/a.ts', 20)),
+      entity('code.debt:src/a.ts#10', 'TODO: charge tax', { markerWord: 'TODO', text: 'charge tax', path: 'src/a.ts', line: 10 }, span('src/a.ts', 10)),
+      entity('code.debt:src/a.ts#20', 'FIXME: retry twice', { markerWord: 'FIXME', text: 'retry twice', path: 'src/a.ts', line: 20 }, span('src/a.ts', 20)),
     ];
     const problems = evaluateCode(snapshot({ debts }), settings()).problems;
     expect(only(problems, 'debt.todo')).toMatchObject({ sonar: 'code-smell', severity: 'info', line: 10, reason: 'TODO in src/a.ts: charge tax' });
@@ -152,7 +152,7 @@ describe('the code section', () => {
   test('a direct dependency nobody imports is unused; a transitive one is not judged', () => {
     const problems = evaluateCode(snapshot({
       dependencies: [
-        entity('code.dependency:lodash', 'lodash', { name: 'lodash', version: '4.17.21', scope: 'direct' }, span('package.json', 12)),
+        entity('code.dependency:lodash', 'lodash', { name: 'lodash', version: '4.17.21', dependencyClass: 'explicit' }, span('package.json', 12)),
         entity('code.dependency:left-pad', 'left-pad', { name: 'left-pad', scope: 'transitive' }, span('package-lock.json', 3)),
       ],
     }), settings()).problems;
@@ -185,8 +185,8 @@ describe('the code section', () => {
   test('a route of a service the contract covers, which the contract does not declare, is a bug', () => {
     const problems = evaluateCode(snapshot({
       routes: [
-        entity('code.route:GET /orders', 'GET /orders', { service: 'shop', path: '/orders' }, span('src/routes.ts', 4)),
-        entity('code.route:GET /orders/export', 'GET /orders/export', { service: 'shop', path: '/orders/export' }, span('src/routes.ts', 9)),
+        entity('code.route:GET /orders', 'GET /orders', { ownerKey: 'shop', path: '/orders' }, span('src/routes.ts', 4)),
+        entity('code.route:GET /orders/export', 'GET /orders/export', { ownerKey: 'shop', path: '/orders/export' }, span('src/routes.ts', 9)),
       ],
       operations: [entity('code.operation:orders.read', 'orders.read')],
       serves: [edge('code.route:GET /orders', 'code.operation:orders.read')],
@@ -199,11 +199,11 @@ describe('the code section', () => {
   test('a service the contract owns is judged even when none of its routes matched an operation', () => {
     const problems = evaluateCode(snapshot({
       routes: [
-        entity('code.route:GET /new', 'GET /new', { service: 'shop', path: '/new' }, span('src/routes.ts', 4)),
-        entity('code.route:GET /elsewhere', 'GET /elsewhere', { service: 'other', path: '/elsewhere' }, span('src/other.ts', 4)),
+        entity('code.route:GET /new', 'GET /new', { ownerKey: 'shop', path: '/new' }, span('src/routes.ts', 4)),
+        entity('code.route:GET /elsewhere', 'GET /elsewhere', { ownerKey: 'other', path: '/elsewhere' }, span('src/other.ts', 4)),
       ],
       // The contract names the service it is for; no route of the service serves an operation, so no serves edge exists.
-      operations: [entity('code.operation:contracts/openapi/shop.yaml#GET:/orders', 'GET /orders', { service: 'shop', path: '/orders' })],
+      operations: [entity('code.operation:contracts/openapi/shop.yaml#GET:/orders', 'GET /orders', { ownerKey: 'shop', path: '/orders' })],
     }), settings()).problems;
     expect(found(problems, 'contract.route-without-operation').map((problem) => problem.target)).toEqual(['code.route:GET /new']);
   });
@@ -211,14 +211,14 @@ describe('the code section', () => {
   test('a route the contract serves with a secured operation is reported even under another path root; a public one is not', () => {
     const problems = evaluateCode(snapshot({
       routes: [
-        entity('code.route:GET /orders', 'GET /orders', { service: 'shop', path: '/orders', authGroup: true }, span('src/routes.ts', 4)),
-        entity('code.route:GET /export', 'GET /export', { service: 'shop', path: '/export' }, span('src/routes.ts', 6)),
-        entity('code.route:GET /open', 'GET /open', { service: 'shop', path: '/open' }, span('src/routes.ts', 8)),
-        entity('code.route:GET /healthz', 'GET /healthz', { service: 'shop', path: '/healthz' }, span('src/routes.ts', 10)),
+        entity('code.route:GET /orders', 'GET /orders', { ownerKey: 'shop', path: '/orders', authGroup: true }, span('src/routes.ts', 4)),
+        entity('code.route:GET /export', 'GET /export', { ownerKey: 'shop', path: '/export' }, span('src/routes.ts', 6)),
+        entity('code.route:GET /open', 'GET /open', { ownerKey: 'shop', path: '/open' }, span('src/routes.ts', 8)),
+        entity('code.route:GET /healthz', 'GET /healthz', { ownerKey: 'shop', path: '/healthz' }, span('src/routes.ts', 10)),
       ],
       operations: [
-        entity('code.operation:contracts/openapi/shop.yaml#GET:/export', 'GET /export', { service: 'shop', path: '/export', public: false }),
-        entity('code.operation:contracts/openapi/shop.yaml#GET:/open', 'GET /open', { service: 'shop', path: '/open', public: true }),
+        entity('code.operation:contracts/openapi/shop.yaml#GET:/export', 'GET /export', { ownerKey: 'shop', path: '/export', openToCallers: false }),
+        entity('code.operation:contracts/openapi/shop.yaml#GET:/open', 'GET /open', { ownerKey: 'shop', path: '/open', openToCallers: true }),
       ],
       serves: [
         edge('code.route:GET /export', 'code.operation:contracts/openapi/shop.yaml#GET:/export'),
@@ -232,7 +232,7 @@ describe('the code section', () => {
   });
 
   test('the manifest switches a rule off and changes its severity without changing the engine', () => {
-    const cycle = entity('code.cycle:file:src/a.ts', 'src/a.ts', { level: 'file', members: ['code.file:src/a.ts'] }, span('src/a.ts', 1));
+    const cycle = entity('code.cycle:file:src/a.ts', 'src/a.ts', { cycleLevel: 'file', memberKeys: ['code.file:src/a.ts'] }, span('src/a.ts', 1));
     expect(evaluateCode(snapshot({ cycles: [cycle] }), settings({ rules: { 'dependency.cycle': { enabled: false } } })).problems).toEqual([]);
     const problem = only(evaluateCode(snapshot({ cycles: [cycle] }), settings({ rules: { 'dependency.cycle': { severity: 'blocker' } } })).problems, 'dependency.cycle');
     expect(problem.severity).toBe('blocker');

@@ -6,18 +6,10 @@
       {
         "kind": "code.test-quarantine",
         "key": [
-          "repository",
           "path",
           "name"
         ],
         "fields": [
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "Repository holding the test.",
-            "example": "madarch",
-            "required": true
-          },
           {
             "name": "path",
             "type": "text",
@@ -33,67 +25,173 @@
             "required": true
           },
           {
-            "name": "test",
-            "type": "json",
-            "meaning": "Test reference and exact source location.",
-            "example": {
-              "kind": "code.test-case",
-              "key": {
-                "repository": "madarch",
-                "path": "test/example.test.ts",
-                "name": "suite example"
-              },
-              "file": "test/example.test.ts",
-              "name": "suite example",
-              "lineStart": 3,
-              "lineEnd": 5
-            },
-            "required": true
-          },
-          {
-            "name": "task",
-            "type": "text",
-            "meaning": "Repair task named by the marker.",
-            "example": "madarch-64o5.17",
-            "required": true
-          },
-          {
             "name": "quarantine_reason",
             "type": "text",
             "meaning": "Reason explicitly named by the marker.",
             "example": "slow",
             "required": true
-          },
+          }
+        ],
+        "keyEdges": [
           {
-            "name": "since",
+            "role": "code.test-quarantine-repository",
+            "edge": "code.test-quarantine-repository",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
+        ]
+      },
+      {
+        "kind": "code.blob",
+        "key": [
+          "digest"
+        ],
+        "fields": [
+          {
+            "name": "digest",
             "type": "text",
-            "meaning": "Introducing commit explicitly named by the marker.",
-            "example": "3ec0f2b1d7923fa81901d0293e2e92d34df300a8",
+            "meaning": "SHA-256 of the exact UTF-8 content.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
             "required": true
           },
           {
-            "name": "latest_result",
-            "type": "json",
-            "meaning": "Latest quarantine CI result when supplied by the graph.",
-            "example": {
-              "state": "passed"
-            },
-            "required": false
+            "name": "content",
+            "type": "text",
+            "meaning": "The immutable source text.",
+            "example": "source",
+            "required": true
           }
-        ]
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "digest",
+          "contentField": "content",
+          "digestAlgorithm": "sha256"
+        }
       }
     ],
     "edges": [
       {
-        "kind": "quarantines",
+        "kind": "code.test-quarantine-repository",
         "from": "code.test-quarantine",
-        "to": "code.test-case",
-        "fields": []
+        "to": "code.repository",
+        "fields": [],
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "repository",
+            "in": "quarantine"
+          },
+          "ru": {
+            "out": "ссылка",
+            "in": "карантин"
+          }
+        }
       },
       {
-        "kind": "fixedBy",
+        "kind": "code.test-quarantine-test",
+        "from": "code.test-quarantine",
+        "to": "code.test-case",
+        "fields": [],
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "test",
+            "in": "quarantine"
+          },
+          "ru": {
+            "out": "ссылка",
+            "in": "карантин"
+          }
+        }
+      },
+      {
+        "kind": "code.test-quarantine-task",
         "from": "code.test-quarantine",
         "to": "task",
+        "fields": [],
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "task",
+            "in": "quarantine"
+          },
+          "ru": {
+            "out": "ссылка",
+            "in": "карантин"
+          }
+        }
+      },
+      {
+        "kind": "code.test-quarantine-since",
+        "from": "code.test-quarantine",
+        "to": "code.commit",
+        "fields": [],
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "since",
+            "in": "quarantine"
+          },
+          "ru": {
+            "out": "ссылка",
+            "in": "карантин"
+          }
+        }
+      },
+      {
+        "kind": "code.test-quarantine-latest-result",
+        "from": "code.test-quarantine",
+        "to": "test-result",
+        "fields": [],
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "latest_result",
+            "in": "quarantine"
+          },
+          "ru": {
+            "out": "ссылка",
+            "in": "карантин"
+          }
+        }
+      },
+      {
+        "kind": "code.blob-about",
+        "from": "code.blob",
+        "to": [
+          "code.file",
+          "code.repository"
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "captures",
+            "in": "captured by"
+          },
+          "ru": {
+            "out": "снимок",
+            "in": "снят в"
+          }
+        },
         "fields": []
       }
     ]

@@ -34,7 +34,7 @@ export function checkStarterTemplate(template: StarterTemplate): TemplateCheck {
       return { ok: false, problems, kinds: [] };
     }
     const wanted = [...starterPageKindNames(template)].sort();
-    const held = [...read.manifest.kinds.keys()].sort();
+    const held = [...read.manifest.kinds.values()].filter((kind) => kind.templatePolicy !== 'none').map((kind) => kind.name).sort();
     if (JSON.stringify(held) !== JSON.stringify(wanted)) problems.push(`${read.manifest.file}:1: the template ${template.id} declares ${held.join(', ')}, and its kinds are ${wanted.join(', ')}`);
     for (const finding of read.manifest.findings) {
       if (finding.message.startsWith('"documents.expect" names the kind')) continue;

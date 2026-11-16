@@ -19,13 +19,8 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: repository
-  type: json
-  reference: code.repository
-  binding:
-    agent: The repository the call stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   binding:
     agent: The path of the file that holds the call.
 - name: line
@@ -33,7 +28,6 @@ fields:
   binding:
     agent: The line the call stands on.
 key:
-- repository
 - path
 - line
 derives-from:
@@ -49,3 +43,8 @@ labels:
 description:
   en: An SQL sink is a place where SQL text is handed to a database to run, such as a query function or an execution call. It is where an unsafe build becomes an actual risk.
   ru: 'Выполнение SQL — место, где текст SQL передают базе данных на исполнение: функция запроса или вызов выполнения. Здесь небезопасная сборка становится настоящим риском.'
+
+key-edges:
+- role: code.sql-sink-repository
+  edge: code.sql-sink-repository
+  side: from

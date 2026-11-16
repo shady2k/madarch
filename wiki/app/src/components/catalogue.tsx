@@ -8,7 +8,6 @@
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDownIcon } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -25,6 +24,12 @@ import type { Navigation, NavigationKind } from '../client.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
 import { catalogueSelectionAddress, entityAddress, prepareAddress } from '../address.js';
 import type { SectionContext } from './types.js';
+
+const FILTER_TEST_IDS = {
+  area: "catalogue-area",
+  fillMethod: "catalogue-fill-filter",
+  inProduct: "catalogue-taken-filter",
+} as const;
 
 const lower = (text: string, language: string): string => text.toLocaleLowerCase(language);
 
@@ -77,10 +82,7 @@ function FilterSelect({ label, value, options, onChange, testId }: {
   return (
     <FieldLabel className="grid gap-1 text-small">
       {label}
-      <Stack className="relative">
-        <Select className="w-full appearance-none pr-8" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
-        <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" size={15} />
-      </Stack>
+      <Select variant="filter" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
     </FieldLabel>
   );
 }
@@ -249,9 +251,9 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <FieldLabel className="grid gap-1 text-small">{t('catalogue.search')}
               <Input type="search" className="w-full" value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={t('catalogue.search')} aria-label={t('catalogue.search')} data-testid="catalogue-search" />
             </FieldLabel>
-            <FilterSelect label={t('catalogue.area')} value={area} onChange={setArea} testId="catalogue-area" options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
-            <FilterSelect label={t('catalogue.inProduct')} value={taken} onChange={setTaken} testId="catalogue-taken-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
-            <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId="catalogue-fill-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
+            <FilterSelect label={t('catalogue.area')} value={area} onChange={setArea} testId={FILTER_TEST_IDS.area} options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
+            <FilterSelect label={t('catalogue.inProduct')} value={taken} onChange={setTaken} testId={FILTER_TEST_IDS.inProduct} options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
+            <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId={FILTER_TEST_IDS.fillMethod} options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
           </Stack>
           <Stack className="flex flex-wrap items-center gap-3">
             <Text className="text-small text-muted" data-testid="catalogue-shown">{t('catalogue.shown', { count: shownCount })}</Text>

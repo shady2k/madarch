@@ -21,48 +21,31 @@ details:
 - path
 - authGroup
 - authAlgorithm
-- handler
 - handlerPath
-- service
-- middleware
 - ports
 fields:
-- name: service
-  type: json
-  reference: code.service
-  binding:
-    agent: The service that answers the route, by the key of that service in the graph.
 - name: method
   type: text
   binding:
     agent: The HTTP method the route answers, such as GET or POST.
 - name: path
-  type: text
+  type: path
   binding:
-    agent: 'The path the route answers, such as /orders/{id}.'
+    agent: The path the route answers, such as /orders/{id}.
 - name: auth
   type: text
   nullable: true
   binding:
     agent: What the route requires of its caller before it answers, as the code declares it.
-- name: handler
-  type: json
-  nullable: true
-  reference: code.symbol
-  binding:
-    agent: The symbol that handles the route, by the key of that symbol in the graph.
-- name: middleware
-  type: json
-  nullable: true
-  binding:
-    agent: The steps the request passes before the handler, by their keys in the graph.
 - name: ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   binding:
     agent: The ports the route is reachable on, as the service declares them.
 key:
-- service
 - method
 - path
 derives-from:
@@ -78,3 +61,8 @@ labels:
 description:
   en: 'An HTTP route is one path and method a service listens on, such as GET /orders/{id}, together with the handler that answers it. Its parameters and its answers are what a client relies on.'
   ru: 'HTTP-маршрут — путь и метод, которые обслуживает сервис, например GET /orders/{id}, вместе с обработчиком, который отвечает. На его параметры и ответы опирается клиент.'
+
+key-edges:
+- role: code.route-service
+  edge: code.route-service
+  side: from

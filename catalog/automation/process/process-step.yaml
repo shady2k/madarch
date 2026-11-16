@@ -16,37 +16,20 @@ relation-constraints:
 template-policy: member
 source: graph
 fields:
-- name: process
-  type: json
-  reference: business-process
-  binding:
-    agent: The business process the step stands in, by the key of that process in the graph.
 - name: name
   type: text
   labels:
     en: Name
     ru: Имя
   binding:
-    agent: The name the process gives this step, such as Check the invoice; it names the step inside its process.
+    agent: The name the process gives this step, such as Check the invoice; it names
+      the step inside its process.
 - name: order
   type: integer
   nullable: true
   binding:
     agent: Where the step stands in the process, from the sequence of nodes the graph holds, lowest first.
-- name: performer
-  type: json
-  nullable: true
-  reference: role
-  binding:
-    agent: The role that carries the step out, when a person does it.
-- name: performed_by
-  type: json
-  nullable: true
-  reference: code.service
-  binding:
-    agent: The service that carries the step out, when a program does it.
 key:
-- process
 - name
 member:
   relation: partOf
@@ -62,3 +45,8 @@ labels:
 description:
   en: A process step is one action inside a business process, such as checking a document or sending a notification. A person, a program or an agent can carry it out, and it takes defined inputs and produces a defined result for the steps that follow.
   ru: Шаг процесса — одно действие внутри бизнес-процесса, например проверить документ или отправить уведомление. Его может выполнять человек, программа или агент; шаг получает определённые входные данные и даёт определённый результат следующим шагам.
+
+key-edges:
+- role: process-step-process
+  edge: process-step-process
+  side: from

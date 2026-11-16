@@ -36,7 +36,7 @@ type PlanReason =
   | { readonly kind: 'missing' }
   | { readonly kind: 'language'; readonly from: string | null; readonly to: string }
   | { readonly kind: 'ground-changed' | 'ground-removed'; readonly statement: string; readonly ground: string }
-  | { readonly kind: 'answer'; readonly question: string; readonly title: string }
+  | { readonly kind: 'question-answered'; readonly question: string; readonly title: string }
   | { readonly kind: 'correction'; readonly correction: string; readonly statement: string }
   | { readonly kind: 'new-service'; readonly services: readonly string[] }
   /** The product page links a domain whose page is missing: the product unit declares it again. */
@@ -52,6 +52,8 @@ interface PlannedPage {
 
 export interface Unplaced {
   readonly kind: 'question' | 'correction';
+  readonly id: string;
+  readonly file: string;
   readonly slug: string;
   readonly title: string;
   readonly reason: string;
@@ -110,13 +112,13 @@ export function decide(input: DecideInput): RefreshPlan {
     const places = new Set<string>();
     for (const entry of question.about) for (const id of placeOf(entry, pages)) places.add(id);
     if (question.askedIn !== null && byId.has(question.askedIn)) places.add(question.askedIn);
-    if (places.size === 0) unplaced.push({ kind: 'question', slug: question.slug, title: question.title, reason: `no page of the product is about ${question.about.join(', ') || 'anything'}, so the answer reaches no page: add a page that is, or name another page in the question's "about" in ${question.file}` });
-    for (const id of places) add(id, { kind: 'answer', question: question.slug, title: question.title });
+    if (places.size === 0) unplaced.push({ kind: 'question', id: question.id, file: question.file, slug: question.slug, title: question.title, reason: `no page of the product is about ${question.about.join(', ') || 'anything'}, so the answer reaches no page: add a page that is, or name another page in the question's "about" in ${question.file}` });
+    for (const id of places) add(id, { kind: 'question-answered', question: question.slug, title: question.title });
   }
   for (const correction of input.corrections) {
     if (correction.status !== 'open') continue;
     const places = placeOf(correction.about, pages);
-    if (places.length === 0) unplaced.push({ kind: 'correction', slug: correction.slug, title: correction.title, reason: `the page ${parseStatementRef(correction.about)?.page ?? correction.about} is not among the product's pages any more, so the correction reaches no page (${correction.file})` });
+    if (places.length === 0) unplaced.push({ kind: 'correction', id: correction.id, file: correction.file, slug: correction.slug, title: correction.title, reason: `the page ${parseStatementRef(correction.about)?.page ?? correction.about} is not among the product's pages any more, so the correction reaches no page (${correction.file})` });
     for (const id of places) add(id, { kind: 'correction', correction: correction.slug, statement: correction.about });
   }
   const product = pages.find((page) => page.file === PRODUCT_PATH);
@@ -180,8 +182,8 @@ export interface Planned {
 export async function planRefresh(options: PlanOptions): Promise<Planned> {
   const read = await graphKnowledgePages(options.graph, options.manifest);
   const pages = read.pages.filter(isKnowledgePage);
-  const questions = await graphQuestions(options.graph);
-  const corrections = await graphCorrections(options.graph);
+  const questions = await graphQuestions(options.graph, options.manifest);
+  const corrections = await graphCorrections(options.graph, options.manifest);
   const problems = [...read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`)];
   const grounds = pages.length === 0 ? [] : await changedGrounds(options.owner, { commit: options.commit });
   const product = pages.find((page) => page.file === PRODUCT_PATH);

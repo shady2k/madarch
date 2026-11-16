@@ -46,16 +46,25 @@ fields:
   - operations
 - name: container_ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   producers:
   - operations
 - name: probes
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.k8s-deployment-probes:v1
   nullable: true
   producers:
   - operations
 - name: env_from
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   producers:
   - operations

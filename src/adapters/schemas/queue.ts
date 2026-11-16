@@ -4,10 +4,11 @@ import type { DatabaseOwner } from '../database-owner.js';
 import type { QueueDeclaration } from '../../fill/queue.js';
 import { createSchemaOnce } from '../schema-stamp.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../schema-lock.js';
-import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ENQUEUE_STAMP_TABLE, ownerDatabase, QUEUE_SCHEMA_PARTS, queueOptions } from '../queue-definition.js';
+import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, MANUAL_GRAPH_QUEUE, ownerDatabase, QUEUE_SCHEMA_PARTS, queueOptions } from '../queue-definition.js';
 
 /** Queue declarations installed by store preparation. Clients may update their mutable settings. */
 const FILL_QUEUES: readonly QueueDeclaration[] = [
+  MANUAL_GRAPH_QUEUE,
   { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
   { name: 'fill-units', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
 ];
@@ -69,9 +70,6 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
           throw new Error(`the queue "${declaration.name}" has a different singleton rule in ${owner.location}: prepare a queue of its own name rather than changing its policy`);
         }
       }
-      await owner.run((executor) => executor.query(
-        `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`,
-      ));
       prepared = true;
     } finally {
       await boss.stop({ graceful: false });

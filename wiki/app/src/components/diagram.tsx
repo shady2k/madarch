@@ -19,6 +19,10 @@ import { ArchifyPane } from './diagram-panes/archify-pane.js';
 import type { LikeC4Answer, MermaidAnswer } from './diagram-types.js';
 import type { SectionContext } from './types.js';
 
+const RENDERER_CONTROL = {
+  testId: "diagram-renderer",
+} as const;
+
 type Tab = 'likec4' | 'mermaid' | 'archify';
 
 const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
@@ -89,7 +93,7 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     <Stack>
       <SegmentedChoice
         label={t('knowledge.diagramRenderer')}
-        testId="diagram-renderer"
+        testId={RENDERER_CONTROL.testId}
         value={tab}
         options={TABS.map((one) => ({ value: one.id, label: one.label, testId: `diagram-renderer-${one.id}` }))}
         onChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}

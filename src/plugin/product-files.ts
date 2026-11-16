@@ -7,6 +7,7 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import type { SnapshotEntry } from './repository-snapshot.js';
 
 /** How a read of the product repository's own files reads them. */
 export interface ProductFileRead {
@@ -121,7 +122,7 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
 interface SnapshotEntryLike {
   readonly path: string;
   readonly mode: string;
-  readonly form: string;
+  readonly form: SnapshotEntry['form'];
   readonly bytes?: number;
 }
 

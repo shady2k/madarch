@@ -6,18 +6,38 @@
  * plugin asks for them by name and never builds a statement itself.
  */
 import type { SqlExecutor } from '../sql-driver.js';
-import { withDraftParts } from '../fill/orchestrator-store.js';
-import type { DraftWriteLike } from './claims.js';
+import { semanticBinding } from '../knowledge/semantic-bindings.js';
+import { loadAssertions, selectAssertionSlots } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
-import { generatedTableName } from './contract.js';
-import { journalFor, writeJournal, type JournalRead } from './write.js';
-import { canonicalKey } from '../plugin/results.js';
+import { readKindAssertions } from './records.js';
+import { withSpan } from '../obs/trace.js';
+
+/** Reconstruct parent-key references from active graph edges, never scalar names. */
+async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind: string, id: number, seen: ReadonlySet<number> = new Set(), selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<import('./contract.js').EntityRefDraft> {
+  if (seen.has(id)) throw new Error(`${import.meta.path}:21: key-edge instance cycle at node ${id}`);
+  const found = await tx.query<{ uid: string; key: Record<string, import('./contract.js').KeyValueDraft> }>('SELECT uid::text,key FROM node WHERE id=$1', [id]);
+  const row = found.rows[0];
+  if (row === undefined) throw new Error(`${import.meta.path}:24: missing reference endpoint ${id}`);
+  const vertex = contract.vertex.find(v => v.name === kind);
+  if (vertex === undefined) throw new Error(`${import.meta.path}:26: undeclared endpoint kind ${kind}`);
+  const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
+  for (const role of vertex.keyEdges ?? []) {
+    const edges = (await readKindAssertions(tx, 'edge', role.edge, [], { ...selector, contract })).filter(e => (role.direction === 'from' ? e.from : e.to) === id);
+    if (edges.length !== 1) throw new Error(`${import.meta.path}:30: ${kind} ${row.uid} requires exactly one key edge ${role.role}, found ${edges.length}`);
+    const parentId = (role.direction === 'from' ? edges[0]!.to : edges[0]!.from)!;
+    const parent = await tx.query<{ kind: string }>('SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=$1', [parentId]);
+    if (parent.rows[0] === undefined) throw new Error(`${import.meta.path}:33: missing key endpoint ${parentId}`);
+    keyEdges[role.role] = await referenceOf(tx, contract, parent.rows[0].kind, parentId, new Set([...seen, id]), selector);
+  }
+  return { kind, key: row.key, uid: row.uid, ...(Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
+}
 
 /** One file vertex of the graph: the repository it stands in and its path from that repository's root. */
 export interface GraphFileRow {
   readonly repository: string;
   readonly path: string;
+  readonly keyEdges: Readonly<Record<string, import('./contract.js').EntityRefDraft>>;
 }
 
 /**
@@ -26,63 +46,76 @@ export interface GraphFileRow {
  * table, and the answer is empty — never an error.
  */
 export async function graphFiles(owner: DatabaseOwner, contract: GraphContract): Promise<GraphFileRow[]> {
-  if (!contract.vertex.some((kind) => kind.name === 'code.file')) return [];
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ repository: string; path: string }>(
-      `SELECT (f.key->>'repository') AS repository, (f.key->>'path') AS path
-       FROM node f
-       JOIN entity fe ON fe.id = f.entity_id AND fe.name = $1
-       JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = $2)
-       WHERE NOT f.removed
-       ORDER BY repository, path`,
-      ['code.file', 'code.contains'],
-    );
-    return found.rows.map((row) => ({ repository: row.repository, path: row.path }));
-  });
+  return await withSpan('graph.pluginFiles', {}, async () => await owner.transaction('snapshot', async tx => {
+    const { readPublishedManifest } = await import('./manifest-publication.js');
+    const manifest = await readPublishedManifest(tx);
+    if (manifest === undefined) throw new Error(`${import.meta.path}:53: file listing requires the published contract`);
+    const fileRole = semanticBinding(manifest, 'file');
+    const repositoryRole = semanticBinding(manifest, 'repository');
+    const pathField = fileRole.fields['path'];
+    const nameField = repositoryRole.fields['name'];
+    const parent = fileRole.edges?.['repository'];
+    if (pathField === undefined || nameField === undefined || parent === undefined) throw new Error(`${manifest.file}:${fileRole.line}: file listing requires file.path, file.repository edge and repository.name semantic bindings`);
+    const fieldsOf = (kind: string, field: string): string[] => {
+      const vertex = contract.vertex.find(declaration => declaration.name === kind);
+      if (vertex === undefined) throw new Error(`${manifest.file}:${fileRole.line}: semantic role names undeclared kind ${kind}`);
+      if (!vertex.fields.some(declaration => declaration.name === field)) throw new Error(`${manifest.file}:${fileRole.line}: semantic role names undeclared field ${kind}.${field}`);
+      return vertex.key.includes(field) ? [] : [field];
+    };
+    const files = await readKindAssertions(tx, 'vertex', fileRole.kind, fieldsOf(fileRole.kind, pathField), { contract });
+    const repositories = await readKindAssertions(tx, 'vertex', repositoryRole.kind, fieldsOf(repositoryRole.kind, nameField), { contract });
+    const links = await readKindAssertions(tx, 'edge', parent.kind, [], { contract });
+    const rows: GraphFileRow[] = [];
+    for (const file of files) {
+      const linksOfFile = links.filter(edge => (parent.direction === 'from' ? edge.from : edge.to) === file.id);
+      if (linksOfFile.length === 0) continue;
+      if (linksOfFile.length !== 1) throw new Error(`${manifest.file}:${parent.line}: file ${file.uid} has ambiguous repository membership`);
+      const repositoryId = parent.direction === 'from' ? linksOfFile[0]!.to : linksOfFile[0]!.from;
+      const repository = repositories.find(row => row.id === repositoryId);
+      if (repository === undefined) throw new Error(`${manifest.file}:${parent.line}: file ${file.uid} repository endpoint is not an active ${repositoryRole.kind}`);
+      const reference = await referenceOf(tx, contract, fileRole.kind, file.id);
+      const scalar = (row: import('./records.js').AssertionRecord, field: string): unknown => Object.hasOwn(row.key, field) ? row.key[field] : row.values[field];
+      const path = scalar(file, pathField), name = scalar(repository, nameField);
+      if (typeof path !== 'string' || typeof name !== 'string') throw new Error(`${manifest.file}:${fileRole.line}: file path and repository name bindings require text values`);
+      rows.push({ repository: name, path, keyEdges: reference.keyEdges ?? {} });
+    }
+    return rows.sort((a,b)=>a.repository<b.repository?-1:a.repository>b.repository?1:a.path<b.path?-1:a.path>b.path?1:0);
+  }));
 }
 
 /** One entity a producer holds: its natural key values, and the file its open opinion was read in. */
 export interface ProducerEntity {
   readonly key: import('../plugin/protocol.js').PluginKeyValues;
   readonly path: string | null;
+  readonly uid: string;
+  readonly keyEdges: Readonly<Record<string, import('./contract.js').EntityRefDraft>>;
 }
 
 /**
  * The entities of one kind a producer already holds, with the path of their evidence: what a unit's answer is compared
  * with, so an entity the unit no longer holds is a removal. A kind with no table answers nothing.
  */
-export async function producerEntities(owner: DatabaseOwner, contract: GraphContract, kind: string, producer: string): Promise<ProducerEntity[]> {
+export async function producerEntities(owner: DatabaseOwner, contract: GraphContract, kind: string, sourceUid: string): Promise<ProducerEntity[]> {
   const vertex: VertexContract | undefined = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return [];
-  const table = generatedTableName(kind, 'vertex');
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ key: Record<string, unknown>; evidence: readonly Record<string, unknown>[] }>(
-      `SELECT n.key AS key, o.evidence FROM ${table} o
-       JOIN node n ON n.id = o.node_id
-       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = $1 AND NOT n.removed`,
-      [producer],
-    );
-    const rows = found.rows.map((row) => ({
-      key: Object.fromEntries(vertex.key.map((column) => [column, row.key[column] ?? ''])) as import('../plugin/protocol.js').PluginKeyValues,
-      path: row.evidence.map((one) => one['path']).find((one): one is string => typeof one === 'string') ?? null,
+  return await withSpan('graph.producerEntities', {}, async () => await owner.transaction('snapshot', async tx => {
+    const rows=await readKindAssertions(tx,'vertex',kind,[],{contract});
+    const uid = sourceUid;
+    return await Promise.all(rows.filter(r => r.activeSources.includes(uid)).map(async r => {
+      const ref = await referenceOf(tx, contract, kind, r.id);
+      const evidence = r.assertions.filter(a => a.source === uid).flatMap(a => a.evidence);
+      const locations = evidence.length === 0 ? [] : (await tx.query<{ path: string }>(`SELECT n.key->>'path' AS path FROM node n WHERE n.uid=ANY($1::uuid[]) AND n.key ? 'path' ORDER BY n.uid`, [evidence])).rows;
+      return { key: r.key as import('../plugin/protocol.js').PluginKeyValues, uid: r.uid, keyEdges: ref.keyEdges ?? {}, path: locations[0]?.path ?? null };
     }));
-    // One vertex one opinion: a producer may hold the same key once, so a repeated key stands once.
-    const seen = new Set<string>();
-    return rows.filter((row) => {
-      const rendered = JSON.stringify(Object.keys(row.key).sort().map((field) => [field, row.key[field]]));
-      if (seen.has(rendered)) return false;
-      seen.add(rendered);
-      return true;
-    }).sort((left, right) => (JSON.stringify(left.key) < JSON.stringify(right.key) ? -1 : 1));
-  });
+  }));
 }
 
 
 /** One edge a producer published before: its identity as the edge row holds it, ends named by kind and key. */
 export interface ProducerEdge {
   readonly kind: string;
-  readonly from: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
-  readonly to: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
+  readonly from: import('./contract.js').EntityRefDraft;
+  readonly to: import('./contract.js').EntityRefDraft;
   readonly discriminator: string;
 }
 
@@ -91,188 +124,113 @@ export interface ProducerEdge {
  * them: what a complete unit's answer is compared with, so an edge the unit no longer states is removed rather than
  * kept. The ends' keys are the ones `node.key` holds, which is the same object a draft declares.
  */
-export async function producerEdges(owner: DatabaseOwner, contract: GraphContract, kind: string, producer: string): Promise<ProducerEdge[]> {
-  const declared = contract.edge.find((held) => held.name === kind);
-  if (declared === undefined || declared.table === undefined) return [];
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ from_kind: string; to_kind: string; from_key: Record<string, unknown>; to_key: Record<string, unknown>; discriminator: string }>(
-      `SELECT fk.name AS from_kind, tk.name AS to_kind, nf.key AS from_key, nt.key AS to_key, e.discriminator
-       FROM ${declared.table} o
-       JOIN edge e ON e.id = o.edge_id
-       JOIN node nf ON nf.id = e.from_node
-       JOIN entity fk ON fk.id = nf.entity_id
-       JOIN node nt ON nt.id = e.to_node
-       JOIN entity tk ON tk.id = nt.entity_id
-       WHERE o.state = 'open' AND o.context_id = 1 AND split_part(o.said_by, '@', 1) = $1
-         AND NOT nf.removed AND NOT nt.removed
-       ORDER BY e.id`,
-      [producer],
-    );
-    const keyOf = (value: Record<string, unknown>): Record<string, string | number> => value as Record<string, string | number>;
-    return found.rows.map((row) => ({
-      kind,
-      from: { kind: row.from_kind, key: keyOf(row.from_key) },
-      to: { kind: row.to_kind, key: keyOf(row.to_key) },
-      discriminator: row.discriminator,
+export async function producerEdges(owner: DatabaseOwner, contract: GraphContract, kind: string, sourceUid: string): Promise<ProducerEdge[]> {
+  if (!contract.edge.some(k=>k.name===kind)) return [];
+  return await withSpan('graph.producerEdges', {}, async () => await owner.transaction('snapshot', async tx => {
+    const rows=await readKindAssertions(tx,'edge',kind,[],{contract});
+    const uid = sourceUid;
+    return await Promise.all(rows.filter(r => r.activeSources.includes(uid)).map(async r => {
+      const ends = await tx.query<{ id: number; kind: string }>('SELECT n.id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])', [[r.from!,r.to!]]);
+      const from = ends.rows.find(n => Number(n.id) === r.from), to = ends.rows.find(n => Number(n.id) === r.to);
+      if (from === undefined || to === undefined) throw new Error(`${import.meta.path}:133: edge ${r.uid} has a missing endpoint`);
+      return { kind, from: await referenceOf(tx, contract, from.kind, r.from!), to: await referenceOf(tx, contract, to.kind, r.to!), discriminator: r.discriminator ?? '' };
     }));
-  });
+  }));
 }
 
-/**
- * The debug entry of a unit that published nothing — a plugin that read the graph and then crashed or timed out: its
- * requests stand even where its answer does not, as one journal row in a transaction of its own. This module is the
- * graph's own, so the write stands where the architecture says a publication may: a caller outside `src/graph` asks
- * for it by name. A store that cannot take the row does not hide the unit's failure.
- */
-export async function writeRequestEntry(owner: DatabaseOwner, author: string, records: readonly JournalRead[]): Promise<void> {
-  if (records.length === 0) return;
-  await owner.transaction('write', async (tx) => {
-    const journal = journalFor(author);
-    for (const record of records) journal.read(record);
-    await writeJournal(tx, journal);
-  });
-}
-
-/** An immutable successful producer generation, retained with its publication. */
+/** A completed graph unit pinned to the recorded boundary captured after completion. */
 export interface PluginSnapshot {
-  readonly runId: string;
-  readonly unitId: string;
-  readonly generation: number;
-  readonly partitions?: readonly PluginSnapshot[];
+  readonly unitUid: string;
+  readonly recordedAt: string;
+  readonly validAt: string;
 }
-
-export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ run_id: string; unit_id: string; generation: number; writes: unknown }>(
-      `SELECT g.run_id, g.unit_id, g.generation, d.writes FROM fill_unit_generation g
-       JOIN fill_unit u ON u.unit_id = g.unit_id
-       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-       JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
-       WHERE (g.run_id = $1 OR EXISTS (
-         SELECT 1 FROM fill_event e WHERE e.run_id = $1 AND e.unit_id = g.unit_id
-           AND e.generation = g.generation AND e.kind = 'unit-inherited'))
-         AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
-       ORDER BY g.generation DESC LIMIT 1`, [runId, scope]);
-    const row = (await withDraftParts(tx, found.rows))[0];
-    if (row === undefined) throw new Error(`no successful current-run snapshot for ${scope}`);
-    const writes = snapshotWrites(row.writes);
-    const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
-    if (!['completed', 'unchanged', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`producer ${scope} did not complete successfully in run ${runId}`);
-    const partitions = await partitionSnapshots(tx, writes);
-    return { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation), ...(partitions.length === 0 ? {} : { partitions }) };
-  });
-}
-
-function snapshotWrites(writes: unknown): { kind: string; value: unknown }[] {
-  return (typeof writes === 'string' ? JSON.parse(writes) : writes) as { kind: string; value: unknown }[] ?? [];
-}
-
-/** Declared vertices from one captured producer generation, never the current graph. */
-export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]> {
-  return await owner.transaction('snapshot', async tx => {
-    const writes = await snapshotDrafts(tx, snapshot);
-    for (const partition of snapshot.partitions ?? []) writes.push(...await snapshotDrafts(tx, partition, true));
-    const vertices = new Map<string, { key: import('../plugin/protocol.js').PluginKeyValues; values: Readonly<Record<string, unknown>> }>();
-    for (const write of writes) {
-      if (write.kind !== 'vertex' && write.kind !== 'vertex-removal') continue;
-      const vertex = write.value as { kind: string; key: import('../plugin/protocol.js').PluginKeyValues; values?: Readonly<Record<string, unknown>> };
-      if (vertex.kind !== kind) continue;
-      const identity = canonicalKey(vertex.key);
-      if (write.kind === 'vertex-removal') vertices.delete(identity);
-      else vertices.set(identity, { key: vertex.key, values: vertex.values ?? {} });
-    }
-    return [...vertices.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, vertex]) => vertex);
-  });
-}
-
 export interface PartitionReference {
   readonly runId: string;
   readonly unitId: string;
   readonly generation: number;
 }
 
-async function snapshotDrafts(executor: SqlExecutor, snapshot: PluginSnapshot, partition = false): Promise<DraftWriteLike[]> {
-  const found = await executor.query<{ unit_id: string; generation: number; writes: unknown }>(
-    `SELECT d.unit_id, d.generation, d.writes FROM fill_unit_draft d
-     JOIN fill_unit_generation g ON g.unit_id = d.unit_id AND g.generation = d.generation
-     JOIN fill_publication p ON p.unit_id = d.unit_id AND p.generation = d.generation
-     WHERE g.run_id = $1 AND d.unit_id = $2 AND d.generation = $3`,
-    [snapshot.runId, snapshot.unitId, snapshot.generation]);
-  const row = (await withDraftParts(executor, found.rows))[0];
-  if (row === undefined) throw new Error(`immutable producer snapshot ${snapshot.unitId}/${snapshot.generation} is unavailable`);
-  const writes = snapshotWrites(row.writes);
-  if (partition && writes.filter(write => write.kind === 'plugin-partition').length !== 1) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} has no unique partition draft`);
-  const expanded: DraftWriteLike[] = [];
-  for (const write of writes) {
-    if (write.kind !== 'plugin-partition') {
-      expanded.push(write);
-      continue;
+async function completedSnapshot(tx: SqlExecutor, runId: string, unitId: string, generation?: number, stageScope?: string): Promise<PluginSnapshot> {
+  const runs = await readKindAssertions(tx, 'vertex', 'system.run', ['run_name']);
+  const run = runs.filter(row => row.values['run_name'] === runId);
+  if (run.length !== 1) throw new Error(`${import.meta.path}:136: expected one graph run ${runId}, found ${run.length}`);
+  const relations = await readKindAssertions(tx, 'edge', 'system.unit-run', []);
+  const inherited = await readKindAssertions(tx, 'edge', 'system.run-inherited-unit', []);
+  const ids = new Set([...relations.filter(edge => edge.to === run[0]!.id).map(edge => edge.from), ...inherited.filter(edge => edge.from === run[0]!.id).map(edge => edge.to)]);
+  const units = await readKindAssertions(tx, 'vertex', 'system.unit', ['unit_name', 'state', 'scope', 'generation']);
+  const matches = units.filter(unit => ids.has(unit.id)
+    && (stageScope === undefined ? unit.values['unit_name'] === unitId : unit.values['scope'] === stageScope)
+    && (generation === undefined || unit.values['generation'] === generation)
+    && unit.values['state'] === 'published');
+  if (matches.length !== 1) throw new Error(`${import.meta.path}:141: expected one completed graph unit ${runId}/${unitId}, found ${matches.length}`);
+  const clock = await tx.query<{ now: string }>('SELECT transaction_timestamp()::text AS now');
+  return { unitUid: matches[0]!.uid, recordedAt: clock.rows[0]!.now, validAt: clock.rows[0]!.now };
+}
+
+export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
+  return await withSpan('graph.successfulPluginSnapshot', {}, () => owner.transaction('snapshot', tx => completedSnapshot(tx, runId, '', undefined, scope)));
+}
+
+/** Replay only assertions authored by the captured unit at its immutable boundary. */
+export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly keyEdges?: Readonly<Record<string, import('./contract.js').EntityRefDraft>>; readonly values: Readonly<Record<string, unknown>> }[]> {
+  return await withSpan('graph.pluginSnapshotVertices', {}, () => owner.transaction('snapshot', async tx => {
+    const { readPublishedManifest } = await import('./manifest-publication.js');
+    const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
+    const manifest = await readPublishedManifest(tx);
+    if (manifest === undefined) throw new Error(`${import.meta.path}:160: snapshot requires the published contract`);
+    const contract = graphContractOf(manifest);
+    const declaration = contract.vertex.find(vertex => vertex.name === kind);
+    if (declaration === undefined) throw new Error(`${import.meta.path}:163: snapshot kind ${kind} is undeclared`);
+    const parentEdges = await readKindAssertions(tx, 'edge', 'system.unit-parent', [], snapshot);
+    const unitNodes = await tx.query<{ id: number; uid: string }>(`SELECT n.id,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.unit'`);
+    const units = new Set([snapshot.unitUid]);
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const edge of parentEdges) {
+        const parent = unitNodes.rows.find(unit => Number(unit.id) === edge.to)?.uid;
+        const child = unitNodes.rows.find(unit => Number(unit.id) === edge.from)?.uid;
+        if (parent !== undefined && child !== undefined && units.has(parent) && !units.has(child)) { units.add(child); changed = true; }
+      }
     }
-    const partition = write.value as { partitions?: PartitionReference[]; writes?: DraftWriteLike[] };
-    if (partition.partitions !== undefined) {
-      const children = await partitionSnapshots(executor, [{ kind: 'plugin-aggregate', value: { partitions: partition.partitions } }]);
-      for (const child of children) expanded.push(...await snapshotDrafts(executor, child, true));
-      continue;
-    }
-    const inner = partition.writes ?? [];
-    const outcomes = inner.filter(write => write.kind === 'producer-outcome').map(write => write.value as { outcome?: string });
-    if (outcomes.length !== 1 || !['completed', 'empty', 'unchanged'].includes(outcomes[0]?.outcome ?? '')) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} did not complete successfully`);
-    expanded.push(...inner);
-  }
-  return expanded;
+    const assertions = (await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)])).filter(assertion => assertion.unit !== null && units.has(assertion.unit));
+    const slots = selectAssertionSlots(assertions, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1] });
+    const selected = [...slots.values()].flatMap(slot => slot.selected === null ? [] : [slot.selected]);
+    const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
+    const nodes = await tx.query<{ id: number; uid: string; key: import('../plugin/protocol.js').PluginKeyValues }>('SELECT id,uid::text,key FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid', [ids]);
+    return await Promise.all(nodes.rows.map(async node => {
+      const ref = await referenceOf(tx, contract, kind, Number(node.id), new Set(), snapshot);
+      const values = Object.fromEntries(selected.filter(assertion => assertion.subject.type === 'vertex' && assertion.subject.uid === node.uid && assertion.property !== '$exists').map(assertion => [assertion.property, assertion.value]));
+      return { key: node.key, ...(ref.keyEdges === undefined ? {} : { keyEdges: ref.keyEdges }), values };
+    }));
+  }));
 }
 
-async function partitionSnapshots(executor: SqlExecutor, writes: readonly DraftWriteLike[], runId?: string): Promise<PluginSnapshot[]> {
-  const barrier = writes.find(write => write.kind === 'plugin-aggregate')?.value as { partitions: PartitionReference[] } | undefined;
-  if (barrier === undefined) return [];
-  const snapshots: PluginSnapshot[] = [];
-  for (const child of barrier.partitions) {
-    const found = await executor.query<{ run_id: string }>(
-      `SELECT g.run_id FROM fill_unit_generation g
-       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-       WHERE g.unit_id = $1 AND g.generation = $2 AND g.state = 'published'
-       AND ($3::text IS NULL OR g.run_id = $3 OR EXISTS (
-         SELECT 1 FROM fill_event e WHERE e.run_id = $3 AND e.unit_id = g.unit_id AND e.generation = g.generation AND e.kind = 'unit-inherited'))`,
-      [child.unitId, child.generation, runId ?? child.runId]);
-    const row = found.rows[0];
-    if (row === undefined) throw new Error(`partition ${child.unitId}/${child.generation} has no successful publication`);
-    snapshots.push({ ...child, runId: row.run_id });
-  }
-  return snapshots;
-}
-
-/** Expand only sealed successful immutable partition drafts inside the barrier's publication transaction. */
-export async function expandPartitionWrites(executor: SqlExecutor, writes: readonly DraftWriteLike[]): Promise<DraftWriteLike[]> {
-  const expanded = [...writes];
-  for (const snapshot of await partitionSnapshots(executor, writes)) expanded.push(...await snapshotDrafts(executor, snapshot, true));
-  return expanded;
-}
-
-/** Validate every sealed child before the aggregate can state a successful outcome. */
 export async function pluginPartitionOutcome(owner: DatabaseOwner, refs: readonly PartitionReference[]): Promise<{ complete: boolean; produced: number }> {
-  return await owner.transaction('snapshot', async tx => {
-    const snapshots = await partitionSnapshots(tx, [{ kind: 'plugin-aggregate', value: { partitions: refs } }]);
-    let produced = 0;
-    for (const snapshot of snapshots) {
-      const writes = await snapshotDrafts(tx, snapshot, true);
-      produced += writes.filter(write => write.kind === 'vertex' || write.kind === 'edge').length;
-    }
-    return { complete: true, produced };
-  });
+  return await withSpan('graph.pluginPartitionOutcome', {}, () => owner.transaction('snapshot', async tx => {
+    const snapshots = await Promise.all(refs.map(ref => completedSnapshot(tx, ref.runId, ref.unitId, ref.generation)));
+    const rows = await tx.query<{ produced: string }>(`SELECT count(*)::text AS produced FROM (
+      SELECT DISTINCT 'vertex' AS sort,subject.to_node AS id FROM assertion a JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity k ON k.id=lineage.entity_id JOIN node u ON u.id=lineage.to_node JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge subject ON subject.id=attachment.subject_edge_id JOIN node target ON target.id=subject.to_node JOIN entity target_kind ON target_kind.id=target.entity_id WHERE k.name='system.assertion-unit' AND u.uid=ANY($1::uuid[]) AND a.property='$exists' AND a.operation='assert' AND target_kind.name NOT LIKE 'system.%'
+      UNION SELECT DISTINCT 'edge',attachment.edge_id FROM assertion a JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity k ON k.id=lineage.entity_id JOIN node u ON u.id=lineage.to_node JOIN assertion_edge_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge target ON target.id=attachment.edge_id JOIN entity target_kind ON target_kind.id=target.entity_id WHERE k.name='system.assertion-unit' AND u.uid=ANY($1::uuid[]) AND a.property='$exists' AND a.operation='assert' AND target_kind.name NOT LIKE 'system.%'
+    ) subjects`, [snapshots.map(snapshot => snapshot.unitUid)]);
+    return { complete: true, produced: Number(rows.rows[0]!.produced) };
+  }));
 }
 
 /** Generic declared field transport. Conflicting opinions remain explicit rather than using arrival order. */
-export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphContract, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
-  const vertex = contract.vertex.find((held) => held.name === kind);
-  if (vertex === undefined || !vertex.fields.some((held) => held.name === field)) throw new Error(`undeclared catalogue field ${kind}.${field}`);
-  if (vertex.key.includes(field)) return key[field] ?? null;
-  const column = `"${field.replaceAll('"', '""')}"`;
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ value: unknown }>(
-      `SELECT o.${column} AS value FROM ${vertex.table} o JOIN node n ON n.id = o.node_id
-       WHERE n.key = $1::jsonb AND NOT n.removed AND o.state = 'open' AND o.context_id = 1 AND o.lang IS NULL
-         AND o.${column} IS NOT NULL ORDER BY o.said_by COLLATE "C"`, [JSON.stringify(key)]);
-    const values = [...new Map(found.rows.map((row) => [JSON.stringify(row.value), row.value])).values()];
-    return values.length <= 1 ? values[0] ?? null : values;
-  });
+export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphContract, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string, keyEdges: Readonly<Record<string, import('./contract.js').EntityRefDraft>> = {}): Promise<unknown> {
+  const vertex = contract.vertex.find(v => v.name === kind);
+  if (vertex === undefined || !vertex.fields.some(f => f.name === field)) throw new Error(`${import.meta.path}:307: undeclared catalogue field ${kind}.${field}`);
+  const roles = (vertex.keyEdges ?? []).map(role => role.role);
+  if (Object.keys(keyEdges).length !== roles.length || Object.keys(keyEdges).some(role => !roles.includes(role))) throw new Error(`${import.meta.path}:309: lookup of ${kind} requires every declared key edge`);
+  return await withSpan('graph.pluginValue', {}, async () => await owner.transaction('snapshot', async tx => {
+    const matches: import('./records.js').AssertionRecord[] = [];
+    for (const row of await readKindAssertions(tx, 'vertex', kind, vertex.key.includes(field) ? [] : [field], { contract })) {
+      if (!Object.keys(key).every(k => row.key[k] === key[k])) continue;
+      const ref = await referenceOf(tx, contract, kind, row.id);
+      const same = (actual: import('./contract.js').EntityRefDraft, wanted: import('./contract.js').EntityRefDraft): boolean => actual.kind === wanted.kind && (wanted.uid === undefined || actual.uid === wanted.uid) && Object.keys(wanted.key).every(k => wanted.key[k] === actual.key[k]) && Object.entries(wanted.keyEdges ?? {}).every(([role, parent]) => actual.keyEdges?.[role] !== undefined && same(actual.keyEdges[role]!, parent));
+      if (Object.entries(keyEdges).every(([role, parent]) => ref.keyEdges?.[role] !== undefined && same(ref.keyEdges[role]!, parent))) matches.push(row);
+    }
+    if (matches.length > 1) throw new Error(`${import.meta.path}:318: ambiguous key lookup for ${kind}`);
+    return (vertex.key.includes(field) ? matches[0]?.key[field] : matches[0]?.values[field]) ?? null;
+  }));
 }

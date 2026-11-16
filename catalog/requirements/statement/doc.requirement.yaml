@@ -27,7 +27,8 @@ fields:
     en: Identifier
     ru: Идентификатор
   binding:
-    agent: The number or name the requirement is known by, such as REQ-12; it is the requirement's key.
+    agent: The number or name the requirement is known by, such as REQ-12; it is the
+      requirement's key.
 - name: statement
   type: text
   binding:
@@ -38,15 +39,13 @@ fields:
   binding:
     agent: 'What kind of requirement it is: functional or a quality.'
 - name: priority
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: How urgent the requirement is compared with the others.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the requirement stands, changed or dropped.
 key:

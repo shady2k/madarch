@@ -21,20 +21,21 @@ import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
-import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
-import { generatedTableName } from '../graph/contract.js';
+import { graphFiles, producerEdges, producerEntities, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
+import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
+import { generatedTableName, graphContractVersion } from '../graph/contract.js';
+import { applyPluginFacts } from '../graph/graph-writes.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
 import { pluginInvocationAccess } from '../plugin/fill-access.js';
 import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
-import { canonicalKey } from '../plugin/results.js';
+import { validateUnitResult, canonicalKey, canonicalEntity } from '../plugin/results.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
-import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage } from './stage.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
 import { startAgentGraphMcp } from './agent-graph.js';
 import { UnitBoundStop } from './unit-bound.js';
@@ -45,6 +46,9 @@ export type GraphOwner = Parameters<typeof producerEntities>[0];
 
 /** What the plugin turn reads: the product's manifest, its lock, its checkouts and the graph the fill writes. */
 export interface PluginTurnWiring {
+  readonly sourceUid?: string;
+  /** The runtime binds run, unit and principal; producers cannot choose authority. */
+  readonly executeOperation?: <Result>(unit: string, key: string, request: unknown, apply: (tx: import('../history-types.js').OuterTransaction) => Promise<Result>, preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]) => Promise<Result>;
   /** Host-owned adapter configuration, present only for a pressed agent fill. */
   readonly agent?: PluginAgentOptions;
   readonly productFolder: string;
@@ -69,7 +73,6 @@ export interface PluginTurnWiring {
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean };
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
-  /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
   readonly debug?: boolean;
   /**
    * The run's agent metering (madarch-stm0.4, decision 0035, item 22): the fill run's id, the counter the run's plugin
@@ -82,6 +85,49 @@ export interface PluginTurnWiring {
     readonly budget?: AgentRunBudget;
     /** Where a unit's rows go: `recordAgentUsage` over the store's mechanism tables. */
     readonly save: (rows: readonly AgentUsageRecord[]) => Promise<void>;
+  };
+}
+
+function declaredSupport(wiring: PluginTurnWiring, unit: PluginTurnUnit) {
+  const requested = unit.plugin.declaration?.produces.find(output => output.kind === unit.kind.name)?.support;
+  const vertices = new Map<string, readonly string[]>();
+  for (const name of requested?.vertices ?? []) {
+    if (name === unit.kind.name) continue;
+    const vertex = unit.plugin.contract?.vertices.find(vertex => vertex.kind === name);
+    const installed = wiring.manifest.kinds.get(name);
+    if (vertex?.evidence?.immutable !== true || installed === undefined) throw new Error(`${unit.plugin.id}: support vertex ${name} must be an installed, declared immutable output`);
+    const fields = vertex.fields.map(field => field.name);
+    for (const name of fields) {
+      const field = installed.fields?.find(field => field.name === name);
+      if (field === undefined || (!field.producers?.includes(unit.plugin.id) && !(field.binding?.kind === 'plugin' && field.binding.plugin === unit.plugin.id))) throw new Error(`${unit.plugin.id}: support field ${vertex.kind}.${name} is not granted to this producer`);
+    }
+    vertices.set(name, fields);
+  }
+  const edges = new Set(requested?.edges ?? []);
+  for (const kind of edges) {
+    const edge = unit.plugin.contract?.edges.find(edge => edge.kind === kind);
+    if (edge === undefined || !wiring.contract.edge.some(edge => edge.name === kind)) throw new Error(`${unit.plugin.id}: support edge ${kind} is not installed and declared`);
+    const from = typeof edge.from === 'string' ? [edge.from] : edge.from;
+    const to = typeof edge.to === 'string' ? [edge.to] : edge.to;
+    if (![...from, ...to].some(kind => vertices.has(kind) || (kind === unit.kind.name && unit.plugin.contract?.vertices.find(vertex => vertex.kind === kind)?.evidence?.immutable === true))) throw new Error(`${unit.plugin.id}: support edge ${kind} has no declared immutable support endpoint`);
+    for (const endpoint of [...from, ...to]) if (!wiring.manifest.kinds.has(endpoint)) throw new Error(`${unit.plugin.id}: support edge ${kind} names uninstalled endpoint ${endpoint}`);
+  }
+  return { vertices, edges };
+}
+
+/** Runtime-only authority, resolved from the selected plugin declaration rather than producer input. */
+export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } {
+  const unit = unitOf(wiring, id);
+  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
+  const fields = plan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
+  const support = declaredSupport(wiring, unit);
+  return {
+    sourceName: unit.plugin.id, version: unit.lock.version,
+    permissions: [
+      ...[...support.vertices].map(([kind, fields]) => ({ kind, properties: ['$exists', ...fields], assert: true, retractOwn: false })),
+      { kind: unit.kind.name, properties: ['$exists', ...fields, ...(unit.kind.key ?? [])], assert: true, retractOwn: true },
+      ...(unit.plugin.contract?.edges ?? []).map(edge => ({ kind: edge.kind, properties: ['$exists', ...edge.fields.map(field => field.name)], assert: true, retractOwn: true })),
+    ],
   };
 }
 
@@ -166,7 +212,7 @@ function evidenceDeclarations(manifest: KindsManifest): EvidenceDeclaration[] {
 /** The unit a worker re-derives from its id, against the manifest it reads itself. */
 function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   const cut = id.indexOf(':');
-  if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
+  if (cut < 0) throw new Error(`${import.meta.path}:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
   const rest = id.slice(cut + 1).split('#')[0]!;
   const plugin = wiring.manifest.plugins?.get(id.slice(0, cut));
   const lock = plugin === undefined ? undefined : wiring.locks.get(plugin.id);
@@ -175,21 +221,21 @@ function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   const kind = wiring.manifest.kinds.get(kindName);
   const patterns = [...new Set(kind?.terms ?? [])];
   if (kind === undefined || plugin === undefined || lock === undefined || !fills(plugin, kind)) {
-    throw new Error(`src/fill/plugin-turns.ts:1: the unit ${JSON.stringify(id)} names a plugin or a kind the manifest no longer declares, or a plugin the lock no longer holds`);
+    throw new Error(`${import.meta.path}:1: the unit ${JSON.stringify(id)} names a plugin or a kind the manifest no longer declares, or a plugin the lock no longer holds`);
   }
   return { id, plugin, kind, lock, patterns };
 }
 
-/** One evidence of a plugin's answer as the graph's writer states it: `commitOrDigest` is the commit or digest. */
-function draftEvidence(evidence: { readonly repository?: string; readonly commitOrDigest?: string; readonly path?: string; readonly lineStart?: number; readonly lineEnd?: number } | undefined): { repository?: string; commit?: string; path?: string; lineStart?: number; lineEnd?: number } | undefined {
-  if (evidence === undefined) return undefined;
-  return {
-    ...(evidence.repository === undefined ? {} : { repository: evidence.repository }),
-    ...(evidence.commitOrDigest === undefined ? {} : { commit: evidence.commitOrDigest }),
+/** The plugin names a pinned source; lineage names its declared graph endpoint (0039 item 14). */
+function draftEvidence(evidence: import('../plugin/protocol.js').PluginEvidence | undefined): import('../graph/contract.js').EvidenceDraft[] {
+  if (evidence === undefined) return [];
+  return [{ target: evidence.target, locator: {
     ...(evidence.path === undefined ? {} : { path: evidence.path }),
+    ...(evidence.commit === undefined ? {} : { commit: evidence.commit }),
+    ...(evidence.digest === undefined ? {} : { digest: evidence.digest }),
     ...(evidence.lineStart === undefined ? {} : { lineStart: evidence.lineStart }),
     ...(evidence.lineEnd === undefined ? {} : { lineEnd: evidence.lineEnd }),
-  };
+  } }];
 }
 
 /** One drafted vertex as the graph names the entity: `<kind>:<its key values in the contract's order, joined by /">`. */
@@ -202,8 +248,8 @@ function entityIdOf(wiring: PluginTurnWiring, kind: string, key: import('../plug
 }
 
 /** One edge's identity inside one answer: its kind, both ends by kind and key, and its discriminator. */
-function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, to: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, discriminator: string): string {
-  return JSON.stringify([kind, from.kind, canonicalKey(from.key), to.kind, canonicalKey(to.key), discriminator]);
+function edgeIdentity(kind: string, from: import('../plugin/protocol.js').PluginEntityRef, to: import('../plugin/protocol.js').PluginEntityRef, discriminator: string): string {
+  return JSON.stringify([kind, canonicalEntity(from), canonicalEntity(to), discriminator]);
 }
 
 /**
@@ -212,12 +258,12 @@ function edgeIdentity(kind: string, from: { readonly kind: string; readonly key:
  * answers — and each it refuses — in the unit's `RequestLog`, so the answerer states no sizes of its own.
  */
 export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>): GraphAnswerer {
-  const snapshots = new Map<string, Promise<Map<string, { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }>>>();
+  const snapshots = new Map<string, Promise<Map<string, { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly keyEdges?: Readonly<Record<string, import('../plugin/protocol.js').PluginEntityRef>>; readonly values: Readonly<Record<string, unknown>> }>>>();
   const vertices = (snapshot: import('../graph/plugin-turns.js').PluginSnapshot, kind: string) => {
     const identity = canonicalJsonDigest({ snapshot, kind });
     let held = snapshots.get(identity);
     if (held === undefined) {
-      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => [canonicalKey(row.key), row])));
+      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => [canonicalEntity({ kind, ...row }), row])));
       snapshots.set(identity, held);
     }
     return held;
@@ -225,34 +271,30 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
   return {
     files: async (pattern, snapshot) => {
       const files = snapshot === undefined ? await graphFiles(wiring.owner, wiring.contract)
-        : [...(await vertices(snapshot, 'code.file')).values()].map(({ key }) => {
-          if (typeof key.repository !== 'string' || typeof key.path !== 'string') throw new Error('immutable code.file snapshot has an invalid declared key');
-          return { repository: key.repository, path: key.path };
+        : [...(await vertices(snapshot, 'code.file')).values()].map(({ key, keyEdges }) => {
+          if (typeof key.path !== 'string') throw new Error('immutable code.file snapshot has an invalid declared key');
+          return { path: key.path, keyEdges: keyEdges ?? {} };
         });
       return files.filter((file) => matchesAny([pattern], file.path))
-        .map((file) => ({ kind: 'code.file', key: { repository: file.repository, path: file.path } }));
+        .map((file) => ({ kind: 'code.file', key: { path: file.path }, keyEdges: file.keyEdges }));
     },
-    value: async (kind, key, field, snapshot) => {
+    value: async (kind, key, field, keyEdges, snapshot) => {
       const ref = { kind, key };
       if (snapshot !== undefined) {
-        const vertex = (await vertices(snapshot, kind)).get(canonicalKey(key));
+        const vertex = (await vertices(snapshot, kind)).get(canonicalEntity({ kind, key, ...(keyEdges === undefined ? {} : { keyEdges }) }));
         return vertex === undefined ? null : vertex.key[field] ?? vertex.values[field] ?? null;
       }
-      return await pluginGraphValue(wiring.owner, wiring.contract, ref.kind, ref.key, field);
+      return await pluginGraphValue(wiring.owner, wiring.contract, ref.kind, ref.key, field, keyEdges);
     },
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
     // by name, and the store is read here, in the fill's own layer, never by the plugin.
-    unresolved: async (query) => {
-      const page = await unresolvedReferences(wiring.owner, query);
-      return { references: page.rows, ...(page.next === undefined ? {} : { next: page.next }) };
-    },
     removedEnds: async (query) => {
       const page = await removedEdgeEnds(wiring.owner, query);
       return { edges: page.rows, ...(page.next === undefined ? {} : { next: page.next }) };
     },
     unevidenced: async (query) => {
-      const page = await unevidencedOpinions(wiring.owner, evidenceDeclarations(wiring.manifest), query);
-      return { opinions: page.rows, ...(page.next === undefined ? {} : { next: page.next }) };
+      const page = await unevidencedAssertions(wiring.owner, evidenceDeclarations(wiring.manifest), query);
+      return { assertions: page.rows, ...(page.next === undefined ? {} : { next: page.next }) };
     },
   };
 }
@@ -260,14 +302,13 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
 /** Replay the same plugin read during execution, publication, and cache validation. */
 export async function answerPluginGraphQuery(answerer: GraphAnswerer, text: string): Promise<readonly unknown[]> {
   const request = JSON.parse(text) as { read: string; method: keyof GraphAnswerer; args: unknown[] };
-  if (request.read !== 'plugin') throw new Error('src/fill/plugin-turns.ts:1: expected a plugin graph read');
+  if (request.read !== 'plugin') throw new Error(`${import.meta.path}:1: expected a plugin graph read`);
   switch (request.method) {
     case 'files': return [await answerer.files(...request.args as Parameters<GraphAnswerer['files']>)];
     case 'value': return [await answerer.value(...request.args as Parameters<GraphAnswerer['value']>)];
-    case 'unresolved': return [await answerer.unresolved!(...request.args as Parameters<NonNullable<GraphAnswerer['unresolved']>>)];
     case 'removedEnds': return [await answerer.removedEnds!(...request.args as Parameters<NonNullable<GraphAnswerer['removedEnds']>>)];
     case 'unevidenced': return [await answerer.unevidenced!(...request.args as Parameters<NonNullable<GraphAnswerer['unevidenced']>>)];
-    default: throw new Error('src/fill/plugin-turns.ts:1: unknown plugin graph read');
+    default: throw new Error(`${import.meta.path}:1: unknown plugin graph read`);
   }
 }
 
@@ -280,7 +321,6 @@ export function trackedPluginAnswerer(graph: { query(text: string): Promise<read
   return {
     files: (...args) => read('files', args),
     value: (...args) => read('value', args),
-    unresolved: (...args) => read('unresolved', args),
     removedEnds: (...args) => read('removedEnds', args),
     unevidenced: (...args) => read('unevidenced', args),
   };
@@ -308,7 +348,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
  * on the same wall (owner's decision, 2026-11-15). Any other refusal stays a failure another attempt may survive.
  */
 function unitStopped(id: string, code: string, message: string): Error {
-  const named = `src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${code}): ${message}`;
+  const named = `${import.meta.path}:1: the unit ${id} was not extracted (${code}): ${message}`;
   const bound = code === 'agent-timeout' ? 'agent-time' : code === 'heartbeat-missed' ? 'plugin-silence' : code === 'run-timeout' ? 'run-time' : code === 'agent-budget' ? 'tokens' : undefined;
   return bound === undefined ? new Error(named) : new UnitBoundStop(bound, named);
 }
@@ -329,7 +369,7 @@ function agentTaskOf(kind: KindDecl, outputs: PluginContractDeclaration): Record
   };
 }
 
-export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
+export async function runPluginTurn(wiring: PluginTurnWiring, id: string, completeOutcome: (outcome: import('./producer-outcomes.js').ProducerOutcomeDraft) => void, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
@@ -339,13 +379,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
   const closure = withSpanSync('plugin.closure.verify', {}, () => closureOf(pluginFolder));
   if (closure.hash !== unit.lock.closure) {
-    throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
+    throw new Error(`${import.meta.path}:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
   let agentReport: PluginAgentReport | undefined;
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
+  const support = declaredSupport(wiring, unit);
+  const supportOutputs = support.vertices;
   // An edge is published in the turn of the later of its ends' kinds; an edge between two kinds the plugin reads rather
   // than produces — a file imports a file — belongs to the plugin's last output turn, the turn in which it reads them.
   // The plugin's reads, not the catalogue's derives-from, is what makes a file the source of such an edge.
@@ -354,7 +396,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const edgeOutputs = (unit.plugin.contract?.edges ?? []).flatMap((edge) => {
     const fromKinds = typeof edge.from === 'string' ? [edge.from] : edge.from;
     const toKinds = typeof edge.to === 'string' ? [edge.to] : edge.to;
-    return fromKinds.flatMap((from) => toKinds.filter((to) => edgeOwner(from, to) === unit.kind.name)
+    return fromKinds.flatMap((from) => toKinds.filter((to) => support.edges.has(edge.kind) || edgeOwner(from, to) === unit.kind.name)
       .map((to) => ({ kind: edge.kind, from, to })));
   });
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
@@ -386,25 +428,24 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     }
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
-    location, plugin: unit.plugin.id, output: unit.kind.name, fields: allowedFields, reads,
+    location, plugin: unit.plugin.id, output: unit.kind.name, fields: allowedFields, reads, supportOutputs,
     fileKind: 'code.file', edges: [...unitEdges], snapshots,
   });
   const outputs = {
-    vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => vertex.kind === unit.kind.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.filter((field) => vertex.key.includes(field.name) || allowedFields.includes(field.name)).map((field) => {
-      const reference = wiring.manifest.kinds.get(vertex.kind)?.fields?.find((held) => held.name === field.name)?.reference;
-      return { ...field, ...(reference === undefined ? {} : { reference }) };
+    vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => vertex.kind === unit.kind.name || supportOutputs.has(vertex.kind)).map(({ keyEdges, ...vertex }) => ({ ...vertex, ...(keyEdges === undefined ? {} : { keyEdges: keyEdges.map(edge => ({ ...edge })) }), key: [...vertex.key], fields: vertex.fields.filter((field) => vertex.key.includes(field.name) || (supportOutputs.get(vertex.kind) ?? allowedFields).includes(field.name)).map((field) => {
+      return { ...field };
     }) })),
     // Both ends must exist at publication: the later producer turn owns the edge, or the sole agent end does.
     edges: (unit.plugin.contract?.edges ?? []).filter((edge) => unitEdges.has(edge.kind)).map((edge) => ({ ...edge, from: typeof edge.from === 'string' ? edge.from : [...edge.from], to: typeof edge.to === 'string' ? edge.to : [...edge.to], fields: edge.fields.map((field) => ({ ...field })) })),
   };
-  const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
+  const workRoot = withSpanSync('plugin.workspace', {}, () => mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-')));
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
         ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot))
         : { filesystemInputs: [], repositories: [] };
     } catch (error) {
-      rmSync(workRoot, { recursive: true, force: true });
+      withSpanSync('plugin.cleanup', {}, () => rmSync(workRoot, { recursive: true, force: true }));
       throw error;
     }
   })();
@@ -414,12 +455,45 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   // How long this plugin's agent unit may run: the product's own minutes, or the host's thirty (owner's decision,
   // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
   const agentMinutes = unit.plugin.bounds?.minutes;
+  const answered = new Map<string, Set<string>>();
+  const answeredEdges = new Set<string>();
+  let committedEntries = 0;
   const host = new PluginHost({
-    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, evidenceContracts: wiring.contract.vertex, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
     graph: access.graph,
+    operations: { apply: async (unitId, key, operation, preconditions, contractVersion) => {
+      if (unitId !== id) throw new Error(`${location}: operation names another unit`);
+      if (contractVersion !== undefined && contractVersion !== graphContractVersion(wiring.contract)) throw new Error(`${location}: CONTRACT_VERSION_MISMATCH`);
+      const checked = validateUnitResult(outputs, { unitId, ...(operation as object), end: { state: 'complete' } });
+      if (!checked.ok) throw new Error(`${location}: ${checked.refusal.where}: ${checked.refusal.message}`);
+      access.assertWrites(checked.unit);
+      const selected = selectedVertex(wiring, unit.kind.name);
+      if (selected !== undefined && checked.unit.vertices.some(vertex => !supportOutputs.has(vertex.kind) && entityIdOf(wiring, vertex.kind, vertex.key) !== selected)) throw new Error(`${location}: operation writes outside selected entity ${selected}`);
+      const keys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
+      if (keys !== undefined) {
+        for (const vertex of [...checked.unit.vertices, ...checked.unit.removals]) if (!supportOutputs.has(vertex.kind) && !keys.has(canonicalKey(vertex.key))) throw new Error(`${location}: operation writes outside selected partition keys`);
+        for (const edge of checked.unit.edges) if (!supportOutputs.has(edge.from.kind) && !supportOutputs.has(edge.to.kind) && !keys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge writes outside selected partition keys`);
+      }
+      for (const edge of checked.unit.edges) if (!ownsEdge(edge)) throw new Error(`${location}: write of unselected edge endpoints ${edge.kind}`);
+      const execute = wiring.executeOperation;
+      if (execute === undefined) throw new Error(`${location}: immediate operation authority is unavailable`);
+      const written = await execute(id, key, operation, async (tx) => await applyPluginFacts(tx, wiring.contract, {
+        vertices: checked.unit.vertices.map(vertex => ({ ...vertex, selectedFields: supportOutputs.get(vertex.kind) ?? allowedFields, evidence: draftEvidence(vertex.evidence), producer: unit.plugin.id, producerVersion: unit.lock.version })),
+        edges: checked.unit.edges.map(edge => ({ ...edge, evidence: draftEvidence(edge.evidence), producer: unit.plugin.id, producerVersion: unit.lock.version })),
+        removals: checked.unit.removals.map(ref => ({ ...ref, producer: unit.plugin.id, selectedFields: allowedFields })),
+      }, 1, { author: `${unit.plugin.id}@${unit.lock.version}` }), preconditions);
+      for (const vertex of checked.unit.vertices) {
+        const held = answered.get(vertex.kind) ?? new Set<string>();
+        held.add(canonicalEntity(vertex));
+        answered.set(vertex.kind, held);
+      }
+      for (const edge of checked.unit.edges) answeredEdges.add(edgeIdentity(edge.kind, edge.from, edge.to, edge.discriminator ?? ''));
+      committedEntries += checked.unit.vertices.length + checked.unit.edges.length;
+      return written;
+    } },
     workRoot,
     filesystemInputs: repositoryInputs.filesystemInputs,
     trust: 'production',
@@ -428,9 +502,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
     ...(requests === undefined ? {} : { requests }),
   });
-  const author = `${unit.plugin.id}@${unit.lock.version}`;
   /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */
-  let journaled = false;
   /** What the unit's answer held, kept past the try so a bound that crossed after it still keeps the result. */
   let producedCount = 0;
   try {
@@ -439,8 +511,6 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     signal?.addEventListener('abort', cancel, { once: true });
     if (signal?.aborted === true) cancel();
     try {
-      const vertexKinds = new Set(outputs.vertices.map((vertex) => vertex.kind));
-      const edgeKinds = new Set(outputs.edges.map((edge) => edge.kind));
       // A catalogue agent's task is the kind it fills and what that kind means, in English (owner's decision,
       // 2026-11-15): it reads the graph through the unit's own server, so no list of files, no path of the product's
       // checkout and no locale map is handed to it. Another plugin's agent part keeps its own inputs.
@@ -474,18 +544,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         if (spent !== undefined) throw new UnitBoundStop('tokens', spent.message);
         throw unitStopped(id, outcome.cause.code, outcome.cause.message);
       }
-      producedCount = outcome.result.vertices.length + outcome.result.edges.length;
-      access.assertWrites(outcome.result);
-      for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
+      producedCount = committedEntries;
       const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
-      if (partitionKeys !== undefined) {
-        for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
-        for (const edge of outcome.result.edges) if (!partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge outside selected partition keys`);
-      }
       // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
       // makes the rest of the answer a silence, and the reason is where a person finds what was left out. A partial unit
       // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
-      const problems = outcome.result.problems;
+      const problems = outcome.result.problems ?? [];
       const problemsText = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
       // A partial answer keeps every entry it holds (owner's rule, 2026-11-15): the entries the contract and the graph
       // could take are published, and the reason — the agent's own cause, the places it could not read, and the entries
@@ -493,11 +557,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       const partialReason = outcome.result.end.state === 'partial'
         ? (problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`)
         : undefined;
-      const producedEntries = outcome.result.vertices.length + outcome.result.edges.length;
-      if (partialReason !== undefined && producedEntries === 0 && outcome.result.removals.length === 0) {
-        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: partialReason } });
-        draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
-        journaled = true;
+      const producedEntries = committedEntries;
+      if (partialReason !== undefined && producedEntries === 0) {
+        completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: partialReason });
         progress?.(`the plugin ${unit.plugin.id} abstained: ${partialReason}`);
         await meter?.flush();
         const stop = meter?.stop();
@@ -506,77 +568,37 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? 'empty' : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) } });
+      completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? 'empty' : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) });
       const only = selectedVertex(wiring, unit.kind.name);
-      // Publish this kind's unit; other declared results belong to their own units.
-      const selectedKinds = new Set([unit.kind.name]);
-      if (only !== undefined && !outcome.result.vertices.some((vertex) => entityIdOf(wiring, vertex.kind, vertex.key) === only)) {
-        throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered no entity ${JSON.stringify(only)} in the unit ${unit.id}: the plugin states no such value at the commit this fill read, and nothing was rewritten`);
-      }
-      const answered = new Map<string, Set<string>>();
-      for (const vertex of outcome.result.vertices) {
-        if (!vertexKinds.has(vertex.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}, and its contract declares ${[...vertexKinds].join(', ') || 'none'}`);
-        if (!selectedKinds.has(vertex.kind) || (only !== undefined && entityIdOf(wiring, vertex.kind, vertex.key) !== only)) continue;
-        const allowed = declarationPlan.outputs.get(unit.plugin.id)?.get(vertex.kind) ?? [];
-        for (const field of Object.keys(vertex.values ?? {})) if (!allowed.includes(field)) {
-          const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
-          throw new Error(`${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}: plugin ${unit.plugin.id} answered undeclared output field ${vertex.kind}.${field}`);
-        }
-        const held = answered.get(vertex.kind) ?? new Set<string>();
-        held.add(canonicalKey(vertex.key));
-        answered.set(vertex.kind, held);
-        draft.write({ kind: 'vertex', evidence: vertex.kind, value: {
-          kind: vertex.kind, key: vertex.key,
-          selectedFields: allowedFields,
-          ...(vertex.values === undefined ? {} : { values: vertex.values }),
-          ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
-          producer: unit.plugin.id,
-          producerVersion,
-        } });
-      }
-      const answeredEdges = new Set<string>();
-      for (const edge of only === undefined ? outcome.result.edges ?? [] : []) {
-        if (!unitEdges.has(edge.kind)) continue;
-        if (!edgeKinds.has(edge.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the edge kind ${JSON.stringify(edge.kind)}, and its contract declares ${[...edgeKinds].join(', ') || 'none'}`);
-        answeredEdges.add(edgeIdentity(edge.kind, edge.from, edge.to, edge.discriminator ?? ''));
-        draft.write({ kind: 'edge', evidence: edge.kind, value: {
-          kind: edge.kind,
-          from: edge.from,
-          to: edge.to,
-          ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
-          ...(edge.values === undefined ? {} : { values: edge.values }),
-          ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
-          producer: unit.plugin.id,
-          producerVersion,
-        } });
-      }
-      // The unit's entry names its author and, under the debug setting, every request it made — its refusals, its
-      // failures and any the unit abandoned included, each with its answer's size and its cause's class, never an
-      // argument or a text. It is a draft like the rest, so it lands in the publication's own transaction.
-      draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
-      journaled = true;
       if (outcome.result.end.state === 'complete' && only === undefined) {
+        if (wiring.sourceUid === undefined) throw new Error(`${location}: authenticated producer source is unavailable`);
+        const removals: import('../graph/contract.js').VertexRemovalDraft[] = [];
+        const edgeRemovals: import('../graph/contract.js').EdgeRemovalDraft[] = [];
         // A complete unit retracts only this producer's missing entities of its selected kind.
-        const removalKinds = [...vertexKinds].filter((kind) => selectedKinds.has(kind)).sort(byCodePoint);
+        const removalKinds = [unit.kind.name];
         for (const kind of removalKinds) {
           const held = answered.get(kind) ?? new Set<string>();
-          for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
-            if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
+          for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, wiring.sourceUid)) {
+            if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.endsWith('/') ? path.slice(0, -1) : path}/`)))) continue;
             if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(entity.key))) continue;
-            if (held.has(canonicalKey(entity.key))) continue;
-            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id, selectedFields: allowedFields } });
+            if (held.has(canonicalEntity({ kind, ...entity }))) continue;
+            removals.push({ kind, key: entity.key, keyEdges: entity.keyEdges, uid: entity.uid, producer: unit.plugin.id, selectedFields: allowedFields });
           }
         }
         for (const kind of [...unitEdges].sort(byCodePoint)) {
           if (!wiring.contract.edge.some((edge) => edge.name === kind)) continue;
-          for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
+          for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, wiring.sourceUid)) {
             if (!ownsEdge(edge)) continue;
+            if (support.edges.has(kind) && edge.from.kind !== unit.kind.name && edge.to.kind !== unit.kind.name && !reads.some(read => (typeof read === 'string' ? read : read.kind) === edge.to.kind || (typeof read === 'string' ? read : read.kind) === edge.from.kind)) continue;
             if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) continue;
-            if (wiring.paths !== undefined && ![edge.from.key, edge.to.key].some((key) => wiring.paths!.some((path) => typeof key.path === 'string' && (key.path === path || key.path.startsWith(`${path.replace(/\/$/, '')}/`))))) continue;
+            if (wiring.paths !== undefined && ![edge.from.key, edge.to.key].some((key) => wiring.paths!.some((path) => typeof key.path === 'string' && (key.path === path || key.path.startsWith(`${path.endsWith('/') ? path.slice(0, -1) : path}/`))))) continue;
             if (answeredEdges.has(edgeIdentity(kind, edge.from, edge.to, edge.discriminator))) continue;
-            draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id } });
+            edgeRemovals.push({ kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id });
           }
         }
+        const execute = wiring.executeOperation;
+        if (execute === undefined) throw new Error(`${location}: immediate completion authority is unavailable`);
+        await execute(id, 'reconcile', { removals, edgeRemovals }, async tx => await applyPluginFacts(tx, wiring.contract, { vertices: [], removals, edgeRemovals }, 1));
       }
     } finally {
       signal?.removeEventListener('abort', cancel);
@@ -595,9 +617,6 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   } catch (error) {
     // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
     await meter?.flush().catch(() => undefined);
-    // A unit that crashed or timed out publishes nothing, and its requests are evidence all the same: they go to the
-    // journal in one transaction of their own, so the record survives the unit's failure (codex, stage 2 review, 5).
-    if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
     await agentGraph?.close();
@@ -660,6 +679,11 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         coverage: units.length === 0 && missing.length === 0 ? 'nothing-found' as const : 'planned' as const };
     },
     async execute(unit, context) {
+      const scopedWiring: PluginTurnWiring = {
+        ...wiring,
+        sourceUid: context.operationSourceUid,
+        executeOperation: context.executeOperation === undefined ? undefined : (_unit, key, request, apply, preconditions) => context.executeOperation!(key, request, apply, preconditions),
+      };
       if (unit.id.startsWith(MISSING_KIND_UNIT)) {
         const kind = unit.id.slice(MISSING_KIND_UNIT.length);
         throw new Error(declarationPlan.errors.find((error) => error.kind === kind)?.message ?? `${wiring.manifest.file}:1: kind "${kind}" has no producer`);
@@ -667,17 +691,15 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       const selected = unitOf(wiring, unit.id);
       const partitioned = selected.plugin.declaration?.produces.some((output) => (output.kind === selected.kind.name || output.kind === '*') && output.partition === 'key') === true;
       if (!partitioned) {
-        await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
+        await runPluginTurn(scopedWiring, unit.id, context.completeOutcome ?? (() => { throw new Error(`${import.meta.path}:1: operation outcome authority unavailable`); }), context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
         return { outcome: 'draft' };
       }
       const childScope = unit.id.includes('#') ? JSON.parse(unit.scope) as PartitionScope : undefined;
       if (childScope !== undefined && 'keys' in childScope) {
         const scope = childScope;
-        const writes: import('./stage.js').StageDraftWrite[] = [];
-        await runPluginTurn(wiring, unit.id, { write: (write) => { writes.push(write); }, writes: () => ({ writes }) }, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { keys: scope.keys });
-        const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
-        if (!['completed', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`partition ${unit.id} did not complete; its output remains unpublished`);
-        context.draft.write({ kind: 'plugin-partition', evidence: selected.kind.name, value: { keys: scope.keys, writes } });
+        let outcome: import('./producer-outcomes.js').ProducerOutcomeDraft | undefined;
+        await runPluginTurn(scopedWiring, unit.id, value => { outcome = value; context.completeOutcome?.(value); }, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { keys: scope.keys });
+        if (!['completed', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`partition ${unit.id} did not complete; earlier accepted operations remain committed`);
         return { outcome: 'draft' };
       }
       if (context.sealedChildren !== undefined) {
@@ -685,17 +707,12 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         const partitions = context.sealedChildren.map((child) => ({ runId: context.runId!, unitId: child.unitId, generation: child.generation }));
         const outcome = await pluginPartitionOutcome(wiring.owner, partitions);
         if (!outcome.complete) throw new Error(`partitioned output ${unit.id} did not complete; earlier graph opinions remain unchanged`);
-        if (childScope !== undefined) {
-          context.draft.write({ kind: 'plugin-partition', evidence: selected.kind.name, value: { partitions } });
-        } else {
-          context.draft.write({ kind: 'plugin-aggregate', evidence: selected.kind.name, value: { partitions } });
-          context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
-        }
+        context.completeOutcome?.({ plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced });
         return { outcome: 'draft' };
       }
       if (childScope !== undefined && 'partitions' in childScope) return { outcome: 'split', children: partitionChildren(unit.id, context.runId, childScope.partitions) };
       let planned: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
-      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { plan: (partitions) => { planned = partitions; } });
+      await runPluginTurn(scopedWiring, unit.id, context.completeOutcome ?? (() => { throw new Error(`${import.meta.path}:1: operation outcome authority unavailable`); }), context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { plan: (partitions) => { planned = partitions; } });
       const declaredKey = wiring.contract.vertex.find((vertex) => vertex.name === selected.kind.name)?.key ?? [];
       const seen = new Set<string>();
       const partitions = planned.map((partition) => {
@@ -710,18 +727,17 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         return { keys };
       }).filter((partition) => partition.keys.length > 0);
       // Prior identities remain work even when enumeration is empty: missing keys retract only their own scoped fields.
-      for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, selected.plugin.id)) {
-        if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
+      for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, scopedWiring.sourceUid!)) {
+        if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.endsWith('/') ? path.slice(0, -1) : path}/`)))) continue;
         if (selectedVertex(wiring, selected.kind.name) !== undefined && entityIdOf(wiring, selected.kind.name, entity.key) !== selectedVertex(wiring, selected.kind.name)) continue;
         if (!seen.has(canonicalKey(entity.key))) { seen.add(canonicalKey(entity.key)); partitions.push({ keys: [entity.key] }); }
       }
       if (partitions.length === 0) {
-        context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: 'empty', produced: 0 } });
+        context.completeOutcome?.( { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: 'empty', produced: 0 });
         return { outcome: 'draft' };
       }
       return { outcome: 'split', children: partitionChildren(unit.id, context.runId, partitions) };
     },
-    validate: () => ({ ok: true }),
   };
 }
 

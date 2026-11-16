@@ -78,9 +78,9 @@ function ProblemRow({ problem, base, open, refresh }: {
       </Stack>
       <Paragraph className="mb-0 mt-1.5 text-small" data-testid="problem-place">
         {t('loop.problemPlace')} <Place link={problem.place} base={base} open={open} />
-        {problem.entity === null ? null : <> · {t('loop.problemEntity')} <Place link={problem.entity} base={base} open={open} /></>}
+        {problem.entity === null ? null : <>{t('common.separator')}{t('loop.problemEntity')} <Place link={problem.entity} base={base} open={open} /></>}
       </Paragraph>
-      {sentence === null ? null : <Paragraph className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{sentence}»</Paragraph>}
+      {sentence === null ? null : <Paragraph className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">{t('common.quoted', { text: sentence })}</Paragraph>}
       <Paragraph className="mb-0 mt-1 text-small" data-testid="problem-reason">{problem.reason}</Paragraph>
       {problem.evidence.length === 0 ? null : (
         <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="problem-evidence">
@@ -94,7 +94,7 @@ function ProblemRow({ problem, base, open, refresh }: {
       )}
       <Paragraph className="mb-0 mt-1 text-small text-muted">
         <InlineCode>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</InlineCode>
-        {problem.by === null || problem.at === null ? null : <Text> · {t('loop.by', { name: problem.by.name, email: problem.by.email })}</Text>}
+        {problem.by === null || problem.at === null ? null : <Text>{t('common.separator')}{t('loop.by', { name: problem.by.name, email: problem.by.email })}</Text>}
       </Paragraph>
       <Stack className="mt-2 flex flex-wrap items-center gap-2">
         <Button size="default" variant="ghost" disabled={working !== null} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>

@@ -1,5 +1,4 @@
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The one fill (madarch-8bdc.2.5, item 6): `runFill` over a neutral fixture — every
  * step, one step alone, and a path subset — through the same function every caller
@@ -10,20 +9,19 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { listFiles, repositoryFacts } from '../src/graph/index.js';
 import { runFill } from '../src/fill/run.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, prepareTestStore as prepareStore, type TestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { readFillEnd } from '../src/fill/orchestrator-store.js';
-import { readRun } from '../src/fill/state-store.js';
+import { readFillEnd } from '../src/graph/fill-orchestration.js';
+import { readRun } from '../src/graph/fill-state.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { fillSteps } from '../src/fill/steps.js';
 import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 let root = '';
 let product = '';
-let owner: DatabaseOwner | undefined;
+let owner: TestDatabaseOwner | undefined;
 
 function git(...args: string[]): void {
   execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -170,9 +168,8 @@ describe('the end of a run another process reads', () => {
     // The api role states a fill from that row alone (madarch-8bdc.9): even a product with no manifest must
     // leave its end in the caller-prepared store, or the process that pressed the fill would answer `running` for ever.
     const store = join(root, 'end-store');
-    const writer = await createDatabaseOwner({ store });
-    await prepareStore(writer);
-    const reader = await createDatabaseOwner({ store });
+    const writer = await createTestDatabaseOwner({ store });
+    const reader = Object.assign(await createDatabaseOwner({ store }), { graphContract: writer.graphContract });
     const empty = join(root, 'no-manifest');
     mkdirSync(empty, { recursive: true });
     try {

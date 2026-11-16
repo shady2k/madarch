@@ -1,3 +1,7 @@
+import { readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { expect, spyOn, test } from 'bun:test';
 import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -5,7 +9,7 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRun } from '../src/fill/state-store.js';
+import { createRun } from '../src/graph/fill-state.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { setManifestPublicationState } from '../src/product/manifest-publication-state.js';
 import { prepareTestProduct } from './prepared-server.js';
@@ -34,7 +38,10 @@ test('pending and failed publication read persisted runs without opening the cat
     owner = undefined;
     release = await prepareTestProduct(draft.folder, home, storeRoot);
     owner = await createDatabaseOwner({ store: storeDatabasePath(store), connectOnly: true });
-    await createRun(owner, { runId: 'saved-run', product: 'status-run', at: 100 });
+    const manifest = await owner.run(tx => readPublishedManifest(tx));
+    if (manifest === undefined) throw new Error('prepared fixture manifest missing');
+    const database = { transaction: owner.transaction.bind(owner), graphContract: withAssertionContract(withManifestContract(graphContractOf(manifest))) };
+    await createRun(database, { runId: 'saved-run', product: 'status-run', at: 100 });
     mkdirSync(join(store, 'traces'), { recursive: true });
     writeFileSync(join(store, 'traces', 'orphan.jsonl'), '{}\n');
     setManifestPublicationState(draft.folder, { status: 'pending' });
@@ -51,7 +58,7 @@ test('pending and failed publication read persisted runs without opening the cat
     expect((await reader.status()).fill.run?.spans).toBe(1);
     setManifestPublicationState(draft.folder, { status: 'failed', message: 'kinds.yaml:7: rejected' });
     expect(await reader.status()).toMatchObject({ publication: 'failed', publicationMessage: 'kinds.yaml:7: rejected', fill: { run: { runId: 'saved-run' } } });
-    await createRun(owner, { runId: 'new-run', product: 'status-run', at: 200 });
+    await createRun(database, { runId: 'new-run', product: 'status-run', at: 200 });
     expect((await reader.status()).fill.run).toMatchObject({ runId: 'new-run', spans: 0 });
     expect(await reader.runView('saved-run')).toMatchObject({ runId: 'saved-run', spans: 1 });
     expect(await reader.runView('orphan')).toBeNull();

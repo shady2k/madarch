@@ -1,245 +1,47 @@
-/**
- * The one graph's schema (decision 0034 and its amendment of 2026-11-10): identity and key in `node`, a table per
- * entity whose rows are opinions, edges apart with a per-entity repeat rule, the base context, the journal and the
- * dictionaries. The cases that matter most are the owner's words: «Сущность файл», the key on the vertex, and
- * «Мнение это просто… Запись… Кто как считает» — one row per opinion, no `claim` and no `evidence` table beside it.
- */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { OPINION_FIELDS, generatedTableName } from '../src/graph/contract.js';
-import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { repositoryContract } from './repository-contract-fixture.js';
+/** Physical graph storage invariants: decision 0039 items 10, 14, 25, 28. */
+import { expect, test } from 'bun:test';
+import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
 import { createTestDatabaseOwner } from './test-database.js';
-
-/** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
-
-const RECORD_TABLES = [
-  ...MECHANISM_TABLES,
-  ...repositoryContract.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
-  ...repositoryContract.edge.map((kind) => generatedTableName(kind.name, 'edge')),
-  ...repositoryContract.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
-] as const;
-
-let owner: DatabaseOwner | undefined;
-
-beforeAll(async () => {
-  owner = await createTestDatabaseOwner({ graphContract: {
-    ...repositoryContract,
-    vertex: repositoryContract.vertex.map(kind => kind.name !== 'code.file' ? kind : { ...kind, fields: [...kind.fields, { name: 'algorithm', type: 'text', nullable: true }], checks: ["blob IS NULL OR ((algorithm = 'sha1' AND length(blob) = 40) OR (algorithm = 'sha256' AND length(blob) = 64))", "form IS NULL OR ((form = 'binary') = (lines IS NULL))"] }),
-    edge: repositoryContract.edge.map(kind => kind.name !== 'code.touched' ? kind : { ...kind, checks: ["change IN ('added', 'modified', 'deleted', 'renamed')"] }),
-  } });
+const graph: GraphContract = {
+  vertex: [{ name: 'probe', table: generatedTableName('probe','vertex'), key: ['name'], fields: [{ name:'name',type:'text' },{name:'amount',type:'integer'},{name:'description',type:'text',nullable:true}],capability:'fixture'}],
+  edge: [{name:'links',from:['probe'],to:['probe'],repeats:true,discriminator:'place',cardinality:{from:'many',to:'many'},labels:{en:{out:'links to',in:'linked from'},ru:{out:'ссылается',in:'ссылка из'}},fields:[{name:'weight',type:'integer'}],capability:'fixture'}],dictionary:[],
+};
+test('0039.25: graph identities have no mutable opinion state and assertion headers own all time',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph});try{
+ const columns=await owner.run(tx=>tx.query<{table_name:string;column_name:string}>("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY table_name,ordinal_position"));
+ const names=(table:string)=>columns.rows.filter(r=>r.table_name===table).map(r=>r.column_name);
+ expect(names('node')).toEqual(['id','entity_id','uid','key','identity_scope','context_id']);
+ expect(names('edge')).toEqual(['id','uid','entity_id','from_node','to_node','discriminator','context_id']);
+ expect(names('assertion')).toEqual(['assertion_id','property','language','context_id','valid_from','valid_to','recorded_at','recorded_sequence','operation']);
+ expect(names('assertion_vertex_subject')).toEqual(['assertion_id','subject_edge_id']);
+ expect(names('assertion_edge_subject')).toEqual(['assertion_id','edge_id']);
+ for(const [kind,sort,slot] of [['probe','vertex','amount'],['probe','vertex','description'],['probe','vertex','$exists'],['links','edge','weight'],['links','edge','$exists']] as const) expect(names(assertionValueTableName(kind,sort,slot))).toEqual(['assertion_id','value']);
+ expect(names(generatedTableName('probe','vertex'))).toEqual([]);
+ expect(columns.rows.filter(r=>['node','edge','assertion','assertion_vertex_subject','assertion_edge_subject'].includes(r.table_name)).some(r=>['said_by','evidence','state','confirmed_field'].includes(r.column_name))).toBe(false);
+ expect((await owner.run(tx=>tx.query('SELECT * FROM context'))).rows).toMatchObject([{id:1,parent:null,ref:''}]);
+ }finally{await owner.close();}
 });
-
-afterAll(async () => {
-  await owner?.close();
+test('0039.25: every assertion has one graph subject and source, author, operation lineage',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph});try{
+ await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:['a','b'].map(name=>({kind:'probe',key:{name},values:{amount:2},producer:'fixture',producerVersion:'1'})),edges:[{kind:'links',from:{kind:'probe',key:{name:'a'}},to:{kind:'probe',key:{name:'b'}},discriminator:'one',values:{weight:3},producer:'fixture',producerVersion:'1'}],removals:[]}));
+ const headers=await owner.run(tx=>tx.query<{assertion_id:string;subjects:number;source:number;author:number;operation:number}>(`SELECT a.assertion_id::text,
+ ((SELECT count(*) FROM assertion_vertex_subject s WHERE s.assertion_id=a.assertion_id)+(SELECT count(*) FROM assertion_edge_subject s WHERE s.assertion_id=a.assertion_id))::integer AS subjects,
+ (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-source')::integer AS source,
+ (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-author')::integer AS author,
+ (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-operation')::integer AS operation FROM assertion a`));
+ expect(headers.rows).toHaveLength(9);
+ for(const row of headers.rows)expect(row).toMatchObject({subjects:1,source:1,author:1,operation:1});
+ const edges=await owner.run(tx=>tx.query("SELECT e.discriminator FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='links'"));expect(edges.rows).toEqual([{discriminator:'one'}]);
+ }finally{await owner.close();}
 });
-
-/** Runs one statement and answers the message the database refused it with, or null when it ran. */
-async function refusal(sql: string, values: readonly unknown[] = []): Promise<string | null> {
-  if (owner === undefined) throw new Error('the store was not opened');
-  try {
-    await owner.transaction('write', async (tx) => { await tx.query(sql, values); });
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
-/** One new vertex of the named entity, with the key the caller names, in a transaction of its own. */
-async function nodeOf(entity: string, key: unknown = {}): Promise<string> {
-  if (owner === undefined) throw new Error('the store was not opened');
-  return await owner.transaction('write', async (tx) => {
-    const made = await tx.query<{ id: string }>('INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id', [entity, JSON.stringify(key)]);
-    return made.rows[0]!.id;
-  });
-}
-
-/** The id of one entity, in a transaction of its own. */
-async function entityOf(name: string): Promise<string> {
-  if (owner === undefined) throw new Error('the store was not opened');
-  const found = await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string }>('SELECT id::text AS id FROM entity WHERE name = $1', [name]));
-  return found.rows[0]!.id;
-}
-
-describe('the tables and the dictionaries', () => {
-  test('stand in the store, with no temporal column anywhere and no claim or evidence table', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const found = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT c.relname AS name, a.attname AS column FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid
-       WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND c.relname = ANY($1::text[])`,
-      [RECORD_TABLES as unknown as string[]],
-    ));
-    const columns = (found.rows as { name: string; column: string }[]).map((row) => `${row.name}.${row.column}`);
-    for (const table of RECORD_TABLES) expect(columns.some((column) => column.startsWith(`${table}.`))).toBe(true);
-    expect(columns.filter((column) => /^(valid_|recorded_)/u.test(column.split('.')[1] ?? ''))).toEqual([]);
-    // Repository facts are ordinary opinion columns, not mechanism dictionaries.
-    expect(columns).toContain(`${GIT_TABLES.file}.content`);
-    expect(columns).toContain(`${GIT_TABLES.file}.blob`);
-    expect(columns).toContain(`${GIT_TABLES.file}.language`);
-    expect(columns).toContain(`${GIT_TABLES.commit}.algorithm`);
-    // A claim and an evidence table stand nowhere any more (A3): the opinion holds both.
-    const tables = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string | null }>(`SELECT to_regclass(current_schema() || '.' || name)::text AS name FROM unnest(ARRAY['claim', 'evidence', 'kind', 'file_entry', 'd_path', 'd_blob']) AS name`));
-    expect(tables.rows.map((row) => row.name)).toEqual([null, null, null, null, null, null]);
-  }, 120_000);
-
-  test('hold a base context the fill writes into', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const found = await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string; parent: string | null; ref: string }>('SELECT id::text AS id, parent::text AS parent, ref FROM context'));
-    expect(found.rows).toHaveLength(1);
-    expect(found.rows[0]!.parent).toBeNull();
-    expect(found.rows[0]!.ref).toBe('');
-  }, 120_000);
-});
-
-describe('a vertex is identity and its key', () => {
-  test('node holds the id, the entity, the stable id, the key, the context and whether it was removed', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const found = await owner.transaction('snapshot', async (tx) => await tx.query<{ table_name: string; column_name: string }>(
-      `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1::text[])`,
-      [RECORD_TABLES as unknown as string[]],
-    ));
-    const nodeColumns = found.rows.filter((row) => row.table_name === 'node').map((row) => row.column_name);
-    expect(nodeColumns.sort()).toEqual(['context_id', 'entity_id', 'id', 'key', 'removed', 'uid']);
-    // The key is the vertex's: no entity's table repeats it as a column.
-    const perEntity = found.rows.filter((row) => !MECHANISM_TABLES.includes(row.table_name as typeof MECHANISM_TABLES[number]));
-    for (const row of perEntity) {
-      if ([...OPINION_FIELDS, 'node_id', 'edge_id'].includes(row.column_name)) continue;
-      expect({ table: row.table_name, column: row.column_name, key: row.column_name === 'name' || row.column_name === 'path' || row.column_name === 'hash' || row.column_name === 'email' }).not.toEqual({ table: row.table_name, column: row.column_name, key: true });
-    }
-    expect(nodeColumns).not.toContain('kind_id');
-  }, 120_000);
-
-  test('one entity and key stand once in a context, and the same key in another context is another vertex', async () => {
-    const repository = await nodeOf('code.repository', { name: 'unique-name' });
-    expect(repository).not.toBe('');
-    expect(await refusal(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1`, ['code.repository', JSON.stringify({ name: 'unique-name' })])).toMatch(/node_key_context/u);
-    const entity = await entityOf('code.repository');
-    const other = await owner!.transaction('write', async (tx) => (await tx.query<{ id: string }>(`INSERT INTO context (parent, ref) VALUES ($1::bigint, 'branch') RETURNING id::text AS id`, [null])).rows[0]!.id).catch(() => undefined);
-    if (other === undefined) throw new Error('no second context was made');
-    const second = await owner!.transaction('write', async (tx) => (await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key, context_id) VALUES ($1::bigint, $2::jsonb, $3::bigint) RETURNING id::text AS id`, [entity, JSON.stringify({ name: 'unique-name' }), other])).rows[0]!.id);
-    expect(second).not.toBe('');
-  }, 120_000);
-
-  test('meaningless evidence the casing of a key is one key, and a text and a number are two', async () => {
-    await nodeOf('code.repository', { name: 'keyed' });
-    // jsonb equality, not the text a key was written as: the same object in another key order is the same key.
-    expect(await refusal(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1`, ['code.repository', JSON.stringify({ name: 'keyed' })])).toMatch(/node_key_context/u);
-    await nodeOf('code.author', { name: 'Ada', email: 'ada@example.test' });
-    expect(await refusal(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1`, ['code.author', JSON.stringify({ name: 'Ada', email: 'ada@example.test' })])).toMatch(/node_key_context/u);
-  }, 120_000);
-});
-
-describe('an entity\'s table holds one row per opinion', () => {
-  test('two producers state their own opinion of one vertex, and each row carries who, when, its state and its evidence', async () => {
-    const repository = await nodeOf('code.repository', { name: 'opinions' });
-    const file = await nodeOf('code.file', { repository: 'opinions', path: 'a.ts' });
-    const columns = `node_id, said_by, evidence, mode, blob`;
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (${columns}) VALUES ($1::bigint, 'git-tree@1', '[]'::jsonb, '100644', NULL)`, [file])).toBeNull();
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (${columns}) VALUES ($1::bigint, 'git-history@1', '[]'::jsonb, NULL, NULL)`, [file])).toBeNull();
-    const held = await owner!.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint AND state = 'open'`, [file]));
-    expect(held.rows[0]!.n).toBe('2');
-    const opinion = await owner!.transaction('snapshot', async (tx) => await tx.query(`SELECT said_by, state, reason, confirmed_with, lang, translated_from, source_digest, context_id, evidence FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint ORDER BY id LIMIT 1`, [file]));
-    expect(opinion.rows[0]).toMatchObject({ said_by: 'git-tree@1', state: 'open', reason: null, confirmed_with: null, lang: null, translated_from: null, source_digest: null, evidence: [] });
-    void repository;
-  }, 120_000);
-
-  test('a state is open, confirmed or closed, and the evidence is a list', async () => {
-    const file = await nodeOf('code.file', { repository: 'opinions', path: 'b.ts' });
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, state) VALUES ($1::bigint, 'agent', 'settled')`, [file])).toMatch(/_check/u);
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', '{"a":1}'::jsonb)`, [file])).toMatch(/_check/u);
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', '[{"repository":"madarch","commit_or_digest":"c0ffee","path":"docs/glossary.md","line_start":3,"line_end":4}]'::jsonb)`, [file])).toBeNull();
-  }, 120_000);
-
-  test('the opinions resting on one path are found by an index over the evidence, never by a scan', async () => {
-    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ indexdef: string }>(
-      `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = $1 AND indexdef ILIKE '%gin%'`,
-      [GIT_TABLES.file],
-    ));
-    expect(found.rows.map((row) => row.indexdef).join('\n')).toMatch(/evidence/u);
-    const plan = await owner!.transaction('snapshot', async (tx) => await tx.query<{ plan: string }>(`EXPLAIN SELECT 1 FROM ${GIT_TABLES.file} WHERE evidence @> '[{"path":"docs/glossary.md"}]'::jsonb`));
-    expect(plan.rows.length).toBeGreaterThan(0);
-  }, 120_000);
-});
-
-describe('an edge stands apart and says when it may repeat', () => {
-  test('one edge of one entity between the same ends stands once unless its entity says repeats and tells them apart', async () => {
-    const left = await nodeOf('code.file', { repository: 'edges', path: 'x' });
-    const right = await nodeOf('code.file', { repository: 'edges', path: 'y' });
-    const contains = await entityOf('code.contains');
-    const rename = await entityOf('code.renamed-from');
-    expect(await refusal('INSERT INTO edge (entity_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint)', [contains, left, right])).toBeNull();
-    expect(await refusal('INSERT INTO edge (entity_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint)', [contains, left, right])).toMatch(/edge_once/u);
-    // A repeated entity tells its edges apart by its discriminator; the same one twice is still one edge.
-    expect(await refusal('INSERT INTO edge (entity_id, from_node, to_node, discriminator) VALUES ($1::bigint, $2::bigint, $3::bigint, $4)', [rename, left, right, 'c1'])).toBeNull();
-    expect(await refusal('INSERT INTO edge (entity_id, from_node, to_node, discriminator) VALUES ($1::bigint, $2::bigint, $3::bigint, $4)', [rename, left, right, 'c2'])).toBeNull();
-    expect(await refusal('INSERT INTO edge (entity_id, from_node, to_node, discriminator) VALUES ($1::bigint, $2::bigint, $3::bigint, $4)', [rename, left, right, 'c1'])).toMatch(/edge_once/u);
-    const entities = await owner!.transaction('snapshot', async (tx) => await tx.query<{ name: string; sort: string; repeats: boolean; discriminator: string | null }>('SELECT name, sort, repeats, discriminator FROM entity ORDER BY name'));
-    expect(entities.rows.find((row) => row.name === 'code.contains')).toEqual({ name: 'code.contains', sort: 'edge', repeats: false, discriminator: null });
-    expect(entities.rows.find((row) => row.name === 'code.renamed-from')).toEqual({ name: 'code.renamed-from', sort: 'edge', repeats: true, discriminator: 'commit' });
-    expect(entities.rows.filter((row) => row.sort === 'node').every((row) => row.repeats === false && row.discriminator === null)).toBe(true);
-  }, 120_000);
-
-  test('an edge\'s own values are opinions of its table, keyed by the edge', async () => {
-    const commit = await nodeOf('code.commit', { hash: 'a'.repeat(40) });
-    const file = await nodeOf('code.file', { repository: 'edges', path: 'z' });
-    const touched = await entityOf('code.touched');
-    const edge = await owner!.transaction('write', async (tx) => (await tx.query<{ id: string }>('INSERT INTO edge (entity_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint) RETURNING id::text AS id', [touched, commit, file])).rows[0]!.id);
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.touched} (edge_id, said_by, change, added, removed) VALUES ($1::bigint, 'git-history@1', 'added', 3, 0)`, [edge])).toBeNull();
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.touched} (edge_id, said_by, change, added, removed) VALUES ($1::bigint, 'git-history@1', 'exploded', 3, 0)`, [edge])).toMatch(/_check/u);
-  }, 120_000);
-});
-
-describe('a confirmation is per field, and the database refuses a second one', () => {
-  test('one confirmed opinion stands per node, field, language and context', async () => {
-    const file = await nodeOf('code.file', { repository: 'confirmed', path: 'a.ts' });
-    const confirmed = `INSERT INTO ${GIT_TABLES.file} (node_id, said_by, state, confirmed_field, lang) VALUES ($1::bigint, $2, 'confirmed', $3, $4)`;
-    expect(await refusal(confirmed, [file, 'agent', 'mode', 'en'])).toBeNull();
-    // The same field in the same language and context: the partial unique index refuses the second.
-    expect(await refusal(confirmed, [file, 'agent', 'mode', 'en'])).toMatch(/_confirmed/u);
-    // A field of its own, a null language, and another language are tuples of their own.
-    expect(await refusal(confirmed, [file, 'agent', 'blob', 'en'])).toBeNull();
-    expect(await refusal(confirmed, [file, 'agent', 'mode', null])).toBeNull();
-    expect(await refusal(confirmed, [file, 'agent', 'mode', 'ru'])).toBeNull();
-    // A confirmed row names exactly one field, and an open row names none.
-    expect(await refusal(confirmed, [file, 'agent', null, 'en'])).toMatch(/_check/u);
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, confirmed_field) VALUES ($1::bigint, 'agent', 'mode')`, [file])).toMatch(/_check/u);
-  }, 120_000);
-});
-
-describe('evidence is a tagged list, and a path lookup keeps repository and path from one entry', () => {
-  test('a file place, a conversation and an opinion stand in one list', async () => {
-    const file = await nodeOf('code.file', { repository: 'evidence', path: 'a.ts' });
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([
-      { type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 3, line_end: 4 },
-      { type: 'conversation', id: 'talk-2026-11-10', speaker: 'the owner', at: '2026-11-10T21:00:00Z' },
-      { type: 'opinion', id: '42' },
-    ])])).toBeNull();
-    const held = await owner!.transaction('snapshot', async (tx) => await tx.query<{ evidence: readonly Record<string, unknown>[] }>(`SELECT evidence FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint`, [file]));
-    expect(held.rows[0]?.evidence.map((one) => one['type'])).toEqual(['file', 'conversation', 'opinion']);
-  }, 120_000);
-
-  test('the opinions resting on one repository and one path are one containment lookup, served by the evidence index', async () => {
-    const file = await nodeOf('code.file', { repository: 'evidence', path: 'b.ts' });
-    await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([{ type: 'file', repository: 'R', commit_or_digest: 'c', path: 'P', line_start: 1, line_end: 2 }])]);
-    // A file place of another repository holds the same path: the containment query keeps both from one entry.
-    await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([{ type: 'file', repository: 'Other', commit_or_digest: 'c', path: 'P' }])]);
-    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE evidence @> '[{"type":"file","repository":"R","path":"P"}]'::jsonb`, []));
-    expect(found.rows[0]?.n).toBe('1');
-    const plan = await owner!.transaction('snapshot', async (tx) => {
-      await tx.query('SET LOCAL enable_seqscan = off');
-      return await tx.query<Record<string, unknown>>(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ${GIT_TABLES.file} WHERE evidence @> '[{"type":"file","repository":"R","path":"P"}]'::jsonb`);
-    });
-    expect(JSON.stringify(plan.rows)).toContain(`${GIT_TABLES.file}_evidence`);
-  }, 120_000);
-});
-
-describe('ordinary declarations enforce their checks', () => {
-  test('a declared blob hash length and text/binary shape are checked', async () => {
-    const file = await nodeOf('code.file', { repository: 'checks', path: 'a' });
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, blob, algorithm, bytes, form, lines) VALUES ($1::bigint, 'disk@1', $2, 'sha1', 1, 'text', 1)`, [file, 'a'.repeat(40)])).toBeNull();
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, blob, algorithm, bytes, form, lines) VALUES ($1::bigint, 'disk@1', $2, 'sha256', 1, 'text', 1)`, [file, 'b'.repeat(64)])).toBeNull();
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, blob, algorithm, bytes, form, lines) VALUES ($1::bigint, 'disk@1', $2, 'sha1', 1, 'text', 1)`, [file, 'c'.repeat(64)])).toMatch(/_check/u);
-    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, blob, algorithm, bytes, form, lines) VALUES ($1::bigint, 'disk@1', $2, 'sha1', 1, 'binary', 1)`, [file, 'd'.repeat(40)])).toMatch(/_check/u);
-  }, 120_000);
+test('0039.25: generated typed values and their subject associations cannot mutate or disappear',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph});try{
+ await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{kind:'probe',key:{name:'a'},values:{amount:2},producer:'fixture',producerVersion:'1'}],removals:[]}));
+ for(const table of ['assertion','assertion_vertex_subject',assertionValueTableName('probe','vertex','amount')]){
+ await expect(owner.transaction('write',tx=>tx.query(`DELETE FROM "${table}"`))).rejects.toThrow('immutable');
+ }
+ await expect(owner.transaction('write',tx=>tx.query(`UPDATE "${assertionValueTableName('probe','vertex','amount')}" SET value=3`))).rejects.toThrow('immutable');
+ const rows=await owner.run(tx=>tx.query(`SELECT value FROM "${assertionValueTableName('probe','vertex','amount')}"`));expect(rows.rows).toEqual([{value:2}]);
+ }finally{await owner.close();}
 });

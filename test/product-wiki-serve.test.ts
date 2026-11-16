@@ -11,7 +11,8 @@ import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 import type { StartedServer } from '../src/server/http.js';
@@ -119,11 +120,9 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(base))), connectOnly: true });
     try {
       await owner.transaction('write', async (tx) => {
-        const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
-        await writeJournal(tx, journal);
-      });
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title: 'Linked source' } }, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }], removals: [] });
+        });
     } finally { await owner.close(); }
     // The document is a graph entity (decision 0036, section 8): read through the one read API.
     const response = await fetch(`${result.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 20) { edges { node { label markdown repository path } } } }' }) });

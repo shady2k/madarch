@@ -210,8 +210,8 @@ export interface QueueService {
    * Claims up to `limit` jobs of a declared queue for this worker, ordered the
    * way the queue selects them: the highest priority first and then the order
    * the jobs were enqueued in, whatever instant they were enqueued in, so the
-   * same set of jobs always comes back in the same order and a claim of fewer
-   * answers the oldest of them. A job that waits for a retry, or one whose claim
+   * returned batch is ordered consistently. Equal creation instants have no
+   * enqueue-order guarantee; pg-boss owns selection. A job that waits for a retry, or one whose claim
    * a maintenance pass recovered, keeps the place it was enqueued at. Where two
    * jobs nevertheless share an instant — one written into the queue beside this
    * service — ids in code point order decide the order of the batch the claim is
@@ -220,6 +220,12 @@ export interface QueueService {
    * holds it under. An empty queue answers no jobs.
    */
   claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]>;
+  /**
+   * Locks the pg-boss job in the caller's graph transaction and verifies its
+   * active state, retry count, expiry and heartbeat against database time.
+   * The writer calls this before accepting an operation (0039 item 24).
+   */
+  fence(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean>;
   /**
    * Refreshes the claim of `job` so the queue does not treat it as dead before
    * its lease lapses: true when the claim is this attempt and is still held,

@@ -18,11 +18,6 @@ details:
 - binary
 - command
 fields:
-- name: service
-  type: text
-  reference: code.service
-  producers:
-  - operations
 - name: name
   type: text
   labels:
@@ -41,12 +36,11 @@ fields:
   producers:
   - operations
 - name: port
-  type: integer
+  type: port
   nullable: true
   producers:
   - operations
 key:
-- service
 - name
 derives-from:
 - code.service
@@ -60,3 +54,8 @@ labels:
 description:
   en: A process is one running instance of a program in the system, with the command that started it, its environment and the ports it listens on. Several processes of the same program may run side by side.
   ru: Процесс — один работающий экземпляр программы в системе с командой, которая его запустила, его окружением и портами, которые он слушает. Несколько процессов одной программы могут работать одновременно.
+
+key-edges:
+- role: code.process-service
+  edge: code.process-service
+  side: from

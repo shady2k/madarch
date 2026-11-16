@@ -7,7 +7,6 @@
  * read a document's text themselves and never keep a word list.
  */
 import { byCodePoint } from '../src/model/order.js';
-import { questionAddress } from '../src/knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../src/knowledge/resolve.js';
 import type { Question } from '../src/loop/entities.js';
 import { ruleSpecs } from '../src/problems/rules.js';
@@ -26,7 +25,7 @@ export interface DocumentInput {
 }
 
 const questionLink = (question: Question): ProblemLink => ({
-  label: question.title, href: questionAddress(question.slug), key: question.id,
+  label: question.title, href: sourceAddress(null, question.file, 1), key: question.id,
 });
 const questionFileLink = (question: Question): ProblemLink => ({ label: `${question.file}:1`, href: sourceAddress(null, question.file, 1), key: null });
 const targetLink = (target: string): ProblemLink => ({ label: target, href: target.includes(':') && !target.startsWith('doc:') ? entityAddress(target) : null, key: target });
@@ -39,7 +38,7 @@ const draft = (rule: Rule, severity: ProblemSeverity, question: Question, fields
   place: questionFileLink(question),
   entity: fields.entity,
   evidence: fields.evidence,
-  by: question.answer?.by ?? null, at: question.askedAt,
+  by: question.answer === null || 'uid' in question.answer.by ? null : question.answer.by, at: question.askedAt,
   source: question.file,
   identity: fields.identity,
   ...(rule.action === 'none' ? {} : { scope: { type: 'file' as const, path: question.file } }),

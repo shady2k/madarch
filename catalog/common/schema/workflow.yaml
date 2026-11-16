@@ -28,11 +28,6 @@ fields:
   nullable: true
   binding:
     agent: 'What the engine can do with the workflow today: implemented or planned.'
-- name: stages
-  type: json
-  nullable: true
-  binding:
-    agent: The stages the workflow enables, in the order the engine runs them.
 key:
 - name
 labels:

@@ -41,7 +41,7 @@ function probeVertex(id: string): VertexResult {
     kind: 'probe',
     key: { id },
     values: { size: 12, language: 'typescript' },
-    evidence: { path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 },
+    evidence: { target: { kind: 'probe', key: { id } }, path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 },
   };
 }
 
@@ -110,7 +110,7 @@ await definePlugin({
     vertices: [
       { kind: 'probe', key: ['id'], fields: [{ name: 'size', type: 'integer', meaning: 'the size', example: 12, required: true }, { name: 'language', type: 'text', meaning: 'the language', example: 'typescript', required: false }] },
     ],
-    edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
+    edges: [{ kind: 'probe-link', from: 'probe', to: 'probe', cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'links', in: 'linked by' }, ru: { out: 'ссылается', in: 'ссылка от' } } }],
   },
   maxParallelUnits: 2,
   async extract(unit) {

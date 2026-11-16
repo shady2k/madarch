@@ -24,23 +24,12 @@ fields:
     ru: Имя
   binding:
     agent: The name the guide is known by, such as Administrator guide or User guide; it is the guide's key.
-- name: audience
-  type: json
-  nullable: true
-  reference: role
-  binding:
-    agent: The role the guide is written for, by the key of that role in the graph.
 - name: purpose
   type: text
   nullable: true
   binding:
-    agent: What the guide takes its reader through, in one or two sentences, from the sections it holds in the graph.
-- name: document
-  type: text
-  nullable: true
-  reference: document
-  binding:
-    agent: The document the guide is read from, where the product holds it as a document.
+    agent: What the guide takes its reader through, in one or two sentences, from
+      the sections it holds in the graph.
 key:
 - name
 derives-from:

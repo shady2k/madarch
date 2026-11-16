@@ -35,7 +35,8 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the convention is known by, such as file names in kebab-case; it is the convention's key.
+    agent: The name the convention is known by, such as file names in kebab-case;
+      it is the convention's key.
 - name: rule
   type: text
   binding:
@@ -47,13 +48,15 @@ fields:
     agent: An example of the code following the rule, where the product gives one.
 - name: paths
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:path-list:v1
   nullable: true
   binding:
     agent: The paths the rule covers, where it covers some folders only.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the convention is in force.
 key:

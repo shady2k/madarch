@@ -18,11 +18,6 @@ details:
 - steps
 - uses
 fields:
-- name: workflow
-  type: text
-  reference: code.ci-workflow
-  producers:
-  - operations
 - name: name
   type: text
   labels:
@@ -31,22 +26,27 @@ fields:
   producers:
   - operations
 - name: working_directory
-  type: text
+  type: path
   nullable: true
   producers:
   - operations
 - name: steps
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.ci-job-steps:v1
   nullable: true
   producers:
   - operations
 - name: uses
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   producers:
   - operations
 key:
-- workflow
 - name
 derives-from:
 - code.ci-workflow
@@ -60,3 +60,8 @@ labels:
 description:
   en: 'A CI job is one unit of work in continuous integration: check out the code, run a set of commands and report success or failure. Jobs are usually grouped in a workflow, and each may run on its own machine.'
   ru: 'Задача CI — одна единица работы в непрерывной интеграции: получить код, выполнить набор команд и сообщить об успехе или отказе. Задачи обычно входят в процесс, и каждая может выполняться на своей машине.'
+
+key-edges:
+- role: code.ci-job-workflow
+  edge: code.ci-job-workflow
+  side: from

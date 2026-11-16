@@ -20,11 +20,6 @@ details:
 - level
 - path
 fields:
-- name: document
-  type: text
-  reference: document
-  producers:
-  - operations
 - name: anchor
   type: text
   labels:
@@ -43,7 +38,7 @@ fields:
   producers:
   - operations
 - name: path
-  type: text
+  type: path
   nullable: true
   producers:
   - operations
@@ -58,7 +53,6 @@ fields:
   producers:
   - operations
 key:
-- document
 - anchor
 derives-from:
 - document
@@ -72,3 +66,8 @@ labels:
 description:
   en: A document section is one part of a document, beginning at a heading and running to the next heading of the same or higher level. It groups related statements, so a reader or a tool can refer to that part by its heading.
   ru: Раздел документа — часть документа, которая начинается с заголовка и идёт до следующего заголовка того же или более высокого уровня. Он объединяет связанные утверждения, чтобы на эту часть можно было сослаться по заголовку.
+
+key-edges:
+- role: code.document-section-document
+  edge: code.document-section-document
+  side: from

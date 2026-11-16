@@ -23,13 +23,8 @@ details:
 - goVersion
 - private
 fields:
-- name: repository
-  type: text
-  reference: code.repository
-  producers:
-  - operations
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -46,7 +41,7 @@ fields:
   producers:
   - operations
 - name: version
-  type: text
+  type: version
   nullable: true
   producers:
   - operations
@@ -56,7 +51,6 @@ fields:
   producers:
   - operations
 key:
-- repository
 - path
 derives-from:
 - code.file
@@ -71,3 +65,8 @@ labels:
 description:
   en: 'A manifest names a package, its version and the dependencies it needs, in the form its ecosystem uses: package.json, go.mod, pyproject.toml. It is the starting point from which the exact versions are resolved.'
   ru: 'Манифест называет пакет, его версию и нужные зависимости в форме своей экосистемы: package.json, go.mod, pyproject.toml. С него начинают, чтобы разрешить точные версии.'
+
+key-edges:
+- role: code.manifest-repository
+  edge: code.manifest-repository
+  side: from

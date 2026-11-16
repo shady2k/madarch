@@ -31,25 +31,21 @@ details:
 - servers
 - summary
 fields:
-- name: contract
-  type: json
-  reference: code.contract
-  binding:
-    agent: The contract that declares the operation, by the key of that contract in the graph.
 - name: name
   type: text
   labels:
     en: Name
     ru: Имя
   binding:
-    agent: 'The name the contract gives the operation: its operation id, or the RPC name.'
+    agent: 'The name the contract gives the operation: its operation id, or the RPC
+      name.'
 - name: method
   type: text
   nullable: true
   binding:
     agent: The HTTP method the operation answers, where the contract is an HTTP one.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: The path the operation answers, where the contract is an HTTP one.
@@ -57,7 +53,8 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: The RPC name and stream shape the operation declares, where the contract is a gRPC one.
+    agent: The RPC name and stream shape the operation declares, where the contract
+      is a gRPC one.
 - name: summary
   type: text
   nullable: true
@@ -67,9 +64,9 @@ fields:
   type: boolean
   nullable: true
   binding:
-    agent: Whether the contract marks the operation as open to callers outside the product.
+    agent: Whether the contract marks the operation as open to callers outside the
+      product.
 key:
-- contract
 - name
 derives-from:
 - code.contract
@@ -86,3 +83,8 @@ labels:
 description:
   en: An API operation is one callable action of an interface, such as listing orders or cancelling a booking, with its address, its input and its answers. The contract states it once, and both the service and its clients follow it.
   ru: 'Операция API — одно вызываемое действие интерфейса: получить список заказов или отменить бронь, — с его адресом, входными данными и ответами. Контракт объявляет её один раз, и ей следуют и сервис, и его клиенты.'
+
+key-edges:
+- role: code.operation-contract
+  edge: code.operation-contract
+  side: from

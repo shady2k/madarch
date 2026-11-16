@@ -7,7 +7,7 @@
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
-import { InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
+import { INLINE_ALIGN, InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
 import { readFillRuns, readProblemsCount, useChangeStream, useCommandRead, type FillRunDetail, type ProblemsCount } from './command.js';
 import { durationWords, momentWords } from './format.js';
 import { runAddress } from '../address.js';
@@ -32,7 +32,7 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
         <Stack className="grid gap-2">
           {/* The product's own page is written by an agent or a person; until then the home says so rather than nothing. */}
           <Paragraph className="m-0 text-secondary" data-testid="overview-description">{t('overview.description')}</Paragraph>
-          <InlineGroup align="baseline" className="mb-0 gap-3">
+          <InlineGroup align={INLINE_ALIGN.baseline} className="mb-0 gap-3">
             <TextLink href={context.base + '/p/problems'} onClick={(event) => { event.preventDefault(); context.open('/p/problems'); }} data-testid="overview-problems">
               {problemsText}
             </TextLink>

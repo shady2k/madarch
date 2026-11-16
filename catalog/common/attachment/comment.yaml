@@ -18,16 +18,10 @@ template-policy: page
 source: graph
 origin: person
 details:
-- author
 - body
 - created_at
 - edited_at
 fields:
-- name: author
-  type: json
-  reference: person
-  producers:
-  - person
 - name: body
   type: text
   producers:

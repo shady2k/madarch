@@ -6,13 +6,19 @@
  */
 import { pluginAgentOptions } from './agents.js';
 import { requestStorePreparation } from '../product/store-preparation.js';
+import { withAssertionContract } from '../graph/system-contract.js';
+import { readPublishedManifest } from '../graph/manifest-publication.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
+import { readPinnedGraphContract, readPinnedPluginInstallations } from '../product/preparation-contract.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
-import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
+import { readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -186,6 +192,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
 /** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
 async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
+  const metadata=async(store:StoreOwner):Promise<FillStateDatabase>=>{const manifest=await store.run(tx=>readPublishedManifest(tx));return {transaction:store.transaction.bind(store),graphContract:withAssertionContract(manifest===undefined?await readPinnedGraphContract(data.product):withManifestContract(graphContractOf(manifest)))};};
   // A redelivery after the end was published acknowledges that same run, never replaces its result.
   if (await readFillEnd(held.owner, data.runId) !== null) {
     await settleFillRun(held.queue, job, { ok: true });
@@ -197,7 +204,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     // The run's end is written even when no run started (madarch-8bdc.9): the api role that pressed the fill answers
     // `failed` with this message, where a missing end would leave it saying `running` for ever.
     const message = `${read.file}:${read.line}: ${read.message}`;
-    await writeFillEnd(held.owner, { runId: data.runId, state: 'failed', message }).catch(() => undefined);
+    await writeFillEnd(await metadata(held.owner), { runId: data.runId, state: 'failed', message }).catch(() => undefined);
     await settleFillRun(held.queue, job, { ok: false, message });
     return;
   }
@@ -220,7 +227,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
-      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract),
+      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract, await readPinnedPluginInstallations(productFolder)),
       // The language the press named, as `madarch fill --language` names it: a run that asks for another language
       // translates the pages it writes (madarch-8bdc.12).
       ...(data.language === undefined ? {} : { language: data.language }),
@@ -235,7 +242,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     while (!finished) {
       await Bun.sleep(250);
       if (finished) break;
-      const action = await readRunControl(owner, data.runId).catch(() => null);
+      const action = await readRunControl(await metadata(owner), data.runId).catch(() => null);
       if (action !== null) await run.control(action).catch(() => undefined);
     }
     const result = await done;

@@ -1,46 +1,6 @@
-/**
- * The fill's orchestrator (decision 0027): it plans the work of a run from the
- * stage registry, admits it within the run's resource limits by priority, hands
- * it to workers through the durable queue, follows a unit through its lease, its
- * draft, its split and its join, marks what went stale, revokes what was
- * cancelled, and publishes each generation exactly once.
- *
- * What it is made of, all of it landed:
- *
- * - **The registry** (`registry.ts`, madarch-tzte.19.3) declares the stages and
- *   derives the stage graph from their capabilities; a run plans against that
- *   graph and snapshots the configurations it resolved.
- * - **The state machines and their store** (`fsm.ts`, `state-store.ts`,
- *   madarch-tzte.19.4) persist every step. The orchestrator never invents a
- *   state: it takes a named step and performs the effects the step returned,
- *   after the new state is committed. A refused step is a value, writes nothing
- *   and is reported as it stands.
- * - **The queue** (`queue.ts` + its pg-boss adapter, madarch-tzte.19.2) carries
- *   the admitted work: an admission enqueues the unit's job inside the same
- *   transaction as the step, and a publication settles it inside the publication
- *   transaction, so one publication is one short transaction of the owner.
- * - **The database owner** (`adapters/database-owner.ts`, madarch-tzte.19.1) is
- *   the process's one database; everything here borrows it and nothing opens a
- *   second one.
- * - **`orchestrator-store.ts`** holds the orchestrator's own tables: the run's
- *   snapshot and resolved configuration, each unit's place in the plan, its
- *   tracked reads, its draft set, the child set a split sealed, the unique
- *   publication record and the durable progress events.
- *
- * Everything outside the database is a seam the caller passes: the clock (tests
- * move it by hand; nothing here reads `Date.now()` unless the caller left the
- * clock out), the pinned graph the units read, the inputs a unit's facts stand
- * on, the application of a published fact set, the pause/stop control, the
- * human-edit guard and the progress sink. The host in
- * `orchestrator-host.ts` wires the real ones; a test wires fakes.
- *
- * Two entry points do the work, and both are safe to call at any time:
- * `schedulerPass` sweeps what time and leases ended, enqueues the joins whose
- * children settled, admits planned units within the slots and settles the run;
- * `workOnce` claims one job and follows its unit as far as that attempt goes.
- * `driveRun` alternates them until nothing moves, which is what the host runs.
- */
-import type { DatabaseOwner } from '../adapters/database-owner.js';
+import {fencedAttemptStart} from '../graph/operation-host.js';
+/** Queue-driven fill scheduling. Accepted graph operations commit immediately; terminal receipts settle claims. */
+import type {StageContext,StageExecutionResult,StageGraphReader,StageUnitTools,ResolvedStageConfiguration} from './stage.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { producerSucceeded } from './producer-outcomes.js';
 import { ClosureRefusal } from '../plugin/closure-refusal.js';
@@ -54,13 +14,12 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { GraphReadRefusal, answerMembership, recordedReadText } from './read-record.js';
 import { SnapshotError } from '../plugin/repository-snapshot.js';
 import { FINAL_RUN_STATES, isFinalRunState, isFinalUnitState, runPhaseOf, type UnitAdvanceEvent, type UnitChildOutcome, type UnitFailedChildPolicy, type UnitRetryCause, type UnitState } from './fsm.js';
-import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import { UnitBoundStop } from './unit-bound.js';
 import {
+  writeOrchestration,
+  type OrchestratorDatabase,
   appendProgress,
   appendProgresses,
-  publicationDigest,
-  publishUnitIn,
   readRunConfiguration,
   readRunPlans,
   readRunPublicationCount,
@@ -68,24 +27,19 @@ import {
   readRunStagePlans,
   readSealedChildren,
   readSplitParents,
-  readUnitDraftHead,
   readUnitPlan,
   readUnitReads,
   recordUnitReads,
+  recordInheritedUnit,
   recordRunConfiguration,
   recordRunStagePlanned,
-  recordUnitDraft,
-  recordUnitDraftIn,
   recordUnitPlan,
   recordUnitPlanIn,
-  retractUnitDraft,
   sealSplitIn,
   type ProgressKind,
-  type PublicationOutcome,
   type RunSnapshot,
-  type TrackedRead,
   type UnitPlanRecord,
-} from './orchestrator-store.js';
+} from '../graph/fill-orchestration.js';
 import {
   deriveStageGraph,
   snapshotStageConfigurations,
@@ -99,30 +53,26 @@ import {
   advanceRun,
   advanceUnit,
   advanceUnitIn,
-  claimRunLease,
   createRun,
   createUnit,
   createUnitIn,
-  leaseUnit,
   openChain,
-  PlanningFenceError,
   readChain,
   readRun,
-  readRunLease,
   readRunUnits,
+  readRunUnitsIn,
+  lockFillScope,
   readUnit,
+  readUnitIn,
   readUnitGeneration,
   readProductUnits,
   replaceStaleGeneration,
   retryGeneration,
   RETRYABLE_UNIT_STATES,
-  renewRunLease,
-  RUN_HEARTBEAT_MS,
-  revokeUnitLease,
   type ChainRecord,
   type RunRecord,
   type UnitRecord,
-} from './state-store.js';
+} from '../graph/fill-state.js';
 import type { ChainEvidence, RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
@@ -149,23 +99,6 @@ export interface UnitGraphReader {
   query(text: string): Promise<readonly unknown[]>;
 }
 
-/** Where a unit's facts go when they are published: inside the publication's own transaction. */
-export interface FactApplication {
-  /**
-   * Applies one unit's published draft set within the stage's ownership scope,
-   * inside the transaction that is publishing it, and answers how many facts it
-   * applied. A failure here rolls the whole publication back: a generation is
-   * published with its facts or not at all.
-   */
-  apply(input: {
-    readonly executor: SqlExecutor;
-    readonly unit: UnitRecord;
-    readonly plan: UnitPlanRecord;
-    readonly digest: string;
-    readonly writes: readonly StageDraftWrite[];
-  }): Promise<number>;
-}
-
 /**
  * Where one unit's own MCP server comes from (0026, "Agents and tools"): the host
  * opens it for the generation this attempt runs, bound to the attempt's own draft
@@ -180,7 +113,6 @@ export interface UnitToolsOpening {
   /** The unit's place in the run's plan: the scope it covers and the run its drafts belong to. */
   readonly plan: UnitPlanRecord;
   /** The attempt's own draft set: where the unit's tools land an accepted write. */
-  readonly draft: StageDraftWriter;
 }
 
 /** The human-edit guard decision 0027 keeps from the landed runtime: a stage's output that a person edited is never overwritten. */
@@ -201,10 +133,10 @@ export interface RunControlReader {
 
 /** The most work one run may hold admitted, and what a retry, a lease, a split and a failed child may take. */
 export interface OrchestratorLimits {
+  /** Active queue claim lifetime; pg-boss owns expiry and retry authority. */
+  readonly attemptSeconds:number;
   /** The most units of one run that may stand admitted at once, every stage together. */
   readonly maxInFlight: number;
-  /** How long one attempt's lease holds its unit before the sweep treats it as abandoned. */
-  readonly leaseMs: number;
   /** How many attempts one generation may spend before it fails. */
   readonly retries: number;
   /** How long a retry waits before it may run again. */
@@ -227,8 +159,8 @@ export interface OrchestratorLimits {
 
 /** The limits a run holds when its caller names none: small, explicit and reproducible. */
 export const DEFAULT_ORCHESTRATOR_LIMITS: OrchestratorLimits = {
+  attemptSeconds:60,
   maxInFlight: 4,
-  leaseMs: 60_000,
   retries: 2,
   retryDelayMs: 5_000,
   ageingStepMs: 60_000,
@@ -239,9 +171,12 @@ export const DEFAULT_ORCHESTRATOR_LIMITS: OrchestratorLimits = {
 };
 
 /** Everything the orchestrator is given once, when it is created. */
+export interface UnitOperationOpening { readonly unit:UnitRecord; readonly plan:UnitPlanRecord; readonly job:ClaimedJob; readonly queue:QueueService; }
+export interface UnitOperations { setRunState?(runId:string,state:'running'|'paused'|'cancelled'):Promise<void>; open(request:UnitOperationOpening):Promise<{host:import('../graph/operation-host.js').OperationHost;sourceUid:string;unitUid:string}>; }
 export interface OrchestratorOptions {
+  readonly operations:UnitOperations;
   /** The process's one database owner (madarch-tzte.19.1). Never opened, never closed here. */
-  readonly database: DatabaseOwner;
+  readonly database: OrchestratorDatabase;
   /** The declared stages (madarch-tzte.19.3). */
   readonly registry: StageRegistry;
   /** The durable queue (madarch-tzte.19.2). Declared by the host before the first enqueue. */
@@ -269,7 +204,6 @@ export interface OrchestratorOptions {
    */
   readonly inputs: (ref: UnitRef) => Promise<Readonly<Record<string, string | Uint8Array>>> | Readonly<Record<string, string | Uint8Array>>;
   /** Where a published fact set lands. */
-  readonly facts: FactApplication;
   /** Supplies recorded time; the real clock unless a test passes its own. */
   readonly clock?: () => number;
   /** Whether the person paused or stopped the run (fill-runtime's control file, kept). */
@@ -299,7 +233,8 @@ export interface OrchestratorOptions {
 
 /** The orchestrator, with every seam resolved. */
 export interface FillOrchestrator {
-  readonly database: DatabaseOwner;
+  readonly operations:UnitOperations;
+  readonly database: OrchestratorDatabase;
   readonly registry: StageRegistry;
   readonly queue: QueueService;
   readonly queueName: string;
@@ -310,7 +245,6 @@ export interface FillOrchestrator {
   readonly snapshot: () => Promise<RunSnapshot>;
   readonly graph: (ref: UnitRef, transaction?: SqlExecutor) => Promise<UnitGraphReader>;
   readonly inputs: (ref: UnitRef) => Promise<Readonly<Record<string, string | Uint8Array>>>;
-  readonly facts: FactApplication;
   readonly control: RunControlReader;
   readonly guard: HumanEditGuard | undefined;
   readonly unitTools: ((request: UnitToolsOpening) => Promise<StageUnitTools | undefined>) | undefined;
@@ -333,7 +267,6 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
   if (options.queueName.trim() === '') raise('the orchestrator needs the name of the queue its units wait in');
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
   if (limits.maxInFlight < 1) raise(`the orchestrator's maxInFlight is ${limits.maxInFlight}: a run admits at least one unit at a time`);
-  if (limits.leaseMs < 1) raise(`the orchestrator's leaseMs is ${limits.leaseMs}: a lease holds its unit for at least a millisecond`);
   if (limits.maxSplitDepth < 0) raise('the orchestrator\'s maxSplitDepth is negative');
   if (limits.maxSplitChildren < 1) raise('the orchestrator\'s maxSplitChildren is below one: a split seals at least one child');
   return {
@@ -348,9 +281,9 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     snapshot: async () => await options.snapshot(),
     graph: async (ref, transaction) => await options.graph(ref, transaction),
     inputs: async (ref) => await options.inputs(ref),
-    facts: options.facts,
     control: options.control ?? (async () => undefined),
     guard: options.guard,
+    operations: options.operations,
     unitTools: options.unitTools === undefined ? undefined : async (request) => await options.unitTools!(request),
     sink: options.sink,
     log: options.log ?? (() => undefined),
@@ -412,7 +345,7 @@ async function emit(
 }
 
 /** One transaction of the process's owner, as the owner hands it to its work. */
-type OwnerTransaction = Parameters<Parameters<DatabaseOwner['transaction']>[1]>[0];
+type OwnerTransaction = Parameters<Parameters<OrchestratorDatabase['transaction']>[1]>[0];
 
 /**
  * Runs one transaction of the database owner that the orchestrator opens itself —
@@ -429,7 +362,7 @@ async function ownTransaction<R>(
   tables: readonly string[],
   work: (transaction: OwnerTransaction) => Promise<R>,
 ): Promise<R> {
-  return await withLocation(site, operation, tables, async () => await orchestrator.database.transaction('write', work));
+  return await withLocation(site, operation, tables, async () => await writeOrchestration(orchestrator.database, work));
 }
 
 /**
@@ -647,13 +580,12 @@ const countIn = (units: readonly UnitRecord[], states: readonly UnitState[]): nu
   units.filter((unit) => states.includes(unit.state)).length;
 
 /** The states an admitted unit holds a slot of the run in. */
-const ADMITTED_STATES: readonly UnitState[] = ['ready', 'leased', 'running', 'draft', 'validating'];
+const ADMITTED_STATES: readonly UnitState[] = ['ready', 'running'];
 
 /** The states an attempt holds a lease in: a lapse in any of them is the same lapse, whatever step the attempt had reached. */
-const LEASE_HOLDING_STATES: readonly UnitState[] = ['leased', 'running', 'draft', 'validating'];
 
 /** The states a generation is live in: those a cancellation revokes and a staleness replaces. */
-const LIVE_STATES: readonly UnitState[] = ['planned', 'ready', 'leased', 'running', 'draft', 'validating', 'waiting_children', 'retry_wait', 'blocked'];
+const LIVE_STATES: readonly UnitState[] = ['planned', 'ready', 'running', 'waiting_children', 'retry_wait', 'blocked'];
 
 // ---------------------------------------------------------------------------------------------
 // Planning
@@ -708,9 +640,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   if (run.state !== 'created' && run.state !== 'planning' && run.state !== 'running') {
     return { outcome: 'refused', run, code: 'fill-orchestrator/run-not-plannable', reason: `fill-orchestrator: run "${run.runId}" is ${run.state}; only a created, planning or running run is planned` };
   }
-  if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at }))) {
-    return { outcome: 'refused', run, code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is not held by its owner's live lease; another process may have recovered it` };
-  }
+
   const read = deriveStageGraph(orchestrator.registry, await orchestrator.configuration());
   if (!read.ok) {
     // A graph that does not read at all is refused where it stands; a graph that reads but starves a
@@ -731,7 +661,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   const configurationDigest = read.ok
     ? snapshotStageConfigurations(read.graph.stages)
     : canonicalJsonDigest({ starved: read.starvation.map((path) => path.path).sort(byCodePoint) });
-  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
+  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at });
   if (recorded.digest !== configurationDigest) {
     return {
       outcome: 'refused',
@@ -776,7 +706,6 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
     try {
       stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
     } catch (error) {
-      if (error instanceof PlanningFenceError) return { outcome: 'refused', run, code: error.code, reason: error.message };
       throw error;
     }
     if (stage.refusal !== undefined) return { outcome: 'refused', run, code: stage.refusal.code, reason: stage.refusal.reason };
@@ -787,7 +716,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
     // a stage that planned no unit may be planned again once the run has published
     // past its attempt what a producer of its inputs makes, and never twice
     // without one.
-    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
+    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at });
     await emit(orchestrator, {
       runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-planned',
       summary: `stage ${stageId} planned ${stage.units.length} ${stage.units.length === 1 ? 'unit' : 'units'}${stage.reused.length > 0 ? ` and inherited ${stage.reused.length}` : ''}`,
@@ -851,10 +780,6 @@ async function planStageUnitsSpanned(
   const reused: string[] = [];
   const stage = stageOf(orchestrator, stageId);
   const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
-  // Planning is fenced by the run's lease: a recovery that took an expired lease cannot be
-  // followed by this planner recording a unit under the run it ended.
-  const stillOwned = await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at });
-  if (!stillOwned) return { stageId, units, reused, foundNothing: plan.coverage === 'nothing-found', refusal: { code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is no longer held by its owner's lease; no unit of stage "${stageId}" was planned` } };
   const foundNothing = plan.coverage === 'nothing-found';
   if (foundNothing) {
     // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
@@ -862,16 +787,14 @@ async function planStageUnitsSpanned(
     await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-found-nothing', summary: `stage ${stageId} read its producer's inputs and found nothing to plan in them` });
   }
   for (const [planPosition, scope] of plan.units.entries()) {
-    if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at }))) {
-      return { stageId, units, reused, foundNothing, refusal: { code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is no longer held by its owner's lease; no further unit of stage "${stageId}" was planned` } };
-    }
+
     const unitId = unitIdFor(stageId, scope.id);
     const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
     const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
     const before = await readUnit(database, unitId);
     const answer = await createUnit(database, {
       unitId, product: orchestrator.product, runId: run.runId, stageId,
-      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
+      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
     });
     if (answer.runId !== run.runId) {
         // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
@@ -886,6 +809,7 @@ async function planStageUnitsSpanned(
             // computation of the unit's inputs per unit, not two.
             const verdict = await generationFresh(orchestrator, answer, { digest, versions: stageCacheVersions(stage) });
             if (verdict.fresh) {
+              await recordInheritedUnit(database,{runId:run.runId,unitId,generation:answer.generation});
               await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-inherited', summary: `${unitId} generation ${answer.generation} verified unchanged for this run` });
               reused.push(unitId);
               continue;
@@ -902,7 +826,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: replaced.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: replaced.record.generation, stagePosition, planPosition, state: replaced.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
@@ -920,7 +844,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: retried.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: retried.record.generation, stagePosition, planPosition, state: retried.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: retried.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${retried.record.generation}, retrying the ${answer.state} generation ${answer.generation} run "${answer.runId}" left` });
@@ -936,7 +860,7 @@ async function planStageUnitsSpanned(
       }
       await recordUnitPlan(database, {
         unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
+        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
       });
       const created = before === null;
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
@@ -1187,21 +1111,17 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       }
     }
     const priority = ordered.length - index;
-    const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
+    const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['node','edge','assertion'], async (executor) => {
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
       // limits are counted and the step taken under one lock and a slot can never be given twice.
-      const locked = await executor.query<{ run_id: string }>('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [run.runId]);
-      if (locked.rows.length === 0) raise(`table fill_run: no run ${run.runId}`);
+      await lockFillScope(executor,run.runId);
       const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
       if (scheduling !== undefined) {
         for (const dependency of scheduling.after) {
-          const previous = await executor.query<{ state: string; generation: unknown }>(
-            'SELECT g.state, g.generation FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
-            [unitIdFor(unit.stageId, dependency)],
-          );
           const dependencyId = unitIdFor(unit.stageId, dependency);
-          const state = previous.rows[0]?.state;
-          const generation = Number(previous.rows[0]?.generation);
+          const previous=await readUnitIn(executor,dependencyId);
+          const state=previous?.state;
+          const generation=previous?.generation??0;
           const cached = state === 'published' ? publishedOutcomes.get(outcomeKey(dependencyId, generation)) : undefined;
           const latest = cached ?? (state === 'published'
             ? (await readProducerOutcomesIn(executor, { unitId: dependencyId, generation })).at(-1) : undefined);
@@ -1217,13 +1137,7 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
           if (state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
         }
       }
-      const counted = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
-        `SELECT u.unit_id AS unit_id, u.stage_id AS stage_id, g.state AS state
-           FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
-          WHERE g.run_id = $1`,
-        [run.runId],
-      );
-      const states = counted.rows.map((row) => ({ unitId: row.unit_id, stageId: row.stage_id, state: row.state as UnitState }));
+      const states=await readRunUnitsIn(executor,run.runId);
       if (scheduling !== undefined) {
         const stage = stageOf(orchestrator, unit.stageId);
         const groupInFlight = states.filter((row) => row.stageId === unit.stageId && (ADMITTED_STATES.includes(row.state) || row.state === 'retry_wait')
@@ -1284,8 +1198,8 @@ interface SweepOutcome {
 }
 
 /** The cause a waking retry names: the transition that wakes a wait does not read it, and the journal keeps what it says. */
-function wakingCause(unit: UnitRecord): UnitRetryCause {
-  return unit.lease !== null && unit.lease.revokedAt !== null ? 'lease-expired' : 'transient-failure';
+function wakingCause(_unit: UnitRecord): UnitRetryCause {
+  return 'transient-failure';
 }
 
 /**
@@ -1345,40 +1259,6 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       }
       continue;
     }
-    if (LEASE_HOLDING_STATES.includes(unit.state) && unit.lease !== null && unit.lease.revokedAt === null && unit.lease.expiresAt <= at) {
-      const authority = orchestrator.authority.get(authorityKey(unit.unitId, unit.generation));
-      authority?.abort();
-      const retryAt = at + orchestrator.limits.retryDelayMs;
-      if (unit.context.retriesLeft > 0) {
-        const step = await advanceUnit(database, {
-          unitId: unit.unitId,
-          event: { type: 'retry', at, generation: unit.generation, cause: 'lease-expired', retryAt, fence: null },
-        });
-        if (step.ok) {
-          await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
-          await orchestrator.queue.enqueue({ queue: orchestrator.queueName, data: { unitId: unit.unitId, generation: unit.generation }, singletonKey: unit.unitId, startAfter: new Date(retryAt) });
-          await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `the lease of ${unit.unitId} lapsed at ${unit.lease.expiresAt}; attempt ${unit.context.attempt} is retried at ${retryAt}` });
-          swept.push({ unitId: unit.unitId, outcome: 'retried', reason: `lease expired at ${unit.lease.expiresAt}` });
-          continue;
-        }
-      }
-      const failed = await advanceUnit(database, {
-        unitId: unit.unitId,
-        event: { type: 'fail', at, generation: unit.generation, fence: unit.context.fence, cause: 'retries-exhausted' },
-      });
-      if (failed.ok) {
-        await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
-        await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} failed: its lease lapsed with no retry left` });
-        swept.push({ unitId: unit.unitId, outcome: 'failed', reason: `lease expired at ${unit.lease.expiresAt} with no retry left` });
-      } else {
-        // Neither a retry nor a failure: the machine refuses both, so this attempt's lapse moved nothing.
-        // With the lapse retried from every state a lease is held in, this is the branch of a unit
-        // another executor moved between this pass's read and its step — the race, not a resting state —
-        // and it answers with the machine's own words rather than passing over the unit in silence.
-        refused.push({ unitId: unit.unitId, code: failed.refusal.code, reason: `the lease of ${unit.unitId} generation ${unit.generation} lapsed at ${unit.lease.expiresAt} and neither the retry nor the failure was allowed: ${failed.refusal.reason}` });
-      }
-      continue;
-    }
     if (unit.state === 'waiting_children') {
       const plan = await planOf(orchestrator, unit);
       const joined = await settleJoin(orchestrator, { unit, plan, runId: run.runId, at });
@@ -1435,7 +1315,6 @@ async function settleJoin(
       event: { type: 'fail', at, generation: unit.generation, fence: unit.context.fence, cause: 'child-failed' },
     });
     if (!failed.ok) return null;
-    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
     await emit(orchestrator, { runId: request.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} failed: a child it waits for failed and the run propagates it` });
     return { unitId: unit.unitId, outcome: 'join-failed', reason: 'a child failed and the policy propagates it' };
   }
@@ -1587,7 +1466,7 @@ async function refusedStep(
 }
 
 /** The named steps one attempt takes, as the events the machine knows them by. */
-type AttemptStep = 'block' | 'submit-draft' | 'validate-draft' | 'wait-for-children';
+type AttemptStep = 'block' | 'wait-for-children';
 
 /** One named step of an attempt: the record the machine answered with, or the settled attempt its refusal ended in. */
 type AttemptResult = { readonly ok: true; readonly record: UnitRecord } | { readonly ok: false; readonly outcome: WorkOutcome };
@@ -1610,7 +1489,7 @@ async function takeAttemptStep(
 
 /**
  * Runs one attempt of a ready unit inside the unit's span: the phases below it
- * (execute, draft, validate, publish) are its children, and the result the
+ * (execute and complete) are its children, and the result the
  * attempt ended with is the span's own attribute, so the trace says what the
  * unit did without a second record.
  */
@@ -1645,29 +1524,20 @@ async function attemptUnitPhases(
   if (!(await orchestrator.queue.heartbeat(orchestrator.queueName, request.job))) {
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the claim of job ${request.job.id} is no longer this worker's before ${unit.unitId} attempt ${unit.context.attempt + 1} ran, so the attempt spends nothing` }, job: 'none' };
   }
-  const leased = await leaseUnit(database, { unitId: unit.unitId, holder: request.worker, ttlMs: orchestrator.limits.leaseMs, at });
-  if (!leased.ok) {
-    await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: `the lease was refused: ${leased.refusal.reason}` });
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: leased.refusal.code, reason: leased.refusal.reason }, job: 'completed' };
-  }
-  const fence = leased.record.context.fence;
-  const started = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'start', at, generation: unit.generation, fence } });
+  const fence=request.job.attempt;
+  const started = await writeOrchestration(database,async tx=>await fencedAttemptStart(orchestrator.queue,request.job,tx,async()=>await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'start',at,generation:unit.generation,fence}})));
   if (!started.ok) {
     await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: `the start was refused: ${started.refusal.reason}` });
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: started.refusal.code, reason: started.refusal.reason }, job: 'completed' };
   }
-  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-leased', summary: `${unit.unitId} is leased to ${request.worker} under fence ${fence}, attempt ${leased.record.context.attempt}` });
-  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-started', summary: `${unit.unitId} attempt ${leased.record.context.attempt} runs under fence ${fence}` });
+  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-started', summary: `${unit.unitId} runs queue attempt ${request.job.attempt} for ${request.worker}` });
+  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-started', summary: `${unit.unitId} attempt ${request.job.attempt} runs under fence ${fence}` });
 
-  const writes: StageDraftWrite[] = [];
+  let producerOutcome:import('./producer-outcomes.js').ProducerOutcomeDraft|undefined;
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
-  const draftWriter: StageDraftWriter = {
-    write: (entry: StageDraftWrite) => { writes.push(entry); },
-    writes: (): StageDraftSet => ({ writes }),
-  };
   // 0026's per-unit MCP server: the stage's units that declare they read and write through one are handed the
-  // server a host opened for this generation, bound to this attempt's own draft set, and the attempt closes it
+  // server a host opened for this generation, bound to this queue attempt, and the attempt closes it
   // whatever it ends with.
   // The graph this attempt's stage reads through: every read is recorded as the generation's dependency, and the
   // same reader serves the stage's own reads and its `validate`, so nothing reads the graph unrecorded.
@@ -1761,7 +1631,7 @@ async function attemptUnitPhases(
     const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
     orchestrator.authority.set(authorityKey(unit.unitId, unit.generation), controller);
     tools = stage.usesTools === true && orchestrator.unitTools !== undefined
-      ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
+      ? await orchestrator.unitTools({ unit, plan })
       : undefined;
     // The sealed set this generation holds, when it holds one: a unit that split and
     // was joined finds its sealed children here (decision 0027), which is how the
@@ -1769,13 +1639,15 @@ async function attemptUnitPhases(
     // again — the store's own answer, read once per attempt, and no graph read that
     // a child's publication could move.
     const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
+    const immediate = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
     context = {
+      ...{operationSourceUid:immediate.sourceUid,operationUnitUid:immediate.unitUid,executeOperation:<Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>immediate.host.execute({key,request,...(preconditions===undefined?{}:{preconditions})},apply)},
+      completeOutcome:outcome=>{producerOutcome=outcome;},
       runId: unit.runId,
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
-      draft: draftWriter,
       ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's
       // own durable events the moment the attempt ends, so a lost write is an error rather than a silence.
@@ -1808,16 +1680,14 @@ async function attemptUnitPhases(
   // A unit a bound of its own run stopped fails here, with that reason: another attempt meets the same bound, and a retry
   // loop that only waits out the wall is no work at all (owner's decision, 2026-11-15).
   if (bound !== undefined) {
-    const at = orchestrator.clock();
-    const failed = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'fail', at, generation: unit.generation, fence, cause: 'bound-exhausted' } });
-    if (!failed.ok) {
-      await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: bound.message });
-      return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: failed.refusal.code, reason: failed.refusal.reason }, job: 'completed' };
-    }
-    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
-    await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: bound.message });
-    await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}` });
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'failed', summary: bound.message, job: 'completed' };
+    const at=orchestrator.clock();
+    const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+    const failed=await operation.host.fail(bound.message,async(tx,writeContext)=>{
+      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}},writeContext);
+      if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1660: FAILURE_CONFLICT ${step.refusal.reason}`);
+    });
+    if(failed)await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
+    return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:failed?'failed':'refused',summary:bound.message,job:failed?'failed':'none'};
   }
   if (raised !== undefined || result === undefined) {
     return await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${raised?.message ?? 'it answered nothing'}`, summary: `${unit.unitId} raised: ${raised?.message ?? 'it answered nothing'}` });
@@ -1831,205 +1701,20 @@ async function attemptUnitPhases(
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: result.reason, job: 'completed' };
   }
   if (result.outcome === 'split') {
-    return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children, writes });
+    return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
   }
 
-  // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
-  const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
-  if (!drafted.ok) return drafted.outcome;
-  let recorded: Awaited<ReturnType<typeof recordUnitDraft>>;
-  try {
-    recorded = await withSpan('attempt.draft', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (draftSpan) => {
-      const held = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
-      draftSpan.setAttribute('madarch.writes', held.digest.length === 0 ? 0 : writes.length);
-      return held;
+  {
+    const immediate=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+    const terminal={unitId:unit.unitId,generation:unit.generation};
+    await immediate.host.execute({key:'complete',request:terminal,completion:{output:terminal,enqueue:[],...(producerOutcome===undefined?{}:{outcome:producerOutcome})}},async (tx,writeContext)=>{
+      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'complete',at:orchestrator.clock(),generation:unit.generation,fence}},writeContext);
+      if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1850: TERMINAL_CONFLICT ${step.refusal.reason}`);
+      return {completed:true};
     });
-  } catch (error) {
-    // A draft the store could not record is this unit's failure: the run keeps the other units' work and
-    // spends this generation's retries (decision 0033, items 18, 19 and 27), never the process.
-    const reason = `recording the draft of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
-    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'transient-failure', reason, summary: reason });
+    await emit(orchestrator,{runId:unit.runId,at:orchestrator.clock(),stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-published',summary:`${unit.unitId} completed; accepted operations remain visible`});
+    return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'published',job:'completed'};
   }
-  await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
-
-  const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
-  if (!validating.ok) return validating.outcome;
-  await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
-
-  let validation: Awaited<ReturnType<typeof stage.validate>>;
-  const validationReader = trackedReader();
-  try {
-    try {
-      validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
-      const held = await stage.validate({ writes }, validationReader.graph);
-      validateSpan.setAttribute('madarch.valid', held.ok);
-      return held;
-      });
-    } finally {
-      await validationReader.close();
-    }
-  } catch (error) {
-    const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
-    return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
-  }
-  if (!validation.ok) {
-    return await retryAttempt(orchestrator, {
-      unit: validating.record, fence, job: request.job, cause: 'validation-problem',
-      reason: `validation refused the draft: ${validation.errors.join('; ')}`,
-      summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
-    });
-  }
-  return await withSpan('attempt.publish', { 'madarch.unit': unit.unitId, 'madarch.generation': unit.generation }, async (publishSpan) => {
-    const published = await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
-    publishSpan.setAttribute('madarch.outcome', published.result ?? 'none');
-    return published;
-  });
-}
-
-/**
- * Publishes one validated generation: one transaction of the owner that
- * rechecks the run's control, rechecks every read its facts stand on, applies
- * the fact set, takes the machine's `publish` step and writes the unique
- * publication record, with the queue's settlement inside it.
- */
-async function publishAttempt(
-  orchestrator: FillOrchestrator,
-  request: {
-    readonly unit: UnitRecord;
-    readonly plan: UnitPlanRecord;
-    readonly fence: number;
-    readonly job: ClaimedJob<{ unitId: string; generation: number }>;
-    readonly reader: UnitGraphReader;
-    readonly stage: FillStage;
-    /** The draft set this attempt recorded and still holds, published without reading its JSON back (`PublicationRequest.held`). */
-    readonly held: { readonly digest: string; readonly writes: readonly StageDraftWrite[] };
-  },
-): Promise<WorkOutcome> {
-  const database = orchestrator.database;
-  const unit = request.unit;
-  const at = orchestrator.clock();
-  const draftAt = performance.now();
-  const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
-  const draftMs = performance.now() - draftAt;
-  if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
-  const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
-  // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
-  // makes this transaction fail to serialize rather than wait — the READ COMMITTED alternative cannot
-  // refuse what a snapshot refuses. That race is the same event as a read that moved: the attempt is
-  // retried against the store as it now stands, its draft retracted, exactly as a stale read is.
-  let outcome: { readonly publication: PublicationOutcome; readonly settled: boolean };
-  let revalidateMs = 0;
-  let revalidateReads = 0;
-  let applyMs = 0;
-  let publicationReader: UnitGraphReader | undefined;
-  // What the publication cost, as the publish span's own fields: a statement's time is its own span.
-  const annotatePublication = (): void => {
-    annotateSpan({
-      'madarch.publication.draftMs': Math.round(draftMs),
-      'madarch.publication.revalidateMs': Math.round(revalidateMs),
-      'madarch.publication.reads': revalidateReads,
-      'madarch.publication.applyMs': Math.round(applyMs),
-    });
-  };
-  try {
-    outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
-      const publication: PublicationOutcome = await publishUnitIn(transaction, {
-        unitId: unit.unitId,
-        generation: unit.generation,
-        fence: request.fence,
-        identity: { inputsDigest: unit.inputsDigest, stageId: request.stage.id, stageVersion: request.stage.version },
-        at,
-        // The reads are rechecked through the publication's own transaction: the process's owner refuses a
-        // second transaction on its connection, so the pinned graph answers from inside this one.
-        revalidate: async (read: TrackedRead, executor) => {
-          const readAt = performance.now();
-          revalidateReads += 1;
-          // One reader for the whole publication: the wiring is the same transaction and the same unit,
-          // and building it per read cost a publication tens of reads' worth of setup (measured 224 ms a read).
-          publicationReader ??= await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const answered = await answerNow(publicationReader, recordedReadText(read.query));
-          revalidateMs += performance.now() - readAt;
-          // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
-          // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
-          if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };
-          // The membership the read was recorded under, recomputed the same way (`answerMembership`): a span's
-          // bytes answer at the run's pin, and every other read's rows digest as they did.
-          return { membership: answerMembership(read.query, answered.rows), members: answered.rows.length };
-        },
-        held: request.held,
-        apply: async (executor, writes, digest) => {
-          const applyAt = performance.now();
-          const applied = await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes });
-          applyMs += performance.now() - applyAt;
-          return applied;
-        },
-      });
-      if (publication.outcome === 'published' || publication.outcome === 'replayed') {
-        const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
-        return { publication, settled };
-      }
-      return { publication, settled: false };
-    });
-  } catch (error) {
-    annotatePublication();
-    if (isSerializationFailure(error)) {
-      const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
-      return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
-    }
-    // A publication that raised is this unit's failure, not the run's: decision 0033 (items 18, 19 and 27)
-    // bounds the retries and reports partial coverage, and a unit that cannot publish leaves what the other
-    // units published standing. The attempt retries under the machine's own retry cause, and the last
-    // attempt fails the generation with this reason on its record (c40e53d0, lost by ee2fcd40 and restored
-    // here; it is what took a whole fill down over one unit's refused publication).
-    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
-    return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
-  }
-
-  annotatePublication();
-  if (outcome.publication.outcome === 'published') {
-    // The record's own digest, not the one this attempt computed before the transaction: they are the
-    // same publication, and everything the run says about it afterwards names what it really wrote.
-    const recorded = outcome.publication.record.digest;
-    await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-published', summary: `${unit.unitId} published ${outcome.publication.record.facts} ${outcome.publication.record.facts === 1 ? 'fact' : 'facts'} under ${recorded}` });
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'published', summary: `published ${recorded}`, job: outcome.settled ? 'completed' : 'none' };
-  }
-  if (outcome.publication.outcome === 'replayed') {
-    const recorded = outcome.publication.record.digest;
-    await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-published', summary: `${unit.unitId} was already published as ${recorded}; this request answered the existing publication` });
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'replayed', summary: `already published ${recorded}`, job: outcome.settled ? 'completed' : 'none' };
-  }
-  const refusal = outcome.publication;
-  if (refusal.code === 'fill-publication/reads-stale') {
-    // The facts this generation would write stand on a graph that moved: the retry re-reads it, and
-    // the draft is retracted so the next attempt starts clean.
-    return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason: refusal.reason, summary: refusal.reason });
-  }
-  await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: refusal.reason });
-  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: refusal.reason });
-  return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: refusal.code, reason: refusal.reason }, job: 'completed' };
-}
-
-/**
- * True for the failure a transaction raises when it lost a race: a serialization failure (`40001`, which a
- * REPEATABLE READ transaction gets for a row another transaction committed under it) or a deadlock
- * (`40P01`). SQLSTATE is what the database speaks on both owners, and it is the only thing this decides by.
- */
-function isSerializationFailure(error: unknown): boolean {
-  // The located message a store operation raises carries the database's own error as its cause, and its
-  // cause carries SQLSTATE: the walk follows it, so a failure wrapped once or twice still answers.
-  for (let at: unknown = error, depth = 0; at !== undefined && at !== null && depth < 8; depth += 1) {
-    const code = (at as { code?: unknown }).code;
-    if (code === '40001' || code === '40P01') return true;
-    at = (at as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-/** An error's own words, for a record or a refusal that must name what happened. */
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') return (error as { message: string }).message;
-  return String(error);
 }
 
 /** Sends one attempt into a retry wait, or fails the generation when no retry is left. */
@@ -2037,28 +1722,27 @@ async function retryAttempt(
   orchestrator: FillOrchestrator,
   request: { readonly unit: UnitRecord; readonly fence: number; readonly job: ClaimedJob<{ unitId: string; generation: number }>; readonly cause: UnitRetryCause; readonly reason: string; readonly summary: string },
 ): Promise<WorkOutcome> {
-  const database = orchestrator.database;
   const unit = request.unit;
   const at = orchestrator.clock();
   const retryAt = at + orchestrator.limits.retryDelayMs;
-  // A worker's retry carries the token of the attempt that sent it: the retry of an attempt whose lease
-  // lapsed is refused here rather than spent on the attempt that replaced it (the run's own sweep, which
-  // is no worker, sends its retries with no token).
-  const retried = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'retry', at, generation: unit.generation, cause: request.cause, retryAt, fence: request.fence } });
-  if (!retried.ok) {
-    const failed = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'fail', at, generation: unit.generation, fence: request.fence, cause: 'retries-exhausted' } });
-    if (!failed.ok) {
-      await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: request.reason });
-      return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: failed.refusal.code, reason: failed.refusal.reason }, job: 'completed' };
-    }
-    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
-    await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: request.reason });
-    await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} failed with no retry left: ${request.reason}` });
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'failed', summary: request.reason, job: 'completed' };
+  const plan=await planOf(orchestrator,unit);
+  const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+  if(unit.context.retriesLeft===0){
+    const failed=await operation.host.fail(request.reason,async (tx,writeContext)=>{
+      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}},writeContext);
+      if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1800: FAILURE_CONFLICT ${step.refusal.reason}`);
+    });
+    if(failed)await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:request.reason});
+    return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:failed?'failed':'refused',summary:request.reason,job:failed?'failed':'none'};
   }
-  await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
-  await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: request.reason });
-  await orchestrator.queue.enqueue({ queue: orchestrator.queueName, data: { unitId: unit.unitId, generation: unit.generation }, singletonKey: unit.unitId, startAfter: new Date(retryAt) });
+
+  await operation.host.execute({key:`retry:${unit.context.attempt}`,request:{cause:request.cause,reason:request.reason}},async(tx,writeContext)=>{
+    const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'retry',at,generation:unit.generation,cause:request.cause,retryAt,fence:request.fence}},writeContext);
+    if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1750: RETRY_CONFLICT ${step.refusal.reason}`);
+    await orchestrator.queue.complete(orchestrator.queueName,request.job,{reason:request.reason},tx);
+    await orchestrator.queue.enqueue({queue:orchestrator.queueName,data:{unitId:unit.unitId,generation:unit.generation},singletonKey:unit.unitId,startAfter:new Date(retryAt),transaction:tx});
+    return true;
+  });
   await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${request.summary}; the attempt is retried at ${retryAt}` });
   return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'retried', summary: request.summary, job: 'completed' };
 }
@@ -2084,7 +1768,6 @@ async function splitAttempt(
      * the same transaction that seals the children, so the graph holds what the
      * parent established even though the parent publishes nothing yet.
      */
-    readonly writes: readonly StageDraftWrite[];
   },
 ): Promise<WorkOutcome> {
   const database = orchestrator.database;
@@ -2094,7 +1777,6 @@ async function splitAttempt(
     // A split that cannot be sealed still records what the stopping attempt wrote — 0026's "a unit at a limit
     // returns what it has with its coverage" — so the graph keeps what the unit established and the block's reason
     // is the only thing left to resolve. It is a draft row of its own generation, replaced by the next attempt's.
-    await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes: request.writes, at });
     // A blocked step is taken through `takeAttemptStep`: a step the machine refuses settles this worker's claim
     // (madarch's 19.7), so a parent the sweep moved under this attempt leaves no unsettled job behind it.
     const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at, generation: unit.generation, fence: request.fence, reason } });
@@ -2149,7 +1831,7 @@ async function splitAttempt(
   if (work > orchestrator.limits.maxSplitWork) {
     return await refuse(`the split's children estimate ${work} tokens of work together, past the ${orchestrator.limits.maxSplitWork} one split may seal`);
   }
-  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['fill_unit_split', 'fill_unit_plan', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
+  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['node','edge','assertion'], async (executor) => {
     const children: { unitId: string; generation: number }[] = [];
     for (const [index, child] of request.children.entries()) {
       const childUnitId = unitIdFor(unit.stageId, child.id);
@@ -2171,7 +1853,6 @@ async function splitAttempt(
     // parent's own step to `waiting_children` and the draft set its attempt wrote before it split. The set is
     // recorded here rather than at a draft step the parent never takes, so a unit that stopped at a limit keeps
     // what it has in the graph — visible as its draft — instead of handing over an empty set.
-    await recordUnitDraftIn(executor, { unitId: unit.unitId, generation: unit.generation, writes: request.writes, at });
     await sealSplitIn(executor, { parentUnitId: unit.unitId, parentGeneration: unit.generation, children, at });
     const outcomes: UnitChildOutcome[] = children.map((child) => ({ unitId: child.unitId, generation: child.generation, published: false, fresh: false, failed: false }));
     const step = await advanceUnitIn(executor, {
@@ -2182,14 +1863,6 @@ async function splitAttempt(
   });
   if (!sealed.step.ok) {
     return await refusedStep(orchestrator, { unit, step: 'wait-for-children', job: request.job, refusal: sealed.step.refusal });
-  }
-  // The parent's own attempt is over: its lease is released (the machine's `suspend-parent` effect) and its
-  // job is settled, so no worker holds it while its children run.
-  // The machine's `suspend-parent` effect: the storage half revokes the lease this attempt holds. A
-  // generation's token in force always has a lease row, so no row here is a state the store cannot hold.
-  const released = await revokeUnitLease(database, { unitId: unit.unitId, generation: unit.generation, fence: request.fence, at });
-  if (released === null) {
-    raise(`the machine suspended unit "${unit.unitId}" generation ${unit.generation} under fence ${request.fence}, and the store holds no lease row under it: the token in force is issued with its lease, so one of the two is wrong`);
   }
   await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: `suspended for ${sealed.children.length} children` });
   for (const child of sealed.children) {
@@ -2263,27 +1936,6 @@ export interface RefusedRunStart {
 export const RUN_ORPHAN_AFTER_MS = 5 * 60_000;
 
 /** The token a run's owner renews its lease under: its process token, or one scoped to the run. */
-function ownerTokenOf(run: RunRecord): string {
-  return run.context.owner?.token ?? `run:${run.runId}`;
-}
-
-function ownerPidOf(run: RunRecord): number {
-  return run.context.owner?.pid ?? process.pid;
-}
-
-/** Starts the production lease heartbeat for one run, using the orchestrator's own clock. */
-function beginHeartbeat(orchestrator: FillOrchestrator, run: RunRecord): void {
-  stopHeartbeat(orchestrator);
-  const ownerToken = ownerTokenOf(run);
-  orchestrator.heartbeat.runId = run.runId;
-  orchestrator.heartbeat.ownerToken = ownerToken;
-  const timer = setInterval(() => {
-    void renewRunLease(orchestrator.database, { runId: run.runId, ownerToken, at: orchestrator.clock() }).catch(() => undefined);
-  }, RUN_HEARTBEAT_MS);
-  timer.unref?.();
-  orchestrator.heartbeat.timer = timer;
-}
-
 /** Stops the heartbeat when no run of this orchestrator is live. */
 export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
   const heartbeat = orchestrator.heartbeat;
@@ -2308,13 +1960,7 @@ export async function recoverOrphanedRun(
   const run = await readRun(orchestrator.database, options.runId);
   if (run === null || isFinalRunState(run.state)) return run;
   if (!['created', 'planning', 'running', 'pausing', 'cancelling'].includes(run.state)) return run;
-  const lease = await readRunLease(orchestrator.database, run.runId);
-  if (lease !== null && lease.expiresAt > options.at) return null;
-  if (lease === null && options.at - run.updatedAt < (options.afterMs ?? RUN_ORPHAN_AFTER_MS)) return null;
-  const claimed = await claimRunLease(orchestrator.database, {
-    runId: run.runId, ownerToken: `recovery:${String(process.pid)}`, ownerPid: process.pid, at: options.at,
-  });
-  if (claimed === null) return null;
+  if(options.at-run.updatedAt<(options.afterMs??RUN_ORPHAN_AFTER_MS))return null;
   await skipOutstandingUnits(orchestrator, run, 'the process that ran it ended');
   const failed = await advanceRun(orchestrator.database, { runId: run.runId, event: { type: 'fail', at: options.at, cause: 'process-ended', detail: 'the process that ran it ended' } });
   if (!failed.ok) return run;
@@ -2340,9 +1986,6 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
   const chain = await openChain(database, { product: orchestrator.product, at });
   const existing = await readRun(database, options.runId);
   const run = existing ?? await createRun(database, { runId: options.runId, product: orchestrator.product, at });
-  const lease = await claimRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), ownerPid: ownerPidOf(run), at });
-  if (lease === null) return { ok: false, code: 'fill-orchestrator/run-held', reason: `fill-orchestrator: run "${run.runId}" is held by another live process; its lease has not expired` };
-  beginHeartbeat(orchestrator, run);
   if (chain.state === 'active' && chain.context.activeRunId !== run.runId) {
     // A chain whose run ended is free: a run that is terminal cannot finish or be cancelled any further,
     // so the next run wakes it rather than being refused by a chain nothing can release.
@@ -2355,7 +1998,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
         reason: `fill-orchestrator: the product "${orchestrator.product}" already runs ${String(chain.context.activeRunId)}, which stands ${heldState}; finish or cancel it before starting ${run.runId}`,
       };
     }
-    const freed = await advanceChain(database, { product: orchestrator.product, event: { type: 'settle', at, evidence: { runnable: 0, inFlight: 0, waiting: 0, pendingPublications: 0 } } });
+    const freed = await advanceChain(database, { product: orchestrator.product, event: { type: 'settle', at, evidence: { runnable: 0, inFlight: 0, waiting: 0 } } });
     const settled = freed.ok ? freed.record : chain;
     if (settled.state === 'quiescent') {
       const woken = await advanceChain(database, { product: orchestrator.product, event: { type: 'wake', at, runId: run.runId } });
@@ -2393,16 +2036,15 @@ export async function runEvidence(orchestrator: RunControlContext, runId: string
   // a retry whose moment the clock will bring (`retry_wait`, the moment passed or not) — a run that still
   // has a retry coming has not finished, and one whose retry is not due yet only waits.
   const runnable = units.filter((unit) => unit.state === 'ready' || unit.state === 'planned' || unit.state === 'retry_wait').length;
-  const inFlight = countIn(units, ['leased', 'running', 'draft', 'validating']);
+  const inFlight = countIn(units, ['running']);
   const waiting = countIn(units, ['waiting_children']);
-  const pendingPublications = countIn(units, ['validating']);
   // Required coverage is what the run planned being covered: no generation of it ended blocked, failed,
   // cancelled or stale. A run that planned nothing because every unit it would plan already stands
   // published has lost nothing, and a stage whose plan found nothing is reported as such separately —
   // the registry's own distinction between "no producer" and "producer found nothing".
   const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale', 'skipped'].includes(unit.state));
   const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
-  return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)), pendingPublications };
+  return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)) };
 }
 
 /** What one settlement of a run did. */
@@ -2456,7 +2098,7 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
     return { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) };
   }
   const evidence = await runEvidence(orchestrator, run.runId);
-  const nothingOutstanding = evidence.runnable === 0 && evidence.inFlight === 0 && evidence.waiting === 0 && evidence.pendingPublications === 0;
+  const nothingOutstanding = evidence.runnable === 0 && evidence.inFlight === 0 && evidence.waiting === 0;
   if (run.state === 'running') {
     if (!nothingOutstanding) return { run, outcome: 'waiting', evidence };
     await skipOutstandingUnits(orchestrator, run, evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
@@ -2480,6 +2122,7 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
     if (evidence.inFlight + evidence.waiting > 0) return { run, outcome: 'waiting', evidence };
     const step = await advanceRun(database, { runId: run.runId, event: { type: 'drain', at, evidence } });
     if (!step.ok) return { run, outcome: 'waiting', evidence, refusal: { code: step.refusal.code, reason: step.refusal.reason } };
+    await orchestrator.operations?.setRunState?.(run.runId,'paused');
     await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-paused', summary: 'the run paused after its active work drained' });
     return { run: step.record, outcome: 'paused', evidence };
   }
@@ -2500,13 +2143,13 @@ async function settleChain(orchestrator: RunControlContext, _runId: string, evid
   const chain = await readChain(database, orchestrator.product);
   if (chain === null || chain.state !== 'active') return;
   const chainEvidence: ChainEvidence = {
-    runnable: evidence.runnable, inFlight: evidence.inFlight, waiting: evidence.waiting, pendingPublications: evidence.pendingPublications,
+    runnable: evidence.runnable, inFlight: evidence.inFlight, waiting: evidence.waiting,
   };
   await advanceChain(database, { product: orchestrator.product, event: { type: 'settle', at: orchestrator.clock(), evidence: chainEvidence } });
 }
 
 /** Durable cancellation and settlement need no registry, source, queue or executor. */
-export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'> & { readonly heartbeat?: FillOrchestrator['heartbeat'] };
+export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'> & {readonly operations:Pick<UnitOperations,'setRunState'>} & { readonly heartbeat?: FillOrchestrator['heartbeat'] };
 
 /** What one cancellation did. */
 export interface CancelOutcome {
@@ -2532,6 +2175,7 @@ export async function cancelRun(orchestrator: RunControlContext, options: { read
   if (run === null) raise(`no run ${options.runId} is recorded`);
   const intent = await advanceRun(database, { runId: run.runId, event: { type: 'cancel', at, cause: options.cause } });
   if (!intent.ok) raise(`run "${run.runId}" cannot be cancelled from ${run.state}: ${intent.refusal.reason}`);
+  await orchestrator.operations?.setRunState?.(run.runId,'cancelled');
   await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-cancelling', summary: `the run is cancelling: ${options.cause}` });
 
   const cancelledUnits: string[] = [];
@@ -2544,7 +2188,6 @@ export async function cancelRun(orchestrator: RunControlContext, options: { read
       refused.push({ unitId: unit.unitId, code: step.refusal.code, reason: step.refusal.reason });
       continue;
     }
-    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at: orchestrator.clock() });
     await emit(orchestrator, { runId: run.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-cancelled', summary: `${unit.unitId} is cancelled: ${options.cause}` });
     cancelledUnits.push(unit.unitId);
   }
@@ -2561,6 +2204,7 @@ export async function pauseRun(orchestrator: FillOrchestrator, options: { readon
   if (run.state === 'running') {
     const intent = await advanceRun(database, { runId: run.runId, event: { type: 'pause', at } });
     if (!intent.ok) raise(`run "${run.runId}" cannot pause from ${run.state}: ${intent.refusal.reason}`);
+    await orchestrator.operations?.setRunState?.(run.runId,'paused');
     await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-paused', summary: 'the run admits no new work and waits for what runs to drain' });
   }
   return await settleRun(orchestrator, { runId: run.runId });
@@ -2574,6 +2218,7 @@ export async function resumeRun(orchestrator: FillOrchestrator, options: { reado
   if (run === null) raise(`no run ${options.runId} is recorded`);
   const resumed = await advanceRun(database, { runId: run.runId, event: { type: 'resume', at } });
   if (!resumed.ok) raise(`run "${run.runId}" cannot resume from ${run.state}: ${resumed.refusal.reason}`);
+  await orchestrator.operations?.setRunState?.(run.runId,'running');
   await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-resumed', summary: 'the run resumes and replans' });
   return resumed.record;
 }
@@ -2648,7 +2293,6 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
       refused.push({ unitId: unit.unitId, code: invalidated.refusal.code, reason: invalidated.refusal.reason });
       return;
     }
-    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
     const replaced = await replaceStaleGeneration(database, { unitId: unit.unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
     if (!replaced.ok) raise(`generation ${unit.generation} of "${unit.unitId}" went stale yet its replacement ${unit.generation + 1} was refused: ${replaced.refusal.reason}`);
     await recordUnitPlan(database, {
@@ -2837,9 +2481,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   const elapsed = (): number => performance.now() - startedAt;
   let run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
-  if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at: orchestrator.clock() }))) {
-    return { run, admitted: 0, swept: 0, stale: 0, settlement: { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) }, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
-  }
+
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     stopHeartbeat(orchestrator);
     const settlement = await settleRun(orchestrator, { runId: run.runId });
@@ -2858,10 +2500,9 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
-  // that costs what the run holds. The index on `fill_unit_generation(run_id)` makes it a small read.
+  // that costs what the run holds. The ordinary graph supplies the run-unit membership.
   const passRunId = run.runId;
-  const counted = await database.run(async (executor) => await executor.query<{ count: string }>('SELECT count(*)::text AS count FROM fill_unit_generation WHERE run_id = $1', [passRunId]));
-  const unitsInRun = Number(counted.rows[0]?.count ?? 0);
+  const unitsInRun=(await readRunUnits(database,passRunId)).length;
   tick('read');
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });

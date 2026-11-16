@@ -31,22 +31,18 @@ fields:
     en: Address
     ru: Адрес
   binding:
-    agent: The topic, queue or address name the channel is known by, on the broker or in the contract.
+    agent: The topic, queue or address name the channel is known by, on the broker
+      or in the contract.
 - name: protocol
   type: text
   binding:
     agent: The protocol the channel speaks, such as Kafka, AMQP or NATS.
-- name: broker
-  type: json
-  nullable: true
-  reference: code.broker
-  binding:
-    agent: The broker the channel stands on, by the key of that broker in the graph.
 - name: description
   type: text
   nullable: true
   binding:
-    agent: What the channel carries and who reads it, in one or two sentences, from the messages it holds and the services linked to it in the graph.
+    agent: What the channel carries and who reads it, in one or two sentences, from
+      the messages it holds and the services linked to it in the graph.
 key:
 - protocol
 - address

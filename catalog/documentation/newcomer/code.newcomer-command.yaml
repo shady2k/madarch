@@ -21,11 +21,6 @@ details:
 - purpose
 - order
 fields:
-- name: repository
-  type: text
-  reference: code.repository
-  binding:
-    agent: The repository whose README the command belongs to, by the key of that repository in the graph.
 - name: command
   type: text
   binding:
@@ -34,14 +29,15 @@ fields:
   type: text
   nullable: true
   binding:
-    agent: What the command does, in one sentence, from the documents that mention it in the graph.
+    agent: What the command does, in one sentence, from the documents that mention
+      it in the graph.
 - name: order
   type: integer
   nullable: true
   binding:
-    agent: Where the command stands in the setup, lowest first, from the order the documents give.
+    agent: Where the command stands in the setup, lowest first, from the order the
+      documents give.
 key:
-- repository
 - command
 derives-from:
 - document
@@ -56,3 +52,8 @@ labels:
 description:
   en: 'A newcomer command is one line a README asks a person to run when they first open the repository: install the dependencies, start the tests, build the project. It is the first thing a new developer types, so it must work on a fresh machine.'
   ru: 'Команда запуска — строка, которую README просит выполнить при первом знакомстве с репозиторием: установить зависимости, запустить тесты, собрать проект. Её новый разработчик набирает первой, поэтому она должна работать на чистой машине.'
+
+key-edges:
+- role: code.newcomer-command-repository
+  edge: code.newcomer-command-repository
+  side: from

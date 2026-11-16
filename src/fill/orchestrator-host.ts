@@ -22,7 +22,6 @@ import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { FactApplication } from './orchestrator.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   cancelRun,
@@ -43,9 +42,9 @@ import {
   type UnitGraphReader,
   type UnitRef,
 } from './orchestrator.js';
-import { createOrchestratorSchema, readProgress, type RunSnapshot } from './orchestrator-store.js';
+import { createOrchestratorSchema, readProgress, type RunSnapshot } from '../graph/fill-orchestration.js';
 import type { QueueService } from './queue.js';
-import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
+import { readChain, readLatestRun, readRun, readRunUnits, type FillStateSnapshotDatabase } from '../graph/fill-state.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 
@@ -57,6 +56,8 @@ export interface FillProduct {
 
 /** How one product's fill reads and writes. Every field is the caller's; nothing here guesses. */
 export interface ProductFillWiring {
+  readonly graphContract: import('../graph/contract.js').GraphContract;
+  readonly operations:import('./orchestrator.js').UnitOperations;
   snapshot(): Promise<RunSnapshot> | RunSnapshot;
   configuration(): Promise<FillStageConfigurationRead | undefined> | FillStageConfigurationRead | undefined;
   graph(ref: UnitRef, transaction?: SqlExecutor): Promise<UnitGraphReader> | UnitGraphReader;
@@ -68,7 +69,6 @@ export interface ProductFillWiring {
    * claims are applied inside the publication's own transaction, so a unit publishes with its claims or not at all.
    * A wiring that leaves it out publishes no graph row.
    */
-  facts?: FactApplication;
 }
 
 interface ProductFill {
@@ -162,7 +162,6 @@ const RETRY_WAIT_BUDGET_MS = 60_000;
 const RETRY_POLL_MS = 50;
 
 /** Applies an empty draft set: this step's stages publish through the record store, not a fact store. */
-const NO_FACTS: FactApplication = { apply: async () => 0 };
 
 async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
   let driven = await driveRun(orchestrator, request);
@@ -188,7 +187,7 @@ export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
   return await createDatabaseOwner({ store, connectOnly: true });
 }
 
-export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
+export async function fillProgressOf(database: FillStateSnapshotDatabase, product: string): Promise<FillProgressAnswer | null> {
   const latest = await readLatestRun(database, product);
   if (latest === null) return null;
   const units = await readRunUnits(database, latest.runId);
@@ -216,11 +215,11 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         await mkdir(dirname(databasePath), { recursive: true });
       }
       const database = lent ?? await createDatabaseOwner({ store: databasePath!, connectOnly: true });
-      await createFillStateSchema(database);
+
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        await opened.declare({ name: queueName, leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)), retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+        await opened.declare({ name: queueName, leaseSeconds: limits.attemptSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };
@@ -246,7 +245,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
     const built = createOrchestrator({
-      database: owner,
+      database: { transaction: owner.transaction.bind(owner), graphContract: wiring.graphContract },
       registry,
       queue,
       queueName,
@@ -255,7 +254,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
-      facts: wiring.facts ?? NO_FACTS,
+      operations:wiring.operations,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),

@@ -298,7 +298,7 @@ export interface ReadGap {
 
 /** What the tree pass read, and what it could not read. The publisher takes the tree; the gaps stay the run's. */
 export interface RepositoryTreeRead {
- readonly repository: { name: string; url: string; defaultBranch?: string }; readonly commit: string; readonly files: readonly TreeFile[]; readonly gitlinks: readonly TreeGitlink[];
+ readonly repository: { name: string; url: string | null; defaultBranch?: string }; readonly commit: string; readonly files: readonly TreeFile[]; readonly gitlinks: readonly TreeGitlink[];
   readonly gaps: readonly ReadGap[];
 }
 
@@ -396,7 +396,7 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a
   // repository a person connected declares a local path, and the pages link to the host the remote names. A remote
   // carrying a user and a password keeps neither: the graph is read by everyone, the credential is not stored.
-  return { repository: { name: pin.repository, url: pin.url ?? '', ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };
+  return { repository: { name: pin.repository, url: pin.url ?? null, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };
 }
 
 function entryWithoutNewline(record: Buffer): Buffer {

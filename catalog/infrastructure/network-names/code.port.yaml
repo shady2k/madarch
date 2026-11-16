@@ -16,15 +16,9 @@ template-policy: page
 source: graph
 details:
 - port
-- service
 fields:
-- name: service
-  type: text
-  reference: code.service
-  producers:
-  - operations
 - name: port
-  type: integer
+  type: port
   producers:
   - operations
 - name: protocol
@@ -33,7 +27,6 @@ fields:
   producers:
   - operations
 key:
-- service
 - port
 derives-from:
 - code.service
@@ -47,3 +40,8 @@ labels:
 description:
   en: A port is one numbered entrance on a machine's network address, such as 443 for secure HTTP, where a program waits for connections. A service publishes the port it listens on, and a firewall or a proxy decides who may reach it.
   ru: Порт — пронумерованный вход по сетевому адресу машины, например 443 для защищённого HTTP, где программа ждёт соединений. Сервис объявляет порт, который слушает, а брандмауэр или прокси решает, кому до него можно.
+
+key-edges:
+- role: code.port-service
+  edge: code.port-service
+  side: from

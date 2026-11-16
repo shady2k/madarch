@@ -15,9 +15,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: table
-  type: text
-  binding: db-schema@1.table
 - name: name
   type: text
   binding: db-schema@1.name
@@ -28,14 +25,9 @@ fields:
   type: text
   nullable: true
   binding: db-schema@1.where
-- name: columns
-  type: json
-  binding: db-schema@1.columns
 key:
-- table
 - name
 details:
-- columns
 - unique
 - where
 labels:
@@ -50,3 +42,8 @@ description:
   ru: Индекс — отдельная структура, которую база данных держит, чтобы находить строки, не читая всю таблицу; он построен по одному или нескольким столбцам. Он ускоряет чтение и замедляет запись, и его состав должен соответствовать тому, как таблицу запрашивают.
 derives-from:
 - code.table
+
+key-edges:
+- role: code.index-table
+  edge: code.index-table
+  side: from

@@ -17,11 +17,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: test
-  type: json
-  reference: code.test-case
-  binding:
-    agent: The test case the result belongs to, by the key of that case in the graph.
 - name: outcome
   type: text
   nullable: true
@@ -33,12 +28,11 @@ fields:
   binding:
     agent: When the test ran.
 - name: duration
-  type: integer
+  type: duration-ms
   nullable: true
   binding:
     agent: How long the test took, in milliseconds.
 key:
-- test
 - at
 labels:
   en:
@@ -50,3 +44,8 @@ labels:
 description:
   en: A test result states whether one test case passed, failed or was skipped, how long it took and, on failure, what went wrong and where. Results put side by side across runs show what changed.
   ru: Результат теста говорит, прошёл ли один тест, упал или был пропущен, сколько он занял и при сбое — что и где пошло не так. Сравнив результаты разных запусков, видно, что изменилось.
+
+key-edges:
+- role: test-result-test
+  edge: test-result-test
+  side: from

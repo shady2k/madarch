@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /** A catalogue diagram reads real manifest vertices and relations before it folds and lays out. */
 import { expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -46,12 +47,13 @@ test('a catalogue with 80 related kinds reads translated labels and renders with
     owner = await createTestDatabaseOwner({ graphContract: contract });
     await publishValidatedManifests(owner, validation.value);
     const from = { kind: 'manifest.kind', key: { name: names[0]! } };
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, contract, {
         vertices: [],
         edges: names.slice(1).map((name) => ({ kind: 'mentions', from, to: { kind: 'manifest.kind', key: { name } }, discriminator: name, producer: 'fixture', producerVersion: '1' })),
         removals: [],
-      }, 1, { author: 'fixture@1' });
+      }, 1, { binding, author: 'fixture@1' });
     });
     const ids = await owner.run((tx) => tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'manifest.kind' AND n.key->>'name' = $1", [names[0]]));
     const id = ids.rows[0]!.uid;

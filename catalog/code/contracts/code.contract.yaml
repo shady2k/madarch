@@ -23,13 +23,8 @@ details:
 - version
 - path
 fields:
-- name: repository
-  type: json
-  reference: code.repository
-  binding:
-    agent: The repository the contract file stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -41,12 +36,12 @@ fields:
   binding:
     agent: 'Which notation the contract is written in: OpenAPI, gRPC or AsyncAPI.'
 - name: spec_version
-  type: text
+  type: version
   nullable: true
   binding:
     agent: The version of the notation the contract declares.
 - name: version
-  type: text
+  type: version
   nullable: true
   binding:
     agent: The version of the interface the contract declares.
@@ -56,7 +51,6 @@ fields:
   binding:
     agent: The title the contract gives itself.
 key:
-- repository
 - path
 derives-from:
 - code.file
@@ -72,3 +66,8 @@ labels:
 description:
   en: 'A contract is a machine-readable description of an interface: what operations it offers, what they take and return, and which errors they produce. OpenAPI covers HTTP, gRPC covers remote procedure calls and AsyncAPI covers messages; each lets both sides build and check against the same agreement.'
   ru: 'Контракт — машиночитаемое описание интерфейса: какие операции он предлагает, что они принимают и возвращают и какие дают ошибки. OpenAPI описывает HTTP, gRPC — удалённые вызовы, AsyncAPI — сообщения; по каждому обе стороны могут строить и проверять одну договорённость.'
+
+key-edges:
+- role: code.contract-repository
+  edge: code.contract-repository
+  side: from

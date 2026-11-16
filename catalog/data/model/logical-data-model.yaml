@@ -24,17 +24,12 @@ fields:
     ru: Имя
   binding:
     agent: The name the model is known by, such as the catalogue's data; it is the model's key.
-- name: domain
-  type: json
-  nullable: true
-  reference: domain
-  binding:
-    agent: The domain whose data the model draws, by the key of that domain in the graph.
 - name: description
   type: text
   nullable: true
   binding:
-    agent: What the model holds, in one or two sentences, from the entities it groups in the graph.
+    agent: What the model holds, in one or two sentences, from the entities it groups
+      in the graph.
 key:
 - name
 derives-from:

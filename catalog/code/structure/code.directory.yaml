@@ -21,16 +21,11 @@ exclude:
   - "**/node_modules/**"
   - "**/.git/**"
 fields:
-- name: repository
-  type: text
-  producers:
-  - disk
 - name: path
-  type: text
+  type: path
   producers:
   - disk
 key:
-- repository
 - path
 details:
 - path
@@ -46,3 +41,8 @@ description:
   ru: Папка объединяет файлы и другие папки под одним именем в репозитории, обычно по устройству кода. Её путь указывает место, а содержимое говорит, к какой части продукта она относится.
 derives-from:
 - code.repository
+
+key-edges:
+- role: code.directory-repository
+  edge: code.directory-repository
+  side: from

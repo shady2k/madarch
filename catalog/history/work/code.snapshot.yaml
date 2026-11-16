@@ -15,22 +15,9 @@ relation-constraints:
 template-policy: page
 source: graph
 origin: history
-details:
-- commit
-fields:
-- name: repository
-  type: text
-  reference: code.repository
-  producers:
-  - operations
-- name: commit
-  type: text
-  reference: code.commit
-  producers:
-  - operations
-key:
-- repository
-- commit
+details: []
+fields: []
+key: []
 derives-from:
 - code.repository
 - code.commit
@@ -44,3 +31,11 @@ labels:
 description:
   en: 'A repository landmark fixes a point in a repository''s history: one commit and the tree of files it holds. Comparing two landmarks shows what changed between them.'
   ru: 'Ориентир репозитория закрепляет точку в его истории: один коммит и дерево файлов, которые в нём лежат. Сравнив два ориентира, видно, что изменилось между ними.'
+
+key-edges:
+- role: code.snapshot-repository
+  edge: code.snapshot-repository
+  side: from
+- role: code.snapshot-commit
+  edge: code.snapshot-commit
+  side: from

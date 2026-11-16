@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestDatabaseOwner } from './test-database.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
-import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
-import { writeContractOf, putEntityOpinion } from '../src/graph/graph-writes.js';
+import { validateProductManifests, publishValidatedManifests, startupBinding } from '../src/graph/manifest-publication.js';
+import { writeContractOf, putEntityAssertion } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { productEntityOf } from '../src/product/manifest.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindWriteCapability, publishGraphDrafts } from '../src/graph/write.js';
+import { readKindAssertions } from '../src/graph/records.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-start-identity-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -36,15 +37,16 @@ test.each([false, true])('startup keeps stable identity and current home while p
   const manifest = read.value.manifest;
   const options = { store: join(folder, 'store'), graphContract: writeContractOf(manifest) };
   let owner = await createTestDatabaseOwner(options);
-  const evidence = [{ repository: folder, path: 'repos/library/README.md', lineStart: 1, commit: 'a'.repeat(40) }];
+  let evidence: { target: { kind: string; key: Record<string, string>; uid: string } }[] = [];
   try {
     writeFileSync(join(folder, 'repos/library/README.md'), '# Old heading\n');
     // Stores written before stable identity can hold several heading or revision identities.
-    await owner.transaction('write', (tx) => publishGraphDrafts(tx, writeContractOf(manifest), {
+    await owner.transaction('write', async tx => { const authenticated = await startupBinding(tx, writeContractOf(manifest), 'start'); bindWriteCapability(tx, authenticated.binding); return publishGraphDrafts(tx, writeContractOf(manifest), {
       vertices: ['old-heading', 'old-heading-at-revision'].map((slug) => ({ kind: 'product', key: { slug }, values: { title: 'Old heading' }, producer: 'start', producerVersion: '0', evidence })), removals: [],
-    }));
+    }); });
     await publishValidatedManifests(owner, read.value);
-    if (personOpinion) await putEntityOpinion(owner, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'old-heading' }, values: { title: 'Person title' }, evidence });
+    evidence = await owner.run(async tx => (await readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content'])).slice(0, 1).map(row => ({ target: { kind: 'system.content-snapshot', key: row.key as Record<string,string>, uid: row.uid } })));
+    if (personOpinion) await owner.transaction('write', async tx => { const authenticated = await startupBinding(tx, writeContractOf(manifest), 'person'); bindWriteCapability(tx, authenticated.binding); return putEntityAssertion(tx, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'old-heading' }, values: { title: 'Person title' }, evidence }); });
     writeFileSync(join(folder, 'repos/library/README.md'), '# New heading\n');
     await owner.close();
     owner = await createTestDatabaseOwner(options);
@@ -89,10 +91,11 @@ test('renaming the product keeps one node, updates its label, and keeps a person
   const manifest = read.value.manifest;
   const options = { store: join(folder, 'store'), graphContract: writeContractOf(manifest) };
   let owner = await createTestDatabaseOwner(options);
-  const evidence = [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, commit: 'a'.repeat(40) }];
+
   try {
     await publishValidatedManifests(owner, read.value);
-    await putEntityOpinion(owner, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'stable-product-id' }, values: { body: 'Person description' }, evidence });
+    const evidence = await owner.run(async tx => (await readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content'])).slice(0, 1).map(row => ({ target: { kind: 'system.content-snapshot', key: row.key as Record<string,string>, uid: row.uid } })));
+    await owner.transaction('write', async tx => { const authenticated = await startupBinding(tx, writeContractOf(manifest), 'person'); bindWriteCapability(tx, authenticated.binding); return putEntityAssertion(tx, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'stable-product-id' }, values: { body: 'Person description' }, evidence }); });
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-product-id\nname: second-name\n');
     await owner.close();
     owner = await createTestDatabaseOwner(options);

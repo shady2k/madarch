@@ -20,28 +20,18 @@ fields:
 - name: name
   type: text
   binding: db-schema@1.name
-- name: repository
-  type: text
-  binding: db-schema@1.repository
-- name: service
-  type: json
-  nullable: true
-  reference: code.service
-  binding:
-    agent: 'The service that owns the database, by the key of that service in the graph.'
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
-    agent: 'The path of the file that declares the database, as the file entity holds it.'
+    agent: The path of the file that declares the database, as the file entity holds
+      it.
 key:
-- repository
 - name
 card: true
 er: tables
 system: data-store
 details:
-- service
 - path
 - evidenceKind
 labels:
@@ -57,3 +47,8 @@ description:
 derives-from:
 - code.repository
 - code.file
+
+key-edges:
+- role: code.database-repository
+  edge: code.database-repository
+  side: from

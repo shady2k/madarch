@@ -9,6 +9,9 @@
  * after each commit, and a comment now and then so a quiet product keeps its
  * connection.
  */
+import { decodeSourceResponse, type SourceLanguage } from '../page-contract/source-response.js';
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 import { here } from '../model/raise.js';
 import { AuthoredRefusal } from '../graph/authored.js';
 import type { ResetPlan } from '../knowledge/reset.js';
@@ -23,6 +26,18 @@ import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import { diagramFailurePage } from '../render/diagram-failure.js';
+
+/** The answer command's HTTP boundary, independent of product kind names. */
+export const ANSWER_REQUEST_SCHEMA = Type.Object({
+  question: Type.String({ description: 'the id of the question being answered' }),
+  text: Type.String({ description: 'the answer' }),
+}, { additionalProperties: false });
+
+export const PROPOSE_TASK_REQUEST_SCHEMA = Type.Object({
+  question: Type.String({ description: 'the id of the answered question the task comes from' }),
+  choice: Type.Union([Type.Literal('code'), Type.Literal('docs')]),
+  language: Type.Optional(Type.Union([Type.Literal('ru'), Type.Literal('en')])),
+}, { additionalProperties: false });
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -80,13 +95,13 @@ export interface KnowledgePart {
 }
 
 /** The languages the source view names a file by, from its extension; a file it does not know is plain text. */
-const SOURCE_LANGUAGES: Record<string, string> = {
+const SOURCE_LANGUAGES: Readonly<Record<string, SourceLanguage>> = {
   ts: 'typescript', tsx: 'typescript', js: 'javascript', mjs: 'javascript', go: 'go', sql: 'sql', json: 'json', yaml: 'yaml', yml: 'yaml',
   md: 'markdown', proto: 'protobuf', prisma: 'prisma', sh: 'shell', toml: 'toml', mod: 'go',
 };
 
 /** The language of a source file, for the highlighting its view uses. */
-function languageOf(path: string): string {
+function languageOf(path: string): SourceLanguage {
   const name = path.slice(path.lastIndexOf('/') + 1);
   if (name === 'Dockerfile' || name.startsWith('Dockerfile.')) return 'dockerfile';
   if (name === 'Makefile') return 'makefile';
@@ -320,7 +335,7 @@ function fillRefusalCode(message: string): string | undefined {
       // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.
       if ('absent' in read) return refused(404, { field: 'path', message: read.absent });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
-      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
+      return { response: json(200, decodeSourceResponse({ repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }, `${import.meta.path}:338`)) };
     }),
     run: guarded('read the run', async (request) => {
       const query = new URL(request.url).searchParams;
@@ -481,10 +496,11 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { question?: unknown; text?: unknown } | null;
-      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the question being answered' });
-      if (typeof asked.text !== 'string') return refused(400, { field: 'text', message: '"text" is required: the answer' });
-      const done = await product.answer(asked.question, asked.text);
+      if (!Value.Check(ANSWER_REQUEST_SCHEMA, body)) {
+        const error = [...Value.Errors(ANSWER_REQUEST_SCHEMA, body)][0]!;
+        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:501: ${error.message}` });
+      }
+      const done = await product.answer(body.question, body.text);
       return { response: json(200, { question: done.question.slug, state: 'answered', committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.question.answer!.by, at: done.question.answer!.at }) };
     }),
     correction: guarded('save the correction', async (request) => {
@@ -693,15 +709,11 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { question?: unknown; choice?: unknown; language?: unknown } | null;
-      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the answered question the task comes from' });
-      if (asked.choice !== 'code' && asked.choice !== 'docs') return refused(400, { field: 'choice', message: '"choice" is code (the code is right, the documents are old) or docs (the documents are right, the code must change)' });
-      try {
-        const language = asked.language === 'ru' || asked.language === 'en' ? asked.language : undefined;
-        return { response: json(200, await product.proposeTask(asked.question, asked.choice, language)) };
-      } catch (error) {
-        throw error;
+      if (!Value.Check(PROPOSE_TASK_REQUEST_SCHEMA, body)) {
+        const error = [...Value.Errors(PROPOSE_TASK_REQUEST_SCHEMA, body)][0]!;
+        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:716: ${error.message}` });
       }
+      return { response: json(200, await product.proposeTask(body.question, body.choice, body.language)) };
     }),
     closeTask: guarded('close a task by hand', async (request) => {
       const crossSite = foreign(request);

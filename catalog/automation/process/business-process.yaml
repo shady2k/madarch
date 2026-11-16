@@ -23,23 +23,19 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the organisation gives this process, such as Onboarding a customer; it is the process's key.
+    agent: The name the organisation gives this process, such as Onboarding a customer;
+      it is the process's key.
 - name: goal
   type: text
   nullable: true
   binding:
-    agent: The outcome the process reaches when it ends, in one sentence, from the steps and the events that close it in the graph.
+    agent: The outcome the process reaches when it ends, in one sentence, from the
+      steps and the events that close it in the graph.
 - name: trigger
   type: text
   nullable: true
   binding:
     agent: What starts the process, from the start event of the process in the graph.
-- name: owner
-  type: json
-  nullable: true
-  reference: role
-  binding:
-    agent: The role that answers for the process, from the roles named on its steps in the graph.
 key:
 - name
 derives-from:

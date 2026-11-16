@@ -19,16 +19,10 @@ details:
 - format
 - lockfileVersion
 - modules
-- packages
 - devOnlyPackages
 fields:
-- name: repository
-  type: text
-  reference: code.repository
-  producers:
-  - operations
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -40,17 +34,19 @@ fields:
   producers:
   - operations
 - name: lockfile_version
-  type: text
+  type: version
   nullable: true
   producers:
   - operations
 - name: packages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.lockfile-packages:v1
   nullable: true
   producers:
   - operations
 key:
-- repository
 - path
 derives-from:
 - code.file
@@ -65,3 +61,8 @@ labels:
 description:
   en: A lockfile records the exact version of every package that was installed, and often its digest, so the same install can be repeated. The manifest states what is wanted; the lockfile states what was actually used.
   ru: Файл блокировки записывает точную версию каждого установленного пакета и часто его дайджест, чтобы установку можно было повторить. Манифест говорит, что нужно; файл блокировки — что было действительно взято.
+
+key-edges:
+- role: code.lockfile-repository
+  edge: code.lockfile-repository
+  side: from

@@ -24,7 +24,8 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: The name the product gives the need, such as Offline orders; it is the epic's key.
+    agent: The name the product gives the need, such as Offline orders; it is the
+      epic's key.
 - name: need
   type: text
   nullable: true
@@ -36,15 +37,13 @@ fields:
   binding:
     agent: What is true once the epic is met.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Where the epic stands, as the work kinds keep it.
 - name: priority
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: How urgent the epic is compared with the others.
 key:

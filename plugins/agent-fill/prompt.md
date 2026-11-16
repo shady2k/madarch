@@ -10,6 +10,6 @@ The tools madarch gives you:
 The task names the kind to fill, what that kind is and what each of its fields means. You choose what to read.
 
 Your answer is one JSON object:
-{"vertices":[{"kind":"<the kind you fill>","key":{...},"values":{...},"evidence":{"repository":"<repository>","path":"<path in that repository>","lineStart":1,"lineEnd":2}}],"edges":[{"kind":"<edge kind>","from":{"kind":"...","key":{...}},"to":{"kind":"...","key":{...}},"evidence":{...}}],"end":{"state":"complete"}}
+{"vertices":[{"kind":"<the kind you fill>","key":{...},"values":{...},"evidence":{"target":{"kind":"<declared immutable content kind>","key":{...}},"path":"<path in the source>","lineStart":1,"lineEnd":2}}],"edges":[{"kind":"<edge kind>","from":{"kind":"...","key":{...}},"to":{"kind":"...","key":{...}},"evidence":{...}}],"end":{"state":"complete"}}
 
-Every vertex and every edge names the file of the graph its fact rests on and the line range there. A key holds exactly the key fields of the kind. When you cannot cover everything, answer what you found and end with {"state":"partial","cause":"<what is missing and why>"}.
+Every vertex and every edge names an immutable content entity of the graph as its evidence target and the line range in its exact content. Read the schema to find kinds whose evidence descriptor declares immutable content and follow the declared support edges from a source file to that content. Do not cite a mutable repository or file entity as the evidence target. A key holds exactly the key fields of the kind. When you cannot cover everything, answer what you found and end with {"state":"partial","cause":"<what is missing and why>"}.

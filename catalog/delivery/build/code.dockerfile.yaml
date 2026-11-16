@@ -15,11 +15,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: file
-  type: text
-  reference: code.file
-  producers:
-  - operations
 - name: base_image
   type: text
   nullable: true
@@ -27,16 +22,21 @@ fields:
   - operations
 - name: stages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.dockerfile-stages:v1
   nullable: true
   producers:
   - operations
 - name: exposed_ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   producers:
   - operations
-key:
-- file
+key: []
 derives-from:
 - code.file
 labels:
@@ -49,3 +49,8 @@ labels:
 description:
   en: 'A Dockerfile lists, step by step, how to build a container image: the base image, the files to copy, the commands to run and the command that starts the program. Building it again from the same inputs gives the same image.'
   ru: 'Dockerfile перечисляет шаг за шагом, как собрать образ контейнера: базовый образ, копируемые файлы, выполняемые команды и команду запуска программы. Повторная сборка из тех же входных данных даёт тот же образ.'
+
+key-edges:
+- role: code.dockerfile-file
+  edge: code.dockerfile-file
+  side: from

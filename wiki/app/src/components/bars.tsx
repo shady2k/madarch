@@ -21,12 +21,12 @@ export function BarsSection({ context }: { readonly context: SectionContext }): 
     ? bucketRows(edgesOf(connection), t)
     : edgesOf(connection).map((row) => {
         const raw = at(row, labelPath);
-        const label = raw === null || raw === undefined ? '—' : formatValue(raw, 'text', context.language);
+        const label = raw === null || raw === undefined ? t('common.emptyValue') : formatValue(raw, 'text', context.language);
         const value = valuePath === undefined ? 1 : Number(at(row, valuePath));
-        return { label: label === '' ? '—' : label, value: Number.isFinite(value) ? value : 1 };
+        return { label: label === '' ? t('common.emptyValue') : label, value: Number.isFinite(value) ? value : 1 };
       });
   const sorted = buckets ? rows : groupOf(rows);
-  if (sorted.length === 0) return <Paragraph data-testid="bars-empty">—</Paragraph>;
+  if (sorted.length === 0) return <Paragraph data-testid="bars-empty">{t('common.emptyValue')}</Paragraph>;
   return (
     <FactChart
       display={typeof context.section.params['display'] === 'string' ? (context.section.params['display'] as 'bar' | 'treemap' | 'timeline') : 'bar'}

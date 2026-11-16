@@ -8,6 +8,7 @@ import { lstatSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:
 import { join, resolve, sep } from 'node:path';
 import { renderCorrection, renderQuestion } from '../loop/entities.js';
 import { graphQuestions, graphCorrections, type LoopGraph } from '../loop/graph.js';
+import { semanticBinding } from './semantic-bindings.js';
 import { graphKnowledgePages } from './index/index.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { byCodePoint } from '../model/order.js';
@@ -90,8 +91,8 @@ export async function planReset(productFolder: string, storeFolder: string, grap
       plan.agentPages.push(relative); removed.add(page.id);
     } else plan.keptPages.push(relative);
   }
-  const questions = await graphQuestions(graph);
-  const corrections = await graphCorrections(graph);
+  const questions = await graphQuestions(graph, manifest);
+  const corrections = await graphCorrections(graph, manifest);
   for (const item of [...questions, ...corrections]) {
     const relative = item.file;
     const path = join(productFolder, relative);
@@ -105,8 +106,8 @@ export async function planReset(productFolder: string, storeFolder: string, grap
     if (remaining.length !== item.resolvedBy.length) {
       const updated = { ...item, resolvedBy: remaining, resolvedAt: remaining.length === 0 ? null : item.resolvedAt };
       edits.set(relative, question
-        ? renderQuestion(updated as typeof questions[number])
-        : renderCorrection({ ...updated, status: 'open' } as typeof corrections[number]));
+        ? renderQuestion(updated as typeof questions[number], { kind: semanticBinding(manifest, 'question').kind, id: item.id })
+        : renderCorrection({ ...updated, status: 'open' } as typeof corrections[number], { kind: semanticBinding(manifest, 'correction').kind, id: item.id }));
     }
   }
   for (const paths of [plan.agentPages, plan.keptPages, plan.unansweredQuestions, plan.keptAnswers]) paths.sort(byCodePoint);

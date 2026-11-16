@@ -27,6 +27,12 @@ export const COMPONENT_NAMES = [
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
 const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
+export type FieldFormat = (typeof FORMATS)[number];
+
+/** Accept only formats the component schemas declare. */
+export function isFieldFormat(value: unknown): value is FieldFormat {
+  return typeof value === 'string' && FORMATS.some(format => format === value);
+}
 const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'] as const;
 
 /**

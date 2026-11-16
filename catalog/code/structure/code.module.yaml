@@ -24,14 +24,6 @@ fields:
     ru: Имя
   binding:
     agent: 'The name the people who work on the code give this module, one or two words such as fill, graph or catalogue; it is the module''s key.'
-- name: folder
-  type: json
-  reference: code.directory
-  labels:
-    en: Folder
-    ru: Папка
-  binding:
-    agent: 'The folder the module covers, named by the key of that folder entity in the graph: its repository and its path.'
 - name: responsibility
   type: text
   nullable: true
@@ -39,7 +31,8 @@ fields:
     en: Responsibility
     ru: Ответственность
   binding:
-    agent: 'What the module is for, in one or two sentences: the responsibility it holds, read from the text of the files the folder holds in the graph.'
+    agent: 'What the module is for, in one or two sentences: the responsibility it
+      holds, read from the text of the files the folder holds in the graph.'
 key:
 - name
 labels:

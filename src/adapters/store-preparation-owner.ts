@@ -5,6 +5,7 @@ import { createDatabaseOwner, leaseStoreCluster, clusterDatabases, renameCluster
 import { prepareStore } from './prepare-store.js';
 import { graphSchemaStamp } from './schemas/graph-definition.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
+import { registerSystemSource } from '../graph/system-installation.js';
 import type { PreparationRequest } from '../product/store-preparation.js';
 const ADDRESS = 'MADARCH_STORE_OWNER_URL';
 const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
@@ -45,7 +46,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     }
     const database = body.database ?? 'madarch';
     const contract = body.contract === undefined ? undefined : withManifestContract(body.contract);
-    const stamp = body.database !== undefined ? 'history' : contract === undefined ? undefined : graphSchemaStamp(contract);
+    const stamp = body.database !== undefined ? 'history' : contract === undefined ? undefined : `${graphSchemaStamp(contract)}:${JSON.stringify(body.installedPlugins ?? [])}`;
     const previous = prepared.get(store)?.get(database);
     // Only this owner's last successful preparation stands; a different contract may change its schema.
     if (body.reset !== true && previous !== undefined && (stamp === undefined || previous === stamp)) return;
@@ -54,6 +55,11 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     const started = performance.now();
     try {
       await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+      if (contract !== undefined && body.database === undefined) {
+        for (const plugin of body.installedPlugins ?? []) {
+          await registerSystemSource(owner, contract, { type: 'plugin', installationKey: plugin.id, scope: owner.location, version: plugin.version });
+        }
+      }
     } finally {
       if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
     }

@@ -17,11 +17,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: job
-  type: text
-  reference: scheduled-job
-  binding:
-    agent: The scheduled job the run belongs to, by the key of that job in the graph.
 - name: started_at
   type: timestamp
   nullable: true
@@ -33,7 +28,7 @@ fields:
   binding:
     agent: When the run ended.
 - name: duration
-  type: integer
+  type: duration-seconds
   nullable: true
   binding:
     agent: How long the run took, in seconds.
@@ -48,7 +43,6 @@ fields:
   binding:
     agent: What the run reported, in the words of its last line of output.
 key:
-- job
 - started_at
 labels:
   en:
@@ -60,3 +54,8 @@ labels:
 description:
   en: 'A job run records one execution of a scheduled job: when it started, when it ended, whether it succeeded and what it produced. Comparing runs shows whether the schedule is kept and how the work grows.'
   ru: 'Запуск задачи фиксирует одно выполнение задачи по расписанию: когда началось и закончилось, удачно ли прошло и что создало. Сравнение запусков показывает, соблюдается ли расписание и как растёт работа.'
+
+key-edges:
+- role: job-run-job
+  edge: job-run-job
+  side: from

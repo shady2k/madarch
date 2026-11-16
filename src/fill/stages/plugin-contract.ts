@@ -14,13 +14,8 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
+import type { KindsManifest } from '../../product/manifest/kinds.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
-
-/** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
-function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
-  return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
-}
 
 /**
  * The vertex tables a manifest's own declarations make: one for every kind whose
@@ -37,18 +32,14 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     const fields: FieldContract[] = [];
     let capability = '';
     for (const field of kind.fields ?? []) {
-      const held = resolved(field);
-      if (held === undefined) continue;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
-      fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
+      fields.push({ name: field.name, type: field.type, ...('valueType' in field && field.valueType !== undefined ? { valueType: field.valueType as string } : {}), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.nullable === true ? { nullable: true } : {}) });
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
     if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
-    // A key field a declaration leaves out of its fields is stated as text: the table's first duty is its key.
-    for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
-    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
+    vertex.push({ ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
   }
-  return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
+  return { vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) };
 }
 
 /**
@@ -64,13 +55,15 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     const plugin = edge.capability === undefined ? undefined : manifest.plugins?.get(edge.capability);
     const declared = plugin?.contract?.edges.find((one) => one.kind === edge.name);
     const fields: FieldContract[] = declared !== undefined
-      ? (declared.fields ?? []).map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) }))
-      : edge.fields.map((field) => ({ name: field.name, type: field.type, ...(field.nullable === true ? { nullable: true } : {}), ...(field.reference === undefined ? {} : { reference: field.reference }) }));
+      ? (declared.fields ?? []).map((field) => ({ name: field.name, type: field.type, ...('valueType' in field && field.valueType !== undefined ? { valueType: field.valueType as string } : {}), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.required ? {} : { nullable: true }) }))
+      : edge.fields.map((field) => ({ name: field.name, type: field.type, ...('valueType' in field && field.valueType !== undefined ? { valueType: field.valueType as string } : {}), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.nullable === true ? { nullable: true } : {}) }));
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.
-      name: edge.name,
+      ...(edge.contractUid === undefined ? {} : { contractUid: edge.contractUid }), name: edge.name,
       table: generatedTableName(edge.name, 'edge'),
+      cardinality: edge.cardinality,
+      labels: edge.labels,
       from: edge.from,
       to: edge.to,
       repeats: edge.repeats,
@@ -97,7 +90,7 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
   for (const vertex of graphContractOf(manifest).vertex) {
     const columns = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
     const types = Object.fromEntries(vertex.fields.map((field) => [field.name, field.type]));
-    reads.set(vertex.name, { kind: vertex.name, table: vertex.table, columns, types, key: vertex.key,
+    reads.set(vertex.name, { kind: vertex.name, table: vertex.table, columns, types, key: vertex.key, ...(vertex.keyEdges === undefined ? {} : { keyEdges: vertex.keyEdges }),
       producers: Object.fromEntries(columns.map((field) => [field, plan.declaredProducers(vertex.name, field)])),
     });
   }

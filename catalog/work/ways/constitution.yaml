@@ -26,28 +26,26 @@ details:
 - precedence
 - status
 fields:
-- name: product
-  type: json
-  reference: product
-  binding:
-    agent: The product the constitution is written for, by the key of that product in the graph.
 - name: body
   type: text
   binding:
-    agent: The principles, practices and conventions in force, as the constitution states them.
+    agent: The principles, practices and conventions in force, as the constitution
+      states them.
 - name: precedence
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
-    agent: Which statement wins where two disagree, in the order the constitution gives.
+    agent: Which statement wins where two disagree, in the order the constitution
+      gives.
 - name: status
-  type: json
+  type: value-set-value
   nullable: true
-  reference: value-set-entry
   binding:
     agent: Whether the constitution is in force.
-key:
-- product
+key: []
 nav: own-page
 labels:
   en:
@@ -59,3 +57,8 @@ labels:
 description:
   en: A constitution is the one place where a product states the principles, practices and conventions in force, in the order that settles which wins when two disagree. The product's instructions for its agents are made from it, so a new rule is changed once and reaches every agent.
   ru: Конституция — одно место, где продукт называет действующие принципы, практики и соглашения, в порядке, который решает, что важнее при расхождении. Из неё строят инструкции продукта для агентов, поэтому новое правило меняют один раз и оно доходит до каждого агента.
+
+key-edges:
+- role: constitution-product
+  edge: constitution-product
+  side: from
