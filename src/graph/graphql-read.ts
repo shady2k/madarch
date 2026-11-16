@@ -20,7 +20,7 @@ import { productEntityOf } from '../product/manifest.js';
  */
 import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
-import { assertionValueTableName, type FieldType } from '../graph/contract.js';
+import { entityKindNames, assertionValueTableName, type FieldType } from '../graph/contract.js';
 import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './disputes.js';
 import { contextLayers } from './context.js';
@@ -286,7 +286,7 @@ export class ReadContext {
       const title = manifest.kinds.get(kind.name)?.title;
       if (title !== undefined) this.titles.set(kind.name, title);
     }
-    const everyType = ['CatalogueEntity', ...[...this.kindByType.keys()]];
+    const everyType = ['CatalogueEntity', ...entityKindNames(published.kinds).map(typeNameOf)];
     for (const edge of published.edges) {
       // An `any` end stands on the Entity interface: the field answers on every entity, the catalogue's too.
       for (const from of edge.from) {

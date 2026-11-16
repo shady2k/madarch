@@ -2,6 +2,16 @@
 import { createHash } from 'node:crypto';
 import type { JsonSchema, ValueTypes } from './value-types.js';
 
+/** Entity kinds are the declared vertex kinds, shared by reads and endpoint validation. */
+export function entityKindNames(kinds: Iterable<{ readonly name: string }>): string[] {
+  return Array.from(kinds, kind => kind.name);
+}
+
+/** A wildcard permits every declared Entity kind, not arbitrary storage nodes. */
+export function endpointKindNames(ends: readonly string[], kinds: Iterable<{ readonly name: string }>): readonly string[] {
+  return ends.includes('any') ? entityKindNames(kinds) : ends;
+}
+
 /** Typed assertion value storage, decision 0039 item 25. */
 export function assertionValueTableName(kind: string, sort: 'vertex' | 'edge', property: string): string {
   return `a_${createHash('sha256').update(`${sort}\0${kind}\0${property}`, 'utf8').digest('hex').slice(0, 32)}`;

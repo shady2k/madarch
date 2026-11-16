@@ -11,7 +11,7 @@
  * name are refused naming what stands on both sides, and nothing here names a kind.
  */
 import { byCodePoint } from '../model/order.js';
-import type { FieldType } from '../graph/contract.js';
+import { entityKindNames, type FieldType } from '../graph/contract.js';
 import { SCALAR_NAMES, SchemaRefusal, NameRegistry, fieldNameOf, typeNameOf } from './names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from './manifest.js';
 
@@ -431,7 +431,7 @@ class Builder {
       this.type(connection, connectionFields(wrapper));
       this.buildWhereAndOrder(edge.name, record, edge.fields);
       // `any` ends stand on the Entity interface, so every entity type — the catalogue's too — declares them.
-      const everyEntity = ['Entity', 'CatalogueEntity', ...this.kindTypes.values()];
+      const everyEntity = ['Entity', 'CatalogueEntity', ...entityKindNames(this.kinds.values()).map(typeNameOf)];
       const addEverywhere = (fieldName: string, declaration: string, inverse: boolean): void => {
         // No silent skip: a kind that declares a field of this name is a collision the manifest check refuses,
         // naming both declarations (decision 0036, section 1).
