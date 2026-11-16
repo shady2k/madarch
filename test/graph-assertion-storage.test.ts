@@ -151,6 +151,48 @@ test('deferred typed table validation rejects malformed direct SQL and permits c
 },60000);
 
 
+
+test('deferred endpoint validation rejects direct SQL deactivation of either live relation endpoint',async()=>{
+ const graph:GraphContract={
+  vertex:['endpoint-from','endpoint-to'].map(name=>({name,table:generatedTableName(name,'vertex'),key:['name'],fields:[{name:'name',type:'text' as const}],capability:'fixture'})),
+  edge:[{name:'endpoint-link',from:['endpoint-from'],to:['endpoint-to'],fields:[],repeats:false,capability:'fixture',cardinality:{from:'many',to:'many'},labels:{en:{out:'target',in:'source'},ru:{out:'target',in:'source'}}}],dictionary:[],
+ };
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ try{
+  const from={kind:'endpoint-from',key:{name:'from'}},to={kind:'endpoint-to',key:{name:'to'}};
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{
+   vertices:[{...from,producer:'fixture',producerVersion:'1'},{...to,producer:'fixture',producerVersion:'1'}],
+   edges:[{kind:'endpoint-link',from,to,producer:'fixture',producerVersion:'1'}],removals:[],
+  }));
+  for(const kind of ['endpoint-from','endpoint-to']){
+   await expect(owner.transaction('write',async tx=>{
+    const original=(await tx.query<{assertion_id:string;subject_id:string}>(`SELECT a.assertion_id::text,subject.id::text AS subject_id
+      FROM assertion a JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id
+      JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN node subject ON subject.id=attachment.to_node
+      JOIN entity k ON k.id=subject.entity_id WHERE k.name=$1 AND a.property='$exists' AND a.context_id=1
+      ORDER BY a.recorded_sequence DESC LIMIT 1`,[kind])).rows[0]!;
+    // Clone the authenticated assertion's subject and lineage, but supersede its existence value through SQL alone.
+    const id=(await tx.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+      SELECT entity_id,$1,key,identity_scope,context_id FROM node WHERE id=$2 RETURNING id::text`,[newUid(),original.assertion_id])).rows[0]!.id;
+    await tx.query(`INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
+      SELECT $1,property,language,context_id,valid_from,valid_to,operation FROM assertion WHERE assertion_id=$2`,[id,original.assertion_id]);
+    const bindings=(await tx.query<{id:string;entity_id:string;to_node:string;discriminator:string;context_id:number}>(
+      `SELECT id::text,entity_id,to_node,discriminator,context_id FROM edge WHERE from_node=$1`,[original.assertion_id])).rows;
+    for(const binding of bindings){
+     const edge=(await tx.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+       VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`,[newUid(),binding.entity_id,id,binding.to_node,binding.discriminator,binding.context_id])).rows[0]!.id;
+     await tx.query(`INSERT INTO assertion_vertex_subject(assertion_id,subject_edge_id)
+       SELECT $1,$2 FROM assertion_vertex_subject WHERE assertion_id=$3 AND subject_edge_id=$4`,[id,edge,original.assertion_id,binding.id]);
+    }
+    await tx.query(`INSERT INTO "${assertionValueTableName(kind,'vertex','$exists')}"(assertion_id,value) VALUES($1,false)`,[id]);
+    expect((await tx.query(`SELECT id FROM graph_vertex_active_ids($1,1) active(id) WHERE id=$2`,[kind,original.subject_id])).rows).toHaveLength(0);
+    expect((await tx.query(`SELECT id FROM graph_edge_active_ids('endpoint-link',1) active(id)`)).rows).toHaveLength(1);
+    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+   })).rejects.toThrow('TARGET_MISSING or END_KIND_INVALID for endpoint-link');
+  }
+ }finally{await owner.close();}
+},60000);
+
 test('disputed SQL existence fails closed after later writes and restores projection on savepoint rollback',async()=>{
  const graph:GraphContract={vertex:[{name:'guarded',table:'guarded',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
  const owner=await createTestDatabaseOwner({graphContract:graph});
