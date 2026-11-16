@@ -21,7 +21,7 @@ async function links(tx:SqlExecutor,uid:string,kind:string,selectors?:Selectors)
 }
 async function records(tx:SqlExecutor,kind:string,selectors:Selectors):Promise<Map<string,Record<string,unknown>>>{
  return await withSpan('graph.dispute.records',{},async()=>{
- const properties=kind==='system.dispute-question'?['segment_from','segment_to','state']:['segment_from','segment_to','rationale'];
+ const properties=['segment_from','segment_to','state'];
  const rows=await loadAssertions(tx,'vertex',kind,properties,undefined,selectors);const grouped=new Map<string,StoredAssertion[]>();
  for(const row of rows){const uid=subject(row);grouped.set(uid,[...(grouped.get(uid)??[]),row]);}
  const result=new Map<string,Record<string,unknown>>();

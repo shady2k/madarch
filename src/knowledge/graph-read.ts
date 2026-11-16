@@ -334,7 +334,7 @@ export class GraphReader {
         }
       }
     }
-    const evidenceRows = records.some(record => record.assertions.some(assertion => assertion.evidence.length > 0)) ? await tx.query<{ assertion_uid: string; target_uid: string; locator: string; key: Record<string, unknown> }>(`SELECT a.uid::text AS assertion_uid,t.uid::text AS target_uid,e.discriminator AS locator,t.key FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node WHERE k.name='system.assertion-evidence' AND a.uid=ANY($1::uuid[]) ORDER BY a.uid,t.uid,e.discriminator`, [records.flatMap(record => record.assertions.map(assertion => assertion.id))]) : { rows: [] };
+    const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };
     const evidenceContract = this.contract;
     if (evidenceRows.rows.length > 0 && evidenceContract === undefined) throw new Error(`${import.meta.path}:341: evidence reads require the explicit graph contract`);
     const manifest = evidenceRows.rows.length === 0 ? undefined : await readPublishedManifest(tx);

@@ -14,6 +14,7 @@ test('assertion property batch preserves native typed values and subject filteri
    const identities=await tx.query<{id:number}>(`SELECT id FROM node WHERE key->>'name'='one'`);
    let reads=0;const executor={query:((...args:Parameters<typeof tx.query>)=>{reads++;return tx.query(...args);}) as typeof tx.query};
    const rows=await loadAssertions(executor,'vertex','typed',['amount','when','enabled','details'],[Number(identities.rows[0]!.id)]);
+   expect(rows[0]!.evidenceAttachments).toEqual([]);
    expect(reads).toBe(1);expect(rows.map(row=>[row.property,row.value])).toEqual([['amount','9223372036854775807'],['when','2026-01-01T12:00:00.123Z'],['enabled',true],['details',{count:3}]]);
    expect(await loadAssertions(executor,'vertex','typed',['amount'],[])).toEqual([]);expect(reads).toBe(1);
    const all=await loadAssertions(executor,'vertex','typed',['amount']);

@@ -66,6 +66,7 @@ export interface StoredAssertion extends AssertionRow {
   readonly unit: string | null;
   readonly operationUid: string;
   readonly evidence: readonly string[];
+  readonly evidenceAttachments: readonly { readonly targetUid: string; readonly locator: string; readonly key: Record<string, unknown> }[];
 }
 
 export interface AssertionReadRequest {
@@ -120,7 +121,10 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-author') AS author,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-unit' ORDER BY lineage.id LIMIT 1) AS unit,
         (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-operation' ORDER BY lineage.id LIMIT 1) AS operation_uid,
-        ARRAY(SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence' ORDER BY target.uid) AS evidence
+        ARRAY(SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence' ORDER BY target.uid) AS evidence,
+        (SELECT coalesce(jsonb_agg(jsonb_build_object('targetUid',target.uid::text,'locator',lineage.discriminator,'key',target.key) ORDER BY target.uid,lineage.discriminator),'[]'::jsonb)
+         FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node
+         WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence') AS evidence_attachments
         FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
         ${subjectJoin} LEFT JOIN (${values}) value_row ON value_row.assertion_id=a.assertion_id AND value_row.property=a.property
         WHERE subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND subject.id=ANY(${subjectsParameter}::bigint[])`}
@@ -131,7 +135,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       request_index: number; selected?: boolean; active?: boolean;
         id: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
-        unit: string | null; operation_uid: string; evidence: string[]; value: unknown; value_type:string|null;
+        unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
     }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
@@ -142,7 +146,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         id: row.id, ...(row.selected === undefined ? {} : { selected: row.selected, active: row.active! }),
         subject: request.sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind: request.kind, from: row.edge_from!, to: row.edge_to! },
         subjectId: Number(row.subject_id), property: row.property, context: Number(row.context_id), language: row.language,
-        source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence,
+        source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence, evidenceAttachments: row.evidence_attachments,
         value: row.value_type === 'bigint' && typeof row.value === 'string' && Number.isSafeInteger(Number(row.value)) ? Number(row.value) : row.value_type==='timestamp with time zone'&&typeof row.value==='string' ? new Date(row.value).toISOString() : row.value instanceof Date ? row.value.toISOString() : row.value, operation: row.operation, validFrom: text(row.valid_from), validTo: row.valid_to === null ? null : text(row.valid_to),
         recordedAt: text(row.recorded_at), recordedSequence: BigInt(row.recorded_sequence),
       } satisfies StoredAssertion;
