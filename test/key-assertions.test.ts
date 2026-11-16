@@ -90,3 +90,22 @@ test('scalar keys are immutable asserted facts with complete source history, not
     expect(await owner.transaction('snapshot', async tx => (await tx.query(`SELECT * FROM "${assertionValueTableName('keyed', 'vertex', 'name')}"`)).rows)).toHaveLength(2);
   } finally { await owner.close(); }
 }, 60_000);
+
+
+test('0039.28: key validation body is independent of unrelated key declarations', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    const body = async () => await owner.run(async tx => (await tx.query<{ body: string }>(
+      "SELECT prosrc AS body FROM pg_proc WHERE oid='graph_key_check()'::regprocedure")).rows[0]!.body);
+    const before = await body();
+    const { prepareGraphSchema } = await import('../src/adapters/schemas/graph.js');
+    await prepareGraphSchema(owner, { ...contract, vertex: [...contract.vertex, {
+      name: 'unrelated-key', table: generatedTableName('unrelated-key', 'vertex'), key: ['code'],
+      fields: [{ name: 'code', type: 'bigint' }], capability: 'fixture',
+    }] });
+    expect(await body()).toBe(before);
+    await expect(owner.transaction('write', async tx => {
+      await ensureVertex(tx, contract, { kind: 'keyed', key: { name: 'still-unasserted' } });
+    })).rejects.toThrow('IMMUTABLE_KEY');
+  } finally { await owner.close(); }
+}, 60_000);
