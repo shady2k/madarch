@@ -1,6 +1,7 @@
 /** Renderer-independent graphical surfaces. Data, layout and renderer binding stay with their callers. */
 import { forwardRef, type HTMLAttributes, type IframeHTMLAttributes, type SVGProps } from 'react';
 import { cn } from '@/lib/utils.js';
+import { TextLink } from './typography.js';
 import { SyntaxToken } from './syntax-token.js';
 
 export const DrawingSurface = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { width?: number | string; height?: number | string }>(function DrawingSurface({ width, height, style, ...props }, ref) {
@@ -32,8 +33,8 @@ export const FileSource = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEleme
     <div ref={ref} className={cn('file-source', wrap ? 'file-source-wrap' : 'file-source-nowrap', className)} {...props}>
       <ol className="file-source-lines">
         {lines.map((line, at) => (
-          <li key={at} className="file-source-line">
-            <span className="file-source-number" aria-hidden="true">{at + 1}</span>
+          <li key={at} id={`L${at + 1}`} className="file-source-line">
+            <span className="file-source-number"><TextLink href={`#L${at + 1}`}>{at + 1}</TextLink></span>
             <span className="file-source-code">
               {line.length === 0 ? '\u00a0' : line.map((token, index) => (
                 <SyntaxToken key={index} colors={token.color === undefined ? {} : { color: token.color }} fontStyle={token.fontStyle ?? 0}>{token.content}</SyntaxToken>

@@ -60,6 +60,7 @@ type CatalogueEntity implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
@@ -104,6 +105,8 @@ type CatalogueField {
 type Cochange {
   node: Entity!
   count: Int!
+  total: Int
+  share: Float
 }
 
 type DemoAuthoredConnection {
@@ -193,6 +196,7 @@ interface Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   mentions(first: Int, after: String): MentionsConnection!
@@ -235,6 +239,7 @@ type KindDemoAuthor implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
@@ -269,6 +274,7 @@ type KindDemoCommit implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
@@ -307,6 +313,7 @@ type KindDemoFile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   repository: KindDemoRepository
@@ -357,6 +364,7 @@ type KindDemoRepository implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
@@ -519,7 +527,7 @@ type SourceText {
   text: String!
   blob: String!
   lines: Int!
-  byteLength: Int!
+  bytes: Int!
   binary: Boolean!
   from: Int!
   complete: Boolean!
@@ -552,6 +560,7 @@ type Query {
   allDemoRepositoryAggregate(where: KindDemoRepositoryWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  entityByKey(kind: String!, key: JSON!, lang: String): Entity
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
@@ -561,7 +570,7 @@ type Query {
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
-  related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
+  related(id: ID!, edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }
 
 input CatalogueEntityDefinitionFilter {

@@ -93,6 +93,30 @@
     "language": "Choose language"
   },
   "knowledge": {
+    "treemap": {
+"busy": "Loading a connection page; navigation is unavailable until it answers.","firstPage": "First connection page; there is no previous page.","lastPage": "Last connection page; there is no next page.","page": "Connection page {{page}}",
+      "title": "File map",
+      "unknownLanguage": "Language not known",
+      "subset": "Showing only the {{count}} files in this connection page, not the whole map.",
+      "missingPaths": "Files without a path cannot be placed: {{count}}.",
+      "breadcrumb": "Map folder",
+      "root": "All files",
+      "measure": "Area measure",
+      "colour": "Colour by",
+      "language": "Language",
+      "changed": "Last change",
+      "window": "Last-change window",
+      "days": "{{count}} days",
+      "empty": "No measured file values to draw.",
+      "navigationNote": "Open a folder or file using the controls below the map. Chart tiles are not links.",
+      "languages": "Languages: {{languages}}",
+      "heatNote": "Darker means a more recent last change within {{count}} days. The lightest colour means outside the window or unknown. This is recency, not a count of commits.",
+      "missingChanged": "Files with unknown or future last-change dates: {{count}}.",
+      "folder": "Open folder {{path}}",
+      "fileValue": " — {{value}} · {{language}}",
+      "unknownValue": "value not known"
+},
+    "tableMoreRelations": "Showing {{shown}} of {{total}}. Additional relations are not available in this table.",
     "fillRun": {
       "noUnits": "No units were planned",
       "open": "Fill…",
@@ -456,6 +480,19 @@
     "tableFilter": "Filter",
     "tableEmpty": "No records yet",
     "textEmpty": "The description is not written yet.",
+    "source": {
+      "more": "Load more source",
+      "moved": "The file changed; source was restarted at its new revision.",
+      "loading": "Loading source…",
+      "missing": "The graph holds no source location.",
+      "unavailable": "The graph holds no text for this file.",
+      "binary": "This is a binary file; there is no source text.",
+      "open": "Open source",
+      "openOnHost": "Open on {{host}}",
+      "count": "{{count}} lines",
+      "cut": "Showing {{shown}} of {{total}} cited lines.",
+      "failed": "Could not read source: {{message}}"
+    },
     "fileText": {
       "view": "View",
       "rendered": "Rendered",

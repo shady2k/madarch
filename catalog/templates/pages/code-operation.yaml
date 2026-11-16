@@ -1,0 +1,67 @@
+template: code-operation
+extends: entity
+records:
+- code.operation
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    repository
+    path
+    name
+    contested
+  params:
+    rows:
+    - label:
+        en: Repository
+        ru: Репозиторий
+      path: repository
+    - label:
+        en: Path
+        ru: Путь
+      path: path
+    - label:
+        en: Name
+        ru: Имя
+      path: name
+- id: source
+  after: facts
+  component: source
+  title:
+    en: Source
+    ru: Исходный текст
+  query: |
+    repository
+    path
+  params:
+    path: .
+- id: declared
+  component: text
+  title:
+    en: Declared by
+    ru: Объявлена в
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: served
+  component: text
+  title:
+    en: Served by
+    ru: Обслуживается
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

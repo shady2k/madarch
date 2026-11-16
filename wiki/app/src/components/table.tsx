@@ -53,7 +53,9 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     return value !== null && value !== undefined && value !== '';
   }));
   const filters = (Array.isArray(section.params['filterFields']) ? section.params['filterFields'] : []) as FilterFieldDecl[];
-  const [filterField, setFilterField] = useState(filters[0] === undefined ? '' : String(filters[0].field ?? ''));
+  const [filterIndex, setFilterIndex] = useState('0');
+  const filterDecl = filters[Number(filterIndex)];
+  const filterField = typeof filterDecl?.field === 'string' ? filterDecl.field : '';
   const [filterText, setFilterText] = useState('');
   const sortable = columns.filter((column) => typeof column.sortField === 'string');
   const [sort, setSort] = useState(sortable[0] === undefined ? '' : String(sortable[0].sortField));
@@ -70,14 +72,18 @@ export function TableSection({ context }: { readonly context: SectionContext }):
   };
   const askFilter = (text: string, field: string): void => {
     if (!canFilter) return;
-    const where = text === '' ? null : { [field]: { _contains: text } };
-    context.reload({ [`${section.id}_where`]: where });
+    const operator = filterDecl?.operator ?? '_contains';
+    const numeric = ['_lt', '_lte', '_gt', '_gte'].includes(String(operator));
+    const value = numeric && text !== '' ? Number(text) : text;
+    if (numeric && !Number.isFinite(value)) return;
+    const where = text === '' ? null : { [field]: { [String(operator)]: value } };
+    context.reload({ [`${section.id}_where`]: where, [`${section.id}_after`]: null });
     setPage(0);
     setCursors([undefined]);
   };
   const askSort = (field: string): void => {
     if (!canSort) return;
-    context.reload({ [`${section.id}_orderBy`]: field === '' ? null : [{ field, direction: 'ASC' }] });
+    context.reload({ [`${section.id}_orderBy`]: field === '' ? null : [{ field, direction: 'ASC' }], [`${section.id}_after`]: null });
     setPage(0);
     setCursors([undefined]);
   };
@@ -90,6 +96,19 @@ export function TableSection({ context }: { readonly context: SectionContext }):
       const format = typeof column.format === 'string' ? column.format : 'text';
       if (format === 'commit' && isCommit(value)) {
         return <CommitLine commit={value as CommitNode} base={context.base} open={context.open} language={language} withDate={false} withAuthor={false} />;
+      }
+      if (format === 'links') {
+        const linked = edgesOf(value);
+        const more = nextOf(value);
+        return <>
+          {linked.map((edge, at2) => {
+            const target = (edge['node'] ?? edge) as Record<string, unknown>;
+            const address = entityHref(target);
+            const label = String(target['label'] ?? '');
+            return <TextLink key={String(target['id'] ?? at2)} href={address === undefined ? undefined : context.base + address} onClick={address === undefined ? undefined : follow(context.open, context.base + address)}>{label}{at2 + 1 < linked.length ? ', ' : ''}</TextLink>;
+          })}
+          {more.hasNext ? <Paragraph>{t('knowledge.tableMoreRelations', { shown: linked.length, total: totalOf(value) })}</Paragraph> : null}
+        </>;
       }
       if (format === 'repository') {
         const url = typeof value === 'string' ? value : '';
@@ -116,7 +135,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
   const before = sizes.slice(0, page).reduce((sum, size) => sum + (size ?? 0), 0);
   // The connection's own paging state decides: a page before this one or a next page makes a pager.
   const paged = canPage && (page > 0 || next.hasNext);
-  const firstLabel = localized(filters[0]?.label, language) ?? '';
+  const firstLabel = localized(filterDecl?.label, language) ?? '';
   return (
     <>
       {canFilter || canSort ? (
@@ -130,12 +149,12 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           {canFilter && filters.length > 1 ? (
             <FilterField>
               {t('knowledge.tableField')}
-              <Select value={filterField} onValueChange={setFilterField}>
+              <Select value={filterIndex} onValueChange={setFilterIndex}>
                 <SelectTrigger aria-label={t('knowledge.tableField')}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {filters.map((one) => {
-                    const value = String(one.field ?? '');
-                    return <SelectItem key={value} value={value}>{localized(one.label, language) ?? value}</SelectItem>;
+                  {filters.map((one, index) => {
+                    const value = String(index);
+                    return <SelectItem key={value} value={value}>{localized(one.label, language) ?? String(one.field ?? '')}</SelectItem>;
                   })}
                 </SelectContent>
               </Select>
@@ -162,7 +181,11 @@ export function TableSection({ context }: { readonly context: SectionContext }):
             <TableRow>{columns.map((column, index) => <TableHead key={String(index)}>{localized(column.label, language) ?? ''}</TableHead>)}</TableRow>
           </TableHeader>
           <TableBody>
-            {body.map((cells, index) => <TableRow key={String(index)}>{cells.map((cell, at2) => <TableCell key={String(at2)}>{cell}</TableCell>)}</TableRow>)}
+            {body.map((cells, index) => {
+              const anchor = at(rows[index], section.params['rowAnchorPath']);
+              const id = typeof anchor === 'string' ? `${String(section.params['rowAnchorPrefix'] ?? '')}${anchor}` : undefined;
+              return <TableRow key={String(index)} id={id}>{cells.map((cell, at2) => <TableCell key={String(at2)}>{cell}</TableCell>)}</TableRow>;
+            })}
           </TableBody>
         </Table>
       )}
