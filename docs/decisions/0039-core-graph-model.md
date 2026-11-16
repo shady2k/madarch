@@ -256,6 +256,29 @@ Owner: «это должна быть системная часть, это вс
 растерзание каждый продукт.»
 Reference: madarch-64o5.74, part 4, 17:55; madarch-64o5.114, 11:03 and 18:27.
 
+Clarification (madarch-64o5.74, 2026-11-17, ALX-99): the manifest's own kinds,
+the `manifest.*` vertices and edges of the engine's manifest contract, are
+engine-owned exactly as the system kinds are: the engine writes them when it
+publishes the catalogue and reads them back, so a product can neither delete
+nor redeclare them. Each relation among them has one declaration, in that
+contract; a workflow stage belongs to its workflow through the key edge
+`manifest.workflow-stage-workflow` to `manifest.workflow`, and no catalogue
+edge says it a second time. The catalogue declares no kind or edge under a
+protected name, and no edge that requires a protected vertex to carry it (a
+lower bound above zero on the protected end): engine-written vertices cannot
+satisfy a product's demand, so it can only fail the deferred check. It may
+extend as this item says, with nullable fields and optional edges. Both
+protected contracts, system and manifest, are joined to a product's contract
+by the same inheritance, which refuses a replaced identity instead of
+silently shadowing it. Why: the cutover merge `a699a96a4` declared the stage
+twice, once in the catalogue (`manifest.workflow-stage`, keyed by the edge
+`workflow-stages` from the catalogue kind `workflow`, exactly one per stage)
+and once in the manifest contract (keyed by `manifest.workflow-stage-workflow`).
+Joining the manifest contract replaced the catalogue's vertex by name and
+kept its edge, so every published stage failed `CARDINALITY_INVALID for
+workflow-stages` once publication of the full starter reached the deferred
+checks (ALX-65, `5df3e5c8f`).
+
 ### 10. CREATE TABLE has only the core installation and the manifest generator
 
 Only graph-core installation DDL and the one generator reading the product
