@@ -35,10 +35,21 @@ export function bindWriteCapability(executor:SqlExecutor,binding:WriteCapability
 export function requireWriteCapability(executor:SqlExecutor):WriteCapability {
   const binding=bindings.get(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
 }
-function checkBinding(binding:WriteCapability,contract:GraphContract,context:number):void{
+function checkBinding(binding:WriteCapability,contract:GraphContract,context:number):string{
  validateValueContracts(contract);
+ const version=graphContractVersion(contract);checkBindingRevision(binding,version,context);return version;
+}
+function checkBindingRevision(binding:WriteCapability,version:string,context:number):void{
  if(binding.context!==context)throw new Error(`${WHERE}:30: SOURCE_FORBIDDEN context differs from capability`);
- if(binding.contractVersion!==graphContractVersion(contract))throw new Error(`${WHERE}:31: CONTRACT_CONFLICT authenticated contract revision is stale`);
+ if(binding.contractVersion!==version)throw new Error(`${WHERE}:31: CONTRACT_CONFLICT authenticated contract revision is stale`);
+}
+interface PreparedContract {readonly contract:GraphContract;readonly version:string}
+function preparePublicationContract(declared:GraphContract):PreparedContract {
+ const contract=structuredClone(withAssertionContract(declared));
+ const freeze=(value:unknown):void=>{if(value!==null&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
+ freeze(contract);
+ validateValueContracts(contract);
+ return {contract,version:graphContractVersion(contract)};
 }
 export function canonicalJson(value:unknown):string{return canonicalAssertionValue(value);}
 export function sameValue(a:unknown,b:unknown):boolean{return canonicalJson(a)===canonicalJson(b);}
@@ -113,8 +124,12 @@ export async function resolveEntityRef(executor:SqlExecutor,contract:GraphContra
  return await withSpan('graph.identity.resolve',{'graph.kind':ref.kind},()=>endpoint(executor,withAssertionContract(contract),ref,context));
 }
 export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context=1):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ const contract=withAssertionContract(declared);const version=checkBinding(requireWriteCapability(executor),contract,context);
+ return await ensureCheckedVertex(executor,{contract,version},draft,context);
+}
+async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  return await withSpan('graph.vertex.ensure',{'graph.kind':draft.kind},async()=>{
- const contract=withAssertionContract(declared);const binding=requireWriteCapability(executor);checkBinding(binding,contract,context);const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:79: UNKNOWN_KIND ${draft.kind}`);
+ const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:79: UNKNOWN_KIND ${draft.kind}`);
  permitted(binding,kind.name,'$exists');
  const uid=await refUid(executor,contract,draft,context);const key:Record<string,unknown>={};
  for(const name of kind.key){const field=kind.fields.find(f=>f.name===name)!;key[name]=validate(field,draft.key[name]);validateFieldValue(contract,field,key[name]);}
@@ -164,8 +179,12 @@ export async function requireAssertionScope(executor:SqlExecutor,contract:GraphC
  });
 }
 export async function writeAssertion(executor:SqlExecutor,declared:GraphContract,input:AssertionInput,context=1):Promise<string>{
+ const contract=withAssertionContract(declared);const version=checkBinding(requireWriteCapability(executor),contract,context);
+ return await writeCheckedAssertion(executor,{contract,version},input,context);
+}
+async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContract,input:AssertionInput,context:number):Promise<string>{
  return await withSpan('graph.assertion.write',{'graph.kind':input.kind,'graph.property':input.property},async()=>{
- const contract=withAssertionContract(declared);const binding=requireWriteCapability(executor);checkBinding(binding,contract,context);permitted(binding,input.kind,input.property,input.operation==='retract');
+ const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);permitted(binding,input.kind,input.property,input.operation==='retract');
  const kind=contract[input.sort].find(k=>k.name===input.kind);if(!kind)throw new Error(`${WHERE}:114: UNKNOWN_KIND ${input.kind}`);
  const subject=(await executor.query<{kind:string}>(`SELECT k.name AS kind FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
@@ -210,7 +229,7 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
 export interface GraphDrafts {readonly vertices:readonly VertexDraft[];readonly removals:readonly VertexRemovalDraft[];readonly edges?:readonly EdgeDraft[];readonly edgeRemovals?:readonly EdgeRemovalDraft[]}
 export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphContract,drafts:GraphDrafts,context=1,_options:Record<string,unknown>={}):Promise<number>{
  return await withSpan('graph.publish',{},async()=>{
- const contract=withAssertionContract(declared);checkBinding(requireWriteCapability(executor),contract,context);
+ const prepared=preparePublicationContract(declared);const {contract}=prepared;checkBindingRevision(requireWriteCapability(executor),prepared.version,context);
  const checkFields=(kind:{readonly name:string;readonly fields:readonly FieldContract[]},values:Readonly<Record<string,unknown>>):void=>{
   for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name);if(!field)throw new Error(`${WHERE}:193: UNKNOWN_FIELD ${kind.name}.${name}`);validate(field,value);validateFieldValue(contract,field,value);}
  };
@@ -225,18 +244,18 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  while(pending.length){let progressed=false;for(let i=0;i<pending.length;){const draft=pending[i]!;const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:145: UNKNOWN_KIND ${draft.kind}`);
  let ready=true;for(const parent of Object.values(draft.keyEdges??{})){const uid=await refUid(executor,contract,parent,context);if(!(await executor.query(`SELECT id FROM node WHERE uid=$1::uuid`,[uid])).rows.length)ready=false;}
  if(!ready){i++;continue;}
- const made=await ensureVertex(executor,contract,draft,context);
- await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
- for(const name of kind.key){await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:name,operation:'assert',value:draft.key[name],evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}
- for(const [name,value] of Object.entries(draft.values??{})){await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:name,operation:'assert',value,language:draft.lang,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}
- for(const role of kind.keyEdges??[]){const parent=await endpoint(executor,contract,draft.keyEdges![role.role]!,context);const from=role.direction==='from'?made.nodeId:parent.id;const to=role.direction==='from'?parent.id:made.nodeId;const edgeId=await putEdge(executor,role.edge,from,to,'',context);await writeAssertion(executor,contract,{sort:'edge',kind:role.edge,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);}
+ const made=await ensureCheckedVertex(executor,prepared,draft,context);
+ await writeCheckedAssertion(executor,prepared,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
+ for(const name of kind.key){await writeCheckedAssertion(executor,prepared,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:name,operation:'assert',value:draft.key[name],evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}
+ for(const [name,value] of Object.entries(draft.values??{})){await writeCheckedAssertion(executor,prepared,{sort:'vertex',kind:draft.kind,subjectId:made.nodeId,property:name,operation:'assert',value,language:draft.lang,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}
+ for(const role of kind.keyEdges??[]){const parent=await endpoint(executor,contract,draft.keyEdges![role.role]!,context);const from=role.direction==='from'?made.nodeId:parent.id;const to=role.direction==='from'?parent.id:made.nodeId;const edgeId=await putEdge(executor,role.edge,from,to,'',context);await writeCheckedAssertion(executor,prepared,{sort:'edge',kind:role.edge,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);}
  pending.splice(i,1);progressed=true;}
  if(!progressed)throw new Error(`${WHERE}:155: REQUIRED_PARENT: missing parent or instance cycle`);}
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:157: UNKNOWN_EDGE ${draft.kind}`);if(!kind.from.includes(draft.from.kind)||!kind.to.includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);
  const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);
  const edgeId=await putEdge(executor,draft.kind,from.id,to.id,draft.discriminator??'',context);
- await writeAssertion(executor,contract,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
- for(const [name,value] of Object.entries(draft.values??{})){await writeAssertion(executor,contract,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:name,operation:'assert',value,language:draft.lang,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}}
+ await writeCheckedAssertion(executor,prepared,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
+ for(const [name,value] of Object.entries(draft.values??{})){await writeCheckedAssertion(executor,prepared,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:name,operation:'assert',value,language:draft.lang,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}}
  for(const draft of drafts.removals){if(await removeEntity(executor,contract,draft,context))written++;}
  for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context))written++;}
  if(!inheritedEvidence)for(const attach of evidenceQueue)await attach();
