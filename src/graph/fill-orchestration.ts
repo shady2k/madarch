@@ -13,7 +13,6 @@ import { EMPTY_CONTRACT, type GraphContract } from './contract.js';
 import { startupBinding } from './manifest-publication.js';
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
-import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
 import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
@@ -30,11 +29,9 @@ async function transaction<R>(database:OrchestratorDatabase,kind:'write',work:(t
  return withSpan('graph.orchestration.transaction',{'orchestration.kind':kind},()=>withLocation(site,'orchestration metadata',['node','edge','assertion'],()=>database.transaction(kind,async tx=>{
   if(kind==='write'){
    await acquireGraphWriteLock(tx);
-   await installDisputeSelection(tx,database.graphContract);
   }
   const result=await work(tx);
   if(kind==='write'){
-   await refreshDisputeSelection(tx,database.graphContract);
    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
   }
   return result;

@@ -2,8 +2,10 @@ import { activateGraphProducer, bindGraphProducer } from '../src/graph/producer-
 import { registerSystemSource } from '../src/graph/system-installation.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
-import { readDispute, reconcileDisputes, resolveDispute, installDisputeSelection, refreshDisputeSelection } from '../src/graph/disputes.js';
+import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
+import {readDispute} from '../src/graph/dispute-read.js';
 import { writeAssertion } from '../src/graph/write.js';
+import { keyUid } from '../src/graph/uid.js';
 import { createHash } from 'node:crypto';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 /**
@@ -136,6 +138,7 @@ beforeAll(async () => {
       ],
       removals: [],
     }, 1, { author: 'two@1' });
+    await reconcileDisputes(tx, contract);
     await bindTestWriteCapability(tx, contract, '7e2372f4-0000-7000-8000-000000000001');
     await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'B' }, producer: 'neutral', producerVersion: '1' }],
@@ -202,7 +205,7 @@ describe('the GraphQL executor', () => {
 
   test('a pinned context hides assertion identities recorded after its ancestor snapshot', async () => {
     const held = await owner.transaction('write', async (tx) => {
-      const branch = await tx.query<{ id: string }>(`INSERT INTO context(parent,ref) VALUES(1,'graphql-pinned-header') RETURNING id::text`);
+      const branch = await tx.query<{ id: string }>(`INSERT INTO context(parent,ref,parent_recorded_seq) VALUES(1,'graphql-pinned-header',-1) RETURNING id::text`);
       await bindTestWriteCapability(tx, contract, '7692c3ad-0000-7000-8000-000000000001');
       await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } }, values: { lines: 10 }, producer: 'one', producerVersion: '1' }], edges: [], removals: [] });
       const assertion = await tx.query<{ uid: string }>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge subject_edge ON subject_edge.id=s.subject_edge_id JOIN node subject ON subject.id=subject_edge.to_node JOIN entity k ON k.id=subject.entity_id WHERE k.name='demo.file' AND subject.key->>'path'='a.ts' AND a.property='lines' ORDER BY a.recorded_sequence DESC LIMIT 1`);
@@ -526,15 +529,17 @@ describe('the GraphQL executor', () => {
     expect(repository.urlAssertions[0].source.id).toBe('3fc4ccfe-0000-7000-8000-000000000001');
     const file = data['file'] as Record<string, any>;
     expect(file.demoRelated.edges[0].node.assertions[0].source.id).toBe('7692c3ad-0000-7000-8000-000000000001');
-    // Fifty-one producers on one edge: the list is the 50 newest, never every opinion the graph holds.
+    // Fifty-one authenticated producers add their opinions to the original source's opinion.
     await owner.transaction('write', async (tx) => {
-    await bindTestWriteCapability(tx, contract);
-      await bindTestWriteCapability(tx, contract, '0af96a8e-0000-7000-8000-000000000001');
-    await publishGraphDrafts(tx, contract, {
-        vertices: [],
-        edges: Array.from({ length: 51 }, (_, at) => ({ kind: 'demo.related', from: { kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, to: { kind: 'demo.file', key: { path: 'b.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, producer: `many-${String(at)}`, producerVersion: '1' })),
-        removals: [],
-      }, 1, { author: 'many@1' });
+      for (let at = 0; at < 51; at += 1) {
+        const sourceUid = `0af96a8e-0000-7000-8000-${String(at + 1).padStart(12, '0')}`;
+        await bindTestWriteCapability(tx, contract, sourceUid);
+        await publishGraphDrafts(tx, contract, {
+          vertices: [],
+          edges: [{ kind: 'demo.related', from: { kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, to: { kind: 'demo.file', key: { path: 'b.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } } }, producer: `many-${String(at)}`, producerVersion: '1' }],
+          removals: [],
+        }, 1, { author: 'many@1' });
+      }
     });
     const bounded = await graphql(`query ($file: ID!) { entity(id: $file) { ... on DemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { file: fileA });
     const related = (bounded['entity'] as Record<string, any>).demoRelated.edges[0].node.assertions;
@@ -737,11 +742,11 @@ test('a durable resolution selects the same value for fields, filters, order and
   const ga = grant(a.principal), gb = grant(b.principal), gj = grant(judge.principal, true);
   const target = await owner.run(async tx => (await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [repository3Id])).rows[0]!.id);
   const write = async (binding: typeof ga, value: string) => owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, disputeContract);
+
     await activateGraphProducer(tx, disputeContract, binding);
     await writeAssertion(tx, disputeContract, { sort: 'vertex', kind: 'demo.repository', subjectId: target, property: 'description', operation: 'assert', value, language: 'en', validFrom: '2020-01-01T00:00:00Z' });
     await reconcileDisputes(tx, contract);
-    await refreshDisputeSelection(tx, disputeContract);
+
   });
   await write(ga, 'Chosen resolution');
   await write(gb, 'Newest losing value');
@@ -752,11 +757,11 @@ test('a durable resolution selects the same value for fields, filters, order and
   const content = 'A durable resolution evidence snapshot';
   const digest = createHash('sha256').update(content).digest('hex');
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, disputeContract);
+
     await activateGraphProducer(tx, disputeContract, gj);
     await publishGraphDrafts(tx, disputeContract, { vertices: [{ kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'fixture', producerVersion: '1' }], removals: [] });
     await resolveDispute(tx, disputeContract, gj, { questionUid: question!.id, chosenAssertionUid: chosen.id, expectedCandidates: question!.candidates, rationale: 'Confirmed by snapshot', evidence: [{ target: { kind: 'system.content-snapshot', key: { digest } } }] });
-    await refreshDisputeSelection(tx, disputeContract);
+
   });
   const result = await graphql(`query ($id: ID!) {
     entity(id: $id) { ... on DemoRepository { description contested descriptionAssertions { id selected question { id state candidates { id } resolution { id value source { id } } supersededResolutions { id } } } } }
@@ -771,10 +776,10 @@ test('a durable resolution selects the same value for fields, filters, order and
   expect(exposed.state).toBe('RESOLVED');
   expect(exposed.candidates.map((row: any) => row.id).sort()).toEqual([...question!.candidates].sort());
   expect(exposed.resolution.value).toBe('Chosen resolution');
-  expect(exposed.resolution.source.id).toBe(gj.sourceUid);
+  expect(exposed.resolution.source.id).toBe(keyUid('system.resolution-source', [gj.principalUid]));
   expect(exposed.supersededResolutions).toEqual([]);
   expect(entity.contested).not.toContain('description');
-  expect(entity.descriptionAssertions.filter((row: any) => row.selected).map((row: any) => row.id)).toEqual([chosen.id]);
+  expect(entity.descriptionAssertions.filter((row: any) => row.selected).map((row: any) => row.id)).toEqual([exposed.resolution.id]);
   expect((result['allDemoRepository'] as Record<string, any>).totalCount).toBe(1);
   expect((result['allDemoRepository'] as Record<string, any>).edges[0].node.description).toBe('Chosen resolution');
   expect((result['allDemoRepositoryAggregate'] as Record<string, any>).count).toBe(1);
@@ -795,20 +800,20 @@ test('a durable resolution selects the same value for fields, filters, order and
   expect((historical['entity'] as Record<string, any>).contested).not.toContain('description');
   // A source can deny existence or withdraw only its own stream, not another source's live assertion.
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, disputeContract);
+
     await activateGraphProducer(tx, disputeContract, gb);
     await writeAssertion(tx, disputeContract, { sort: 'vertex', kind: 'demo.repository', subjectId: target, property: '$exists', operation: 'assert', value: false });
-    await refreshDisputeSelection(tx, disputeContract);
+
   });
   const stillLive = await owner.transaction('snapshot', tx => readKindAssertions(tx, 'vertex', 'demo.repository', [], { contract: disputeContract, subjectIds: [Number(target)] }));
   expect(stillLive).toHaveLength(1);
   const existsRead = await graphql(`query ($id: ID!) { entity(id: $id) { id } }`, { id: repository3Id });
   expect((existsRead['entity'] as Record<string, unknown>).id).toBe(repository3Id);
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, disputeContract);
+
     await activateGraphProducer(tx, disputeContract, gb);
     await writeAssertion(tx, disputeContract, { sort: 'vertex', kind: 'demo.repository', subjectId: target, property: '$exists', operation: 'retract' });
-    await refreshDisputeSelection(tx, disputeContract);
+
   });
   expect(await owner.transaction('snapshot', tx => readKindAssertions(tx, 'vertex', 'demo.repository', [], { contract: disputeContract, subjectIds: [Number(target)] }))).toHaveLength(1);
 }, 30000);
@@ -819,7 +824,7 @@ test('assertion evidence metadata batches one hundred distinct rows', async () =
   const digest = createHash('sha256').update(content).digest('hex');
   const snapshot = { kind: 'system.content-snapshot', key: { digest } };
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, contract);
+
     await bindTestWriteCapability(tx, contract);
     await publishGraphDrafts(tx, contract, {
       vertices: [{ ...snapshot, values: { digest, content }, producer: 'metadata-batch', producerVersion: '1' },
@@ -827,7 +832,7 @@ test('assertion evidence metadata batches one hundred distinct rows', async () =
           values: { url: `https://batch.test/${String(index)}` }, producer: 'metadata-batch', producerVersion: '1',
           evidence: [{ target: snapshot, relation: 'supports' as const, locator: {} }] }))], removals: [],
     });
-    await refreshDisputeSelection(tx, contract);
+
   });
   const statements: string[] = [];
   const counted: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, tx => work({ ...tx,
@@ -864,24 +869,24 @@ test('assertion evidence metadata batches one hundred distinct rows', async () =
 test('language fallback agrees with SQL after temporal and context selection', async () => {
   const key = { name: 'language-fallback-snapshot' };
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, contract);
+
     await bindTestWriteCapability(tx, contract);
     await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'demo.repository', key, values: { description: 'Active English fallback' }, lang: 'en', producer: 'language-fixture', producerVersion: '1' }], removals: [] });
-    await refreshDisputeSelection(tx, contract);
+
   });
   const recordedAt = await owner.run(async tx => new Date((await tx.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now).toISOString());
   const context = await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, contract);
-    const id = Number((await tx.query<{ id: string }>("INSERT INTO context(parent,ref) VALUES(1,'language-fallback-pinned') RETURNING id::text")).rows[0]!.id);
-    await refreshDisputeSelection(tx, contract);
+
+    const id = Number((await tx.query<{ id: string }>("INSERT INTO context(parent,ref,parent_recorded_seq) VALUES(1,'language-fallback-pinned',-1) RETURNING id::text")).rows[0]!.id);
+
     return id;
   });
   const id = await owner.run(async tx => (await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='demo.repository' AND n.key->>'name'=$1", [key.name])).rows[0]!.uid);
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, contract);
+
     await bindTestWriteCapability(tx, contract);
     await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'demo.repository', key, values: { description: 'Future Russian' }, lang: 'ru', validFrom: '2099-01-01T00:00:00.000Z', producer: 'language-fixture', producerVersion: '1' }], removals: [] });
-    await refreshDisputeSelection(tx, contract);
+
   });
   const check = async (selectors: string) => {
     const data = await graphql(`query ($id: ID!) {
@@ -899,11 +904,11 @@ test('language fallback agrees with SQL after temporal and context selection', a
   await check(`recordedAt: "${recordedAt}"`);
   await check(`context: ${String(context)}`);
   await owner.transaction('write', async tx => {
-    await installDisputeSelection(tx, contract);
+
     await bindTestWriteCapability(tx, contract);
     const subject = (await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [id])).rows[0]!.id;
     await writeAssertion(tx, contract, { sort: 'vertex', kind: 'demo.repository', subjectId: subject, property: 'description', operation: 'retract', language: 'ru', validFrom: '2020-01-01T00:00:00.000Z' });
-    await refreshDisputeSelection(tx, contract);
+
   });
   await check('validAt: "2100-01-01T00:00:00.000Z"');
 }, 30000);

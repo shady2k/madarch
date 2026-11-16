@@ -5,7 +5,6 @@ import type { SqlExecutor } from '../sql-driver.js';
 import { EMPTY_CONTRACT, type EdgeDraft, type EntityRefDraft, type GraphContract } from './contract.js';
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
-import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
 import { startupBinding } from './manifest-publication.js';
 import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
@@ -95,11 +94,9 @@ async function run<R>(site: string, database: FillStateDatabase, operation: stri
     await withLocation(site, operation, FILL_STATE_TABLES, async () => await database.transaction(kind, async tx => {
       if (kind === 'write') {
         await acquireGraphWriteLock(tx);
-        await installDisputeSelection(tx, database.graphContract);
       }
       const result = await work(tx);
       if (kind === 'write') {
-        await refreshDisputeSelection(tx, database.graphContract);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
       }
       return result;

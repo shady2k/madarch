@@ -12,7 +12,6 @@ import { byCodePoint } from '../model/order.js';
 import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
 import { activateGraphProducer, producerIdentityOf, requirePublicationBinding, type ProducerBinding } from './producer-binding.js';
 import { selectAssertions } from './assertion-selection.js';
-import { installDisputeSelection } from './disputes.js';
 
 export type AuthoredAction = 'list' | 'read' | 'create' | 'edit' | 'delete' | 'schema';
 export interface AuthoredArguments {
@@ -110,7 +109,6 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
     }
     });
   }
-  await installDisputeSelection(tx, contract);
   const now = new Date().toISOString();
   const active = activeExistenceSql('vertex', 'n', [kind], { validAt: now, recordedAt: now, contexts: [1] });
   const identities = (await tx.query<{ node_id: string; uid: string; key: Record<string, KeyValueDraft>; removed: boolean }>(

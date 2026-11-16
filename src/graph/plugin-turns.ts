@@ -7,7 +7,7 @@
  */
 import type { SqlExecutor } from '../sql-driver.js';
 import { semanticBinding } from '../knowledge/semantic-bindings.js';
-import { loadAssertions, selectAssertionSlots } from './assertion-read.js';
+import { loadAssertions } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { readKindAssertions } from './records.js';
@@ -192,9 +192,8 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
         if (parent !== undefined && child !== undefined && units.has(parent) && !units.has(child)) { units.add(child); changed = true; }
       }
     }
-    const assertions = (await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)])).filter(assertion => assertion.unit !== null && units.has(assertion.unit));
-    const slots = selectAssertionSlots(assertions, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1] });
-    const selected = [...slots.values()].flatMap(slot => slot.selected === null ? [] : [slot.selected]);
+    const assertions = await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)], undefined, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1], unitUids: [...units] });
+    const selected = assertions.filter(assertion => assertion.selected === true);
     const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
     const nodes = await tx.query<{ id: number; uid: string; key: import('../plugin/protocol.js').PluginKeyValues }>('SELECT id,uid::text,key FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid', [ids]);
     return await Promise.all(nodes.rows.map(async node => {

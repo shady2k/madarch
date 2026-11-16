@@ -12,7 +12,7 @@ import { publishGraphDrafts } from '../src/graph/write.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { callProductTool } from '../src/mcp/authored.js';
-import { readDispute } from '../src/graph/disputes.js';
+import {readDispute} from '../src/graph/dispute-read.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 
 const evidenceContent = 'Manual operation evidence snapshot';

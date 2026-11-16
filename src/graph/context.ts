@@ -14,7 +14,7 @@ export async function nextGraphRecordedSequence(tx: SqlExecutor): Promise<string
 export async function pinContext(tx: SqlExecutor, parent: string, ref: string): Promise<string> {
   return await withSpan('graph.pinContext', {}, async () => {
     const result = await tx.query<{ id: string }>(
-      `INSERT INTO context (parent, ref) VALUES ($1, $2)
+      `INSERT INTO context (parent, ref, parent_recorded_seq) VALUES ($1, $2, -1)
        ON CONFLICT (parent, ref) WHERE parent IS NOT NULL DO NOTHING RETURNING id::text AS id`, [parent, ref]);
     if (result.rows[0] !== undefined) return result.rows[0].id;
     const held = await tx.query<{ id: string }>('SELECT id::text AS id FROM context WHERE parent = $1 AND ref = $2', [parent, ref]);
@@ -24,7 +24,7 @@ export async function pinContext(tx: SqlExecutor, parent: string, ref: string): 
 
 export interface ContextLayer {
   readonly id: string;
-  /** Null means the local layer has no recorded cutoff. Parent layers always have a fence. */
+  /** Null means the local layer has no recorded cutoff. An unpinned parent layer has no recorded cutoff. */
   readonly recordedThrough: string | null;
 }
 

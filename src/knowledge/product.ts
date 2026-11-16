@@ -15,7 +15,7 @@ import { authoredImportHost } from '../adapters/authored-import.js';
 import { here } from '../model/raise.js';
 import { executeManualOperation } from '../graph/manual-operation.js';
 import type { ProducerBinding } from '../graph/producer-binding.js';
-import { installDisputeSelection, refreshDisputeSelection, type ResolveDisputeInput } from '../graph/disputes.js';
+type ResolveDisputeInput = Extract<Parameters<typeof executeManualOperation>[2], { kind: 'resolve-dispute' }>['input'];
 import { setProductOperationRunState } from '../graph/operation-host.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
@@ -332,11 +332,8 @@ export class KnowledgeProduct {
 
       const binding = writing ? await personBinding(owner, graphContractOf(read.manifest), by) : undefined;
       const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => {
-        const contract = withAssertionContract(writeContractOf(read.manifest));
-        await installDisputeSelection(tx, contract);
         const result = await authoredEntity(tx, read.manifest, identity.name, binding, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args);
         if (writing) {
-          await refreshDisputeSelection(tx, contract);
           await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
         }
         return result;

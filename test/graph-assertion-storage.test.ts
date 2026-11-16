@@ -274,24 +274,23 @@ test.each([false,true])('deferred endpoint validation rejects direct SQL deactiv
  }finally{await owner.close();}
 },60000);
 
-test('disputed SQL existence fails closed after later writes and restores projection on savepoint rollback',async()=>{
+test('SQL existence reads assertions directly through later writes and savepoint rollback',async()=>{
  const graph:GraphContract={vertex:[{name:'guarded',table:'guarded',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
  const owner=await createTestDatabaseOwner({graphContract:graph});
  try{await owner.transaction('write',async tx=>{
   await publishGraphDrafts(tx,graph,{vertices:[{kind:'guarded',key:{name:'fixture'},producer:'fixture',producerVersion:'1'}],removals:[]});
   await tx.query(`INSERT INTO node(entity_id,uid,identity_scope) SELECT id,$1,$2 FROM entity WHERE name='system.dispute-resolution'`,[newUid(),newUid()]);
   await tx.query('SAVEPOINT absent_projection');
-  await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
+  expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
   await tx.query('ROLLBACK TO SAVEPOINT absent_projection');
-  const {refreshDisputeSelection}=await import('../src/graph/disputes.js');
-  await refreshDisputeSelection(tx,graph);
+
   const fresh=(await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows;
   expect(fresh).toHaveLength(1);
   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
   await tx.query('SET CONSTRAINTS ALL DEFERRED');
   await tx.query('SAVEPOINT fresh_projection');
   await tx.query(`INSERT INTO context(parent,ref) VALUES(1,'invalidate')`);
-  await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
+  expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
   await tx.query('ROLLBACK TO SAVEPOINT fresh_projection');
   expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toEqual(fresh);
   const assertion=(await tx.query<{id:string;edge:string}>(`SELECT a.assertion_id::text AS id,e.id::text AS edge FROM assertion a JOIN edge e ON e.from_node=a.assertion_id WHERE a.property='name' LIMIT 1`)).rows[0]!;
@@ -301,17 +300,17 @@ test('disputed SQL existence fails closed after later writes and restores projec
   ]){
    await tx.query('SAVEPOINT late_attachment');
    await mutate();
-   await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
+   expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
+   await expect(tx.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow();
    await tx.query('ROLLBACK TO SAVEPOINT late_attachment');
    expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toEqual(fresh);
   }
  });
  await owner.transaction('snapshot',async tx=>{
   await tx.query('SAVEPOINT before_projection');
-  await expect(tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rejects.toThrow('DISPUTE_SELECTION_STALE');
+  expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
   await tx.query('ROLLBACK TO SAVEPOINT before_projection');
-  const {refreshDisputeSelection}=await import('../src/graph/disputes.js');
-  await refreshDisputeSelection(tx,graph);
+
   expect((await tx.query(`SELECT * FROM graph_vertex_active_ids('guarded',1)`)).rows).toHaveLength(1);
  });
  }finally{await owner.close();}

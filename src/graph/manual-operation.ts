@@ -14,7 +14,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { authoredEntity } from './authored.js';
 import { authoredImportTarget, type AuthoredImportIdentity } from '../adapters/authored-import.js';
 import { withSpan } from '../obs/trace.js';
-import { resolveDispute, installDisputeSelection, refreshDisputeSelection, type ResolveDisputeInput } from './disputes.js';
+import { resolveDispute, type ResolveDisputeInput } from './disputes.js';
 import { activateGraphProducer, producerIdentityOf, requireProducerAction, type ProducerBinding } from './producer-binding.js';
 
 export type ManualRequest = { readonly contractVersion?: string; readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[] } & (
@@ -82,13 +82,11 @@ async function admit(owner: DatabaseOwner, data: AdmittedRequest) {
     const principal = producerIdentityOf(hostBinding);
     requireProducerAction(hostBinding, data.operation.kind === 'resolve-dispute' ? 'resolve' : data.operation.kind === 'retract' ? 'retract-own' : 'assert');
     if (data.operation.kind === 'resolve-dispute' && principal.kind !== 'person') throw new WriteRefusal('SOURCE_FORBIDDEN resolution requires a retained person');
-    await installDisputeSelection(tx, contract);
     const binding = await activateGraphProducer(tx, contract, hostBinding);
     const scope = await resolveOperationScope(tx, contract, binding, { runId: data.identity, unitId: data.identity, generation: 0 });
     const receipt = await operationReceipt(tx, contract, scope.unitUid, 'request');
     if (receipt && receipt.canonicalRequest !== canonicalOperationRequest(operationRequest(data.operation))) throw new WriteRefusal('IDEMPOTENCY_CONFLICT: the authenticated request identity already names a different operation', undefined, 409);
     if (!receipt && data.operation.contractVersion !== undefined && data.operation.contractVersion !== binding.contractVersion) throw new WriteRefusal('CONTRACT_VERSION_MISMATCH: the graph declaration revision changed', undefined, 409);
-    await refreshDisputeSelection(tx, contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return { contract, capability: binding, ...scope, receipt, resolver: hostBinding };
   }));

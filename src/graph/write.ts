@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
-import { withAssertionContract, isDisputableProperty } from './system-contract.js';
+import { withAssertionContract } from './system-contract.js';
 import { keyUid, newUid } from './uid.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
 import { validateFieldValue,validateValueContracts } from './value-validation.js';
@@ -20,11 +20,6 @@ export interface WriteCapability {
   readonly permissions:readonly {readonly kind:string;readonly properties:readonly string[];readonly assert:boolean;readonly retractOwn:boolean}[];
 }
 const bindings=new WeakMap<object,WriteCapability>();
-const semanticRefreshers=new WeakMap<object,()=>Promise<void>>();
-/** The host supplies the canonical semantic reader without a writer-to-reader dependency. */
-export function bindSemanticRefresh(executor:SqlExecutor,refresh:()=>Promise<void>):void {semanticRefreshers.set(executor,refresh);}
-export async function refreshWriteSemantics(executor:SqlExecutor):Promise<void> {await semanticRefreshers.get(executor)?.();}
-
 const pendingEvidence=new WeakMap<object,Array<()=>Promise<void>>>();
 const publicationIdentities=new WeakMap<object,{entities:Map<string,string>;nodes:Map<string,string>;uids:Map<string,string>}>();
 /** Only the authenticated host binds this capability after operation fencing. */
@@ -111,7 +106,6 @@ async function storedReference(executor:SqlExecutor,contract:GraphContract,ref:E
  return {...ref,key:held.key,...(Object.keys(keyEdges).length?{keyEdges}:{} )};
 }
 async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context:number):Promise<{id:string;uid:string}>{
- if(isDisputableProperty('vertex',ref.kind,'$exists'))await refreshWriteSemantics(executor);
  const resolved=await storedReference(executor,contract,ref);
  const uid=await refUid(executor,contract,resolved,context);
  const row=(await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
@@ -170,7 +164,6 @@ export async function requireAssertionScope(executor:SqlExecutor,contract:GraphC
  return await withSpan('graph.assertion.scope',{},async()=>{
  if(binding.context!==undefined&&binding.context!==context)throw new Error(`${WHERE}:114: SOURCE_FORBIDDEN capability context`);
  if(binding.scope!==binding.productUid){
-  await refreshWriteSemantics(executor);
   const scopeNode=(await executor.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[binding.scope])).rows[0];
   const subjectNodes=subject.sort==='vertex'?[subject.subjectId]:(await executor.query<{from_node:string;to_node:string}>(`SELECT from_node::text,to_node::text FROM edge WHERE id=$1::bigint`,[subject.subjectId])).rows.flatMap(row=>[row.from_node,row.to_node]);
   const keyNames=contract.vertex.flatMap(vertex=>(vertex.keyEdges??[]).map(role=>({name:role.edge,direction:role.direction})));
@@ -205,9 +198,34 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  }
 
  const mentions=input.operation==='assert'?scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[];
- if(mentions.length>0)await refreshWriteSemantics(executor);
  for(const mention of mentions){const endpointNode=(await executor.query<{id:string;kind:string}>(`SELECT n.id::text AS id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[mention.uid])).rows[0];if(!endpointNode||!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[endpointNode.id,endpointNode.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);}
- const uid=newUid();
+ const targetAssertions=input.sort==='vertex'
+  ? 'SELECT attachment.assertion_id FROM edge subject_edge CROSS JOIN LATERAL (SELECT av.assertion_id FROM assertion_vertex_subject av WHERE av.subject_edge_id=subject_edge.id OFFSET 0) attachment WHERE subject_edge.to_node=$1::bigint'
+  : 'SELECT attachment.assertion_id FROM assertion_edge_subject attachment WHERE attachment.edge_id=$1::bigint';
+ const current=(await executor.query<{id:string;uid:string;operation:string;value:unknown;unchangedScope:boolean}>(`WITH target_assertions AS MATERIALIZED (${targetAssertions}), stream AS MATERIALIZED (
+  SELECT a.assertion_id::text AS id,n.uid::text AS uid,a.operation,v.value,a.valid_from,a.valid_to,a.recorded_sequence
+  FROM target_assertions target CROSS JOIN LATERAL (
+   SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id
+    AND header.property=$2 AND header.language IS NOT DISTINCT FROM $3::text AND header.context_id=$4 OFFSET 0
+  ) a JOIN node n ON n.id=a.assertion_id
+  LEFT JOIN "${assertionValueTableName(input.kind,input.sort,input.property)}" v ON v.assertion_id=a.assertion_id
+  WHERE EXISTS(SELECT 1 FROM edge source WHERE source.from_node=a.assertion_id
+   AND source.entity_id=(SELECT id FROM entity WHERE name='system.assertion-source')
+   AND source.to_node=(SELECT id FROM node WHERE uid=$5::uuid))
+ ), current AS (
+  SELECT * FROM stream WHERE valid_from<=coalesce($6::timestamptz,statement_timestamp())
+   AND (valid_to IS NULL OR valid_to>coalesce($6::timestamptz,statement_timestamp())) ORDER BY recorded_sequence DESC LIMIT 1
+ ) SELECT current.*,(current.valid_to IS NOT DISTINCT FROM $7::timestamptz AND NOT EXISTS (
+  SELECT 1 FROM stream later WHERE later.recorded_sequence>current.recorded_sequence
+   AND ($7::timestamptz IS NULL OR later.valid_from<$7::timestamptz)
+   AND (later.valid_to IS NULL OR later.valid_to>coalesce($6::timestamptz,statement_timestamp()))
+ )) AS "unchangedScope" FROM current`,[input.subjectId,input.property,input.language??null,context,binding.sourceUid,input.validFrom??null,input.validTo??null])).rows[0];
+ const priorValue=field.type==='timestamp'&&current?.value!==null&&current?.value!==undefined?new Date(String(current.value)).toISOString():current?.value;
+ const nextValue=field.type==='timestamp'&&input.value!==null&&input.value!==undefined?new Date(String(input.value)).toISOString():input.value;
+ const repeat=input.operation==='assert'&&current?.operation==='assert'&&current.unchangedScope&&sameValue(priorValue,nextValue);
+ const uid=repeat?current.uid:newUid();
+ let made={nodeId:repeat?current.id:''};
+ if(!repeat){
  const assertionKindId=await entityId(executor,'system.assertion','node');
  const parameters:unknown[]=[uid,input.property,input.language??null,context,input.validFrom??null,input.validTo??null,input.operation];
  const parameter=(value:unknown,cast:string):string=>{parameters.push(value);return `$${parameters.length}${cast}`;};
@@ -242,7 +260,11 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
   CROSS JOIN (VALUES ${structuralEdges.join(',')}) identities(uid,kind,target) RETURNING id,uid
  ), attachment AS (${attachment} RETURNING assertion_id)
  , value_write AS (${valueWrite}${input.operation==='assert'?' RETURNING assertion_id':''}) SELECT assertion_id::text FROM header`,parameters);
- const made={nodeId:inserted.rows[0]!.assertion_id};
+ made={nodeId:inserted.rows[0]!.assertion_id};
+ }else{
+  await putEdge(executor,'system.assertion-operation',made.nodeId,await uidNode(executor,binding.operationUid),'',context);
+  if(binding.unitUid!==undefined)await putEdge(executor,'system.assertion-unit',made.nodeId,await uidNode(executor,binding.unitUid),'',context);
+ }
  for(const [index,evidence] of (input.evidence??[]).entries()){
    const locator=evidence.locator??{};
    validateEvidenceLocator(locator);
@@ -310,13 +332,11 @@ export async function removeEntity(executor:SqlExecutor,declared:GraphContract,d
  const retire=async(kindName:string,id:string,visited:Set<string>):Promise<void>=>{
   if(visited.has(id))return;visited.add(id);
   for(const childKind of contract.vertex)for(const role of childKind.keyEdges??[]){
-   await refreshWriteSemantics(executor);
-   const children=(await executor.query<{id:string}>(`SELECT child.id::text AS id FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node child ON child.id=e.${role.direction==='from'?'from':'to'}_node JOIN entity ck ON ck.id=child.entity_id WHERE ek.name=$1 AND e.${role.direction==='from'?'to':'from'}_node=$2::bigint AND ck.name=$3 AND graph_edge_active(e.id,ek.name,$4::bigint) AND graph_vertex_active(child.id,ck.name,$4::bigint)`,[role.edge,id,childKind.name,context])).rows;
+    const children=(await executor.query<{id:string}>(`SELECT child.id::text AS id FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node child ON child.id=e.${role.direction==='from'?'from':'to'}_node JOIN entity ck ON ck.id=child.entity_id WHERE ek.name=$1 AND e.${role.direction==='from'?'to':'from'}_node=$2::bigint AND ck.name=$3 AND graph_edge_active(e.id,ek.name,$4::bigint) AND graph_vertex_active(child.id,ck.name,$4::bigint)`,[role.edge,id,childKind.name,context])).rows;
    if(children.length&&role.onDelete==='restrict')throw new Error(`${WHERE}:199: PARENT_DELETE_RESTRICTED ${childKind.name}.${role.role}`);
    for(const child of children)await retire(childKind.name,child.id,visited);
   }
   permitted(requireWriteCapability(executor),kindName,'$exists',true);
-  await refreshWriteSemantics(executor);
   const incident=(await executor.query<{id:string;kind:string}>(`SELECT e.id::text AS id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id WHERE (e.from_node=$1::bigint OR e.to_node=$1::bigint) AND graph_edge_active(e.id,k.name,$2::bigint)`,[id,context])).rows;
   for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context);
   const retiredKind=contract.vertex.find(vertex=>vertex.name===kindName)!;

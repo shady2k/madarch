@@ -10,7 +10,6 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { activateGraphProducer } from '../src/graph/producer-binding.js';
-import { installDisputeSelection, refreshDisputeSelection } from '../src/graph/disputes.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { MANIFEST_CONTRACT, MANIFEST_RELATION_EDGE, withManifestContract } from '../src/graph/manifest-contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
@@ -43,7 +42,7 @@ test('upgrades a populated catalogue without resetting authored history and pres
     await prepareStore(first, { contract: before });
     const binding = await testHostBinding(first, before, 'manifest');
     await first.transaction('write', async (tx) => {
-      await installDisputeSelection(tx, before);
+
       const capability = await activateGraphProducer(tx, before, binding);
       operationUid = capability.operationUid;
       const operation = await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid=$1::uuid', [operationUid]);
@@ -52,7 +51,7 @@ test('upgrades a populated catalogue without resetting authored history and pres
         kind: 'manifest.kind', key: { name: 'term' }, values: { declaration: savedDeclaration },
         producer: 'manifest', producerVersion: '1',
       }], removals: [] }, 1, { binding, author: 'manifest@1', words: 'Keep this declaration' });
-      await refreshDisputeSelection(tx, before);
+
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     });
     // Emulate the old build only after the populated write and its deferred triggers commit.
@@ -74,7 +73,7 @@ test('upgrades a populated catalogue without resetting authored history and pres
     expect(operations.map(row => row.values.words)).toEqual(['Keep this declaration']);
     const binding = await testHostBinding(upgraded, contract, 'manifest');
     await upgraded.transaction('write', async (tx) => {
-      await installDisputeSelection(tx, contract);
+
       await activateGraphProducer(tx, contract, binding);
       await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
         kind: MANIFEST_RELATION_EDGE,
@@ -83,7 +82,7 @@ test('upgrades a populated catalogue without resetting authored history and pres
         discriminator: 'related', values: { relation: 'related', declaration: JSON.stringify({ from: 'term', to: 'term' }) },
         producer: 'manifest', producerVersion: '1',
       }] }, 1, { binding });
-      await refreshDisputeSelection(tx, contract);
+
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     });
     // The same preparation used before a fill must retain the metadata contract and its rows.

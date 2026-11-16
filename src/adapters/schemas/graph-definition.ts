@@ -22,7 +22,7 @@ export const SCHEMA: readonly string[] = [
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     parent bigint REFERENCES context(id), ref text NOT NULL,
     parent_recorded_seq bigint,
-    CHECK ((parent IS NULL AND parent_recorded_seq IS NULL) OR (parent IS NOT NULL AND parent_recorded_seq IS NOT NULL)),
+    CHECK (parent_recorded_seq IS NULL OR (parent IS NOT NULL AND parent_recorded_seq >= 0)),
     CHECK (parent IS NULL OR parent <> id)
   )`,
   `CREATE OR REPLACE FUNCTION graph_context_pin() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
@@ -31,10 +31,11 @@ export const SCHEMA: readonly string[] = [
         RAISE EXCEPTION '${import.meta.path}:33: root context fence does not match its parent';
       END IF;
     ELSE
-      IF NEW.parent_recorded_seq IS NOT NULL THEN
+      IF NEW.parent_recorded_seq = -1 THEN
+        NEW.parent_recorded_seq := graph_next_recorded_sequence();
+      ELSIF NEW.parent_recorded_seq IS NOT NULL THEN
         RAISE EXCEPTION '${import.meta.path}:37: context fence is assigned by the database';
       END IF;
-      NEW.parent_recorded_seq := graph_next_recorded_sequence();
     END IF;
     RETURN NEW;
   END $$`,
@@ -106,7 +107,7 @@ export const SCHEMA: readonly string[] = [
       END IF;
       IF (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-source') <> 1
         OR (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-author') <> 1
-        OR (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-operation') <> 1 THEN
+        OR (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-operation') < 1 THEN
         RAISE EXCEPTION '${import.meta.path}:88: assertion requires source, author and operation edges';
       END IF;
       IF EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node JOIN entity tk ON tk.id=target.entity_id

@@ -21,10 +21,9 @@ import { productEntityOf } from '../product/manifest.js';
 import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { entityKindNames, assertionValueTableName, type FieldType } from '../graph/contract.js';
-import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
-import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './disputes.js';
+import { activeExistenceSql, loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
+import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './dispute-read.js';
 import { contextLayers } from './context.js';
-import { selectAssertions } from './assertion-selection.js';
 import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
 import { withAssertionContract } from './system-contract.js';
@@ -236,7 +235,6 @@ export class ReadContext {
   private readonly recordedAt: string;
   private contexts: readonly number[];
   private layersReady: Promise<void> | undefined;
-  private resolutionAssertionIds: readonly string[] = [];
   private disputeSlots: readonly DisputeSlot[] = [];
   private contextRecordedThrough: Readonly<Record<number, string | null>> = {};
   private static readonly scopes = new WeakMap<object, ReadContext>();
@@ -418,19 +416,20 @@ export class ReadContext {
     this.disputeSlots = await listDisputeSlots(this.tx, withAssertionContract(withManifestContract(graphContractOf(this.manifest))), {
       validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough,
     });
-    this.resolutionAssertionIds = this.disputeSlots.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
   }
 
   private active(sort: 'vertex' | 'edge', alias: string): string {
     const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
     const structural = contract.edge.filter((kind) => kind.capability === 'system').map((kind) => kind.name);
-    return activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds }, sort === 'edge' ? structural : []);
+    return activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough }, sort === 'edge' ? structural : []);
   }
 
   private selection(rows: readonly StoredAssertion[]) {
-    const selection = selectAssertions(rows, { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
-    const resolved = selection.candidates.find(row => this.resolutionAssertionIds.includes(row.id));
-    return resolved === undefined ? selection : { ...selection, selected: resolved, contested: false };
+    const selected = rows.find(row => row.selected) ?? null;
+    const candidates = rows.filter(row => row.active);
+    const ids = new Set(rows.map(row => row.id));
+    const contested = this.disputeSlots.some(slot => slot.dispute.state === 'OPEN' && slot.rows.some(row => ids.has(row.id)));
+    return { selected, candidates, contested };
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {
@@ -542,6 +541,8 @@ export class ReadContext {
       selected, question: includeQuestion ? await this.assertionQuestion(row, lang) : null };
   }
 
+  private readonly resolutionAssertions = new Map<string, Promise<StoredAssertion | null>>();
+
   private async assertionQuestion(row: StoredAssertion, lang: string | undefined): Promise<unknown> {
     const slot = this.disputeSlots.find(slot => slot.rows.some(candidate => candidate.id === row.id));
     if (slot === undefined) return null;
@@ -549,7 +550,12 @@ export class ReadContext {
     const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
     const selectors = { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough };
     const resolution = async (uid: string) => {
-      const assertion = await loadResolutionAssertion(this.tx, contract, uid, slot.rows, selectors);
+      let pending = this.resolutionAssertions.get(uid);
+      if (pending === undefined) {
+        pending = loadResolutionAssertion(this.tx, contract, uid, slot.rows, selectors);
+        this.resolutionAssertions.set(uid, pending);
+      }
+      const assertion = await pending;
       if (assertion === null) throw new Error(`${import.meta.path}:1: dispute resolution ${uid} has no visible assertion lineage`);
       return await this.assertionValue(assertion, uid === dispute.resolution, lang, false);
     };
@@ -581,7 +587,7 @@ export class ReadContext {
     this.fieldQueue = undefined;
     this.fieldFlush = undefined;
     if (queue === undefined) return;
-    for (const [kind, nodes] of queue) {
+    const requests = [...queue].map(([kind, nodes]) => {
       const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: StoredAssertion[] }>();
       const declared = this.kindByType.get(typeNameOf(kind));
       if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
@@ -592,7 +598,11 @@ export class ReadContext {
         // A node fetched again keeps every column it was fetched with: the statement replaces its rows.
         for (const column of held?.columns ?? []) wanted.add(column);
       }
-      const rows = await loadAssertions(this.tx, 'vertex', kind, [...wanted], [...nodes.keys()].map(Number));
+      return { kind, nodes, cache, wanted };
+    });
+    const batches = await loadAssertionsBatch(this.tx, requests.map(({ kind, nodes, wanted }) => ({ sort: 'vertex', kind, properties: [...wanted], subjectIds: [...nodes.keys()].map(Number) })), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
+    for (const [index, { kind, nodes, cache, wanted }] of requests.entries()) {
+      const rows = batches[index]!;
       const byId = new Map<string, StoredAssertion[]>();
       for (const id of nodes.keys()) byId.set(id, []);
       for (const row of rows) byId.get(String(row.subjectId))?.push(row);
@@ -726,9 +736,10 @@ export class ReadContext {
       WHERE layer = nearest AND valid_from <= ${validAt} AND (valid_to IS NULL OR valid_to > ${validAt})
       ORDER BY source, language, recorded_sequence DESC, uid::text COLLATE "C" DESC
     ), candidates AS (
-      SELECT * FROM streams WHERE operation = 'assert'
+      SELECT DISTINCT ON (language) * FROM streams WHERE operation = 'assert'
+      ORDER BY language,valid_from DESC,recorded_sequence DESC,uid::text COLLATE "C" DESC
     ) SELECT value FROM candidates WHERE language_rank = (SELECT min(language_rank) FROM candidates)
-      ORDER BY (uid = ANY(${sql.param(this.resolutionAssertionIds, '::uuid[]')})) DESC, valid_from DESC, recorded_sequence DESC, uid::text COLLATE "C" DESC LIMIT 1)`;
+      ORDER BY valid_from DESC, recorded_sequence DESC, uid::text COLLATE "C" DESC LIMIT 1)`;
   }
 
   /** The operators a `<Edge>EdgeWhere` gives one attribute. */
@@ -763,7 +774,7 @@ export class ReadContext {
   /** The assertions of a batch of edges, one statement for all of them. */
   private async fetchEdgeAssertions(edge: PublishedEdge, ids: readonly string[]): Promise<Map<string, StoredAssertion[]>> {
     const out = new Map<string, StoredAssertion[]>();
-    const rows = await loadAssertions(this.tx, 'edge', edge.name, ['$exists', ...edge.fields.map((field) => field.name)], ids.map(Number));
+    const rows = await loadAssertions(this.tx, 'edge', edge.name, ['$exists', ...edge.fields.map((field) => field.name)], ids.map(Number), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
     for (const row of rows) {
       const id = String(row.subjectId);
       const list = out.get(id) ?? [];
@@ -1542,7 +1553,7 @@ export class ReadContext {
       const identities = await this.tx.query<Record<string, unknown>>(
         `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name
          FROM node n JOIN entity e ON e.id=n.entity_id WHERE e.name=$1 AND ${this.active('vertex', 'n')}`, [kind]);
-      const assertions = await loadAssertions(this.tx, 'vertex', kind, ['declaration'], identities.rows.map((row) => Number(row['node_id'])));
+      const assertions = await loadAssertions(this.tx, 'vertex', kind, ['declaration'], identities.rows.map((row) => Number(row['node_id'])), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
       return { rows: identities.rows.map((row): Record<string, unknown> => {
         const value = this.selection(assertions.filter((one) => one.subjectId === Number(row['node_id']))).selected?.value;
         return { ...row, declaration: value === undefined ? undefined : JSON.parse(String(value)) };

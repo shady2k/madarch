@@ -1,14 +1,14 @@
 # Atomic graph storage cutover
 
 Change: madarch-64o5.74
-Base: f438fd54a15b664d97e502f8de50e6118a7fcf9b
+Base: 46de49f39b3a622a92dcf2f8cd3e0a357338821b
 Tasks: madarch-64o5.74, madarch-64o5.141
 Kind: behavior
 
 ## Intent
 Replace the old graph storage and every dependent reader in one atomic cutover against origin/foundation/madarch-64o5.141. The base supplies reusable value types, the catalogue changes and additive assertion prerequisites. Decision 0039 governs references as edges, parent-edge identity, typed per-source assertions, lineage, valid and recorded time, and value-pinned disputes and resolutions. There is no supported intermediate storage shape, retired API alias or wide-row read projection.
 
-This change is work in progress and unaccepted. The working tree contains the whole cutover; neither this record nor earlier targeted checks establish final acceptance. The proposed graph-storage capability file currently describes endpoint checks only and does not yet specify the whole acceptance surface below.
+This change is work in progress and unaccepted. The working tree contains the whole cutover; neither this record nor earlier targeted checks establish final acceptance. The proposed graph-storage capability specifies endpoint checks, item-25 assertion selection, writer-owned judgements and the two-query page budget. Whole-cutover acceptance still includes the remaining surface below.
 
 ## Out of scope
 - Migration of existing product data: current products are refilled after the cutover, rather than migrated from retired storage.
@@ -22,6 +22,9 @@ None.
 
 ## Coverage
 - graph-storage/edge-endpoints: test, mutation
+- graph-storage/assertion-selection: static, test, mutation, review
+- graph-storage/writer-judgements: static, test, mutation, review
+- graph-storage/page-query-budget: static, test, mutation, review
 
 ## Where it is seen
 Kind: request
@@ -42,7 +45,7 @@ The remaining issues are implementation and validation blockers under the record
 - Every writer door requires a real opaque, host-issued ProducerBinding, not structural WriteSource principal metadata or a serialized copy. Its retained principal, source, product, context, contract, action and graph scope constrain admission. Descriptive producer scope is separate from the permission scope; activation must not silently widen either.
 - Scalar keys are typed assertions with ordinary source, author, evidence, operation and mention ownership. Immutable identity requires those values to agree with the canonical birth tuple; a changed key creates a new identity. node.key is not a fallback source of facts. Any identity lookup projection must be checked and rebuildable from statements.
 - Assertions retain typed values, source streams, valid intervals, recorded sequence and context-parent cutoffs. Readers select the same current values and relations; disagreement does not by itself replace the displayed value with null. Semantic resolution pins survive repeated equal observations but not changed values, scope or invalid justification.
-- SQL admission and deferred constraints use the canonical selected-existence projection, carried in a transaction-local PostgreSQL setting (GUC). Its transaction identity, graph revision, temporal selectors and context coverage must match; it is a rebuildable projection, not a second durable fact store or a stale-cache fallback. Scalar false values and missing required relations must be enforced by final constraints, not only hidden by a reader.
+- SQL admission and deferred constraints select existence directly from typed assertions under item 25, including recursive parent cutoffs. There is no dispute-selection projection or refresh API. Scalar false values and missing required relations are enforced by final constraints, not only hidden by a reader.
 - The catalogue and shipped producers publish relations as edges; replacement readers traverse those edges. Mentions use the declared token grammar and assertion-owned occurrences; plain names return hints, not guessed edges.
 - The root lockfile's 591 resolved dependency URLs were normalized to the public registry under the owner's 2026-11-16 rule. This does not authorize dependency-version changes or private registry references.
 - Test bounds are not raised to make this cutover pass. The new bounded 100-entry metadata regression must demonstrate that metadata queries remain bounded rather than conceal work behind a larger timeout.
@@ -77,3 +80,14 @@ The following results belong to the earlier endpoint-only increment, not the pre
 - Four bounded manual mutations disabled the declared-kind, uid-kind, context and removed-end guards individually; each failed the endpoint suite and was restored.
 
 These historical results must not be reused as current acceptance receipts. Full backend suites, full-cutover mutation evidence and final stage acceptance were not established by that endpoint increment.
+
+
+### ALX-39 binding amendment follow-up (2026-11-16)
+
+Implementation base: `b067470173d85f56f0e2b6a2f3a78524865ae822`. The main-line Base header names the revision on the target history for the document gate; it is not the implementation diff base.
+
+Resolutions are ordinary typed assertions from a stable source per principal, separate from ordinary edits. Writer reconciliation appends retractions and question-state assertions. Invalid or revoked justification closes the whole resolution scope. Merely stale evidence leaves the resolution active and appends a problem linked to its explanation. No judgement table, stored selection pointer or answer cache is permitted. Evidence display does not decide whether a resolution stands.
+
+Read selection uses recursive context cutoffs, the nearest layer, per-stream newest recorded assertion and newest valid start/sequence in SQL. Equal observations retain their assertion header and append operation, unit and evidence lineage. Pinned children retain their snapshot; unpinned children follow parent writes and reconcile their persisted question state when affected.
+
+Final ALX-39 implementation and validation are reported in `/work/reports/ALX-39.md` and its bundle hand-in; acceptance remains the coordinator’s stage decision. This record does not close the parent atomic cutover task or claim acceptance of unrelated integration failures.
