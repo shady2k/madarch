@@ -1724,10 +1724,34 @@ function presentationProtocolLiteral(module: GateModule, node: Node, modules: Ma
   return false;
 }
 
+/** A refusal's own-property guard names a member of the server's exported response contract. */
+function graphRefusalGuardLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
+  if (module.file !== 'wiki/app/src/graph-refusal.ts') return false;
+  const parents = enclosing(module, node), call = parents[0];
+  const callee = call?.['callee'] as Node | undefined;
+  if (call?.['type'] !== 'CallExpression' || callee?.['type'] !== 'MemberExpression'
+    || !named(callee['object'], 'Object') || !named(callee['property'], 'hasOwn')) return false;
+  const args = call['arguments'] as { expression: Node }[];
+  if (args[1]?.expression !== node || !named(args[0]?.expression, 'body')) return false;
+  const fn = parents.find(entry => entry['type'] === 'FunctionDeclaration' && named(entry['identifier'], 'graphRefusalMessage'));
+  const branch = parents.find(entry => entry['type'] === 'IfStatement');
+  const authority = modules.get('src/graph/validation.ts');
+  const contract = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsInterfaceDeclaration'
+    && named(entry['id'], 'GraphRefusalBody') && enclosing(authority, entry).some(owner => owner['type'] === 'ExportDeclaration'));
+  if (fn === undefined || branch === undefined || contract === undefined
+    || !nodesOf(contract).some(entry => entry['type'] === 'TsPropertySignature' && named(entry['key'], stringValue(node) ?? ''))) return false;
+  const test = branch['test'] as Node;
+  return nodesOf(test).some(entry => entry['type'] === 'BinaryExpression' && entry['operator'] === '!=='
+    && stringValue(entry['right'] as Node) === 'SCHEMA_INVALID' && (entry['left'] as Node)?.['type'] === 'MemberExpression'
+    && named((entry['left'] as Node)['object'], 'body')
+    && ((entry['left'] as Node)['property'] as Node)?.['type'] === 'Computed'
+    && stringValue((((entry['left'] as Node)['property']) as Node)['expression'] as Node) === 'code');
+}
+
 function externalProtocolLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const value = stringValue(node);
   if (value === undefined) return false;
-  if (presentationProtocolLiteral(module, node, modules) || operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
+  if (graphRefusalGuardLiteral(module, node, modules) || presentationProtocolLiteral(module, node, modules) || operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
   const ancestors = enclosing(module, node);
   // Only the response predicate's property test, not arbitrary strings inside the predicate, has a wire role.
   if (module.file === 'src/plugin/wire.ts') {

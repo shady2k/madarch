@@ -107,6 +107,7 @@ import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { personBinding, personOperationBinding, agentBinding } from '../graph/system-installation.js';
 import { authoredEntity } from '../graph/authored.js';
+import type { GraphContract } from '../graph/contract.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../graph/manifest-publication.js';
@@ -684,6 +685,18 @@ export class KnowledgeProduct {
   async resolveDispute(source: WriteSource, input: ResolveDisputeInput, operationKey: string, resolver: ProducerBinding): Promise<{ kind: string; uid?: string; written?: number }> {
     if (typeof operationKey !== 'string' || operationKey.length === 0) throw new WriteRefusal('operationKey must be nonempty text', 'operationKey');
     return await executeManualOperation(await this.open(), { ...source, operationId: operationKey }, { kind: 'resolve-dispute', input }, resolver);
+  }
+
+  /** The published catalogue used to advertise and parse graph requests. */
+  async requestContract(): Promise<GraphContract> {
+    return await withSpan('graph.request-contract', {}, async () => {
+      const owner = await this.open();
+      return await owner.transaction('snapshot', async tx => {
+        const manifest = await readPublishedManifest(tx);
+        if (manifest === undefined) throw new WriteRefusal('the graph holds no published catalogue', 'kind', 409);
+        return writeContractOf(manifest);
+      });
+    });
   }
 
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */

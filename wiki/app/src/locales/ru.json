@@ -12,6 +12,9 @@
     "zoomOutSymbol": "−",
     "closeSymbol": "×"
   },
+  "graphRefusal": {
+    "schemaInvalid": "Недопустимое значение в {{path}}: ожидалось {{expected}}, получено {{actual}}."
+  },
   "kinds": {
     "name": "Вид",
     "count": "Сущностей"

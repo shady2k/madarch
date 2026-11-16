@@ -17,7 +17,8 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 import { putEdgeAssertion as putEdgeIn, putEntityAssertion as putEntityIn, retractAssertion as retractIn, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
-import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
+import { agentSource, callProductTool, productTools } from '../src/mcp/authored.js';
+import { GraphRefusal } from '../src/graph/validation.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -259,12 +260,12 @@ describe('the agent writes the graph', () => {
 
   test('an unknown field is refused naming it, and evidence is required', async () => {
     const unknown = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'r1' }, values: { nope: 1 }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] }).catch((error: unknown) => error);
-    expect(unknown).toBeInstanceOf(WriteRefusal);
-    expect((unknown as WriteRefusal).message).toContain('"nope"');
-    expect((unknown as WriteRefusal).field).toBe('nope');
+    expect(unknown).toBeInstanceOf(GraphRefusal);
+    expect((unknown as GraphRefusal).path).toBe('/values/nope');
+    expect((unknown as GraphRefusal).actual).toBe(1);
     const noEvidence = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'x' }, evidence: [] }).catch((error: unknown) => error);
-    expect(noEvidence).toBeInstanceOf(WriteRefusal);
-    expect((noEvidence as WriteRefusal).message).toContain('graph target is required');
+    expect(noEvidence).toBeInstanceOf(GraphRefusal);
+    expect((noEvidence as GraphRefusal).path).toBe('/evidence');
   });
   test('the MCP client name and the session become the producer, and initialize reports the client', async () => {
     expect(agentSource('Claude Code', 'session-9')).toEqual({ producer: 'agent:Claude-Code', version: 'session-9' });
@@ -283,6 +284,7 @@ describe('the agent writes the graph', () => {
     let seen: WriteSource | undefined;
     let seenBinding: unknown;
     const stub = {
+      requestContract: async () => contract,
       putEntity: async (source: WriteSource, _input: unknown, options: { hostBinding: unknown }) => { seen = source; seenBinding = options.hostBinding; return { kind: 'doc.term', uid: 'uid-1' }; },
     } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
     const answer = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] }, grant);
@@ -291,10 +293,10 @@ describe('the agent writes the graph', () => {
     expect(seenBinding).toBe(grant);
     const refused = await callProductTool(stub, agentSource('codex', 's1'), 'write_anything', {});
     expect(refused.isError).toBe(true);
-    expect((refused.answer as Record<string, any>).error.message).toContain('is no tool');
+    expect((refused.answer as Record<string, any>).error).toMatchObject({ code: 'SCHEMA_INVALID', path: '/tool', actual: 'write_anything' });
   });
   test('one product session serves the schema, the query and the writes', async () => {
-    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'render_diagram', 'graph_resolve_dispute', 'put_entity', 'put_edge', 'retract']);
+    expect(productTools(contract).map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'render_diagram', 'put_entity', 'put_edge', 'retract', 'graph_resolve_dispute']);
     const stub = {
       graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
       graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),
@@ -347,14 +349,14 @@ describe('the agent writes the graph', () => {
       kind: 'demo.contains', from: { kind: 'demo.file', key: fileKey, keyEdges: fileParents }, to: { kind: 'demo.repository', key: repositoryKey },
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     }).catch((error: unknown) => error);
-    expect(reversed).toBeInstanceOf(WriteRefusal);
-    expect((reversed as WriteRefusal).message).toContain('the from of the edge');
+    expect(reversed).toBeInstanceOf(GraphRefusal);
+    expect((reversed as GraphRefusal).path).toBe('/from');
     const nullAttribute = await putEdgeAssertion(owner, agent, {
       kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey, keyEdges: fileParents },
       values: { weight: null }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     }).catch((error: unknown) => error);
-    expect(nullAttribute).toBeInstanceOf(WriteRefusal);
-    expect((nullAttribute as WriteRefusal).message).toContain('not nullable');
+    expect(nullAttribute).toBeInstanceOf(GraphRefusal);
+    expect((nullAttribute as GraphRefusal).path).toBe('/values/weight');
     const sized = await putEdgeAssertion(owner, agent, {
       kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey, keyEdges: fileParents },
       values: { weight: 3 }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
@@ -477,19 +479,19 @@ describe('the agent writes the graph', () => {
   });
 
   test('an unknown tool argument and non-text words are refused at the tool boundary', async () => {
-    const stub = { putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
+    const stub = { requestContract: async () => contract, putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
     const unknown = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], valuess: 1 });
     expect(unknown.isError).toBe(true);
-    expect((unknown.answer as Record<string, any>).error.message).toContain('valuess');
-    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], words: ['x'] });
+    expect((unknown.answer as Record<string, any>).error.path).toBe('/valuess');
+    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'x' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } } }], words: ['x'] });
     expect(words.isError).toBe(true);
-    expect((words.answer as Record<string, any>).error.message).toContain('words');
+    expect((words.answer as Record<string, any>).error.path).toBe('/words');
     const preconditions = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', {
-      kind: 'doc.term', values: {}, evidence: [],
+      kind: 'doc.term', values: { title: 'Valid title' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } } }],
       preconditions: [{ uid: '019a0000-0000-7000-8000-000000000001', recordedSequence: '1', extra: true }],
     });
     expect(preconditions.isError).toBe(true);
-    expect((preconditions.answer as Record<string, any>).error.field).toBe('preconditions');
+    expect((preconditions.answer as Record<string, any>).error.path).toBe('/preconditions/0/extra');
   });
   test('two mentions of one entity stay apart by their places, and a retraction closes one', async () => {
     const term = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Occurrences' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] });

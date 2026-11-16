@@ -23,10 +23,12 @@ import { readKindAssertions } from './records.js';
 import { newUid } from './uid.js';
 import { scanMentionHints, type MentionCandidate, type MentionHint } from './mentions.js';
 import type { OuterTransaction } from '../history-types.js';
+import { fits, GraphRefusal } from './validation.js';
+import { catalogueRequests, parseRequest } from './door-contract.js';
 
 /** A refused write: the tool answers its message, naming the field when one is at fault. */
-export class WriteRefusal extends Error {
-  constructor(message: string, readonly field?: string, readonly status = 400) { super(`${import.meta.path}:1: ${message}`); }
+export class WriteRefusal extends GraphRefusal {
+  constructor(message: string, readonly field?: string, readonly status = 400) { super(field === undefined ? '' : `/${field.replaceAll('~', '~0').replaceAll('/', '~1')}`, message, null); }
 }
 
 /** Display metadata and transport request identity. Authority is a separate host-issued binding. */
@@ -98,18 +100,6 @@ export function evidenceOf(input: unknown): EvidenceEntry[] {
     if(entry.locator!==undefined)try{validateEvidenceLocator(entry.locator);}catch(error){throw new WriteRefusal(`${where}.locator: ${error instanceof Error?error.message:String(error)}`,where);}
     return entry;
   });
-}
-
-/** Whether a value is what the field's declared type states. */
-function fits(field: FieldContract, value: unknown): boolean {
-  switch (field.type) {
-    case 'text': return typeof value === 'string';
-    case 'integer': return typeof value === 'number' && Number.isInteger(value);
-    case 'bigint': return (typeof value === 'number' && Number.isSafeInteger(value)) || (typeof value === 'string' && value.length > 0 && [...(value.startsWith('-') ? value.slice(1) : value)].every(char => char >= '0' && char <= '9') && value !== '-');
-    case 'boolean': return typeof value === 'boolean';
-    case 'timestamp': return typeof value === 'string' && !Number.isNaN(Date.parse(value));
-    case 'json': return value !== undefined;
-  }
 }
 
 /** The word a field's type goes by in a refusal. */
@@ -305,6 +295,7 @@ export async function putEntityAssertion(tx: OuterTransaction, source: WriteSour
     const manifest = await manifestOf(tx);
     if (!manifest.kinds.has(input.kind)) throw new WriteRefusal(`kind ${JSON.stringify(input.kind)}: the published manifest declares no such kind`, 'kind');
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).put_entity, input);
     const vertex = vertexOfKind(contract, input.kind);
     let key: Record<string, unknown>;
     let writeUid: string | undefined;
@@ -370,6 +361,7 @@ export async function putEdgeAssertion(tx: OuterTransaction, source: WriteSource
   const evidence = evidenceOf(input.evidence);
     const manifest = await manifestOf(tx);
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).put_edge, input);
     const edge = contract.edge.find((one) => one.name === input.kind);
     if (edge === undefined) throw new WriteRefusal(`edge kind ${JSON.stringify(input.kind)}: the graph holds no table for it`, 'kind');
     const from = await edgeEndOf(tx, contract, 'from', input.from);
@@ -385,6 +377,7 @@ export async function retractAssertion(tx: OuterTransaction, source: WriteSource
   const evidence = evidenceOf(input.evidence);
     const manifest = await manifestOf(tx);
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).retract, input);
     if ((input.entity === undefined) === (input.edge === undefined)) throw new WriteRefusal('retract names either an entity or an edge, and one of them', 'entity');
     const author = `${source.producer}@${source.version}`;
     if (input.entity !== undefined) {

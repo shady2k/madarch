@@ -12,6 +12,9 @@
     "zoomOutSymbol": "−",
     "closeSymbol": "×"
   },
+  "graphRefusal": {
+    "schemaInvalid": "Invalid value at {{path}}: expected {{expected}}, got {{actual}}."
+  },
   "kinds": {
     "name": "Kind",
     "count": "Entities"

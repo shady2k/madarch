@@ -85,7 +85,7 @@ test('POST /graphql refuses a query deeper than six levels', async () => {
 test('POST /graphql refuses a body that is not an operation', async () => {
   const answer = await post({ nope: true });
   expect(answer.status).toBe(400);
-  expect(answer.body.error.field).toBe('query');
+  expect(answer.body.error).toMatchObject({ code: 'SCHEMA_INVALID', path: '/nope', actual: true, retryable: false });
 });
 
 /** A file of a folder tree, by its name. */

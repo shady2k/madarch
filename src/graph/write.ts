@@ -9,6 +9,7 @@ import {validateEvidenceLocator} from './evidence-locator.js';
 import { validateFieldValue,validateValueContracts } from './value-validation.js';
 import { scanMentions } from './mentions.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
+import { validateFields } from './validation.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
@@ -212,7 +213,7 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  return await withSpan('graph.publish',{},async()=>{
  const contract=withAssertionContract(declared);checkBinding(requireWriteCapability(executor),contract,context);
  const checkFields=(kind:{readonly name:string;readonly fields:readonly FieldContract[]},values:Readonly<Record<string,unknown>>):void=>{
-  for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name);if(!field)throw new Error(`${WHERE}:193: UNKNOWN_FIELD ${kind.name}.${name}`);validate(field,value);validateFieldValue(contract,field,value);}
+  validateFields(kind.fields,values,'/values');for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name)!;validate(field,value);validateFieldValue(contract,field,value);}
  };
  const checkRef=(ref:EntityRefDraft):void=>{const kind=contract.vertex.find(kind=>kind.name===ref.kind);if(!kind)throw new Error(`${WHERE}:196: UNKNOWN_KIND ${ref.kind}`);checkFields(kind,ref.key);for(const parent of Object.values(ref.keyEdges??{}))checkRef(parent);};
  for(const draft of drafts.vertices){checkRef(draft);checkFields(contract.vertex.find(kind=>kind.name===draft.kind)!,draft.values??{});}

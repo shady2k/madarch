@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
 import { i18n } from '../i18n.js';
 import { withSpan } from '../trace.js';
+import { graphRefusalMessage } from '../graph-refusal.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -480,6 +481,8 @@ export const offlineWords = (): string => i18n.t('connection.offline');
 function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
     const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
+    const refusal = graphRefusalMessage(held.error);
+    if (refusal !== undefined) return { message: refusal, code: 'SCHEMA_INVALID' };
     if (typeof held.error?.message === 'string') return { message: held.error.message, ...(typeof held.error.code === 'string' ? { code: held.error.code } : {}) };
     if (typeof held.message === 'string') return { message: held.message };
   }

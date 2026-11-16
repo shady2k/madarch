@@ -47,7 +47,7 @@ test('random authored identities preserve opinions, exact words and withdrawal h
 });
 
 test('fields reject missing, undeclared and incorrectly typed values without publishing', async () => {
-  for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'text'], [{ title: 'OK', count: 1.5 }, 'integer'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
+  for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'string'], [{ title: 'OK', count: 1.5 }, '/values/count'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
     await expect(call('create', { values })).rejects.toThrow(message);
   }
   await expect(owner.transaction('write', async (tx) => authoredEntity(tx, manifest, '', person, 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');

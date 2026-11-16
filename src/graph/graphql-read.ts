@@ -15,6 +15,8 @@ import { productEntityOf } from '../product/manifest.js';
  * derivation relations come from those vertices, the manifest's field vertices and real dependency edges.
  */
 import type { GraphQLFieldResolver } from 'graphql';
+import { z } from 'zod';
+import { fits, GraphRefusal } from './validation.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { assertionValueTableName, type FieldType } from '../graph/contract.js';
 import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
@@ -150,14 +152,29 @@ function encodeCursor(value: unknown): string {
 }
 
 function decodeCursor(value: string | null | undefined): unknown {
-  if (value === null || value === undefined || value === '') return undefined;
-  try { return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown; } catch { return undefined; }
+  if (value === null || value === undefined) return undefined;
+  try {
+    if (value === '' || [...value].some(char => !'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'.includes(char))) throw new Error();
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) throw new Error();
+    const cursor = decoded as Record<string, unknown>;
+    if (typeof cursor['id'] !== 'string' || cursor['id'] === '' || cursor['id'].startsWith('0') || [...cursor['id']].some(char => char < '0' || char > '9')) throw new Error();
+    const keys = Object.keys(cursor);
+    if (Array.isArray(cursor['o']) && keys.every(key => key === 'o' || key === 'id')) return cursor;
+    if (typeof cursor['relation'] === 'string' && keys.every(key => key === 'relation' || key === 'id')) return cursor;
+    throw new Error();
+  } catch { throw new GraphRefusal('/after', 'cursor returned by this connection', value); }
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number, path: string): number {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) throw new GraphRefusal(path, `integer from ${min} to ${max}`, value);
+  return value;
 }
 
 /** The page's size: 50 by default, at most 200. */
 function clampFirst(first: number | null | undefined): number {
-  if (first === null || first === undefined) return 50;
-  return Math.min(Math.max(0, Math.trunc(first)), 200);
+  return boundedInteger(first, 50, 0, 200, '/first');
 }
 
 /** Whether the source is one of the schema's entities. */
@@ -319,6 +336,17 @@ export class ReadContext {
 
   /** The GraphQL resolver of one field, over whatever the parent is. */
   readonly resolve: GraphQLFieldResolver<unknown, ReadContext> = async (source, args, _context, info) => await withSpan('graph.graphql.read', { 'graphql.field': info.fieldName }, async () => {
+    if (args['after'] !== undefined && args['after'] !== null) decodeCursor(args['after'] as string);
+    if (args['first'] !== undefined) clampFirst(args['first'] as number);
+    if (info.parentType.name === 'Query') {
+      if (args['id'] !== undefined && !z.uuid().safeParse(args['id']).success) throw new GraphRefusal('/id', 'entity UUID', args['id']);
+      for (const key of ['edge', 'through']) {
+        if (args[key] !== undefined && !this.published.edges.some(edge => edge.name === args[key])) throw new GraphRefusal(`/${key}`, 'declared edge kind', args[key]);
+      }
+      if (Array.isArray(args['kinds'])) for (const [at, name] of (args['kinds'] as unknown[]).entries()) {
+        if (!this.published.kinds.some(kind => kind.name === name || kindTypeNameOf(kind.name) === name)) throw new GraphRefusal(`/kinds/${at}`, 'declared kind', name);
+      }
+    }
     const scoped = source !== null && typeof source === 'object' ? ReadContext.scopes.get(source) : undefined;
     if (scoped !== undefined && scoped !== this) return await scoped.resolve(source, args, _context, info);
     let value: unknown;
@@ -797,7 +825,8 @@ export class ReadContext {
     const clauses: string[] = [];
     for (const [name, filter] of Object.entries(where)) {
       const attribute = edge.fields.find((field) => fieldNameOf(field.name) === name);
-      if (attribute === undefined || filter === null || typeof filter !== 'object') continue;
+      if (attribute === undefined) throw new GraphRefusal(`/where/${name}`, 'declared edge field', name);
+      if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) throw new GraphRefusal(`/where/${name}`, 'filter object', filter);
       const expr = this.edgeValueExpr(edge, attribute, sql, lang);
       for (const [operator, value] of Object.entries(filter as Record<string, unknown>)) {
         const clause = compareClause(expr, attribute.type, operator, value, sql);
@@ -812,7 +841,7 @@ export class ReadContext {
     const keys: { expr: string; column: string; rank: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] = [];
     for (const one of orderBy ?? []) {
       const field = edge.fields.find((held) => fieldNameOf(held.name) === one['field']);
-      if (field === undefined) continue;
+      if (field === undefined) throw new GraphRefusal('/orderBy/field', 'declared edge field', one['field']);
       const direction = one['direction'] === 'DESC' ? 'DESC' : 'ASC';
       const nulls = one['nulls'] === 'FIRST' ? 'FIRST' : 'LAST';
       keys.push({ expr: `"attr_${field.name}"`, column: `attr_${field.name}`, rank: `rows."attr_${field.name}" ${direction} NULLS ${nulls}`, direction, nulls, type: field.type });
@@ -1144,7 +1173,8 @@ export class ReadContext {
       if (field === 'related') return this.related(args, lang);
       if (field === 'catalogueEntity') {
         const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
-        return value === undefined ? null : this.catalogueEntityValue(value, lang);
+        if (value === undefined) throw new GraphRefusal('/name', 'declared catalogue kind', args['name']);
+        return this.catalogueEntityValue(value, lang);
       }
       if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
       if (field === 'home') return this.home(lang);
@@ -1298,7 +1328,7 @@ export class ReadContext {
   private async searchGroups(args: Record<string, unknown>, lang: string | undefined): Promise<unknown[]> {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
-    const perKind = Math.min(Math.max(1, Math.trunc(Number(args['perKind'] ?? 5))), 20);
+    const perKind = boundedInteger(args['perKind'], 5, 1, 20, '/perKind');
     const hits = await this.searchHits(text, wanted, lang, Math.max(perKind * 4, 40), true);
     const groups = new Map<string, { rows: Map<string, { hit: (typeof hits)[number]; best: number }> }>();
     for (const hit of hits) {
@@ -1498,10 +1528,11 @@ export class ReadContext {
     }
     const fieldName = typeof args['field'] === 'string' ? args['field'] : '';
     const field = this.fieldsByType.get(kindTypeNameOf(kind.name))?.get(fieldName);
-    if (field === undefined) return [];
+    if (field === undefined) throw new GraphRefusal('/field', `field of ${kind.name}`, fieldName);
+    if (name === 'histogram' && !['integer', 'bigint', 'timestamp'].includes(field.type)) throw new GraphRefusal('/field', 'numeric or timestamp field', fieldName);
     const filtered = this.aggregateSource(aggregate, field);
     if (name === 'groupBy') {
-      const limit = Math.min(Math.max(0, Math.trunc(Number(args['limit'] ?? 20))), 20);
+      const limit = boundedInteger(args['limit'], 20, 0, 20, '/limit');
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
         const statementSql = `WITH v AS (${filtered.sql}) SELECT to_jsonb(value) AS key, count(*)::int AS n FROM v
          GROUP BY value ORDER BY n DESC, value ASC NULLS LAST LIMIT ${String(limit)}`;
@@ -1513,9 +1544,9 @@ export class ReadContext {
       return found.rows.map((row) => ({ key: row.key, count: Number(row.n) }));
     }
     if (name === 'histogram') {
-      const bounds = Array.isArray(args['bounds'])
-        ? (args['bounds'] as unknown[]).map((one) => Number(one)).filter((one) => Number.isFinite(one)).sort((left, right) => left - right)
-        : [];
+      const supplied = args['bounds'];
+      if (!Array.isArray(supplied) || supplied.some((one, at) => typeof one !== 'number' || !Number.isFinite(one) || (at > 0 && one <= Number(supplied[at - 1])))) throw new GraphRefusal('/bounds', 'strictly increasing finite numeric bounds', supplied);
+      const bounds = supplied as number[];
       // A timestamp's histogram counts its age in days, so a bucket says how long ago; a number's counts the value.
       const measured = field.type === 'timestamp' ? 'EXTRACT(EPOCH FROM (now() - value)) / 86400' : 'value::numeric';
       const edges: (number | null)[] = [null, ...bounds, null];
@@ -1539,7 +1570,7 @@ export class ReadContext {
       return buckets.map((one, at) => ({ from: one.from, to: one.to, count: counted.get(at) ?? 0 }));
     }
     if (name === 'topN') {
-      const n = Math.min(Math.max(0, Math.trunc(Number(args['n'] ?? 10))), 50);
+      const n = boundedInteger(args['n'], 10, 0, 50, '/n');
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
         const statementSql = `WITH v AS (${filtered.sql}) SELECT node_id, value FROM v WHERE value IS NOT NULL
          ORDER BY value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`;
@@ -1638,7 +1669,7 @@ export class ReadContext {
       const uid = typeof args['id'] === 'string' ? args['id'] : '';
       const through = typeof args['through'] === 'string' ? args['through'] : '';
       const edge = typeof args['edge'] === 'string' ? args['edge'] : '';
-      const first = Math.min(Math.max(1, Math.trunc(Number(args['first'] ?? 20))), 50);
+      const first = boundedInteger(args['first'], 20, 1, 50, '/first');
       if (uid === '' || through === '' || edge === '') return [];
       const rows = await this.tx.query<Record<string, unknown>>(
         `WITH me AS (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}),
@@ -1673,7 +1704,7 @@ export class ReadContext {
     return await withSpan('graph.cochange.read', {}, async () => {
       const uid = typeof args['id'] === 'string' ? args['id'] : '';
       const edgeName = typeof args['edge'] === 'string' ? args['edge'] : '';
-      const first = Math.min(Math.max(0, Math.trunc(Number(args['first'] ?? 20))), 50);
+      const first = boundedInteger(args['first'], 20, 0, 50, '/first');
       if (uid === '' || edgeName === '') return [];
       const rows = await this.tx.query<Record<string, unknown>>(
         `WITH me AS (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}),
@@ -1923,7 +1954,8 @@ export class ReadContext {
     const clauses: string[] = [];
     for (const [name, filter] of Object.entries(where)) {
       const field = this.fieldsByType.get(type)?.get(name);
-      if (field === undefined || filter === null || typeof filter !== 'object') continue;
+      if (field === undefined) throw new GraphRefusal(`/where/${name}`, `field of ${kind.name}`, name);
+      if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) throw new GraphRefusal(`/where/${name}`, 'filter object', filter);
       const expr = this.fieldExpr(kind, field, alias, sql, lang);
       for (const [operator, value] of Object.entries(filter as Record<string, unknown>)) {
         const clause = compareClause(expr, field.type, operator, value, sql);
@@ -1939,7 +1971,7 @@ export class ReadContext {
     const keys: { at: number; expr: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] = [];
     for (const one of orderBy ?? []) {
       const field = this.fieldsByType.get(type)?.get(String(one['field']));
-      if (field === undefined) continue;
+      if (field === undefined) throw new GraphRefusal('/orderBy/field', `field of ${kind.name}`, one['field']);
       keys.push({ at: keys.length, expr: this.fieldExpr(kind, field, alias, sql, lang), direction: one['direction'] === 'DESC' ? 'DESC' : 'ASC', nulls: one['nulls'] === 'FIRST' ? 'FIRST' : 'LAST', type: field.type });
     }
     return { keys };
@@ -1952,7 +1984,9 @@ export class ReadContext {
    */
   private afterClause(keys: readonly { expr: string; direction: 'ASC' | 'DESC'; nulls?: 'FIRST' | 'LAST'; type: FieldType }[], after: string | null | undefined, sql: Sql, idExpr: string): string {
     const cursor = decodeCursor(after) as { o?: unknown[]; id?: string } | undefined;
-    if (cursor?.o === undefined || !Array.isArray(cursor.o) || cursor.id === undefined) return '';
+    if (cursor === undefined) return '';
+    if (!Array.isArray(cursor.o) || cursor.o.length !== keys.length) throw new GraphRefusal('/after', 'cursor matching the connection order', after);
+    for (const [at, key] of keys.entries()) if (cursor.o[at] !== null && !fits({ name: String(at), type: key.type }, cursor.o[at])) throw new GraphRefusal(`/after/o/${at}`, key.type, cursor.o[at]);
     const equals: string[] = [];
     const conditions: string[] = [];
     for (const [at, key] of keys.entries()) {

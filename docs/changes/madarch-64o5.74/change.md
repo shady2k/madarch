@@ -77,7 +77,7 @@ The following results belong to the earlier endpoint-only increment, not the pre
 These historical results must not be reused as current acceptance receipts. Full backend suites, full-cutover mutation evidence and final stage acceptance were not established by that endpoint increment.
 
 
-## Foundation integration, 2026-11-16
+### Foundation integration, 2026-11-16
 
 This checkpoint merges origin/main into eff3e64f5ba48bde791567101c7ec0d76917c5ab.
 Decision 0039 storage remains binding: typed assertions, parent-key edges, immediate checked operations, immutable blob evidence, graph orchestration and queue fencing/retry behavior. No stage acceptance is claimed.
