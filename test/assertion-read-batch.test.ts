@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import {createTestDatabaseOwner} from './test-database.js';
 import {bindTestWriteCapability} from './write-capability-fixture.js';
-import {publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
+import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
 import {pinContext} from '../src/graph/context.js';
 import {loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
@@ -56,6 +56,33 @@ test('SQL item 25 selects backdated corrections by recorded sequence and pins br
    expect(await selected([1])).toEqual([3]);
    expect(await selected([1],before)).toEqual([2]);
    expect(await selected([Number(branch)])).toEqual([2]);
+  });
+ } finally {await owner.close();}
+});
+
+
+test('unit replay filters source streams before newest selection and accepts several captured units',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
+ const units=['019a0000-0000-7000-8000-000000000011','019a0000-0000-7000-8000-000000000012','019a0000-0000-7000-8000-000000000013'];
+ let id=0;
+ try {
+  await owner.transaction('write',async tx=>{
+   const binding=await bindTestWriteCapability(tx,graph);
+   for(const unit of units)await bootstrapWriteIdentity(tx,'system.unit',unit,binding.productUid);
+   bindWriteCapability(tx,{...binding,unitUid:units[0]!});
+   await publishGraphDrafts(tx,graph,{vertices:[{kind:'typed',key:{name:'captured'},values:{amount:10},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'}],removals:[]});
+   id=Number((await tx.query<{id:number}>("SELECT id FROM node WHERE key->>'name'='captured'")).rows[0]!.id);
+   for(const [index,amount] of [[1,20],[2,30]] as const){
+    bindWriteCapability(tx,{...binding,unitUid:units[index]!});
+    await writeAssertion(tx,graph,{sort:'vertex',kind:'typed',subjectId:String(id),property:'amount',operation:'assert',value:amount,validFrom:'2020-01-01T00:00:00Z'});
+   }
+  });
+  await owner.run(async tx=>{
+   const values=async(unitUids:readonly string[])=>(await loadAssertions(tx,'vertex','typed',['amount'],[id],{unitUids})).filter(row=>row.selected).map(row=>row.value);
+   expect(await values([units[0]!])).toEqual([10]);
+   expect(await values(units.slice(0,2))).toEqual([20]);
+   expect(await values([units[1]!,units[0]!])).toEqual([20]);
+   expect(await values([])).toEqual([]);
   });
  } finally {await owner.close();}
 });
