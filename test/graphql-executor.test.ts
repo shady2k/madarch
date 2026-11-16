@@ -595,8 +595,30 @@ describe('the GraphQL executor', () => {
         {}, read, { parentType: { name: 'Undeclared' }, fieldName: 'label' } as never,
       );
     });
-    expect(label).toBe('Fallback');
+    // With no declared title or typed key field, stored key JSON is not a naming contract.
+    expect(label).toBe('missing');
     expect(counted.statements()).toBe(0);
+  });
+
+  test('a declared text key labels an entity from its canonical assertion, not stored key JSON', async () => {
+    const nodeId = await owner.transaction('snapshot', async (tx) => {
+      const found = await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid = $1::uuid', [repositoryId]);
+      return found.rows[0]!.id;
+    });
+    const declared: KindsManifest = manifest;
+    const kinds = new Map(declared.kinds);
+    kinds.set('demo.repository', { ...kinds.get('demo.repository')!, title: 'unpublished-title' });
+    const withoutTitle: KindsManifest = { ...declared, kinds };
+    const counted = countingOwner();
+    const label = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, withoutTitle, publishedManifestOf(withoutTitle), folder, 'en', 'fixture', readProductTemplates(folder));
+      return await read.resolve(
+        { nodeId, uid: repositoryId, kind: 'demo.repository', key: { name: 'Not the canonical name' }, typeName: 'DemoRepository' },
+        {}, read, { parentType: { name: 'DemoRepository' }, fieldName: 'label' } as never,
+      );
+    });
+    expect(label).toBe('r1');
+    expect(counted.statements()).toBe(1);
   });
 
   test('catalogue diagram labels use the translated catalogue title', async () => {
