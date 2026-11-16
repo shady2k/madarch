@@ -23,8 +23,14 @@ test('product preparation retains locked plugins before any fill starts', async 
           const now = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
           return await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'version', 'label', 'scope'], { validAt: now, recordedAt: now });
         });
-        expect(sources).toHaveLength(1);
-        expect(sources[0]!.values).toEqual({ installation: createHash('sha256').update(JSON.stringify(['plugin', 'fixture-reader', owner.location])).digest('hex'), version: '1.2.3', label: 'fixture-reader', scope: owner.location });
+        const installation = createHash('sha256').update(JSON.stringify(['plugin', 'fixture-reader', owner.location])).digest('hex');
+        const locked = sources.filter((source) => source.values['installation'] === installation);
+        expect(locked).toHaveLength(1);
+        expect(locked[0]!.values).toEqual({ installation, version: '1.2.3', label: 'fixture-reader', scope: owner.location });
+        const startup = sources.filter((source) => source.values['installation'] === JSON.stringify(['system-engine', 'system-installation']));
+        expect(startup).toHaveLength(1);
+        expect(sources).toHaveLength(locked.length + startup.length);
+        expect(startup[0]!.uid).not.toBe(locked[0]!.uid);
       } finally { await owner.close(); }
     });
   } finally { rmSync(root, { recursive: true, force: true }); }

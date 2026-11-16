@@ -395,7 +395,7 @@ export class KnowledgeProduct {
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.storeOpening ??= preparedOnly
-      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['fill-state', 'orchestrator'])
+      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['one-graph'])
       : createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
     const opening = this.storeOpening;
     try {

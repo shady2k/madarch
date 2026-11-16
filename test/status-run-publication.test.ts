@@ -81,8 +81,8 @@ test('pending and failed publication read persisted runs without opening the cat
     setManifestPublicationState(draft.folder, { status: 'published' });
     expect(await reader.status()).toMatchObject({ publication: 'done', fill: { run: { runId: 'new-run', spans: 0 } } });
     setManifestPublicationState(draft.folder, { status: 'pending' });
-    await owner.run(async (tx) => { await tx.query('DROP TABLE fill_run CASCADE'); });
-    await expect(reader.status()).rejects.toThrow('fill_run');
+    await owner.run(async (tx) => { await tx.query('DROP TABLE assertion CASCADE'); });
+    await expect(reader.status()).rejects.toThrow('assertion');
   } finally {
     await reader?.close();
     await owner?.close();
