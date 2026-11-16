@@ -152,10 +152,91 @@ test('deferred typed table validation rejects malformed direct SQL and permits c
 
 
 
-test('deferred endpoint validation rejects direct SQL deactivation of either live relation endpoint',async()=>{
+
+const wildcardEndpoints: GraphContract = {
+ vertex:['endpoint-from','endpoint-to'].map(name=>({name,table:generatedTableName(name,'vertex'),key:['name'],fields:[{name:'name',type:'text' as const}],capability:'fixture'})),
+ edge:[{name:'mentions',from:['any'],to:['any'],fields:[],repeats:false,capability:'fixture',cardinality:{from:'many',to:'many'},labels:{en:{out:'mentions',in:'mentioned by'},ru:{out:'mentions',in:'mentioned by'}}}],dictionary:[],
+};
+
+/** Insert an authenticated live edge without invoking writer endpoint validation. */
+async function insertWildcardEdgeSql(tx: import('../src/sql-driver.js').SqlExecutor, outside?: 'from' | 'to') {
+ const endpoints=(await tx.query<{kind:string;id:string}>(`SELECT k.name AS kind,n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id
+   WHERE k.name IN ('endpoint-from','endpoint-to') ORDER BY k.name`)).rows;
+ let from=endpoints.find(row=>row.kind==='endpoint-from')!.id;
+ let to=endpoints.find(row=>row.kind==='endpoint-to')!.id;
+ if(outside){
+  const entity=(await tx.query<{id:string}>(`INSERT INTO entity(name,sort) VALUES('fixture.undeclared','node') RETURNING id::text`)).rows[0]!.id;
+  const node=(await tx.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+    SELECT $1,$2,'{}'::jsonb,identity_scope,context_id FROM node WHERE id=$3 RETURNING id::text`,[entity,newUid(),from])).rows[0]!.id;
+  if(outside==='from')from=node;else to=node;
+ }
+ const edge=(await tx.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,context_id)
+   SELECT $1,id,$2,$3,1 FROM entity WHERE name='mentions' RETURNING id::text`,[newUid(),from,to])).rows[0]!.id;
+ const original=(await tx.query<{id:string}>(`SELECT a.assertion_id::text AS id FROM assertion a
+   JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=s.subject_edge_id
+   WHERE attachment.to_node=$1 AND a.property='$exists' ORDER BY a.recorded_sequence DESC LIMIT 1`,[endpoints.find(row=>row.kind==='endpoint-from')!.id])).rows[0]!.id;
+ const assertion=(await tx.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+   SELECT entity_id,$1,key,identity_scope,context_id FROM node WHERE id=$2 RETURNING id::text`,[newUid(),original])).rows[0]!.id;
+ await tx.query(`INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
+   SELECT $1,property,language,context_id,valid_from,valid_to,operation FROM assertion WHERE assertion_id=$2`,[assertion,original]);
+ // Preserve the source, author and operation edges; replace only the subject attachment.
+ const lineage=(await tx.query<{entity_id:string;to_node:string;discriminator:string;context_id:number}>(`SELECT e.entity_id,e.to_node,e.discriminator,e.context_id
+   FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=$1 AND k.name<>'system.assertion-subject'`,[original])).rows;
+ for(const binding of lineage)await tx.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+   VALUES($1,$2,$3,$4,$5,$6)`,[newUid(),binding.entity_id,assertion,binding.to_node,binding.discriminator,binding.context_id]);
+ await tx.query(`INSERT INTO assertion_edge_subject(assertion_id,edge_id) VALUES($1,$2)`,[assertion,edge]);
+ await tx.query(`INSERT INTO "${assertionValueTableName('mentions','edge','$exists')}"(assertion_id,value) VALUES($1,true)`,[assertion]);
+ expect((await tx.query(`SELECT id FROM graph_edge_active_ids('mentions',1) active(id) WHERE id=$1`,[edge])).rows).toHaveLength(1);
+ return {edge,from,to};
+}
+
+async function seedWildcardEndpoints(owner: Awaited<ReturnType<typeof createTestDatabaseOwner>>) {
+ await owner.transaction('write',tx=>publishGraphDrafts(tx,wildcardEndpoints,{
+  vertices:['endpoint-from','endpoint-to'].map(kind=>({kind,key:{name:kind},producer:'fixture',producerVersion:'1'})),removals:[],
+ }));
+}
+
+test('ALX-65: deferred validation accepts a live wildcard mentions edge inserted through direct SQL',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:wildcardEndpoints});
+ try{
+  await seedWildcardEndpoints(owner);
+  const inserted=await owner.transaction('write',async tx=>{
+   const inserted=await insertWildcardEdgeSql(tx);
+   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+   return inserted;
+  });
+  const stored=await owner.run(tx=>tx.query<{id:string;from_node:string;to_node:string}>(`SELECT id::text,from_node::text,to_node::text FROM edge WHERE id=$1`,[inserted.edge]));
+  expect(stored.rows).toEqual([{id:inserted.edge,from_node:inserted.from,to_node:inserted.to}]);
+  const existence=await owner.run(tx=>loadAssertions(tx,'edge','mentions',['$exists']));
+  expect(existence).toHaveLength(1);
+  expect(existence[0]).toMatchObject({value:true,operation:'assert'});
+ }finally{await owner.close();}
+});
+
+test.each(['from','to'] as const)('ALX-65: deferred wildcard validation refuses an undeclared %s node through direct SQL and rolls back',async side=>{
+ const owner=await createTestDatabaseOwner({graphContract:wildcardEndpoints});
+ try{
+  await seedWildcardEndpoints(owner);
+  const counts=()=>owner.run(tx=>tx.query(`SELECT (SELECT count(*)::text FROM node) AS nodes,
+    (SELECT count(*)::text FROM edge) AS edges,(SELECT count(*)::text FROM assertion) AS assertions`));
+  const before=(await counts()).rows;
+  let reachedDeferredCheck=false;
+  await expect(owner.transaction('write',async tx=>{
+   await insertWildcardEdgeSql(tx,side);
+   reachedDeferredCheck=true;
+   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+  })).rejects.toThrow('TARGET_MISSING or END_KIND_INVALID for mentions');
+  expect(reachedDeferredCheck).toBe(true);
+  expect((await counts()).rows).toEqual(before);
+  expect((await owner.run(tx=>tx.query("SELECT * FROM entity WHERE name='fixture.undeclared'"))).rows).toEqual([]);
+  expect(await owner.run(tx=>loadAssertions(tx,'edge','mentions',['$exists']))).toEqual([]);
+ }finally{await owner.close();}
+});
+
+test.each([false,true])('deferred endpoint validation rejects direct SQL deactivation of either live relation endpoint (wildcard=%s)',async wildcard=>{
  const graph:GraphContract={
   vertex:['endpoint-from','endpoint-to'].map(name=>({name,table:generatedTableName(name,'vertex'),key:['name'],fields:[{name:'name',type:'text' as const}],capability:'fixture'})),
-  edge:[{name:'endpoint-link',from:['endpoint-from'],to:['endpoint-to'],fields:[],repeats:false,capability:'fixture',cardinality:{from:'many',to:'many'},labels:{en:{out:'target',in:'source'},ru:{out:'target',in:'source'}}}],dictionary:[],
+  edge:[{name:'endpoint-link',from:wildcard?['any']:['endpoint-from'],to:wildcard?['any']:['endpoint-to'],fields:[],repeats:false,capability:'fixture',cardinality:{from:'many',to:'many'},labels:{en:{out:'target',in:'source'},ru:{out:'target',in:'source'}}}],dictionary:[],
  };
  const owner=await createTestDatabaseOwner({graphContract:graph});
  try{

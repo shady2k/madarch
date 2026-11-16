@@ -285,8 +285,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
-    await installDisputeSelection(tx, withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest))));
-    const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
+    const contract = withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest)));
+    await installDisputeSelection(tx, contract);
+    const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {

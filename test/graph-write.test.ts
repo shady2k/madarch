@@ -119,6 +119,98 @@ test('0039.1: missing and wrong-kind edge endpoints refuse the entire operation,
   });
 });
 
+
+const wildcardGraph: GraphContract = {
+  ...graph,
+  edge: [...graph.edge, { ...graph.edge[0]!, name: 'mentions', from: ['any'], to: ['any'], repeats: false }],
+};
+const snapshot = (): VertexDraft => ({ kind: 'fixture.snapshot', key: { digest: createHash('sha256').update('record').digest('hex') }, values: { content: 'record' }, producer: 'fixture', producerVersion: '1' });
+
+test.each([false, true])('ALX-65: wildcard mentions writes different declared record kinds (reverse=%s)', async reverse => {
+  const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
+  try {
+    const [from, to] = reverse ? [snapshot(), term('a')] : [term('a'), snapshot()];
+    await owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
+      vertices: [from!, to!], removals: [], edges: [{ kind: 'mentions', from: from!, to: to!, producer: 'fixture', producerVersion: '1' }],
+    }));
+    const endpoints = await owner.run(tx => tx.query<{ from_kind: string; to_kind: string }>(`SELECT f.name AS from_kind,t.name AS to_kind
+      FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node fn ON fn.id=e.from_node JOIN entity f ON f.id=fn.entity_id
+      JOIN node tn ON tn.id=e.to_node JOIN entity t ON t.id=tn.entity_id WHERE k.name='mentions'`));
+    expect(endpoints.rows).toEqual([{ from_kind: from!.kind, to_kind: to!.kind }]);
+    const existence = await owner.run(tx => loadAssertions(tx, 'edge', 'mentions', ['$exists']));
+    expect(existence).toHaveLength(1);
+    expect(existence[0]).toMatchObject({ value: true, operation: 'assert', source: TEST_SOURCE_UID });
+  } finally { await owner.close(); }
+});
+
+test('ALX-65: wildcard mentions accepts built-in system records on both ends', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
+  try {
+    await owner.transaction('write', async tx => {
+      const system = { kind: 'system.product', key: {}, uid: '019a0000-0000-7000-8000-000000000077' };
+      await publishGraphDrafts(tx, wildcardGraph, {
+        vertices: [term('a'), { ...system, producer: 'fixture', producerVersion: '1' }], removals: [],
+        edges: [{ kind: 'mentions', from: ref('a'), to: system, producer: 'fixture', producerVersion: '1' },
+          { kind: 'mentions', from: system, to: ref('a'), producer: 'fixture', producerVersion: '1' }],
+      });
+    });
+    expect((await owner.run(tx => loadAssertions(tx, 'edge', 'mentions', ['$exists']))).map(row => row.value)).toEqual([true, true]);
+  } finally { await owner.close(); }
+});
+
+test.each(['mentions', 'fixture.undeclared'])('ALX-65: wildcard mentions refuses non-record endpoint kind %s and rolls back', async kind => {
+  const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
+  try {
+    await expect(owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
+      vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: { kind, key: {} }, producer: 'fixture', producerVersion: '1' }],
+    }))).rejects.toThrow(`UNKNOWN_KIND ${kind}`);
+    expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
+    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+  } finally { await owner.close(); }
+});
+
+test('ALX-65: wildcard mentions still refuses a missing declared record and rolls back', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
+  try {
+    await expect(owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
+      vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: ref('missing'), producer: 'fixture', producerVersion: '1' }],
+    }))).rejects.toThrow('MISSING_ENDPOINT');
+    expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
+    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+  } finally { await owner.close(); }
+});
+
+
+test('ALX-65: explicit relation ends still refuse a different declared record kind', async () => {
+  await fixture(async owner => {
+    await expect(owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [term('a'), snapshot()], removals: [],
+        edges: [{ kind: 'fixture.links', from: ref('a'), to: snapshot(), producer: 'fixture', producerVersion: '1' }] });
+    })).rejects.toThrow('ENDPOINT_KIND fixture.links');
+    expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
+    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+  });
+});
+
+test('ALX-65: wildcard mentions refuses a declared kind spoofing another stored kind UID', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
+  try {
+    const uid = await owner.transaction('write', async tx => {
+      await publishGraphDrafts(tx, wildcardGraph, { vertices: [term('a'), snapshot()], removals: [] });
+      return (await ensureVertex(tx, wildcardGraph, snapshot())).uid;
+    });
+    const before = (await owner.run(tx => tx.query('SELECT count(*)::text AS count FROM assertion'))).rows;
+    await expect(owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
+      vertices: [term('rolled-back')], removals: [],
+      edges: [{ kind: 'mentions', from: ref('a'), to: { kind: 'fixture.term', key: {}, uid }, producer: 'fixture', producerVersion: '1' }],
+    }))).rejects.toThrow('MISSING_ENDPOINT');
+    expect((await owner.run(tx => tx.query("SELECT * FROM node WHERE key->>'name'='rolled-back'"))).rows).toEqual([]);
+    expect((await owner.run(tx => tx.query('SELECT count(*)::text AS count FROM assertion'))).rows).toEqual(before);
+    expect(await owner.run(tx => loadAssertions(tx, 'edge', 'mentions', ['$exists']))).toEqual([]);
+  } finally { await owner.close(); }
+});
+
 test('0039.25: edge existence and properties have edge subjects and the same typed lineage as vertices', async () => {
   await fixture(async owner => {
     await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [term('a'), term('b')], removals: [], edges: [{ kind: 'fixture.links', from: ref('a'), to: ref('b'), discriminator: 'one', values: { weight: 7 }, producer: 'fixture', producerVersion: '1' }] }); });

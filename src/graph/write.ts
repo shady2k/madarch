@@ -2,7 +2,7 @@
 import {createHash} from 'node:crypto';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
-import { assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
+import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
 import { withAssertionContract, isDisputableProperty } from './system-contract.js';
 import { keyUid, newUid } from './uid.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
@@ -283,7 +283,7 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  for(const role of kind.keyEdges??[]){const parent=await endpoint(executor,contract,draft.keyEdges![role.role]!,context);const from=role.direction==='from'?made.nodeId:parent.id;const to=role.direction==='from'?parent.id:made.nodeId;const edgeId=await putEdge(executor,role.edge,from,to,'',context);await writeCheckedAssertion(executor,prepared,{sort:'edge',kind:role.edge,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);}
  pending.splice(i,1);progressed=true;}
  if(!progressed)throw new Error(`${WHERE}:155: REQUIRED_PARENT: missing parent or instance cycle`);}
- for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:157: UNKNOWN_EDGE ${draft.kind}`);if(!kind.from.includes(draft.from.kind)||!kind.to.includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);
+ for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:157: UNKNOWN_EDGE ${draft.kind}`);if(!endpointKindNames(kind.from,contract.vertex).includes(draft.from.kind)||!endpointKindNames(kind.to,contract.vertex).includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);
  const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);
  const edgeId=await putEdge(executor,draft.kind,from.id,to.id,draft.discriminator??'',context);
  await writeCheckedAssertion(executor,prepared,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
