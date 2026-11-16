@@ -145,3 +145,27 @@ test('a legacy explanation without a decision link reopens without crashing',asy
 test('reconciliation restores a recorded OPEN question to RESOLVED without retracting replacement decision',async()=>{
  const f=await amendmentFixture();try{await f.resolve();await f.write(1,3);await f.resolve();const decision=(await f.rows()).find(row=>row.selected)!;const q=(await f.view())!;await f.owner.transaction('write',async tx=>{await startupBinding(tx,contract,'system.disputes');const state=(await loadAssertions(tx,'vertex','system.dispute-question',['state'])).find(row=>row.subject.type==='vertex'&&row.subject.uid===q.id)!;await writeAssertion(tx,contract,{sort:'vertex',kind:'system.dispute-question',subjectId:String(state.subjectId),property:'state',operation:'assert',value:'OPEN',validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});expect((await f.view())?.state).toBe('RESOLVED');expect((await f.rows()).find(row=>row.selected)?.id).toBe(decision.id);}finally{await f.owner.close();}
 },30000);
+
+test('stable reopened question does not append decision retractions on equal source repeats',async()=>{
+ const f=await amendmentFixture();
+ try {
+  await f.resolve();
+  const decision=(await f.rows()).find(row=>row.selected)!;
+  await f.write(1,3);
+  const question=(await f.view())!;
+  expect(question.state).toBe('OPEN');
+  const history=async()=>f.owner.transaction('snapshot',async tx=>({
+   states:(await loadAssertions(tx,'vertex','system.dispute-question',['state'])).filter(row=>row.subject.type==='vertex'&&row.subject.uid===question.id).map(row=>[row.id,row.value]),
+   retractions:(await loadAssertions(tx,'vertex','sample',['amount'])).filter(row=>row.source===decision.source&&row.operation==='retract').map(row=>[row.id,row.validFrom,row.validTo]),
+  }));
+  const before=await history();
+  expect(before.retractions.length).toBeGreaterThan(0);
+  const selected=(await f.rows()).find(row=>row.selected)!;
+  expect(selected.value).toBe(3);
+  await f.write(1,3);
+  await f.owner.transaction('write',async tx=>{await activateGraphProducer(tx,contract,f.bindings[1]!);await reconcileDisputes(tx,contract);});
+  expect((await f.view())?.state).toBe('OPEN');
+  expect((await f.rows()).find(row=>row.selected)?.id).toBe(selected.id);
+  expect(await history()).toEqual(before);
+ } finally {await f.owner.close();}
+},30000);
