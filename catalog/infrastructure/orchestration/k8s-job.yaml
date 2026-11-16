@@ -24,3 +24,8 @@ labels:
 description:
   en: A Kubernetes job starts one or more pods, waits until they finish successfully and then stops, retrying failures up to a limit. It is for work with an end, such as a migration or a report, not for a service that keeps running.
   ru: 'Задача Kubernetes запускает один или несколько подов, ждёт их успешного завершения и останавливается, повторяя неудачи до предела. Она нужна для работы с концом: миграции или отчёта, — а не для сервиса, который работает постоянно.'
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

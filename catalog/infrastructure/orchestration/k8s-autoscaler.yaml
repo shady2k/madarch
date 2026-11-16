@@ -24,3 +24,8 @@ labels:
 description:
   en: A Kubernetes autoscaler watches a measure of load, such as processor use or a queue length, and adds or removes replicas between a minimum and a maximum. It keeps capacity close to demand without a person adjusting it.
   ru: Автомасштабирование Kubernetes следит за мерой нагрузки — загрузкой процессора или длиной очереди — и добавляет или убирает реплики между минимумом и максимумом. Оно держит мощность близкой к спросу без участия человека.
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

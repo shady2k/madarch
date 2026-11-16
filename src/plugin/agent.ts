@@ -214,6 +214,8 @@ export class PluginAgentBridge {
         // Whatever the agent produced is kept, entry by entry (owner's rule, 2026-11-15): an entry the contract or the
         // graph cannot take is left out and named, and never costs the entries beside it what the agent got right.
         const envelope = raw as Record<string, unknown>;
+        if ((envelope['end'] as {state?:unknown} | undefined)?.state === 'inapplicable' &&
+          (['vertices','edges','problems'].some(name => Array.isArray(envelope[name]) && (envelope[name] as unknown[]).length > 0))) throw unusable('inapplicable requires a complete search with no instances or unread places');
         // A malformed collection is a malformed answer, never an empty complete one: an answer whose `vertices` or
         // `edges` is no list names nothing, so it retracts nothing and the unit fails with that reason.
         for (const name of ['vertices', 'edges'] as const) {

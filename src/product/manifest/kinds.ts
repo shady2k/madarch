@@ -322,6 +322,12 @@ export interface PurposeDecl {
   line: number;
 }
 
+/** Exact suffixes and basenames mapped to the catalogue's normalized technology names. */
+export interface ProfileTechnologyMap {
+  readonly extensions: Readonly<Record<string, string>>;
+  readonly filenames: Readonly<Record<string, string>>;
+}
+
 export interface KindDecl {
   readonly systemBase?: { readonly name: string };
   readonly evidence?: { readonly immutable: true; readonly digestField?: string; readonly contentField?: string; readonly digestAlgorithm?: 'sha256' };
@@ -426,6 +432,11 @@ export interface KindDecl {
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
   derivesFrom?: readonly string[];
+  /** 0039 item 35: absence propagates only through these explicit dependencies. */
+  profileMarkers?: Readonly<Record<string, readonly string[]>>;
+  /** Normalized values, unlike profileMarkers which retains matching paths. */
+  profileTechnologies?: Readonly<Record<string, ProfileTechnologyMap>>;
+  applicability?: { readonly dependencies: readonly string[]; readonly markers: readonly string[]; readonly profile?: string };
   /**
    * The classes a kind's entities take, decided by path patterns the catalogue declares (a file's code, test,
    * documentation, dependency or generated class): the first rule whose pattern matches names the class, and the one
@@ -713,7 +724,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 export const KIND_FIELDS: readonly string[] = [
   'contract-uid', 'identity', 'evidence', 'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'naming', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'key-edges', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'key-edges', 'capability', 'derives-from', 'applicability', 'profile-markers', 'profile-technologies', 'agent', 'classes', 'exclude',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -2129,6 +2140,52 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (!Array.isArray(rawExclude) || rawExclude.length === 0 || rawExclude.some((one) => typeof one !== 'string' || one.trim() === '')) problem(['exclude'], '"exclude" is a list of path patterns the producer leaves out, such as "**/node_modules/**"');
       else exclude = (rawExclude as string[]).map((one) => one.trim());
     }
+    let profileMarkers: KindDecl['profileMarkers'];
+    if (decl['profile-markers'] !== undefined) {
+      const raw = decl['profile-markers'];
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw) || Object.values(raw).some(value => !Array.isArray(value) || value.some(pattern => typeof pattern !== 'string' || pattern.trim() === ''))) problem(['profile-markers'], 'profile-markers maps profile fields to marker path patterns');
+      else profileMarkers = raw as Record<string, string[]>;
+    }
+    let profileTechnologies: KindDecl['profileTechnologies'];
+    const rawTechnologies = decl['profile-technologies'];
+    if (rawTechnologies !== undefined) {
+      const maps: Record<string, ProfileTechnologyMap> = {};
+      if (!isRecord(rawTechnologies)) problem(['profile-technologies'], 'profile-technologies maps profile fields to {extensions, filenames}');
+      else for (const [field, raw] of Object.entries(rawTechnologies)) {
+        const path = ['profile-technologies', field];
+        const target = fields.find(entry => entry.name === field);
+        if (target?.schema?.['type'] !== 'array' || !isRecord(target.schema['items']) || target.schema['items']['type'] !== 'string') problem(path, `profile-technologies field "${field}" must declare an array of strings schema`);
+        if (profileMarkers?.[field] !== undefined) problem(path, `profile-technologies field "${field}" cannot also have profile-markers`);
+        if (!isRecord(raw) || Object.keys(raw).some(key => key !== 'extensions' && key !== 'filenames') || !isRecord(raw['extensions']) || !isRecord(raw['filenames'])) {
+          problem(path, 'profile-technologies declares exactly extensions and filenames maps');
+          continue;
+        }
+        let valid = true;
+        for (const selector of ['extensions', 'filenames'] as const) {
+          for (const [marker, technology] of Object.entries(raw[selector] as Record<string, unknown>)) {
+            const plain = marker.trim() === marker && marker !== '' && ![...marker].some(char => '/\\*?[]{}\0'.includes(char));
+            if (!plain || (selector === 'extensions' && (!marker.startsWith('.') || marker.length === 1)) || typeof technology !== 'string' || technology.trim() === '' || technology.trim() !== technology) {
+              problem([...path, selector, marker], `${selector} maps exact ${selector === 'extensions' ? 'dot-prefixed suffixes' : 'basenames'} to nonempty normalized technology names`);
+              valid = false;
+            }
+          }
+        }
+        if (Object.keys(raw['extensions']).length + Object.keys(raw['filenames']).length === 0) {
+          problem(path, 'profile-technologies requires at least one extension or filename');
+          valid = false;
+        }
+        if (valid) maps[field] = { extensions: raw['extensions'] as Record<string, string>, filenames: raw['filenames'] as Record<string, string> };
+      }
+      profileTechnologies = maps;
+    }
+    const rawApplicability = decl['applicability'];
+    let applicability: KindDecl['applicability'];
+    if (rawApplicability !== undefined) {
+      const body = rawApplicability as Record<string, unknown>;
+      const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(entry => typeof entry === 'string' && entry.trim() !== '');
+      if (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['dependencies', 'markers', 'profile'].includes(key)) || !strings(body['dependencies']) || !strings(body['markers']) || (body['profile'] !== undefined && typeof body['profile'] !== 'string')) problem(['applicability'], 'applicability declares dependencies, marker path patterns and an optional profile field');
+      else applicability = { dependencies: body['dependencies'], markers: body['markers'], ...(body['profile'] === undefined ? {} : { profile: body['profile'] as string }) };
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -2197,6 +2254,9 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(applicability === undefined ? {} : { applicability }),
+      ...(profileMarkers === undefined ? {} : { profileMarkers }),
+      ...(profileTechnologies === undefined ? {} : { profileTechnologies }),
       ...(classes.length === 0 ? {} : { classes }),
       ...(exclude === undefined ? {} : { exclude }),
       ...(agent === undefined ? {} : { agent }),
@@ -2510,7 +2570,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   // authoritative), the dependency graph is acyclic and declared, and a plugin reads only what the
   // closure of its earliest output kind holds. No fill starts while any finding stands.
   const dependencies = new Map<string, readonly string[]>();
-  for (const [name, kind] of kinds) dependencies.set(name, kind.derivesFrom ?? []);
+  for (const [name, kind] of kinds) dependencies.set(name, [...new Set([...(kind.derivesFrom ?? []), ...(kind.applicability?.dependencies ?? [])])]);
   for (const [name, deps] of dependencies) {
     const kind = kinds.get(name)!;
     for (const dependency of deps) {

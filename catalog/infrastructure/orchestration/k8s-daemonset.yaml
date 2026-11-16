@@ -24,3 +24,8 @@ labels:
 description:
   en: A DaemonSet places one copy of a pod on each node that matches its selector, so the number of copies follows the number of nodes. It suits a job that must run everywhere, such as a log collector or a network agent.
   ru: 'DaemonSet ставит одну копию пода на каждый узел, подходящий под его отбор, поэтому число копий следует за числом узлов. Он подходит для работы, которая нужна повсюду: сборщика журналов или сетевого агента.'
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

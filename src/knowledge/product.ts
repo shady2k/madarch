@@ -32,6 +32,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
+import { storedApplicability } from '../graph/applicability.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
@@ -898,14 +899,14 @@ export class KnowledgeProduct {
    * fields are the agent's, and which kinds the manifest holds no producer for. The fill route answers it, and a press
    * that names kinds the plan leaves to an agent stops here with the same words.
    */
-  fillPlan(selected: readonly string[], pluginsOnly = false): FillPlanView {
+  async fillPlan(selected: readonly string[], pluginsOnly = false): Promise<FillPlanView> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = readKinds(product.folder);
     if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
     const targets = readFillTargets(read.manifest, { entities: selected }, pluginsOnly);
     if (!targets.ok) throw new WikiReadError(targets.message);
-    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly);
+    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly, await storedApplicability(await this.open(), writeContractOf(read.manifest)));
   }
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */

@@ -87,6 +87,7 @@ const RUN = {
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
 let runAnswer: unknown = RUN;
+let planAnswer: unknown = null;
 /** The agents `/api/agents` offers and the one this product saved; both installed and signed in unless a test says otherwise. */
 let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
   { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
@@ -191,6 +192,7 @@ beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
   runAnswer = RUN;
+  planAnswer = null;
   savedAgent = null;
   productSettings = { tokenCap: 200_000 };
   holdSettings = null;
@@ -206,7 +208,7 @@ beforeEach(async () => {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
-    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
+    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planAnswer ?? planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) {
       const asked = url.searchParams.get('agent') ?? 'claude-code';
@@ -260,6 +262,35 @@ function type(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
+
+test('the catalogue shows recorded applicability, its reason and ancestor without confusing zero with absence', async () => {
+  const absent = { kind: 'demo.beta', state: 'inapplicable', reason: 'В репозитории нет словаря', ancestor: 'demo.alpha', evidence: ['assertion-1'], contested: true };
+  planAnswer = { plan: { ...ALL_PLAN, kinds: [ALPHA, { ...BETA, applicability: absent }, { ...GAMMA, applicability: { ...absent, kind: 'demo.gamma', state: 'empty', ancestor: undefined, contested: false, reason: 'Поиск завершён без результатов' } }] } };
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    const beta = page.container.querySelector('[data-kind="demo.beta"]');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-state"]')?.textContent).toBe('Неприменимо');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-reason"]')?.textContent).toBe('Причина: В репозитории нет словаря');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-ancestor"]')?.textContent).toBe('Унаследовано от: Файлы');
+    expect(beta?.textContent).toContain('Есть разногласия');
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-applicability-state"]')?.textContent).toBe('Ничего не найдено');
+  } finally { await page.close(); }
+});
+
+test('the preparation plan lists an inapplicable skip with the recorded reason and ancestor', async () => {
+  const applicability = { kind: 'demo.beta', state: 'inapplicable', reason: 'В репозитории нет словаря', ancestor: 'demo.alpha', evidence: ['assertion-1'], contested: false };
+  planAnswer = { plan: { ...ALL_PLAN, order: [], units: [], needsAgent: [], skipped: [{ kind: 'demo.beta', fields: ['definition'], reason: applicability.reason, applicability }] } };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.beta' });
+  try {
+    const skipped = page.container.querySelector('[data-testid="prepare-skipped"]');
+    expect(skipped?.textContent).toContain('Термины');
+    expect(skipped?.textContent).toContain('Неприменимо');
+    expect(skipped?.textContent).toContain('Причина: В репозитории нет словаря');
+    expect(skipped?.textContent).toContain('Унаследовано от: Файлы');
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-nothing"]')).not.toBeNull();
+  } finally { await page.close(); }
+});
 
 test('the catalogue reads by default, in the catalogue\'s words, with counts, «в продукте» and the plan\'s producers', async () => {
   const page = await render([section('catalogue', 'catalogue', {})]);

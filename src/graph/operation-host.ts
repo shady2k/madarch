@@ -1,4 +1,5 @@
 /** Immediate checked writes and graph receipts, decision 0039 item 24. */
+import { assertOutcomeApplicability } from './applicability.js';
 import {readRunGraphUidIn,readUnitGraphUidIn} from './fill-state.js';
 import {startupBinding} from './manifest-publication.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -40,7 +41,7 @@ export interface OperationHost {
   fail(reason:string,apply?:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<void>):Promise<boolean>;
   execute<Result>(request:OperationRequest,apply:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<Result>):Promise<Result>;
 }
-const systemPermissions = ['system.run','system.unit','system.unit-run','system.operation','system.operation-unit','system.operation-author','system.operation-affected','system.unit-parent','system.fill-transition','system.fill-transition-subject'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true}));
+const systemPermissions = ['system.run','system.unit','system.unit-run','system.operation','system.operation-unit','system.operation-author','system.operation-affected','system.unit-parent','system.fill-transition','system.fill-transition-subject','system.kind-applicability','system.applicability-kind','system.applicability-product'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true}));
 function trusted(binding:WriteCapability,operationUid:string,unitUid:string):WriteCapability {
   return {...binding,operationUid,unitUid,permissions:[...binding.permissions,...systemPermissions]};
 }
@@ -59,8 +60,8 @@ async function selected(tx:OuterTransaction,kind:string,uid:string,property:stri
     return selectAssertions(rows,{validAt:now,recordedAt:now,contexts:[context]}).selected?.value;
   });
 }
-async function set(tx:OuterTransaction,contract:GraphContract,kind:string,uid:string,property:string,value:unknown,context:number):Promise<void> {
-  await writeAssertion(tx,contract,{sort:'vertex',kind,subjectId:await node(tx,uid),property,operation:'assert',value},context);
+async function set(tx:OuterTransaction,contract:GraphContract,kind:string,uid:string,property:string,value:unknown,context:number):Promise<string> {
+  return await writeAssertion(tx,contract,{sort:'vertex',kind,subjectId:await node(tx,uid),property,operation:'assert',value},context);
 }
 /** Only the handler calls this when admitting a run/unit, not a producer RPC. */
 export async function initializeOperationScope(tx:OuterTransaction,contract:GraphContract,binding:WriteCapability,runUid:string,unitUid:string,context=1):Promise<void> {
@@ -148,6 +149,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     if(apply){await apply(tx,{contract:options.contract,binding:trusted(options.capability,operationUid,options.unitUid)});bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));}
     else await set(tx,options.contract,'system.unit',options.unitUid,'state','failed',context);
     await set(tx,options.contract,'system.unit',options.unitUid,'reason',reason,context);
+    const producedKind = await selected(tx,'system.unit',options.unitUid,'produced_kind',context);
+    const producer = await selected(tx,'system.unit',options.unitUid,'producer',context);
+    if (typeof producedKind === 'string' && typeof producer === 'string') {
+      const evidenceUid = await set(tx,options.contract,'system.unit',options.unitUid,'outcome','failed',context);
+      await assertOutcomeApplicability(tx,options.contract,{kind:producedKind,plugin:producer,outcome:'failed',produced:0,reason},evidenceUid,String(await selected(tx,'system.unit',options.unitUid,'plan_scope',context) ?? options.unitUid));
+    }
     await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',reason,context);
     await options.queue.fail(options.job.queue,options.job,reason,tx);
     await refreshDisputeSelection(tx,options.contract);
@@ -198,7 +205,14 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',request.key,context);
         if(request.completion){
           await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
-          if(request.completion.outcome)for(const [property,value] of Object.entries({produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})}))await set(tx,options.contract,'system.unit',options.unitUid,property,value,context);
+          if(request.completion.outcome) {
+            const assertionUids: Record<string,string> = {};
+            for(const [property,value] of Object.entries({produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})})) {
+              const uid = await writeAssertion(tx,options.contract,{sort:'vertex',kind:'system.unit',subjectId:await node(tx,options.unitUid),property,operation:'assert',value},context);
+              assertionUids[property] = uid;
+            }
+            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,assertionUids.outcome!,String(await selected(tx,'system.unit',options.unitUid,'plan_scope',context) ?? options.unitUid));
+          }
           if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new Error(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
         }

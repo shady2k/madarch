@@ -24,3 +24,8 @@ labels:
 description:
   en: A StatefulSet runs pods that keep a fixed name and order and get their own persistent volume, so each instance stays the same across restarts. It is for stateful software such as a database, where losing the identity would lose the data.
   ru: StatefulSet запускает поды с постоянными именами и порядком и даёт каждому собственный постоянный том, поэтому экземпляр остаётся тем же после перезапуска. Он нужен для систем с состоянием, например базы данных, где потеря идентичности означала бы потерю данных.
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

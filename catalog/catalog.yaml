@@ -5337,6 +5337,17 @@ edges:
     en: { out: captures, in: captured by }
     ru: { out: фиксирует, in: зафиксировано в }
 
+- name: profile-product
+  from: [product-profile]
+  to: [system.product]
+  cardinality:
+    from: { min: 1, max: 1 }
+    to: { min: 0, max: null }
+  on-parent-delete: cascade
+  labels:
+    en: { out: describes product, in: has profile }
+    ru: { out: описывает продукт, in: имеет профиль }
+
 semantic-bindings:
   document:
     kind: document

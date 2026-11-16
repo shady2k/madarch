@@ -24,3 +24,13 @@ labels:
 description:
   en: 'A screen is what a person sees at one moment in the interface: a form, a list, a dashboard, assembled from components and showing one task. A route leads to it, and its states must cover loading, success and failure.'
   ru: 'Экран — то, что человек видит в интерфейсе в один момент: форма, список, панель, — собранное из компонентов и посвящённое одной задаче. К нему ведёт маршрут, а его состояния должны покрывать загрузку, успех и отказ.'
+applicability:
+  dependencies: []
+  markers:
+  - '**/index.html'
+  - '**/*.tsx'
+  - '**/*.vue'
+  - '**/*.svelte'
+  profile: web_ui
+source: graph
+derives-from: [product-profile]

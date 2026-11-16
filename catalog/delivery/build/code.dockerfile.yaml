@@ -54,3 +54,9 @@ key-edges:
 - role: code.dockerfile-file
   edge: code.dockerfile-file
   side: from
+applicability:
+  dependencies: []
+  markers:
+  - '**/Dockerfile'
+  - '**/Dockerfile.*'
+  profile: deployment

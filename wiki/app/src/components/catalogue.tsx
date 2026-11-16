@@ -199,6 +199,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   const row = (kind: NavigationKind): ReactElement => {
     const planKind = planKindOf(allPlan, kind.kind);
     const filled = filledBy(planKind);
+    const applicability = planKind?.applicability;
     const needed = added.get(kind.kind);
     const neededLabel = needed === undefined ? undefined : kindLabel(navigation, needed);
     const error: FillPlanError | undefined = errors.get(kind.kind);
@@ -222,6 +223,16 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
               {kind.taken ? <Badge variant="outline" data-testid="catalogue-taken">{t('catalogue.taken')}</Badge> : null}
             </InlineGroup>
             {kind.definition === null || kind.definition === '' ? null : <Paragraph className="m-0 text-small text-secondary" data-testid="catalogue-definition">{kind.definition}</Paragraph>}
+            {applicability === undefined ? null : (
+              <Stack className="grid gap-1" data-testid="catalogue-applicability">
+                <InlineGroup className="mb-0 gap-2">
+                  <Badge variant="outline" data-testid="catalogue-applicability-state">{t(`applicability.state.${applicability.state}`)}</Badge>
+                  {applicability.contested ? <Badge variant="outline">{t('applicability.contested')}</Badge> : null}
+                </InlineGroup>
+                {applicability.state === 'not-searched' ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-applicability-reason">{t('applicability.reason', { reason: applicability.reason })}</Paragraph>}
+                {applicability.ancestor === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-applicability-ancestor">{t('applicability.ancestor', { kind: kindLabel(navigation, applicability.ancestor) ?? applicability.ancestor })}</Paragraph>}
+              </Stack>
+            )}
             {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
             {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
             {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}

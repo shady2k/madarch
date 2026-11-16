@@ -74,7 +74,7 @@ export function probeUnit(contract: PluginContractDeclaration, unitId = 'conform
 /** One outcome said in the kit's words: what it held, or the cause that stopped it. */
 export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
   if (outcome.state === 'extracted') {
-    const end = outcome.result.end.state === 'complete' ? 'complete' : `partial (${outcome.result.end.cause})`;
+    const end = outcome.result.end.state === 'partial' ? `partial (${outcome.result.end.cause})` : outcome.result.end.state;
     return { ok: true, text: `unit ${outcome.unitId}: ${end}, ${String(outcome.durationMs)} ms` };
   }
   return { ok: false, text: `unit ${outcome.unitId}: not extracted, ${outcome.cause.code}: ${outcome.cause.message}${outcome.stderr.file === '' ? '' : ` (log ${outcome.stderr.file})`}` };

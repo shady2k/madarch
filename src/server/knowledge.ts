@@ -384,7 +384,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
       const asked = await selectionBody(request);
       if ('bad' in asked) return asked.bad;
-      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
       return { response: json(200, { plan }) };
     }, true),
     fillSelected: guarded('fill the selected entities', async (request) => {
@@ -398,7 +398,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
       // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
-      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
       const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.model === null ? {} : { model: asked.selection.model }), ...(asked.selection.reasoning === null ? {} : { reasoning: asked.selection.reasoning }), ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
       if (!started.started) return refused(409, { message: started.message, ...(fillRefusalCode(started.message) === undefined ? {} : { code: fillRefusalCode(started.message) }) });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };

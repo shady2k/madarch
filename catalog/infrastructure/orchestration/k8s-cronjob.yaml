@@ -24,3 +24,8 @@ labels:
 description:
   en: A CronJob tells Kubernetes to create a job at the times a schedule gives, such as every night at two. Each run finishes on its own, and the object records how many successful and failed runs to keep.
   ru: 'CronJob велит Kubernetes создавать задачу в моменты, заданные расписанием: например, каждую ночь в два часа. Каждый запуск завершается сам, а объект хранит, сколько удачных и неудачных запусков оставлять.'
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

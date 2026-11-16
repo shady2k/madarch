@@ -1,4 +1,16 @@
 {
+  "applicability": {
+    "state": {
+      "not-searched": "Не исследовано",
+      "applicable": "Применимо",
+      "empty": "Ничего не найдено",
+      "failed": "Неизвестно (поиск не удался)",
+      "inapplicable": "Неприменимо"
+    },
+    "reason": "Причина: {{reason}}",
+    "ancestor": "Унаследовано от: {{kind}}",
+    "contested": "Есть разногласия"
+  },
   "common": {
     "emptyValue": "—",
     "separator": " · ",

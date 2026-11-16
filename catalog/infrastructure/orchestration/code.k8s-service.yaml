@@ -60,3 +60,7 @@ labels:
 description:
   en: A Kubernetes Service selects pods by their labels and gives them one address and port that other parts call, even as individual pods come and go. It balances the calls over the healthy pods behind it.
   ru: Сервис Kubernetes выбирает поды по меткам и даёт им один адрес и порт, к которым обращаются другие части, хотя отдельные поды появляются и исчезают. Он распределяет вызовы по здоровым подам за собой.
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []

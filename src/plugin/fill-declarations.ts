@@ -456,7 +456,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // declared kind, so the plan can name the fields the agent fills beside each deterministic producer and keep exactly
   // the fields no claim covers. A kind that declares no field has nothing for any producer to state, so it is no gap.
   const supportKinds = new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
-  const fielded = (name: string): boolean => (manifest.kinds.get(name)?.fields ?? []).length > 0;
+  const fielded = (name: string): boolean => manifest.kinds.get(name)?.profileMarkers === undefined && (manifest.kinds.get(name)?.fields ?? []).length > 0;
   // The agent fills the gaps of the kinds the fill was asked for: a kind that only joins the fill as an input of an asked
   // kind runs its deterministic producers, and its own agent gaps wait for a fill that asks for it (madarch-64o5.63).
   const asked = new Set(requestedKinds ?? selectedKinds ?? [...manifest.kinds.keys()]);
@@ -489,7 +489,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     return { ...plugin, manifest: { ...plugin.manifest, produces } };
   });
   const requested = selectedKinds ?? [...manifest.kinds.keys()];
-  const declared = [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom }));
+  const declared = [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: kind.profileMarkers === undefined ? (kind.fields ?? []).map((field) => field.name) : [], key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom }));
   // The declarations the plan hands the planner: one source of the reads a kind's turn takes.
   const input: FillDeclarationInput = { kinds: declared, plugins: executable };
   const askedKinds = new Set(requested);
@@ -555,7 +555,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
     const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
     const run = planFillDeclarations({
-      kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+      kinds: declared,
       plugins: deterministicPlugins,
       selectedKinds: runSelected,
       agentSelected: true,
@@ -572,6 +572,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // requested selection when there is one, and never a dependency the plan pulled in (madarch-64o5.102).
   const askedSet = new Set(requestedKinds ?? requested);
   for (const kind of plan.selectedKinds) {
+    if (manifest.kinds.get(kind)?.profileMarkers !== undefined) continue;
     if (unavailable.has(kind) || nothingToFill.has(kind)) continue;
     const authored = authoredFields(kind);
     const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);

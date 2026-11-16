@@ -24,3 +24,8 @@ labels:
 description:
   en: A Kubernetes namespace groups objects inside a cluster, so names are unique within it and quotas and access rules can be set for it. Teams usually get a namespace of their own, and one cluster can hold many.
   ru: 'Пространство имён объединяет объекты внутри кластера: имена уникальны в его пределах, а квоты и правила доступа задают для него. Обычно у команды своё пространство имён, и в одном кластере их может быть много.'
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

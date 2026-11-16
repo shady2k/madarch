@@ -24,3 +24,8 @@ labels:
 description:
   en: A ConfigMap stores settings as key-value pairs or files that a pod mounts or reads as environment values, such as a host name or a feature switch. It keeps configuration out of the container image, so the same image runs in several environments.
   ru: 'ConfigMap хранит настройки парами ключ-значение или файлами, которые под монтирует или читает как переменные окружения: имя хоста или переключатель возможности. Он держит настройки вне образа контейнера, поэтому один образ работает в разных средах.'
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

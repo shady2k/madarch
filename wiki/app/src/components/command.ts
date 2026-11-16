@@ -18,9 +18,20 @@ export interface FillPlanField {
   readonly producers: readonly string[];
 }
 
+/** The graph's recorded applicability of a kind, including its direct ancestor when inherited. */
+export interface KindApplicability {
+  readonly kind: string;
+  readonly state: 'not-searched' | 'applicable' | 'empty' | 'failed' | 'inapplicable';
+  readonly reason: string;
+  readonly ancestor?: string;
+  readonly evidence: readonly string[];
+  readonly contested: boolean;
+}
+
 /** One selected kind's place in the plan. */
 export interface FillPlanKind {
   readonly kind: string;
+  readonly applicability: KindApplicability;
   readonly fields: readonly FillPlanField[];
   /** The fields an agent fills, alone or beside a producer it refines. */
   readonly agentFields: readonly string[];
@@ -61,7 +72,7 @@ export interface FillPlanView {
   readonly kinds: readonly FillPlanKind[];
   readonly needsAgent: readonly FillPlanNeed[];
   readonly errors: readonly FillPlanError[];
-  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string }[];
+  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string; readonly applicability?: KindApplicability }[];
   readonly pluginsOnly: boolean;
 }
 

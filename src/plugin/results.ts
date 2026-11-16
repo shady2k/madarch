@@ -52,7 +52,7 @@ export interface ValidatedUnit {
   readonly removals: readonly PluginEntityRef[];
   /** The places the unit could not read, in path and line order: the answer's values stand beside them. */
   readonly problems: readonly PluginUnitProblem[];
-  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
+  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string } | { readonly state: 'inapplicable'; readonly searched: string; readonly evidence: readonly import('./protocol.js').PluginEvidence[] };
   /** How many removals a partial unit carried and the host dropped. */
   readonly removalsDropped: number;
 }
