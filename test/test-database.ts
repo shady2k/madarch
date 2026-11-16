@@ -252,11 +252,11 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
 export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string; readonly timing?: TestDatabaseOptions['timing'] }): Promise<HistoryStore> {
   if (options.store !== undefined) {
     // A history of a store of its own: it opens and closes the store, and names it in the errors it reports.
-    const owner = await createTestDatabaseOwner({ store: options.store });
+    const owner = await createTestDatabaseOwner({ store: options.store, authenticated: false });
     const held = createHistoryStore({ owner, clock: options.clock });
     return { ...held, close: async () => { try { await held.close(); } finally { await owner.close(); } } };
   }
-  const owner = await createTestDatabaseOwner(options.timing === undefined ? {} : { timing: options.timing });
+  const owner = await createTestDatabaseOwner({ authenticated: false, ...(options.timing === undefined ? {} : { timing: options.timing }) });
   const history = createHistoryStore({ owner, clock: options.clock });
   return {
     ...history,
