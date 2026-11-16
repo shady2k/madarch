@@ -678,11 +678,84 @@ function systemSelectorListLiteral(module: GateModule, node: Node, modules: Map<
   return kind !== undefined && (registry.get(kind)?.has(stringValue(node) ?? '') ?? false);
 }
 
+/** A batch projector must validate the values it returns, after mapping declared semantic slots. */
+function semanticBatchProjectors(module: GateModule): Set<string> {
+  const imported = nodesOf(module.tree).some(entry => entry['type'] === 'ImportDeclaration'
+    && stringValue(entry['source'] as Node) === '../model/semantic-role-protocol.js'
+    && nodesOf(entry).some(specifier => specifier['type'] === 'ImportSpecifier' && named(specifier['local'], 'checkRoleProperties') && named(specifier['imported'] ?? specifier['local'], 'checkRoleProperties')));
+  if (!imported) return new Set();
+  return new Set(nodesOf(module.tree).filter(entry => entry['type'] === 'FunctionDeclaration').flatMap(projector => {
+    const nodes = nodesOf(projector);
+    const checked = nodes.find(entry => entry['type'] === 'CallExpression' && named(entry['callee'], 'checkRoleProperties')
+      && named((entry['arguments'] as {expression: Node}[])[1]?.expression, 'values'));
+    const role = checked === undefined ? undefined : (checked['arguments'] as {expression: Node}[])[0]?.expression;
+    const roleChecked = role?.['type'] === 'ConditionalExpression' && named(role['consequent'], 'role')
+      && (role['alternate'] as Node)['type'] === 'TemplateLiteral'
+      && ((role['alternate'] as Node)['expressions'] as Node[]).length === 2
+      && named(((role['alternate'] as Node)['expressions'] as Node[])[0], 'role')
+      && named(((role['alternate'] as Node)['expressions'] as Node[])[1], 'edgeRole');
+    const mappingSource = nodes.some(entry => entry['type'] === 'MemberExpression' && named(entry['object'], 'binding') && named(entry['property'], 'fields'));
+    const mapped = nodes.some(entry => entry['type'] === 'ForOfStatement'
+      && nodesOf(entry).some(child => child['type'] === 'CallExpression' && (child['callee'] as Node)['type'] === 'MemberExpression'
+        && named((child['callee'] as Node)['object'], 'Object') && named((child['callee'] as Node)['property'], 'entries')
+        && named((child['arguments'] as {expression: Node}[])[0]?.expression, 'mappings'))
+      && nodesOf(entry).some(child => child['type'] === 'AssignmentExpression' && (child['left'] as Node)['type'] === 'MemberExpression'
+        && named((child['left'] as Node)['object'], 'values') && ((child['left'] as Node)['property'] as Node)['type'] === 'Computed'
+        && named(((child['left'] as Node)['property'] as Node)['expression'], 'semantic')));
+    const returned = checked !== undefined && enclosing(module, checked).some(scope => scope['type'] === 'ArrowFunctionExpression'
+      && nodesOf(scope).some(entry => entry['type'] === 'ReturnStatement' && (entry['argument'] as Node | undefined)?.['type'] === 'ObjectExpression'
+        && ((entry['argument'] as Node)['properties'] as Node[]).some(property => named(property, 'values') || (named(property['key'], 'values') && named(property['value'], 'values')))));
+    const requests = nodes.some(entry => entry['type'] === 'CallExpression' && (entry['callee'] as Node)['type'] === 'MemberExpression'
+      && named((entry['callee'] as Node)['object'], 'requests') && named((entry['callee'] as Node)['property'], 'map')
+      && nodesOf(entry).some(child => child['type'] === 'ObjectPattern' && ['role', 'fields', 'edgeRole'].every(name => nodesOf(child).some(property => named(property['key'], name)))));
+    const plans = nodes.find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'plans'));
+    const planCall = plans?.['init'] as Node | undefined;
+    const directRequests = planCall?.['type'] === 'CallExpression' && (planCall['callee'] as Node)['type'] === 'MemberExpression'
+      && named((planCall['callee'] as Node)['object'], 'requests') && named((planCall['callee'] as Node)['property'], 'map');
+    const result = nodes.find(entry => entry['type'] === 'ReturnStatement' && (entry['argument'] as Node | undefined)?.['type'] === 'CallExpression'
+      && ((entry['argument'] as Node)['callee'] as Node)['type'] === 'MemberExpression'
+      && named((((entry['argument'] as Node)['callee'] as Node)['object']), 'plans')
+      && named((((entry['argument'] as Node)['callee'] as Node)['property']), 'map'));
+    const resultCall = result?.['argument'] as Node | undefined;
+    const resultMap = resultCall === undefined ? undefined : (resultCall['arguments'] as {expression: Node}[])[0]?.expression;
+    const batchRead = nodes.find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'batches'));
+    const batchAwait = batchRead?.['init'] as Node | undefined;
+    const batchCall = batchAwait?.['type'] === 'AwaitExpression' ? batchAwait['argument'] as Node : undefined;
+    const batchPlan = batchCall?.['type'] === 'CallExpression' ? (batchCall['arguments'] as {expression: Node}[])[1]?.expression : undefined;
+    const orderedRead = batchCall !== undefined && named(batchCall['callee'], 'readKindsAssertions') && batchPlan?.['type'] === 'CallExpression' && (batchPlan['callee'] as Node)['type'] === 'MemberExpression'
+      && named((batchPlan['callee'] as Node)['object'], 'plans') && named((batchPlan['callee'] as Node)['property'], 'map');
+    const forwarding = batchPlan === undefined ? undefined : (batchPlan['arguments'] as {expression: Node}[])[0]?.expression;
+    const forwardsRequest = forwarding?.['type'] === 'ArrowFunctionExpression' && named((forwarding['params'] as Node[])[0], 'plan')
+      && (forwarding['body'] as Node)['type'] === 'MemberExpression' && named((forwarding['body'] as Node)['object'], 'plan') && named((forwarding['body'] as Node)['property'], 'request');
+    const indexed = resultMap?.['type'] === 'ArrowFunctionExpression' && named((resultMap['params'] as Node[])[1], 'index')
+      && checked !== undefined && nodesOf(resultMap).includes(checked) && nodesOf(resultMap).some(entry => entry['type'] === 'MemberExpression' && named(entry['object'], 'batches')
+      && (entry['property'] as Node)['type'] === 'Computed' && named((entry['property'] as Node)['expression'], 'index'));
+    return roleChecked && mappingSource && mapped && returned && requests && directRequests && resultMap !== undefined && orderedRead && forwardsRequest && indexed
+      ? [String((projector['identifier'] as Node)['value'])] : [];
+  }));
+}
+
+function semanticBatchRequests(call: Node, projectors: Set<string>): Node[] | undefined {
+  if (call['type'] !== 'CallExpression' || !projectors.has(String((call['callee'] as Node)['value']))) return undefined;
+  const array = (call['arguments'] as {expression: Node}[])[1]?.expression;
+  if (array?.['type'] !== 'ArrayExpression') return undefined;
+  const elements = array['elements'] as {expression: Node}[];
+  return elements.every(element => element?.expression['type'] === 'ObjectExpression') ? elements.map(element => element.expression) : undefined;
+}
+
+function semanticRequestRole(request: Node): string | undefined {
+  const properties = request['properties'] as Node[];
+  const role = stringValue(properties.find(property => named(property['key'], 'role'))?.['value'] as Node ?? {});
+  const edgeNode = properties.find(property => named(property['key'], 'edgeRole'))?.['value'] as Node | undefined;
+  const edge = edgeNode === undefined ? undefined : stringValue(edgeNode);
+  return role === undefined || (edgeNode !== undefined && edge === undefined) ? undefined : edge === undefined ? role : `${role}.${edge}`;
+}
+
 /** Infer a private records row/collection role from the actual projector call and local return chain. */
 function recordExpressionRole(module: GateModule, expression: Node, at: Node, depth = 0): string | undefined {
   if (depth > 24) return undefined;
   const recur = (value: Node, place = at): string | undefined => recordExpressionRole(module, value, place, depth + 1);
-  if (expression['type'] === 'AwaitExpression' || expression['type'] === 'ParenthesisExpression') return recur((expression['argument'] ?? expression['expression']) as Node);
+  if (expression['type'] === 'AwaitExpression' || expression['type'] === 'ParenthesisExpression' || expression['type'] === 'TsNonNullExpression') return recur((expression['argument'] ?? expression['expression']) as Node);
   if (expression['type'] === 'ConditionalExpression') { const yes=recur(expression['consequent'] as Node), no=recur(expression['alternate'] as Node); return yes===no?yes:undefined; }
   if (expression['type'] === 'CallExpression') {
     const callee = expression['callee'] as Node;
@@ -703,7 +776,16 @@ function recordExpressionRole(module: GateModule, expression: Node, at: Node, de
     }
   }
   if (expression['type'] === 'MemberExpression' && (expression['property'] as Node)['type'] === 'Computed'
-    && ((expression['property'] as Node)['expression'] as Node)['type'] === 'NumericLiteral') return recur(expression['object'] as Node);
+    && ((expression['property'] as Node)['expression'] as Node)['type'] === 'NumericLiteral') {
+    let object = expression['object'] as Node;
+    while (['AwaitExpression', 'ParenthesisExpression', 'TsNonNullExpression'].includes(String(object['type']))) object = (object['argument'] ?? object['expression']) as Node;
+    const requests = semanticBatchRequests(object, semanticBatchProjectors(module));
+    if (requests !== undefined) {
+      const request = requests[Number(((expression['property'] as Node)['expression'] as Node)['value'])];
+      return request === undefined ? undefined : semanticRequestRole(request);
+    }
+    return recur(expression['object'] as Node);
+  }
   if (expression['type'] !== 'Identifier') return undefined;
   const name = String(expression['value']);
   for (const scope of enclosing(module, at)) {
@@ -728,6 +810,18 @@ function recordExpressionRole(module: GateModule, expression: Node, at: Node, de
       if (callee?.['type'] === 'MemberExpression') return recur(callee['object'] as Node, call!);
     }
     if (scope['type'] !== 'BlockStatement' && scope['type'] !== 'Module') continue;
+    const destructured = nodesOf(scope).filter(entry => entry['type'] === 'VariableDeclarator' && (entry['id'] as Node)['type'] === 'ArrayPattern'
+      && enclosing(module, entry).find(parent => parent['type'] === 'BlockStatement' || parent['type'] === 'Module') === scope);
+    for (const declaration of destructured) {
+      const index = ((declaration['id'] as Node)['elements'] as (Node | null)[]).findIndex(element => {
+        const binding = element?.['type'] === 'AssignmentPattern' ? element['left'] as Node : element;
+        return binding !== null && named(binding, name) && binding?.['ctxt'] === expression['ctxt'];
+      });
+      let init = declaration['init'] as Node | undefined;
+      if (init?.['type'] === 'AwaitExpression') init = init['argument'] as Node;
+      const requests = init == null ? undefined : semanticBatchRequests(init, semanticBatchProjectors(module));
+      if (index >= 0 && requests?.[index] !== undefined) return semanticRequestRole(requests[index]!);
+    }
     const declarations = nodesOf(scope).filter((entry) => entry['type'] === 'VariableDeclarator' && named(entry['id'], name)
       && (entry['id'] as Node)['ctxt'] === expression['ctxt']
       && enclosing(module, entry).find((parent) => parent['type'] === 'BlockStatement' || parent['type'] === 'Module') === scope);
@@ -745,7 +839,21 @@ function semanticRecordSlotsLiteral(module: GateModule, node: Node, modules: Map
     && stringValue(entry['source'] as Node) === '../model/semantic-role-protocol.js'
     && nodesOf(entry).some((specifier) => specifier['type'] === 'ImportSpecifier' && named(specifier['local'], 'checkRoleProperties')));
   const projector = nodesOf(module.tree).find((entry) => entry['type'] === 'FunctionDeclaration' && named(entry['identifier'], 'semanticRecords'));
-  if (!imported || projector === undefined || !nodesOf(projector).some((entry) => entry['type'] === 'CallExpression' && named(entry['callee'], 'checkRoleProperties'))) return false;
+  const batches = semanticBatchProjectors(module);
+  if (!imported || (batches.size === 0 && (projector === undefined || !nodesOf(projector).some((entry) => entry['type'] === 'CallExpression' && named(entry['callee'], 'checkRoleProperties'))))) return false;
+  for (const call of nodesOf(module.tree)) {
+    const requests = semanticBatchRequests(call, batches);
+    if (requests === undefined) continue;
+    for (const request of requests) {
+      const role = semanticRequestRole(request);
+      const properties = request['properties'] as Node[];
+      const property = properties.find(entry => entry['value'] === node || (entry['value'] as Node | undefined)?.['type'] === 'ArrayExpression'
+        && ((entry['value'] as Node)['elements'] as {expression: Node}[]).some(element => element.expression === node));
+      if (property === undefined || role === undefined) continue;
+      if (named(property['key'], 'role')) return roles.has(stringValue(node) ?? '');
+      if (named(property['key'], 'fields')) return roles.get(role)?.has(stringValue(node) ?? '') ?? false;
+    }
+  }
   const parents = enclosing(module, node);
   const parent = parents[0];
   if (parent?.['type'] === 'CallExpression' && named(parent['callee'], 'semanticRoleFields')) {

@@ -239,6 +239,37 @@ describe('gate 1: the engine holds no product data', () => {
     expect(productDataViolations(home).map((finding) => [finding.file, finding.line])).toEqual([['src/graph/records.ts', 6], ['src/reader.ts', 5]]);
   });
 
+  test('batch semantic slots follow checked request positions even when the helper is renamed', () => {
+    const batch = 'async function renamedProjection(tx, requests) {\n const manifest = await readPublishedManifest(tx);\n const plans = requests.map(({role, fields, edgeRole}) => {\n const binding = manifest.semanticBindings.get(role);\n const edge = edgeRole === undefined ? undefined : binding.edges[edgeRole];\n const mappings = edge === undefined ? binding.fields : edge.fields;\n return {role, edgeRole, mappings, request: {kind: binding.kind, fields: fields.map(field => mappings[field])}};\n });\n const batches = await readKindsAssertions(tx, plans.map(plan => plan.request));\n return plans.map(({role, edgeRole, mappings}, index) => batches[index].map(row => {\n const values = {};\n for (const [semantic, actual] of Object.entries(mappings)) { values[semantic] = row.values[actual]; }\n checkRoleProperties(edgeRole === undefined ? role : `${role}.${edgeRole}`, values);\n return {...row, values};\n }));\n}';
+    const protocol = [
+      "import {Type} from 'typebox'; import {Value} from 'typebox/value';",
+      "export const ROLE_BINDING_SCHEMA = Type.Union([Type.Object({role:Type.Literal('claim-projection'),properties:Type.Object({ordinal:Type.Integer()})}),Type.Object({role:Type.Literal('other'),properties:Type.Object({text:Type.String()})})]);",
+      'export function checkRoleProperties(schema, properties) { return Value.Check(ROLE_BINDING_SCHEMA, properties); }',
+    ].join('\n');
+    const read = [
+      "const [claims=[], other=[]] = await renamedProjection(tx,[{role:'claim-projection',fields:['ordinal']},{role:'other',fields:[]}]);",
+      "claims.map(row => row.values['ordinal']);",
+      "other.map(row => row.values['ordinal']);",
+      "const [wrong=[]] = await renamedProjection(tx,[{role:'other',fields:['ordinal']}]);",
+    ].join('\n');
+    const findings = (helper: string, schema = protocol, reads = read) => productDataViolations(fixture({
+      ...catalogue('demo.kind', 'fields:\n  - name: ordinal\n    type: integer\n'),
+      'src/model/semantic-role-protocol.ts': schema,
+      'src/knowledge/semantic-bindings.ts': "import {checkRoleProperties} from '../model/semantic-role-protocol.js'; export function semanticEntities(graph, manifest, role) { checkRoleProperties(role, {}); }",
+      'src/graph/records.ts': "import {checkRoleProperties} from '../model/semantic-role-protocol.js';\n" + helper + '\n' + reads,
+    })).filter(finding => finding.file === 'src/graph/records.ts').map(finding => finding.line);
+    const start = batch.split('\n').length + 2;
+    expect(findings(batch)).toEqual([start + 2]);
+    expect(findings(batch, protocol, read.split('\n')[3])).toEqual([start]);
+    expect(findings(batch.replace('checkRoleProperties(edgeRole === undefined ? role : `${role}.${edgeRole}`, values);', ''))).toEqual([start]);
+    expect(findings(batch, protocol.replace('return Value.Check(ROLE_BINDING_SCHEMA, properties);', 'return true;'))).toEqual([start]);
+    expect(findings(batch.replace('values[semantic] = row.values[actual];', 'values[actual] = row.values[actual];'))).toEqual([start]);
+    expect(findings(batch.replace('return plans.map(', 'return plans.reverse().map('))).toEqual([start]);
+    expect(findings(batch.replace('await readKindsAssertions(', 'await fakeRead('))).toEqual([start]);
+    expect(findings(batch.replace('plans.map(plan => plan.request)', 'plans.map(plan => unrelated)'))).toEqual([start]);
+    expect(findings(batch.replace('mappings}, index)', 'mappings}, wrongIndex)'))).toEqual([start]);
+  });
+
   test('assertion schema names are scoped to exported typed declaration arrays', () => {
     const home = fixture({
       ...catalogue('demo.kind', 'fields:\n  - name: question\n    type: text\n'),
