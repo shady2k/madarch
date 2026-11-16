@@ -40,7 +40,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
     const values=properties.map(property=>{
       const table=assertionValueTableName(kind,sort,property);
       const literal="'"+property.replaceAll("'","''")+"'";
-      return `SELECT assertion_id,${literal}::text AS property,CASE WHEN pg_typeof(value)::text='bigint' THEN to_jsonb(value::text) ELSE to_jsonb(value) END AS value,pg_typeof(value)::text AS value_type FROM "${table}"`;
+      return `SELECT assertion_id,${literal}::text AS property,CASE WHEN pg_typeof(value)::text='bigint' THEN to_jsonb(value::text) ELSE to_jsonb(value) END AS value,pg_typeof(value)::text AS value_type FROM "${table}" WHERE a.property=${literal} AND assertion_id=a.assertion_id`;
     }).join(' UNION ALL ');
       const subjectJoin = sort === 'vertex'
         ? `JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
@@ -60,13 +60,19 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
         value_row.value,value_row.value_type,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-source') AS source,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-author') AS author,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-unit') AS unit,
-        (SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-operation') AS operation_uid,
-        ARRAY(SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence' ORDER BY target.uid) AS evidence
+        lineage.source,lineage.author,lineage.unit,lineage.operation_uid,lineage.evidence
         FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
-        ${subjectJoin} LEFT JOIN (${values}) value_row ON value_row.assertion_id=a.assertion_id AND value_row.property=a.property
+        ${subjectJoin} LEFT JOIN LATERAL (${values}) value_row ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT max(target.uid::text) FILTER (WHERE k.name='system.assertion-source') AS source,
+                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-author') AS author,
+                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-unit') AS unit,
+                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-operation') AS operation_uid,
+                 coalesce(array_agg(target.uid::text ORDER BY target.uid) FILTER (WHERE k.name='system.assertion-evidence'),ARRAY[]::text[]) AS evidence
+          FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node
+          WHERE lineage.from_node=a.assertion_id
+            AND k.name IN ('system.assertion-source','system.assertion-author','system.assertion-unit','system.assertion-operation','system.assertion-evidence')
+        ) lineage ON TRUE
         WHERE subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND subject.id=ANY(${subjectsParameter}::bigint[])`}
         ORDER BY array_position(${propertiesParameter}::text[],a.property),a.recorded_sequence) assertion_rows`);
     }
