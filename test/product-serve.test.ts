@@ -201,7 +201,7 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
     ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], 'key-edges': [], title: 'title',
-    fields: [...['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
+    fields: [...['title', 'repository', 'path', 'markdown', 'content', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
       { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
       { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
     ],
@@ -231,7 +231,7 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
         const markdown = readFileSync(file, 'utf8');
         const title = /^# (.+)$/m.exec(markdown)?.[1];
         if (title === undefined) throw new Error(`the fixture document ${file} has no title`);
-        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title } }, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, source_text: markdown, anchors: {}, links: [] } }], removals: [] });
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title } }, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, content: markdown, source_text: markdown, anchors: {}, links: [] } }], removals: [] });
       }
     });
   } finally { await owner.close(); }
