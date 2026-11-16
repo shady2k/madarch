@@ -859,8 +859,7 @@ export class ReadContext {
         links.push(side === 'out' ? { from: root.uid, to: node.uid, relation } : { from: node.uid, to: root.uid, relation });
       }
     }
-    const labels = new Map<string, string>();
-    for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
+    const labels = new Map(await Promise.all([...nodes].map(async ([uid, entity]) => [uid, await this.labelOf(entity)] as const)));
     const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
   }
