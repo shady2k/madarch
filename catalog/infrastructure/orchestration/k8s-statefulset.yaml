@@ -28,3 +28,8 @@ derives-from:
 - code.image
 - k8s-namespace
 - product-profile
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

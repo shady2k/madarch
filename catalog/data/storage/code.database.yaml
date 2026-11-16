@@ -53,3 +53,10 @@ key-edges:
 - role: code.database-repository
   edge: code.database-repository
   side: from
+applicability:
+  dependencies: []
+  markers:
+  - '**/*.sql'
+  - '**/schema.prisma'
+  - '**/migrations/**'
+  profile: data_stores

@@ -28,3 +28,12 @@ derives-from:
 - product-profile
 - ui-component
 - user-flow
+applicability:
+  dependencies: []
+  markers:
+  - '**/index.html'
+  - '**/*.tsx'
+  - '**/*.vue'
+  - '**/*.svelte'
+  profile: web_ui
+source: graph

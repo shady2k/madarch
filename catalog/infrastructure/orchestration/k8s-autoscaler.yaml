@@ -27,3 +27,8 @@ description:
 derives-from:
 - code.k8s-deployment
 - product-profile
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

@@ -121,9 +121,10 @@ export const PluginUnitProblem = Type.Object(
 export const PluginUnitEnd = Type.Union(
   [
     Type.Object({ state: Type.Literal('complete') }, { additionalProperties: false, description: 'The unit read everything its input holds.' }),
+    Type.Object({ state: Type.Literal('inapplicable'), searched: Type.String({minLength:1}), evidence: Type.Array(PluginEvidence, {minItems:1}) }, {additionalProperties:false}),
     Type.Object({ state: Type.Literal('partial'), cause: Type.String({ minLength: 1 }) }, { additionalProperties: false, description: 'The unit stopped short; the cause says why, and the host publishes no removals for it.' }),
   ],
-  { description: 'How a unit ended: complete, or partial with the cause.' },
+  { description: 'How a unit ended: complete, partial with the cause, or inapplicable with the searched scope and evidence.' },
 );
 
 /** The answer to one unit: what the plugin found, and how far it got. */

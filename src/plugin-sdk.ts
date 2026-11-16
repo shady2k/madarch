@@ -83,7 +83,7 @@ export interface EdgeResult {
 }
 
 /** How one unit ended. */
-export type UnitEnd = { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
+export type UnitEnd = { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string } | { readonly state: 'inapplicable'; readonly searched: string; readonly evidence: readonly Evidence[] };
 
 /**
  * One place a unit could not read: a file, the line it stands on and the cause. The unit states everything else it read,

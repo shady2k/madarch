@@ -262,7 +262,14 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
               <PlainList className="m-0 list-none p-0">
                 {skipped.map((entry) => (
                   <ListItem key={`${entry.kind}:${entry.fields.join(',')}`} className="text-small text-muted">
-                    {labelOf(navigation, entry.kind)}{t('common.separator')}{entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason}
+                    <Text className="font-medium">{labelOf(navigation, entry.kind)}</Text>{t('common.separator')}
+                    {entry.applicability === undefined ? (entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason) : (
+                      <>
+                        <Text>{t(`applicability.state.${entry.applicability.state}`)}</Text>
+                        <Paragraph className="m-0">{t('applicability.reason', { reason: entry.applicability.reason })}</Paragraph>
+                        {entry.applicability.ancestor === undefined ? null : <Paragraph className="m-0">{t('applicability.ancestor', { kind: labelOf(navigation, entry.applicability.ancestor) })}</Paragraph>}
+                      </>
+                    )}
                   </ListItem>
                 ))}
               </PlainList>

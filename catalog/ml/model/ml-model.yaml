@@ -29,3 +29,11 @@ derives-from:
 - ai-system
 - product-profile
 - training-run
+applicability:
+  dependencies: []
+  markers:
+  - '**/*.onnx'
+  - '**/*.ipynb'
+  - '**/MLmodel'
+  profile: ml
+source: graph

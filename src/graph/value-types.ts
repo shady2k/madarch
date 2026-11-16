@@ -89,6 +89,20 @@ export function checkValueTypes(types: ValueTypes): void {
   for (const type of Object.values(types)) compileValueSchema(type.schema, types);
 }
 
+/** Resolves root references against the installed offline value-type registry. */
+export function resolveValueSchema(schema: JsonSchema, types: ValueTypes): JsonSchema | undefined {
+  let current = schema;
+  const seen = new Set<JsonSchema>();
+  while (typeof current['$ref'] === 'string') {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    const installed = Object.values(types).find(type => type.schema['$id'] === current['$ref'])?.schema;
+    if (installed === undefined) return undefined;
+    current = installed;
+  }
+  return current;
+}
+
 /** Validates before SQL; format checks and refs are identical at installation and writing. */
 export function fitsValueSchema(schema: JsonSchema, types: ValueTypes, value: unknown): boolean {
   let registry = compiled.get(types);

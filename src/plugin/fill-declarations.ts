@@ -18,7 +18,7 @@ export interface FillKindDeclaration {
 /** All declared prerequisites, including catalogue-only kinds that have no storage or producer. */
 export function fillKindsOf(manifest: KindsManifest): FillKindDeclaration[] {
   return [
-    ...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+    ...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: kind.profileMarkers === undefined && kind.profileTechnologies === undefined ? (kind.fields ?? []).map((field) => field.name) : [], key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
     ...[...(manifest.catalog?.kinds.values() ?? [])].filter((kind) => !manifest.kinds.has(kind.name) && kind.templatePolicy === 'none')
       .map((kind) => ({ name: kind.name, fields: [], file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom, catalogueOnly: true })),
   ];
@@ -482,7 +482,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // declared kind, so the plan can name the fields the agent fills beside each deterministic producer and keep exactly
   // the fields no claim covers. A kind that declares no field has nothing for any producer to state, so it is no gap.
   const supportKinds = new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
-  const fielded = (name: string): boolean => (manifest.kinds.get(name)?.fields ?? []).length > 0;
+  const fielded = (name: string): boolean => manifest.kinds.get(name)?.profileMarkers === undefined && manifest.kinds.get(name)?.profileTechnologies === undefined && (manifest.kinds.get(name)?.fields ?? []).length > 0;
   // The agent fills the gaps of the kinds the fill was asked for: a kind that only joins the fill as an input of an asked
   // kind runs its deterministic producers, and its own agent gaps wait for a fill that asks for it (madarch-64o5.63).
   const asked = new Set(requestedKinds ?? selectedKinds ?? [...manifest.kinds.keys()]);
@@ -601,6 +601,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     .filter((output) => [...(plan.outputs.get(plugin.manifest.name)?.keys() ?? [])].some((kind) => output.kind === '*' || output.kind === kind))
     .flatMap((output) => output.support?.vertices ?? [])));
   for (const kind of plan.selectedKinds) {
+    if (manifest.kinds.get(kind)?.profileMarkers !== undefined || manifest.kinds.get(kind)?.profileTechnologies !== undefined) continue;
     if (unavailable.has(kind) || nothingToFill.has(kind) || supported.has(kind)) continue;
     const authored = authoredFields(kind);
     const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);

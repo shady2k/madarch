@@ -27,3 +27,8 @@ description:
 derives-from:
 - node-pool
 - product-profile
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

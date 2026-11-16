@@ -10,6 +10,9 @@
  * manifest's data, and a product that declares no plugin-filled kind plans no unit and runs no
  * process.
  */
+import { declareProducerScope } from '../graph/applicability.js';
+import { fillProductProfile } from '../graph/product-profile.js';
+import { storedApplicability, assertApplicability, assertProducedApplicability, cascadeApplicability } from '../graph/applicability.js';
 import type { AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -132,6 +135,7 @@ export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sou
   return {
     sourceName: unit.plugin.id, version: unit.lock.version,
     permissions: [
+      ...['system.kind-applicability','system.applicability-product','system.applicability-kind'].map(kind => ({kind,properties:['*'],assert:true,retractOwn:true})),
       ...[...support.vertices].map(([kind, fields]) => ({ kind, properties: ['$exists', ...fields], assert: true, retractOwn: false })),
       { kind: unit.kind.name, properties: ['$exists', ...fields, ...(unit.kind.key ?? [])], assert: true, retractOwn: true },
       ...(unit.plugin.contract?.edges ?? []).map(edge => ({ kind: edge.kind, properties: ['$exists', ...edge.fields.map(field => field.name)], assert: true, retractOwn: true })),
@@ -180,6 +184,7 @@ function selectedVertex(wiring: PluginTurnWiring, kind: string): string | undefi
 
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
+  const applicability = await fillProductProfile(wiring.owner, wiring.contract, wiring.manifest, wiring.snapshots);
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
@@ -190,7 +195,7 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
       throw new Error(`${file}:1: selected producer ${name} has no enabled lock; enable its producer`);
     }
     const selected = outputKindsOf(wiring.manifest, plugin).filter((kind) => plan.outputs.get(name)?.has(kind.name) === true);
-    for (const kind of selected) units.push({ id: pluginTurnUnitId(name, kind.name, selectedVertex(wiring, kind.name)), plugin, kind, lock, patterns: [...new Set(kind.terms ?? [])] });
+    for (const kind of selected.filter(kind => plugin.contract?.agent === undefined || !applicability.some(mark => mark.kind === kind.name && mark.state === 'inapplicable'))) units.push({ id: pluginTurnUnitId(name, kind.name, selectedVertex(wiring, kind.name)), plugin, kind, lock, patterns: [...new Set(kind.terms ?? [])] });
   }
   return units;
 }
@@ -388,6 +393,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
+  if (unit.plugin.contract?.agent !== undefined) {
+    const marks = await storedApplicability(wiring.owner,wiring.contract);
+    const mark = marks.find(mark => mark.kind === unit.kind.name && mark.state === 'inapplicable');
+    if (mark !== undefined) {
+      completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'empty',produced:0,reason:mark.reason});
+      return;
+    }
+  }
+  if (wiring.executeOperation !== undefined) await wiring.executeOperation(id,'producer-scope',{kind:unit.kind.name,plugin:unit.plugin.id},async tx => await declareProducerScope(tx,wiring.contract,unit.kind.name,unit.plugin.id));
   // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
   // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
   const meter = pluginUnitMeter(wiring, unit);
@@ -587,6 +601,19 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         if (spent !== undefined) throw new UnitBoundStop('tokens', spent.message);
         throw unitStopped(id, outcome.cause.code, outcome.cause.message);
       }
+      if (outcome.result.end.state === 'inapplicable') {
+        if (committedEntries !== 0) throw new Error(`${location}: inapplicable result cannot contain instances`);
+        const execute = wiring.executeOperation;
+        if (execute === undefined) throw new Error(`${location}: applicability operation authority is unavailable`);
+        await execute(id,'applicability',outcome.result.end,async tx => {
+          const end = outcome.result.end;
+          if (end.state !== 'inapplicable') throw new Error(`${location}: applicability result changed`);
+          await assertApplicability(tx,wiring.contract,unit.kind.name,'inapplicable',end.searched,end.evidence.flatMap(draftEvidence));
+          await cascadeApplicability(tx,wiring.contract,wiring.manifest);
+        });
+        completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'empty',produced:0,reason:outcome.result.end.searched});
+        return;
+      }
       producedCount = committedEntries;
       // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
       // makes the rest of the answer a silence, and the reason is where a person finds what was left out. A partial unit
@@ -600,6 +627,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         ? (problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`)
         : undefined;
       const producedEntries = committedEntries;
+      if (producedEntries > 0) {
+        const execute = wiring.executeOperation;
+        if (execute === undefined || wiring.sourceUid === undefined) throw new Error(`${location}: applicability operation authority is unavailable`);
+        await execute(id,'applicable',{kind:unit.kind.name},async tx => {
+          await assertProducedApplicability(tx,wiring.contract,unit.kind.name);
+          await cascadeApplicability(tx,wiring.contract,wiring.manifest);
+        });
+      }
       if (partialReason !== undefined && producedEntries === 0) {
         completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: partialReason });
         progress?.(`the plugin ${unit.plugin.id} abstained: ${partialReason}`);
@@ -611,8 +646,6 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
       completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? (priorFactCount > 0 ? 'unchanged' : 'empty') : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) });
-
-
     } finally {
       signal?.removeEventListener('abort', cancel);
       const stderr = session.stderr();

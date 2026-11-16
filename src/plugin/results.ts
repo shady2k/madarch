@@ -8,7 +8,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { Value } from 'typebox/value';
-import { PluginEvidence } from './protocol.js';
+import { PluginEvidence, PluginUnitEnd } from './protocol.js';
 import type {
   PluginContractDeclaration,
   PluginEdgeKindDeclaration,
@@ -52,7 +52,7 @@ export interface ValidatedUnit {
   readonly removals: readonly PluginEntityRef[];
   /** The places the unit could not read, in path and line order: the answer's values stand beside them. */
   readonly problems: readonly PluginUnitProblem[];
-  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
+  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string } | { readonly state: 'inapplicable'; readonly searched: string; readonly evidence: readonly import('./protocol.js').PluginEvidence[] };
   /** How many removals a partial unit carried and the host dropped. */
   readonly removalsDropped: number;
 }
@@ -131,6 +131,17 @@ function checkKeyEdges(contract: PluginContractDeclaration, declaration: PluginV
  * runs of the same plugin answer the same bytes.
  */
 export function validateUnitResult(contract: PluginContractDeclaration, result: { unitId: string; vertices?: readonly PluginVertexResult[]; edges?: readonly PluginEdgeResult[]; removals?: readonly PluginEntityRef[]; problems?: readonly PluginUnitProblem[]; end: ValidatedUnit['end'] }): ResultCheck {
+  if (!Value.Check(PluginUnitEnd, result.end)) return refuse('malformed-result', 'end', 'the unit end does not match the protocol');
+  if (result.end.state === 'inapplicable') {
+    if (result.end.searched.trim() === '') return refuse('malformed-result', 'end.searched', 'inapplicable requires what was searched');
+    for (const name of ['vertices', 'edges', 'removals', 'problems'] as const) {
+      if ((result[name]?.length ?? 0) > 0) return refuse('malformed-result', name, 'inapplicable requires a complete search with no instances, removals or unread places');
+    }
+    for (const [at, evidence] of result.end.evidence.entries()) {
+      if ((evidence.lineStart !== undefined || evidence.lineEnd !== undefined) && evidence.path === undefined) return refuse('malformed-evidence', `end.evidence[${String(at)}]`, 'evidence line spans require a path');
+      if (evidence.lineStart !== undefined && evidence.lineEnd !== undefined && evidence.lineEnd < evidence.lineStart) return refuse('malformed-evidence', `end.evidence[${String(at)}]`, 'evidence lineEnd precedes lineStart');
+    }
+  }
   const vertices: PluginVertexResult[] = [];
   const seenVertices = new Set<string>();
   for (const [at, vertex] of (result.vertices ?? []).entries()) {

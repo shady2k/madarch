@@ -353,7 +353,7 @@ describe('one defect in the manifest is one problem', () => {
     if (old.startsWith('    ')) {
       const declaration = { ...parseYaml(base).kinds['code.entry-point'], group: old.startsWith('    group:') ? 'code.structure' : 'code.schema', id: 'fixture.entry-point', 'key-edges': [], 'derives-from': [] };
       const row = `  fixture.entry-point:
-${stringify(declaration, { lineWidth: 0 }).trimEnd().split('\n').map(line => `    ${line}`).join('\n')}
+${stringify(declaration, { lineWidth: 0, indentSeq: false }).trimEnd().split('\n').map(line => `    ${line}`).join('\n')}
 `;
       if (!row.includes(old)) throw new Error(`the isolated fixture holds no ${JSON.stringify(old)}`);
       return `${base}

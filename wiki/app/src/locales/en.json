@@ -1,4 +1,16 @@
 {
+  "applicability": {
+    "state": {
+      "not-searched": "Not searched",
+      "applicable": "Applicable",
+      "empty": "No results",
+      "failed": "Unknown (search failed)",
+      "inapplicable": "Inapplicable"
+    },
+    "reason": "Reason: {{reason}}",
+    "ancestor": "Inherited from: {{kind}}",
+    "contested": "Contested"
+  },
   "common": {
     "emptyValue": "—",
     "separator": " · ",

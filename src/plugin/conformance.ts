@@ -79,7 +79,7 @@ export function probeUnit(contract: PluginContractDeclaration, unitId = 'conform
 /** One outcome said in the kit's words: what it held, or the cause that stopped it. */
 export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
   if (outcome.state === 'extracted') {
-    const end = outcome.result.end.state === 'complete' ? 'complete' : `partial (${outcome.result.end.cause})`;
+    const end = outcome.result.end.state === 'partial' ? `partial (${outcome.result.end.cause})` : outcome.result.end.state;
     return { ok: true, text: `unit ${outcome.unitId}: ${end}, ${String(outcome.durationMs)} ms` };
   }
   return { ok: false, text: `unit ${outcome.unitId}: not extracted, ${outcome.cause.code}: ${outcome.cause.message}${outcome.stderr.file === '' ? '' : ` (log ${outcome.stderr.file})`}` };
@@ -223,7 +223,8 @@ export async function checkReconciliationConformance(options: ConformanceOptions
     }).open();
     const first = await session.runUnit({ ...options.unit, unitId: 'reconciliation-source' });
     if (first.state !== 'extracted') throw new Error(`${first.cause.code}: ${first.cause.message}`);
-    if (first.result.end.state !== 'complete') throw new Error(`source is partial: ${first.result.end.cause}`);
+    if (first.result.end.state === 'partial') throw new Error(`source is partial: ${first.result.end.cause}`);
+    if (first.result.end.state === 'inapplicable') throw new Error(`source is inapplicable: ${first.result.end.searched}`);
     const initial = applied;
     if (initial.some(write => write.operation !== 'add')) throw new Error('an empty graph must receive only additions');
     const vertices = initial.flatMap(write => write.vertex === undefined ? [] : [write.vertex]);
@@ -248,7 +249,8 @@ export async function checkReconciliationConformance(options: ConformanceOptions
     applied = [];
     const second = await session.runUnit({ ...options.unit, unitId: 'reconciliation-differences' });
     if (second.state !== 'extracted') throw new Error(`${second.cause.code}: ${second.cause.message}`);
-    if (second.result.end.state !== 'complete') throw new Error(`source is partial: ${second.result.end.cause}`);
+    if (second.result.end.state === 'partial') throw new Error(`source is partial: ${second.result.end.cause}`);
+    if (second.result.end.state === 'inapplicable') throw new Error(`source is inapplicable: ${second.result.end.searched}`);
     const writes = applied;
     const identity = (fact: unknown): string => {
       const held = fact as Record<string, unknown>;

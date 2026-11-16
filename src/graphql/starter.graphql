@@ -6562,6 +6562,266 @@ type KindJobRunEdge {
   node: KindJobRun!
 }
 
+type KindK8sAutoscaler implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sAutoscalerConnection {
+  edges: [KindK8sAutoscalerEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sAutoscalerEdge {
+  cursor: String!
+  node: KindK8sAutoscaler!
+}
+
+type KindK8sConfigmap implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sConfigmapConnection {
+  edges: [KindK8sConfigmapEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sConfigmapEdge {
+  cursor: String!
+  node: KindK8sConfigmap!
+}
+
+type KindK8sCronjob implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sCronjobConnection {
+  edges: [KindK8sCronjobEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sCronjobEdge {
+  cursor: String!
+  node: KindK8sCronjob!
+}
+
+type KindK8sDaemonset implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sDaemonsetConnection {
+  edges: [KindK8sDaemonsetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sDaemonsetEdge {
+  cursor: String!
+  node: KindK8sDaemonset!
+}
+
+type KindK8sIngress implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sIngressConnection {
+  edges: [KindK8sIngressEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sIngressEdge {
+  cursor: String!
+  node: KindK8sIngress!
+}
+
+type KindK8sJob implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sJobConnection {
+  edges: [KindK8sJobEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sJobEdge {
+  cursor: String!
+  node: KindK8sJob!
+}
+
+type KindK8sNamespace implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sNamespaceConnection {
+  edges: [KindK8sNamespaceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sNamespaceEdge {
+  cursor: String!
+  node: KindK8sNamespace!
+}
+
+type KindK8sPod implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sPodConnection {
+  edges: [KindK8sPodEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sPodEdge {
+  cursor: String!
+  node: KindK8sPod!
+}
+
+type KindK8sSecret implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sSecretConnection {
+  edges: [KindK8sSecretEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sSecretEdge {
+  cursor: String!
+  node: KindK8sSecret!
+}
+
+type KindK8sStatefulset implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindK8sStatefulsetConnection {
+  edges: [KindK8sStatefulsetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindK8sStatefulsetEdge {
+  cursor: String!
+  node: KindK8sStatefulset!
+}
+
 type KindKind implements Entity {
   id: ID!
   kind: String!
@@ -6651,6 +6911,58 @@ type KindKnownIssueConnection {
 type KindKnownIssueEdge {
   cursor: String!
   node: KindKnownIssue!
+}
+
+type KindKubernetesCluster implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindKubernetesClusterConnection {
+  edges: [KindKubernetesClusterEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindKubernetesClusterEdge {
+  cursor: String!
+  node: KindKubernetesCluster!
+}
+
+type KindKubernetesNode implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindKubernetesNodeConnection {
+  edges: [KindKubernetesNodeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindKubernetesNodeEdge {
+  cursor: String!
+  node: KindKubernetesNode!
 }
 
 type KindLinkBehaviour implements Entity {
@@ -7095,6 +7407,58 @@ type KindMilestoneConnection {
 type KindMilestoneEdge {
   cursor: String!
   node: KindMilestone!
+}
+
+type KindMlModel implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindMlModelConnection {
+  edges: [KindMlModelEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindMlModelEdge {
+  cursor: String!
+  node: KindMlModel!
+}
+
+type KindNodePool implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindNodePoolConnection {
+  edges: [KindNodePoolEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindNodePoolEdge {
+  cursor: String!
+  node: KindNodePool!
 }
 
 type KindOperation implements Entity {
@@ -8082,6 +8446,32 @@ type KindScheduledJobEdge {
   node: KindScheduledJob!
 }
 
+type KindScreen implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+}
+
+type KindScreenConnection {
+  edges: [KindScreenEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindScreenEdge {
+  cursor: String!
+  node: KindScreen!
+}
+
 type KindSetting implements Entity {
   id: ID!
   kind: String!
@@ -8677,6 +9067,36 @@ type KindSystemFillTransitionConnection {
 type KindSystemFillTransitionEdge {
   cursor: String!
   node: KindSystemFillTransition!
+}
+
+type KindSystemKindApplicability implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+}
+
+type KindSystemKindApplicabilityConnection {
+  edges: [KindSystemKindApplicabilityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemKindApplicabilityEdge {
+  cursor: String!
+  node: KindSystemKindApplicability!
 }
 
 type KindSystemOperation implements Entity {
@@ -10951,10 +11371,34 @@ type Query {
   allIncidentAggregate(where: KindIncidentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allJobRun(where: KindJobRunWhere, orderBy: [KindJobRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindJobRunConnection!
   allJobRunAggregate(where: KindJobRunWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sAutoscaler(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sAutoscalerConnection!
+  allK8sAutoscalerAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sConfigmap(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sConfigmapConnection!
+  allK8sConfigmapAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sCronjob(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sCronjobConnection!
+  allK8sCronjobAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sDaemonset(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sDaemonsetConnection!
+  allK8sDaemonsetAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sIngress(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sIngressConnection!
+  allK8sIngressAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sJob(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sJobConnection!
+  allK8sJobAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sNamespace(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sNamespaceConnection!
+  allK8sNamespaceAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sPod(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sPodConnection!
+  allK8sPodAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sSecret(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sSecretConnection!
+  allK8sSecretAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allK8sStatefulset(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindK8sStatefulsetConnection!
+  allK8sStatefulsetAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allKind(where: KindKindWhere, orderBy: [KindKindOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindKindConnection!
   allKindAggregate(where: KindKindWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allKnownIssue(where: KindKnownIssueWhere, orderBy: [KindKnownIssueOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindKnownIssueConnection!
   allKnownIssueAggregate(where: KindKnownIssueWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allKubernetesCluster(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindKubernetesClusterConnection!
+  allKubernetesClusterAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allKubernetesNode(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindKubernetesNodeConnection!
+  allKubernetesNodeAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allLinkBehaviour(where: KindLinkBehaviourWhere, orderBy: [KindLinkBehaviourOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindLinkBehaviourConnection!
   allLinkBehaviourAggregate(where: KindLinkBehaviourWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allLinkType(where: KindLinkTypeWhere, orderBy: [KindLinkTypeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindLinkTypeConnection!
@@ -10979,6 +11423,10 @@ type Query {
   allMergeAggregate(where: KindMergeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allMilestone(where: KindMilestoneWhere, orderBy: [KindMilestoneOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindMilestoneConnection!
   allMilestoneAggregate(where: KindMilestoneWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allMlModel(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindMlModelConnection!
+  allMlModelAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allNodePool(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindNodePoolConnection!
+  allNodePoolAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allOperation(where: KindOperationWhere, orderBy: [KindOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindOperationConnection!
   allOperationAggregate(where: KindOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allPageTemplate(where: KindPageTemplateWhere, orderBy: [KindPageTemplateOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindPageTemplateConnection!
@@ -11025,6 +11473,8 @@ type Query {
   allScenarioStepAggregate(where: KindScenarioStepWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allScheduledJob(where: KindScheduledJobWhere, orderBy: [KindScheduledJobOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindScheduledJobConnection!
   allScheduledJobAggregate(where: KindScheduledJobWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allScreen(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindScreenConnection!
+  allScreenAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSetting(where: KindSettingWhere, orderBy: [KindSettingOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSettingConnection!
   allSettingAggregate(where: KindSettingWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSkill(where: KindSkillWhere, orderBy: [KindSkillOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSkillConnection!
@@ -11057,6 +11507,8 @@ type Query {
   allSystemDisputeResolutionAggregate(where: KindSystemDisputeResolutionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemFillTransition(where: KindSystemFillTransitionWhere, orderBy: [KindSystemFillTransitionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemFillTransitionConnection!
   allSystemFillTransitionAggregate(where: KindSystemFillTransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemKindApplicability(where: KindSystemKindApplicabilityWhere, orderBy: [KindSystemKindApplicabilityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemKindApplicabilityConnection!
+  allSystemKindApplicabilityAggregate(where: KindSystemKindApplicabilityWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemOperation(where: KindSystemOperationWhere, orderBy: [KindSystemOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemOperationConnection!
   allSystemOperationAggregate(where: KindSystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProblem(where: KindSystemProblemWhere, orderBy: [KindSystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProblemConnection!
@@ -20295,6 +20747,45 @@ input KindSystemFillTransitionWhere {
   at: KindSystemFillTransitionAtFilter
 }
 
+input KindSystemKindApplicabilityOrder {
+  field: KindSystemKindApplicabilityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemKindApplicabilityReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityWhere {
+  state: KindSystemKindApplicabilityStateFilter
+  reason: KindSystemKindApplicabilityReasonFilter
+}
+
 input KindSystemOperationCanonicalRequestFilter {
   _eq: String
   _neq: String
@@ -23545,6 +24036,11 @@ enum KindSystemFillTransitionOrderField {
   generation
   fence
   at
+}
+
+enum KindSystemKindApplicabilityOrderField {
+  state
+  reason
 }
 
 enum KindSystemOperationOrderField {
