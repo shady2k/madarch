@@ -112,11 +112,12 @@ await withStorePreparationOwner(async () => {
     const psql = join(postgresInstallFolder(env), 'bin', postgresProgram('psql'));
     const connection = ['-X', '-h', clusterPaths(store).socketDir, '-U', 'postgres', '-d', 'madarch'];
     const query = (sql: string): string => execFileSync(psql, [...connection, '-A', '-t', '-c', sql], { env, encoding: 'utf8' }).trim();
-    blocker = Bun.spawn([psql, ...connection, '-v', 'ON_ERROR_STOP=1'], {
+    const blockingSession = Bun.spawn([psql, ...connection, '-v', 'ON_ERROR_STOP=1'], {
       env: { ...env, PGAPPNAME: 'preparation-shutdown-blocker' }, stdin: 'pipe', stdout: 'ignore', stderr: 'pipe',
     });
-    blocker.stdin!.write(`BEGIN; SELECT pg_advisory_xact_lock(${storeSchemaLockKey()});\n`);
-    blocker.stdin!.flush();
+    blocker = blockingSession;
+    blockingSession.stdin.write(`BEGIN; SELECT pg_advisory_xact_lock(${storeSchemaLockKey()});\n`);
+    blockingSession.stdin.flush();
     await waitFor('the blocker to hold the schema lock', () => query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='preparation-shutdown-blocker' AND l.locktype='advisory' AND l.granted") === '1');
     const changed: GraphContract = { vertex: [{ name: 'shutdown_added', table: 'shutdown_added_opinions', capability: 'test', fields: [{ name: 'label', type: 'text' }], key: ['label'] }], edge: [], dictionary: [] };
     let requestSettled = false;
