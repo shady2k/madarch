@@ -634,8 +634,12 @@ describe('the GraphQL executor', () => {
     });
     const elapsed = performance.now() - started;
     expect(hood).toBeDefined();
-    expect(hood!.groups).toMatchObject([{ relation: 'demo.contains', side: 'out', kind: 'demo.file', total: 1324 }]);
-    expect(hood!.groups[0]!.nodes).toHaveLength(12);
+    expect(hood!.groups).toMatchObject([
+      { relation: 'demo.file-repository', side: 'in', kind: 'demo.file', total: 1324 },
+      { relation: 'demo.contains', side: 'out', kind: 'demo.file', total: 1324 },
+    ]);
+    for (const group of hood!.groups) expect(group.nodes).toHaveLength(12);
+    expect(hood!.links).toHaveLength(24);
     expect(hood!.nodes.size).toBe(13);
     expect(hood!.labels.size).toBe(13);
     expect(hood!.truncated).toBe(true);

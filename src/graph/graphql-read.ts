@@ -812,17 +812,18 @@ export class ReadContext {
     const kindPages = new Map<string, string>();
     // The catalogue answers the folded nodes' page: the kind's entry lists every entity the node stands for.
     const catalogue = await this.catalogueData().catch(() => undefined);
+    const visibleEdges = withManifestContract(graphContractOf(this.manifest)).edge.map((edge) => edge.name);
     const found = await this.tx.query<Record<string, unknown>>(
       `WITH around AS (
          SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.from_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')}
+         WHERE e.from_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND en.name = ANY($3::text[])
          UNION ALL
          SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.to_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND e.from_node <> e.to_node
+         WHERE e.to_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND e.from_node <> e.to_node AND en.name = ANY($3::text[])
        ), live AS (
          SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
@@ -834,7 +835,7 @@ export class ReadContext {
          FROM live
        )
        SELECT * FROM counted WHERE rn <= $2::int ORDER BY side, relation, kind, rn`,
-      [id, Math.max(1, first)],
+      [id, Math.max(1, first), visibleEdges],
     );
     const sample = new Map<string, Record<string, unknown>[]>();
     for (const row of found.rows) {
@@ -930,12 +931,13 @@ export class ReadContext {
     for (const [, held] of byType) {
       const sql = new Sql();
       const ids = sql.param(held.ids, '::bigint[]');
+      const visibleEdges = sql.param(withManifestContract(graphContractOf(this.manifest)).edge.map((edge) => edge.name), '::text[]');
       const parts: string[] = [
         held.direction === 'in'
           ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`
+         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND en.name = ANY(${visibleEdges}) AND ${this.active('edge', 'e')}`
           : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`,
+         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND en.name = ANY(${visibleEdges}) AND ${this.active('edge', 'e')}`,
       ];
       const rows = await this.tx.query<{ target: string | number; relation: string; source_id: string; other: string | number; total: string | number }>(
         `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
