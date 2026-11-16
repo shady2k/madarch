@@ -53,7 +53,7 @@ import { PluginContractFile, type PluginContractDeclaration } from '../../plugin
 import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
 import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
-import { FIELD_TYPES, fieldTypeOf, SYNONYMS_FIELD, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords } from '../../graph/contract.js';
+import { FIELD_TYPES, fieldTypeOf, holdsJson, SYNONYMS_FIELD, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords } from '../../graph/contract.js';
 import { byCodePoint } from '../../model/order.js';
 import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
 import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
@@ -1954,7 +1954,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const type: ValueTypeDeclaration | undefined = field.valueType === undefined ? undefined : valueTypes[field.valueType];
       const schema = field.schema ?? type?.schema;
       const list = schema?.['type'] === 'array' && isRecord(schema['items']) && schema['items']['type'] === 'string' && schema['prefixItems'] === undefined;
-      if (field.type !== 'json' || (field.valueType !== undefined && type?.storage !== 'json') || !list) {
+      if (!holdsJson(field.type) || (field.valueType !== undefined && (type?.storage === undefined || !holdsJson(type.storage))) || !list) {
         problem(['fields', SYNONYMS_FIELD], 'synonyms is the system field of every entity: a kind declares it as a JSON list of text or leaves it out');
       }
     }

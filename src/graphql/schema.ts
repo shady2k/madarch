@@ -105,6 +105,8 @@ function entityFields(): FieldDef[] {
     { name: 'contested', type: '[String!]!' },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
     { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
+    // 0039 item 5: the names this entity's own text leaves unlinked, with the candidates each may mean.
+    { name: 'unlinkedMentions', type: '[UnlinkedMention!]!' },
   ];
 }
 
@@ -156,6 +158,7 @@ class Builder {
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
+      'UnlinkedMention', 'MentionCandidate',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -168,6 +171,15 @@ class Builder {
       { name: 'path', type: 'String!' }, { name: 'message', type: 'String!' },
     ]);
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
+    // 0039 items 6 and 29: one unlinked name at its place, and every same-named candidate with its kind's label.
+    this.type('MentionCandidate', [
+      { name: 'uid', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'kindLabel', type: 'String!' },
+      { name: 'label', type: 'String!' }, { name: 'domain', type: 'String!' },
+    ]);
+    this.type('UnlinkedMention', [
+      { name: 'field', type: 'String!' }, { name: 'path', type: 'String!' }, { name: 'start', type: 'Int!' }, { name: 'end', type: 'Int!' },
+      { name: 'name', type: 'String!' }, { name: 'candidates', type: '[MentionCandidate!]!' },
+    ]);
 
 
 

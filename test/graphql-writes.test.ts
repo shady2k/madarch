@@ -15,7 +15,7 @@ import { publishGraphDrafts } from '../src/graph/write.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
-import { putEdgeAssertion as putEdgeIn, putEntityAssertion as putEntityIn, retractAssertion as retractIn, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
+import { putEdgeAssertion as putEdgeIn, putEntityAssertion as putEntityIn, retractAssertion as retractIn, writeContractOf, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
@@ -23,13 +23,18 @@ import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js'
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { personBinding } from '../src/graph/system-installation.js';
+import { linkMention } from '../src/graph/mentions-link.js';
 
 let root = '';
 let folder = '';
+let person: Awaited<ReturnType<typeof personBinding>>;
 let owner: DatabaseOwner;
 let manifest: KindsManifest;
 let contract: ReturnType<typeof graphContractOf>;
 const agent: WriteSource = { producer: 'agent:codex', version: 'session-1' };
+
+const writeContractOfFixture = () => writeContractOf(manifest);
 
 async function writeAs<T>(source: WriteSource, work: (tx: import('../src/history-types.js').OuterTransaction) => Promise<T>): Promise<T> {
   return await owner.transaction('write', async (tx) => {
@@ -113,6 +118,7 @@ key: []`));
   const validation = validateProductManifests(folder);
   if (!validation.ok) throw new Error(validation.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
   if (validation.value !== undefined) await publishValidatedManifests(owner, validation.value);
+  person = await personBinding(owner, writeContractOfFixture());
 }, 120_000);
 
 afterAll(async () => {
@@ -181,6 +187,33 @@ describe('the agent writes the graph', () => {
       JOIN node target ON target.id=mention.to_node
       WHERE a.property='$exists' AND a.operation='retract' AND target.uid=$1::uuid`,[leftUid]))).rows[0]!.n;
     expect(retracted).toBe('1');
+  });
+
+  test('the page reads the names its text leaves unlinked, and a press links exactly the span it showed', async () => {
+    const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }];
+    const term = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Payments' }, evidence });
+    // The same word names a note of another kind, through its synonyms: both stay candidates, each with its kind's label.
+    const note = await putEntityAssertion(owner, agent, { kind: 'demo.note', values: { label: 'Payments register', synonyms: ['Payments'], qualifier: 'Commerce' }, evidence });
+    const page = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Settlement reader', body: 'The Payments service calls Payments twice.' }, evidence });
+    if (term.uid === undefined || note.uid === undefined || page.uid === undefined) throw new Error(`${import.meta.path}:1: the written fixture entities have no uid`);
+    const read = async () => (await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { unlinkedMentions { field path start end name candidates { uid kind kindLabel label domain } } } } }`, { id: page.uid }))['entity'] as Record<string, any>;
+    const mentions = (await read()).unlinkedMentions as Record<string, any>[];
+    expect(mentions.map((one) => ({ field: one.field, path: one.path, start: one.start, end: one.end, name: one.name }))).toEqual([
+      { field: 'body', path: '/body', start: 4, end: 12, name: 'Payments' },
+      { field: 'body', path: '/body', start: 27, end: 35, name: 'Payments' },
+    ]);
+    expect(mentions[0]!.candidates.map((one: Record<string, any>) => ({ uid: one.uid, kind: one.kind, kindLabel: one.kindLabel, domain: one.domain })).sort((left: { uid: string }, right: { uid: string }) => left.uid < right.uid ? -1 : 1)).toEqual([
+      { uid: term.uid, kind: 'doc.term', kindLabel: 'Glossary term', domain: '' },
+      { uid: note.uid, kind: 'demo.note', kindLabel: 'Note', domain: 'Commerce' },
+    ].sort((left, right) => left.uid < right.uid ? -1 : 1));
+    const linked = await owner.transaction('write', async (tx) => linkMention(tx, manifest, person, { kind: 'doc.term', uid: page.uid!, field: 'body', path: '/body', start: 27, end: 35, name: 'Payments', entity: note.uid! }));
+    expect(linked.text).toBe('The Payments service calls [[uid:' + note.uid + ']] twice.');
+    const after = await read();
+    expect((after.unlinkedMentions as Record<string, any>[]).map((one) => one.start)).toEqual([4]);
+    const token = (await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { body } } }`, { id: page.uid }))['entity'] as Record<string, any>;
+    expect(token.body).toBe('The Payments service calls [[uid:' + note.uid + ']] twice.');
+    // A span the page no longer matches is refused, naming the field and the place: the text changed under the page.
+    await expect(owner.transaction('write', async (tx) => linkMention(tx, manifest, person, { kind: 'doc.term', uid: page.uid!, field: 'body', path: '/body', start: 27, end: 35, name: 'Payments', entity: term.uid! }))).rejects.toThrow('the text changed since the page showed it');
   });
 
   test('naming declarations name their fields, and the synonyms half is the system field', () => {

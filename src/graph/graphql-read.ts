@@ -28,6 +28,8 @@ import { selectAssertions } from './assertion-selection.js';
 import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
 import { withAssertionContract } from './system-contract.js';
+import { mentionDictionary } from './mention-dictionary.js';
+import { holdsMentions, mentionHintsOf } from './mention-graph.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
@@ -358,6 +360,7 @@ export class ReadContext {
     if (name === 'contested') return this.contestedOf(entity);
     if (name === 'backlinks') return this.backlinks(entity, args);
     if (name === 'outgoing') return this.outgoing(entity, args);
+    if (name === 'unlinkedMentions') return await this.unlinkedMentions(entity);
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
     if (field !== undefined) {
       const read = await this.fieldRead(entity, field);
@@ -431,6 +434,34 @@ export class ReadContext {
     const selection = selectAssertions(rows, { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
     const resolved = selection.candidates.find(row => this.resolutionAssertionIds.includes(row.id));
     return resolved === undefined ? selection : { ...selection, selected: resolved, contested: false };
+  }
+
+  /**
+   * Decision 0039 items 5, 6 and 29: the names this entity's own text leaves without a link, at the field and code-point
+   * span they stand at, each with every same-named candidate and its kind's label. The read uses the writer's own
+   * scanner and dictionary, so a page offers exactly what a write answer would have offered; it never invents a target.
+   */
+  private async unlinkedMentions(entity: EntityValue): Promise<unknown[]> {
+    const kind = this.kindByType.get(entity.typeName);
+    if (kind === undefined) return [];
+    const fields = kind.fields.filter((field) => holdsMentions(field.type));
+    if (fields.length === 0) return [];
+    await this.ensureFields(kind.name, entity.nodeId, fields.map((field) => field.name));
+    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
+    const dictionary = await mentionDictionary(this.tx, this.manifest, contract, this.recordedAt);
+    if (dictionary.length === 0) return [];
+    const mentions: unknown[] = [];
+    for (const field of fields) {
+      const value = this.selection(this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang)).selected?.value ?? null;
+      if (value === null) continue;
+      for (const hint of mentionHintsOf(value, `/${fieldNameOf(field.name)}`, dictionary)) {
+        // The page's own name in its text means the page: offering to link it to itself is no unlinked name.
+        const candidates = hint.candidates.filter((candidate) => candidate.uid !== entity.uid);
+        if (candidates.length === 0) continue;
+        mentions.push({ field: fieldNameOf(field.name), path: hint.path, start: hint.start, end: hint.end, name: hint.name, candidates });
+      }
+    }
+    return mentions;
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {

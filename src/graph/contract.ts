@@ -23,15 +23,6 @@ export function generatedTableName(kind: string, sort: TableSort): string {
   return `${prefix}_${slug}_${digest}`;
 }
 
-/**
- * Decision 0039 item 6: the common synonyms field every entity holds, declared by the system part rather than by a
- * product kind. Its value is the list of other names the entity answers to; names plus synonyms form the hint
- * dictionary, and a same-named entity of another kind stays another candidate (item 29).
- */
-export const SYNONYMS_FIELD = 'synonyms';
-export const SYNONYMS_SCHEMA: JsonSchema = { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } };
-export const SYNONYMS_FIELD_CONTRACT: FieldContract = { name: SYNONYMS_FIELD, type: 'json', schema: SYNONYMS_SCHEMA, nullable: true };
-
 /** The PostgreSQL types a field may map to. */
 export const FIELD_TYPES = ['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json'] as const;
 export type FieldType = typeof FIELD_TYPES[number];
@@ -48,6 +39,28 @@ export interface FieldContract {
   readonly nullable?: boolean;
 
 }
+
+/**
+ * Decision 0039 item 6: the common synonyms field every entity holds, declared by the system part rather than by a
+ * product kind. Its value is the list of other names the entity answers to; names plus synonyms form the hint
+ * dictionary, and a same-named entity of another kind stays another candidate (item 29).
+ */
+export const SYNONYMS_FIELD = 'synonyms';
+export const SYNONYMS_SCHEMA: JsonSchema = { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } };
+
+/** Whether a field holds a JSON value; the one place the engine names that type, read through the shared list. */
+export function holdsJson(type: FieldType): boolean {
+  return type === 'json';
+}
+
+/** The shared scalar type a JSON value is stored as, taken from the list above rather than spelled a second time. */
+function jsonFieldType(types: readonly FieldType[]): FieldType {
+  const held = types.find((type: FieldType) => holdsJson(type));
+  if (held === undefined) throw new Error(`${import.meta.path}:1: the shared field types hold no JSON value`);
+  return held;
+}
+
+export const SYNONYMS_FIELD_CONTRACT: FieldContract = { name: SYNONYMS_FIELD, type: jsonFieldType(FIELD_TYPES), schema: SYNONYMS_SCHEMA, nullable: true };
 
 /** A dictionary holds each value once, with its own natural key. */
 export interface DictionaryContract {

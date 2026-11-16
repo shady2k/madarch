@@ -11,6 +11,7 @@ import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
+import { MentionsSection } from './components/mentions.js';
 import { TableSection } from './components/table.js';
 import { BarsSection } from './components/bars.js';
 import { DiagramSection } from './components/diagram.js';
@@ -103,6 +104,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'facts': return <FactsSection context={context} />;
     case 'text': return <TextSection context={context} />;
     case 'relations': return <RelationsSection context={context} />;
+    case 'mentions': return <MentionsSection context={context} />;
     case 'table': return <TableSection context={context} />;
     case 'bars': return <BarsSection context={context} />;
     case 'diagram': return <DiagramSection context={context} />;

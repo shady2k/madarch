@@ -19,7 +19,7 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds', 'mentions',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview', 'repositories',
@@ -86,6 +86,9 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     required: ['rows'],
   },
   text: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  // 0039 items 5, 6 and 29: the names the entity's own text leaves unlinked. The section names nothing: its query is
+  // `unlinkedMentions` on the entity, and the Button links one as this reader's statement of the field.
+  mentions: { parameters: {}, required: [] },
   relations: {
     parameters: {
       path: { type: 'string' },

@@ -106,6 +106,10 @@
     "language": "Choose language"
   },
   "knowledge": {
+    "mentions": {
+      "linking": "Linking…",
+      "empty": "Every name in the text is linked."
+    },
     "fillRun": {
       "noUnits": "No units were planned",
       "open": "Fill…",

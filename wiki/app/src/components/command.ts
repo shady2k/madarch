@@ -425,6 +425,28 @@ export const dismissProblem = (base: string, id: string, reason: string): Promis
 /** Presses «Создать задачу»: the task the problem has, made now or found from an earlier press. */
 export const makeProblemTask = (base: string, id: string): Promise<ProblemTaskAnswer> => command<ProblemTaskAnswer>(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
 
+/** One name a page left unlinked (0039 items 5, 6 and 29): its place and every entity it may mean. */
+export interface MentionCandidateView {
+  readonly uid: string;
+  readonly kind: string;
+  readonly kindLabel: string;
+  readonly label: string;
+  readonly domain: string;
+}
+
+export interface UnlinkedMention {
+  readonly field: string;
+  readonly path: string;
+  readonly start: number;
+  readonly end: number;
+  readonly name: string;
+  readonly candidates: readonly MentionCandidateView[];
+}
+
+/** Presses «связать»: the token replaces exactly the span the page showed, as this person's statement. */
+export const linkMention = (base: string, input: { readonly kind: string; readonly uid: string; readonly field: string; readonly path: string; readonly start: number; readonly end: number; readonly name: string; readonly entity: string }): Promise<unknown> =>
+  command(base, '/api/mention-link', { method: 'POST', body: JSON.stringify(input) });
+
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
 

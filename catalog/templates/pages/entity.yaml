@@ -48,6 +48,22 @@ sections:
       path: outgoing
       labelPath: relation
       emptyText: { en: Nothing leads out of it, ru: Ничего не ведёт отсюда }
+  # 0039 items 5, 6 and 29: the names this entity's own text leaves without a link, each with the entities it may mean
+  # and one Button that links it. A text with no unlinked name draws nothing.
+  - id: mentions
+    component: mentions
+    title: { en: Mentions without a link, ru: Упоминания без ссылки }
+    query: |
+      id
+      kind
+      unlinkedMentions {
+        field
+        path
+        start
+        end
+        name
+        candidates { uid kind kindLabel label domain }
+      }
   - id: backlinks
     component: relations
     title: { en: Linked from, ru: Ссылаются }
