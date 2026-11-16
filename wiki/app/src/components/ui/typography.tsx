@@ -63,12 +63,10 @@ const stackLayouts = {
 export function Stack({ layout, className, ...props }: HTMLAttributes<HTMLDivElement> & { layout?: keyof typeof stackLayouts }) { return <div className={cn(layout && stackLayouts[layout], className)} {...props} />; }
 export function Text(props: HTMLAttributes<HTMLSpanElement>) { return <span {...props} />; }
 export function PageArticle(props: HTMLAttributes<HTMLElement>) { return <article {...props} />; }
-/**
- * A definition list: a term and its value. In columns the term keeps its width and the value takes the rest — but the
- * value column may shrink and its words may break, so a long path, hash or source line wraps inside the reading column
- * at a phone's width instead of pushing the page sideways (madarch-64o5.134).
- */
-export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) { return <dl className={cn(columns && 'm-0 grid grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-4 gap-y-1 text-small [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]', className)} {...props} />; }
+export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) {
+  // Two columns where the width is there, one below: a long term or a path never widens a phone's page.
+  return <dl className={cn(columns && 'm-0 grid grid-cols-1 gap-x-4 gap-y-1 text-small md:grid-cols-[max-content_minmax(0,1fr)]', className)} {...props} />;
+}
 export function DefinitionTerm(props: HTMLAttributes<HTMLElement>) { return <dt {...props} />; }
 export function DefinitionValue(props: HTMLAttributes<HTMLElement>) { return <dd {...props} />; }
 export function PlainList({ className, ...props }: HTMLAttributes<HTMLUListElement>) { return <ul className={cn('ui-plain-list list-none', className)} {...props} />; }

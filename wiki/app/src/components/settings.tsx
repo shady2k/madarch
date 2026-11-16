@@ -4,21 +4,25 @@
  * reasoning level it reports, the model roles, the language of the pages, and the reader's own role on this machine.
  * Every read and write goes through the retained settings routes; the page names no kind and no model.
  */
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnection } from '../connection.js';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
-import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
+import { ConfirmationPanel } from './ui/confirmation-panel.js';
+import { InlineCode } from './ui/inline-content.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
+import { DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, ListItem, Paragraph, PlainList, SmallTitle, Stack, Text } from './ui/typography.js';
 import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { ChoiceMenu } from './ui/choice-menu.js';
 import {
-  chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
+  chooseAgent, chooseModelRole, isOffline, peekGraphVerdicts, readAgentChoices, readAgents, graphVerdictRows, readProductSettings, readReaderSettings,
+  rewritePages, runGraphVerdicts, saveGraphVerdictBudgets, saveProductSettings, saveReaderRole, startFresh,
   useChangeStream, useCommandRead,
-  type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
+  type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type GraphVerdictsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole, type ResetPlanAnswer,
 } from './command.js';
 import { agentNote } from './agent-words.js';
 import type { SectionContext } from './types.js';
@@ -121,6 +125,246 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       )}
       {error === null ? null : <Paragraph className="mb-0 mt-2 text-small" role="alert" data-testid={`settings-role-error-${role.role}`}>{error}</Paragraph>}
     </ListItem>
+  );
+}
+
+
+/** The graph verdicts (madarch-mwhd.1): the saved report, the rows a person still has to look at, and the two budgets. */
+function VerdictsSection({ base, disabled, busy }: { readonly base: string; readonly disabled: boolean; readonly busy: boolean }): ReactElement {
+  const { t } = useTranslation();
+  const [view, setView] = useState<GraphVerdictsAnswer | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [items, setItems] = useState('');
+  const [calls, setCalls] = useState('');
+  const [round, setRound] = useState(0);
+  // The saved report says how many rows are not valid; one bounded page of them is read at a time.
+  useEffect(() => {
+    const controller = new AbortController();
+    setWorking(true);
+    setError(null);
+    peekGraphVerdicts(base, controller.signal)
+      .then(async (answer) => {
+        const page = answer.report === undefined ? null : await graphVerdictRows(base, { offset, limit: 100 }, controller.signal);
+        if (controller.signal.aborted) return;
+        setView(page === null ? answer : { ...answer, rows: page.rows, total: page.total, offset: page.offset, limit: page.limit });
+        setItems(String(answer.budgets.itemsPerRun));
+        setCalls(String(answer.budgets.modelCallsPerRun));
+        setWorking(false);
+      }, (failure: unknown) => {
+        if (controller.signal.aborted) return;
+        setWorking(false);
+        setError(message(failure));
+      });
+    return () => controller.abort();
+  }, [base, offset, round]);
+  const save = (): void => {
+    const perRun = Number(items);
+    const modelCalls = Number(calls);
+    if (items.trim() === '' || calls.trim() === '' || !Number.isInteger(perRun) || !Number.isInteger(modelCalls) || perRun < 0 || modelCalls < 0) {
+      setError(t('settings.verdicts.whole'));
+      return;
+    }
+    setWorking(true);
+    setError(null);
+    saveGraphVerdictBudgets(base, perRun, modelCalls).then(() => { setWorking(false); setRound(round + 1); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+  };
+  const run = (): void => {
+    setWorking(true);
+    setError(null);
+    runGraphVerdicts(base, { offset: 0, limit: 100 }).then((answer) => {
+      setView({ ...answer, rows: answer.rows, total: answer.total, offset: answer.offset, limit: answer.limit });
+      setOffset(0);
+      setWorking(false);
+    }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+  };
+  const report = view?.report;
+  const rows = view?.rows ?? [];
+  return (
+    <Section id="verdicts" title={t('settings.verdicts.title')} intro={t('settings.verdicts.intro')}>
+      {view === null && error === null ? <Paragraph data-testid="settings-verdicts-loading">{t('knowledge.loading')}</Paragraph> : null}
+      {view !== null && report === undefined ? <Paragraph data-testid="settings-verdicts-empty">{t('settings.verdicts.empty')}</Paragraph> : null}
+      {report === undefined ? null : (
+        <Stack>
+          <DefinitionList columns data-testid="settings-verdicts-totals">
+            <DefinitionTerm>{t('settings.verdicts.items')}</DefinitionTerm><DefinitionValue data-testid="settings-verdicts-total">{report.totals.items}</DefinitionValue>
+            <DefinitionTerm>{t('settings.verdicts.valid')}</DefinitionTerm><DefinitionValue data-testid="settings-verdicts-valid">{report.totals.valid}</DefinitionValue>
+            <DefinitionTerm>{t('settings.verdicts.invalid')}</DefinitionTerm><DefinitionValue data-testid="settings-verdicts-invalid">{report.totals.invalid}</DefinitionValue>
+            <DefinitionTerm>{t('settings.verdicts.unreviewed')}</DefinitionTerm><DefinitionValue data-testid="settings-verdicts-unreviewed">{report.totals.unreviewed}</DefinitionValue>
+          </DefinitionList>
+          <Paragraph data-testid="settings-verdicts-meta">{t('settings.verdicts.meta', { at: report.generatedAt, version: report.validatorVersion, file: view?.file ?? '' })}</Paragraph>
+          {report.totals.unreviewed === 0 ? null : <Paragraph data-testid="settings-verdicts-note">{t('settings.verdicts.unreviewedNote')}</Paragraph>}
+          {report.reasons.length === 0 ? null : (
+            <Table data-testid="settings-verdicts-reasons">
+              <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.reason')}</TableHead><TableHead align="right">{t('settings.verdicts.count')}</TableHead></TableRow></TableHeader>
+              <TableBody>{report.reasons.map((one) => <TableRow key={one.reason}><TableCell>{one.reason}</TableCell><TableCell align="right">{one.count}</TableCell></TableRow>)}</TableBody>
+            </Table>
+          )}
+          <Table data-testid="settings-verdicts-kinds">
+            <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.kind')}</TableHead><TableHead align="right">{t('settings.verdicts.valid')}</TableHead><TableHead align="right">{t('settings.verdicts.invalid')}</TableHead><TableHead align="right">{t('settings.verdicts.unreviewed')}</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {report.byKind.map((kind) => (
+                <TableRow key={`${kind.role}:${kind.kind}`} data-testid="settings-verdicts-kind">
+                  <TableCell><InlineCode>{kind.role}:{kind.kind}</InlineCode></TableCell><TableCell align="right">{kind.valid}</TableCell><TableCell align="right">{kind.invalid}</TableCell><TableCell align="right">{kind.unreviewed}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {rows.length === 0 ? null : (
+            <Table data-testid="settings-verdicts-rows">
+              <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.item')}</TableHead><TableHead align="left">{t('settings.verdicts.verdict')}</TableHead><TableHead align="left">{t('settings.verdicts.reason')}</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={`${row.role}:${row.id}`} data-testid="settings-verdicts-row">
+                    <TableCell><InlineCode>{row.role}:{row.kind}</InlineCode> {row.label}</TableCell><TableCell>{row.verdict}</TableCell><TableCell>{row.reason}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {view === null || view.limit === 0 || view.total <= view.limit ? null : (
+            <Stack>
+              <Text data-testid="settings-verdicts-range">{t('settings.verdicts.range', { from: String(view.offset + 1), to: String(Math.min(view.offset + view.limit, view.total)), total: String(view.total) })}</Text>
+              <Button variant="default" size="default" disabled={working || busy || view.offset === 0} onClick={() => setOffset(Math.max(0, view.offset - view.limit))} data-testid="settings-verdicts-previous">{t('settings.verdicts.previous')}</Button>
+              <Button variant="default" size="default" disabled={working || busy || view.offset + view.limit >= view.total} onClick={() => setOffset(view.offset + view.limit)} data-testid="settings-verdicts-next">{t('settings.verdicts.next')}</Button>
+            </Stack>
+          )}
+        </Stack>
+      )}
+      <Stack data-testid="settings-verdicts-budgets">
+        <FieldLabel>{t('settings.verdicts.itemsPerRun')}
+          <Input type="number" min={0} step={1} value={items} disabled={working || busy} onInput={(event) => setItems(event.currentTarget.value)} data-testid="settings-verdict-items-per-run" />
+        </FieldLabel>
+        <FieldLabel>{t('settings.verdicts.modelCallsPerRun')}
+          <Input type="number" min={0} step={1} value={calls} disabled={working || busy} onInput={(event) => setCalls(event.currentTarget.value)} data-testid="settings-verdict-model-calls" />
+        </FieldLabel>
+        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={save} data-testid="settings-verdicts-save">{t('settings.verdicts.save')}</Button>
+        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={run} data-testid="settings-verdicts-run">{working ? t('settings.verdicts.running') : t('settings.verdicts.run')}</Button>
+        <Paragraph data-testid="settings-verdicts-note">{t('settings.verdicts.note')}</Paragraph>
+      </Stack>
+      {error === null ? null : <Paragraph role="alert" data-testid="settings-verdicts-error">{error}</Paragraph>}
+    </Section>
+  );
+}
+
+/** What the agent may spend on one page: the bounds it runs under, and the one bound a person sets. */
+function BoundsSection({ base, settings, disabled, busy, reload }: { readonly base: string; readonly settings: ProductSettingsAnswer; readonly disabled: boolean; readonly busy: boolean; readonly reload: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const [editorial, setEditorial] = useState(String(settings.bounds.editorialRequestsPerPage));
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setEditorial(String(settings.bounds.editorialRequestsPerPage)); }, [settings.bounds.editorialRequestsPerPage]);
+  const save = (): void => {
+    const value = Number(editorial);
+    if (!Number.isInteger(value) || value < 0 || value > 12) { setError(t('settings.bounds.invalid')); return; }
+    setWorking(true);
+    setError(null);
+    saveProductSettings(base, { editorialRequestsPerPage: value }).then(() => { setWorking(false); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+  };
+  return (
+    <Section id="bounds" title={t('settings.bounds.title')} intro={t('settings.bounds.intro')}>
+      <DefinitionList columns>
+        <DefinitionTerm>{t('settings.bounds.turns')}</DefinitionTerm><DefinitionValue data-testid="bound-turns">{settings.bounds.turns}</DefinitionValue>
+        <DefinitionTerm>{t('settings.bounds.minutes')}</DefinitionTerm><DefinitionValue data-testid="bound-minutes">{settings.bounds.minutes}</DefinitionValue>
+        <DefinitionTerm>{t('settings.bounds.calls')}</DefinitionTerm><DefinitionValue data-testid="bound-calls">{settings.bounds.toolCalls}</DefinitionValue>
+        <DefinitionTerm>{t('settings.bounds.attempts')}</DefinitionTerm><DefinitionValue data-testid="bound-attempts">{settings.bounds.writeAttempts}</DefinitionValue>
+        <DefinitionTerm>{t('settings.bounds.domains')}</DefinitionTerm><DefinitionValue data-testid="bound-domains">{settings.bounds.maxDomains}</DefinitionValue>
+        <DefinitionTerm>{t('settings.bounds.editorial')}</DefinitionTerm><DefinitionValue data-testid="bound-editorial">{settings.bounds.editorialRequestsPerPage}</DefinitionValue>
+      </DefinitionList>
+      <Paragraph>{t('settings.bounds.editorialNote')}</Paragraph>
+      <Stack>
+        <FieldLabel>{t('settings.bounds.editorial')}
+          <Input type="number" min={0} max={12} step={1} value={editorial} disabled={disabled || working || busy} onInput={(event) => setEditorial(event.currentTarget.value)} data-testid="bound-editorial-input" />
+        </FieldLabel>
+        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={save} data-testid="bound-editorial-save">{t('settings.bounds.save')}</Button>
+      </Stack>
+      {error === null ? null : <Paragraph role="alert" data-testid="bound-error">{error}</Paragraph>}
+    </Section>
+  );
+}
+
+/** Where this product lives on this machine, and that nothing here pushes. */
+function PlacesSection({ settings }: { readonly settings: ProductSettingsAnswer }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <Section id="places" title={t('settings.places.title')} intro={t('settings.places.intro')}>
+      <DefinitionList columns>
+        <DefinitionTerm>{t('settings.places.folder')}</DefinitionTerm><DefinitionValue><InlineCode data-testid="places-folder">{settings.folder}</InlineCode></DefinitionValue>
+        <DefinitionTerm>{t('settings.places.store')}</DefinitionTerm><DefinitionValue><InlineCode data-testid="places-store">{settings.store}</InlineCode></DefinitionValue>
+      </DefinitionList>
+      <Paragraph data-testid="places-push">{t('settings.places.noPush')}</Paragraph>
+    </Section>
+  );
+}
+
+
+/** One of the two dangerous actions, with the question that comes before it: what goes, what stays, and that it is local. */
+function DangerAction({ kind, base, settings, busy, disabled, plan, onDone }: {
+  readonly kind: 'rewrite' | 'fresh';
+  readonly base: string;
+  readonly settings: ProductSettingsAnswer;
+  readonly busy: boolean;
+  readonly disabled: boolean;
+  readonly plan: { readonly agentPages: readonly string[]; readonly keptPages: readonly string[] };
+  readonly onDone: (removed: boolean) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [asking, setAsking] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const title = kind === 'fresh' ? t('settings.danger.fresh.title') : t('settings.danger.rewrite.title');
+  const fresh = settings.danger?.fresh;
+  const start = (): void => {
+    setWorking(true);
+    setError(null);
+    const work = kind === 'rewrite' ? rewritePages(base) : startFresh(base, fresh as ResetPlanAnswer);
+    work.then(() => { setWorking(false); setAsking(false); onDone(true); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+  };
+  return (
+    <Stack data-testid={`danger-${kind}`}>
+      <SmallTitle>{title}</SmallTitle>
+      <Paragraph>{kind === 'fresh' ? t('settings.danger.fresh.what') : t('settings.danger.rewrite.what')}</Paragraph>
+      <Paragraph>{t('settings.danger.local', { folder: settings.folder })}</Paragraph>
+      <Button variant="default" size="default" disabled={disabled || busy || working || kind === 'rewrite' && settings.chosenAgent === null} onClick={() => setAsking((held) => !held)} data-testid={`danger-${kind}-open`}>{title}</Button>
+      {kind === 'rewrite' && settings.chosenAgent === null ? <Paragraph data-testid="danger-rewrite-needs-agent">{t('settings.danger.rewrite.needsAgent')}</Paragraph> : null}
+      {asking ? (
+        <ConfirmationPanel aria-label={title} data-testid="danger-dialog" data-kind={kind}>
+          <Paragraph>{t('settings.danger.willDo')}</Paragraph>
+          <PlainList>
+            <ListItem data-testid="danger-pages">{plan.agentPages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: plan.agentPages.length, list: plan.agentPages.join(', ') })}</ListItem>
+            {kind === 'fresh' && fresh !== undefined ? <ListItem>{t('settings.danger.fresh.graph', { store: settings.store })}</ListItem> : null}
+            {kind === 'fresh' && fresh !== undefined ? <ListItem data-testid="danger-questions">{t('knowledge.reset.questions', { count: fresh.unansweredQuestions.length })}</ListItem> : null}
+            {kind === 'fresh' && fresh !== undefined ? <ListItem data-testid="danger-answers">{t('knowledge.reset.answers', { count: fresh.keptAnswers.length })}</ListItem> : null}
+            <ListItem>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</ListItem>
+          </PlainList>
+          {plan.keptPages.length > 0 ? <Paragraph>{t('knowledge.reset.keptPages', { list: plan.keptPages.join(', ') })}</Paragraph> : null}
+          <Paragraph>{t('settings.danger.keeps')}</Paragraph>
+          <Paragraph>{t('settings.danger.nothingSent')}</Paragraph>
+          <Stack>
+            <Button variant="default" size="default" onClick={() => setAsking(false)} data-testid="danger-cancel">{t('knowledge.reset.cancel')}</Button>
+            <Button variant="default" size="default" onClick={start} disabled={working} data-testid="danger-confirm">{kind === 'fresh' ? t('settings.danger.fresh.confirm') : t('settings.danger.rewrite.confirm')}</Button>
+          </Stack>
+          {error === null ? null : <Paragraph role="alert" data-testid="danger-error">{error}</Paragraph>}
+        </ConfirmationPanel>
+      ) : null}
+    </Stack>
+  );
+}
+
+/** The two actions that remove what the agent wrote, each with the question that comes first. */
+function DangerSection({ base, settings, busy, open, reload }: { readonly base: string; readonly settings: ProductSettingsAnswer; readonly busy: boolean; readonly open: (path: string) => void; readonly reload: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const noAgent = settings.chosenAgent === null;
+  const blocked = busy || settings.dangerError !== undefined || settings.danger === undefined;
+  const done = (removed: boolean): void => { if (removed) open('/'); reload(); };
+  return (
+    <Section id="danger" title={t('settings.danger.title')} intro={t('settings.danger.intro')}>
+      <DangerAction kind="rewrite" base={base} settings={settings} busy={busy} disabled={blocked || noAgent} plan={settings.danger?.rewrite ?? { agentPages: [], keptPages: [] }} onDone={done} />
+      <DangerAction kind="fresh" base={base} settings={settings} busy={busy} disabled={blocked} plan={settings.danger?.fresh ?? { agentPages: [], keptPages: [] }} onDone={done} />
+      <Paragraph data-testid="danger-agent-edits">{t('settings.danger.agentEdits')}</Paragraph>
+      {settings.dangerError === undefined ? null : <Paragraph role="alert" data-testid="danger-unavailable">{settings.dangerError}</Paragraph>}
+    </Section>
   );
 }
 
@@ -239,6 +483,8 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.roles.note')}</Paragraph>
       </Section>
 
+      <VerdictsSection base={base} disabled={connection.offline || working !== null} busy={data.busy} />
+
       <Section id="language" title={t('settings.language.title')} intro={t('settings.language.intro')}>
         <SegmentedChoice
           label={t('settings.language.title')}
@@ -264,6 +510,10 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
       </Section>
 
+      <BoundsSection base={base} settings={data} disabled={connection.offline || working !== null} busy={data.busy} reload={settings.reload} />
+
+      <PlacesSection settings={data} />
+
       <Section id="reader" title={t('settings.reader.title')} intro={t('settings.reader.intro')}>
         {reader.data === null ? <Paragraph className="m-0 text-muted">{t('knowledge.loading')}</Paragraph> : (
           <SegmentedChoice
@@ -281,6 +531,8 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         )}
         {reader.error === null ? null : <Paragraph className="mb-0 mt-2 text-small" role="alert">{reader.error}</Paragraph>}
       </Section>
+
+      <DangerSection base={base} settings={data} busy={data.busy} open={context.open} reload={settings.reload} />
     </Stack>
   );
 }
