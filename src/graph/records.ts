@@ -21,17 +21,21 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
     if (selector.subjectUids?.length === 0 || selector.subjectIds?.length === 0) return [];
     const parameters: unknown[] = [kind];
     const predicates = ['k.name=$1'];
-    if (selector.subjectUids !== undefined) { parameters.push(selector.subjectUids); predicates.push(`n.uid=ANY($${parameters.length}::uuid[])`); }
-    if (selector.subjectIds !== undefined) { parameters.push(selector.subjectIds); predicates.push(`n.id=ANY($${parameters.length}::bigint[])`); }
+    if (selector.subjectUids !== undefined) { parameters.push(selector.subjectUids); predicates.push(sort === 'vertex' ? `n.id IN (SELECT graph_merge_target(requested.id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.validAt).toISOString() + "'::timestamptz"},${selector.recordedAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.recordedAt).toISOString() + "'::timestamptz"}) FROM node requested WHERE requested.uid=ANY($${parameters.length}::uuid[]))` : `n.uid=ANY($${parameters.length}::uuid[])`); }
+    if (selector.subjectIds !== undefined) { parameters.push(selector.subjectIds); predicates.push(sort === 'vertex' ? `n.id IN (SELECT graph_merge_target(requested.id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.validAt).toISOString() + "'::timestamptz"},${selector.recordedAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.recordedAt).toISOString() + "'::timestamptz"}) FROM unnest($${parameters.length}::bigint[]) requested(id))` : `n.id=ANY($${parameters.length}::bigint[])`); }
     const identities = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string; read_at: string | Date }>((sort === 'vertex'
       ? 'SELECT n.id,n.uid::text,n.key,transaction_timestamp() AS read_at FROM node n JOIN entity k ON k.id=n.entity_id WHERE '
-      : "SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator,transaction_timestamp() AS read_at FROM edge n JOIN entity k ON k.id=n.entity_id WHERE ") + predicates.join(' AND '), parameters);
-    const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)));
-    // Empty identity sets still load typed storage and resolve disputes, so malformed schemas are refused.
+      : `SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator,transaction_timestamp() AS read_at FROM graph_effective_edges(${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.validAt).toISOString() + "'::timestamptz"},${selector.recordedAt === undefined ? 'transaction_timestamp()' : "'" + new Date(selector.recordedAt).toISOString() + "'::timestamptz"}) n JOIN entity k ON k.id=n.entity_id WHERE `) + predicates.join(' AND '), parameters);
+    // Empty identity sets still resolve disputes, so malformed schemas are refused.
     const readAt = identities.rows[0]?.read_at ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now;
     const now = new Date(readAt).toISOString();
     const temporal = { validAt: selector.validAt ?? now, recordedAt: selector.recordedAt ?? now, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) };
-    const slots = new Map(selectAssertionSlots(assertions, temporal));
+    const mapped=sort==='vertex'&&!kind.startsWith('system.')&&!kind.startsWith('manifest.')&&(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)),mapped?{context:temporal.contexts[0]!,validAt:temporal.validAt,recordedAt:temporal.recordedAt}:undefined);
+    const canonicalIds=mapped?new Set((await tx.query<{id:number}>(`SELECT id FROM node WHERE id=ANY($1::bigint[]) AND graph_merge_target(id,$2::bigint,$3::timestamptz,$4::timestamptz)=id`,[identities.rows.map(row=>row.id),temporal.contexts[0],temporal.validAt,temporal.recordedAt])).rows.map(row=>Number(row.id))):null;
+    const keyFields=selector.contract?.vertex.find(vertex=>vertex.name===kind)?.key??[];
+    const visibleAssertions=assertions.filter(row=>sort!=='vertex'||!keyFields.includes(row.property)||row.originalSubjectId===row.subjectId);
+    const slots = new Map(selectAssertionSlots(visibleAssertions, temporal));
     const resolvedIds = new Set<string>();
     if (disputable) {
       const disputes = await listDisputeSlots(tx, withAssertionContract(selector.contract!), temporal);
@@ -59,6 +63,7 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
       subjectSlots.set(subjectId, own);
     }
     return identities.rows.flatMap(row => {
+      if(canonicalIds!==null&&!canonicalIds.has(Number(row.id)))return [];
       const own = bySubject.get(Number(row.id)) ?? [];
       const ownSlots = subjectSlots.get(Number(row.id)) ?? [];
       const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));

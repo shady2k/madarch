@@ -332,6 +332,7 @@ export interface ProfileTechnologyMap {
 }
 
 export interface KindDecl {
+  readonly duplicateSubjectEdge?:string;
   readonly systemBase?: { readonly name: string };
   readonly evidence?: { readonly immutable: true; readonly digestField?: string; readonly contentField?: string; readonly digestAlgorithm?: 'sha256' };
   readonly templatePolicy?: 'page' | 'member' | 'none';
@@ -736,7 +737,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
  * the check read this one list: a field added here is listed by the finding and expected by the test alike.
  */
 export const KIND_FIELDS: readonly string[] = [
-  'contract-uid', 'identity', 'evidence', 'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'naming', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'contract-uid', 'identity', 'evidence', 'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'naming', 'duplicate-subject-edge', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'key-edges', 'capability', 'derives-from', 'applicability', 'profile-markers', 'profile-technologies', 'agent', 'classes', 'exclude', 'page-template', 'file-text',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
@@ -2273,6 +2274,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
       ...(naming === undefined ? {} : { naming }),
+      ...(typeof decl['duplicate-subject-edge']==='string'?{duplicateSubjectEdge:decl['duplicate-subject-edge']}:{}),
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
       ...(details.length > 0 ? { details } : {}),
       ...(card === true ? { card: true as const } : {}),
@@ -2423,6 +2425,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   const keyParents = new Map<string, string[]>();
   for (const kind of kinds.values()) {
     const parents: string[] = [];
+    if(kind.duplicateSubjectEdge!==undefined){
+      const edge=edges.get(kind.duplicateSubjectEdge);
+      if(!edge||(!edge.from.includes(kind.name)&&!edge.to.includes(kind.name)))findings.push({file,line:at(['kinds',kind.name,'duplicate-subject-edge']),message:`kind "${kind.name}": duplicate subject edge must be a declared relation of this kind`});
+    }
     for (const [roleIndex, role] of (kind.keyEdges ?? []).entries()) {
       const roleLine = at(['kinds', kind.name, 'key-edges', roleIndex]);
       const edge = edges.get(role.edge);

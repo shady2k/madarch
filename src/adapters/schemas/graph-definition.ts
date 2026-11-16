@@ -2,7 +2,7 @@
 import { sha256Hex } from '../../graph/digest.js';
 import type { GraphContract } from '../../graph/contract.js';
 
-export const SCHEMA_REVISION = 9;
+export const SCHEMA_REVISION = 10;
 export const METADATA_SCHEMA = [
   'CREATE SCHEMA IF NOT EXISTS madarch_meta',
   `CREATE TABLE IF NOT EXISTS madarch_meta.schema_stamp(name text PRIMARY KEY,stamp text NOT NULL,created_at timestamptz NOT NULL DEFAULT now())`,

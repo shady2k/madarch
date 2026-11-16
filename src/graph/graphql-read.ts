@@ -502,20 +502,32 @@ export class ReadContext {
     return chain.reverse();
   }
 
+  private hasMerges=false;
   private async contextLayers(): Promise<void> {
-    const layers = await contextLayers(this.tx, String(this.contexts[0]));
-    this.contexts = layers.map((layer) => Number(layer.id));
-    this.contextRecordedThrough = Object.fromEntries(layers.map((layer) => [Number(layer.id), layer.recordedThrough]));
-    this.disputeSlots = await listDisputeSlots(this.tx, withAssertionContract(withManifestContract(graphContractOf(this.manifest))), {
-      validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough,
+    return await withSpan('graph.context.layers', {}, async () => {
+      this.hasMerges=(await this.tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+      const layers = await contextLayers(this.tx, String(this.contexts[0]));
+      this.contexts = layers.map((layer) => Number(layer.id));
+      this.contextRecordedThrough = Object.fromEntries(layers.map((layer) => [Number(layer.id), layer.recordedThrough]));
+      this.disputeSlots = await listDisputeSlots(this.tx, withAssertionContract(withManifestContract(graphContractOf(this.manifest))), {
+        validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough,
+      });
+      this.resolutionAssertionIds = this.disputeSlots.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
     });
-    this.resolutionAssertionIds = this.disputeSlots.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
   }
 
+  private effectiveEdges():string {
+    if(!this.hasMerges)return 'edge';
+    return `graph_effective_edges(${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)`;
+  }
+  private canonicalNode(id:string):string {
+    if(!this.hasMerges)return id;
+    return `graph_merge_target(${id},${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)`;
+  }
   private active(sort: 'vertex' | 'edge', alias: string): string {
     const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
     const structural = contract.edge.filter((kind) => kind.capability === 'system').map((kind) => kind.name);
-    return activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds }, sort === 'edge' ? structural : []);
+    return (sort==='vertex'&&this.hasMerges?`${this.canonicalNode(alias+'.id')}=${alias}.id AND `:'')+activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds, projectMergedSubjects: this.hasMerges }, sort === 'edge' ? structural : []);
   }
 
   private selection(rows: readonly StoredAssertion[]) {
@@ -605,9 +617,9 @@ export class ReadContext {
         this.entityFlush = undefined;
         try {
           const result = await withSpan('graph.entity.batch', {}, async () => await this.tx.query<Record<string, unknown>>(
-            `SELECT n.id::text AS node_id,n.uid::text AS uid,n.key,en.name AS entity
-             FROM node n JOIN entity en ON en.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) AND ${this.active('vertex', 'n')}`, [[...queue.keys()]]));
-          const rows = new Map(result.rows.map(row => [String(row['uid']), row]));
+            `SELECT alias.uid::text AS requested_uid,n.id::text AS node_id,n.uid::text AS uid,n.key,en.name AS entity
+             FROM node alias JOIN node n ON n.id=${this.canonicalNode('alias.id')} JOIN entity en ON en.id=n.entity_id WHERE alias.uid=ANY($1::uuid[]) AND ${this.active('vertex', 'n')}`, [[...queue.keys()]]));
+          const rows = new Map(result.rows.map(row => [String(row['requested_uid']), row]));
           for (const [id, pending] of queue) pending.resolve(rows.get(id) ?? null);
         } catch (error) {
           for (const pending of queue.values()) pending.reject(error);
@@ -683,10 +695,10 @@ export class ReadContext {
         // A node fetched again keeps every column it was fetched with: the statement replaces its rows.
         for (const column of held?.columns ?? []) wanted.add(column);
       }
-      const rows = await loadAssertions(this.tx, 'vertex', kind, [...wanted], [...nodes.keys()].map(Number));
+      const rows = await loadAssertions(this.tx, 'vertex', kind, [...wanted], [...nodes.keys()].map(Number),this.hasMerges?{context:this.contexts[0]!,validAt:this.validAt,recordedAt:this.recordedAt}:undefined);
       const byId = new Map<string, StoredAssertion[]>();
       for (const id of nodes.keys()) byId.set(id, []);
-      for (const row of rows) byId.get(String(row.subjectId))?.push(row);
+      for (const row of rows) if(!declared.key.includes(row.property)||row.originalSubjectId===row.subjectId)byId.get(String(row.subjectId))?.push(row);
       for (const id of nodes.keys()) cache.set(id, { columns: new Set(wanted), rows: byId.get(id) ?? [] });
       this.fieldCache.set(kind, cache);
     }
@@ -741,7 +753,7 @@ export class ReadContext {
         `WITH filtered AS (
            SELECT ${parentColumn}::text AS parent, e.id, e.discriminator, n2.id::text AS other_id, n2.uid::text AS other_uid,
                   n2.key AS other_key, en2.name AS other_entity${projections === '' ? '' : `, ${projections}`}
-           FROM edge e
+           FROM ${this.effectiveEdges()} e
            JOIN entity en ON en.id = e.entity_id AND en.name = ${kindName}
            JOIN node n2 ON n2.id = ${otherColumn} AND ${this.active('vertex', 'n2')}
            JOIN entity en2 ON en2.id = n2.entity_id
@@ -788,7 +800,7 @@ export class ReadContext {
     const attachment = sort === 'vertex'
       ? `JOIN assertion_vertex_subject av ON av.assertion_id = a.assertion_id JOIN edge se ON se.id = av.subject_edge_id`
       : `JOIN assertion_edge_subject av ON av.assertion_id = a.assertion_id`;
-    const subject = sort === 'vertex' ? 'se.to_node' : 'av.edge_id';
+    const subject = sort === 'vertex' && this.hasMerges && !this.kindByType.get(kindTypeNameOf(kind))?.key.includes(field.name) ? `graph_assertion_target(se.to_node,a.assertion_id,${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)` : sort==='vertex'?'se.to_node':'av.edge_id';
     const languages = [lang ?? this.lang, this.fallbackLang];
     const languageRank = field.type === 'text'
       ? `CASE a.language WHEN ${sql.param(languages[0], '::text')} THEN 0 WHEN ${sql.param(languages[1], '::text')} THEN 1 ELSE 2 END`
@@ -797,7 +809,7 @@ export class ReadContext {
     const validAt = sql.param(this.validAt, '::timestamptz');
     const recordedAt = sql.param(this.recordedAt, '::timestamptz');
     return `(WITH eligible AS (
-      SELECT a.*, an.uid, v.value, source.to_node AS source, ${languageRank} AS language_rank,
+      SELECT a.*, an.uid, v.value, source.to_node AS source, ${sort === 'vertex' ? 'se.to_node' : 'av.edge_id'} AS original_subject, ${languageRank} AS language_rank,
         array_position(${sql.param(this.contexts, '::bigint[]')}, a.context_id) AS layer
       FROM assertion a JOIN node an ON an.id = a.assertion_id ${attachment}
       LEFT JOIN "${table}" v ON v.assertion_id = a.assertion_id
@@ -808,11 +820,11 @@ export class ReadContext {
         AND a.context_id = ANY(${sql.param(this.contexts, '::bigint[]')})
         ${field.type === 'text' ? `AND (a.language IS NULL OR a.language = ANY(${sql.param(languages, '::text[]')}))` : ''}
     ), layered AS (
-      SELECT eligible.*, min(layer) OVER (PARTITION BY source, language) AS nearest FROM eligible
+      SELECT eligible.*, min(layer) OVER (PARTITION BY original_subject, source, language) AS nearest FROM eligible
     ), streams AS (
-      SELECT DISTINCT ON (source, language) * FROM layered
+      SELECT DISTINCT ON (original_subject, source, language) * FROM layered
       WHERE layer = nearest AND valid_from <= ${validAt} AND (valid_to IS NULL OR valid_to > ${validAt})
-      ORDER BY source, language, recorded_sequence DESC, uid::text COLLATE "C" DESC
+      ORDER BY original_subject, source, language, recorded_sequence DESC, uid::text COLLATE "C" DESC
     ), candidates AS (
       SELECT * FROM streams WHERE operation = 'assert'
     ) SELECT value FROM candidates WHERE language_rank = (SELECT min(language_rank) FROM candidates)
@@ -908,13 +920,13 @@ export class ReadContext {
       const statementSql = `WITH around AS (
          SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.from_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')}
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id
+         WHERE e.from_node = (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')}
          UNION ALL
          SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.to_node = (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND e.from_node <> e.to_node
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id
+         WHERE e.to_node = (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND e.from_node <> e.to_node
        ), live AS (
          SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
@@ -1029,9 +1041,9 @@ export class ReadContext {
         const parts: string[] = [
           held.direction === 'in'
             ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
-           FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`
+           FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`
             : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
-           FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`,
+           FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND en.name NOT LIKE 'system.assertion-%' AND ${this.active('edge', 'e')}`,
         ];
         const rows = await this.tx.query<{ target: string | number; relation: string; source_id: string; other: string | number; total: string | number }>(
           `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
@@ -1626,12 +1638,12 @@ export class ReadContext {
     const rankOrder = order.keys.length === 0 ? 'rows.other_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
     const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
       const statementSql = `WITH RECURSIVE origin AS (
-         SELECT id FROM node n WHERE uid = ${sql.param(uid, '::uuid')} AND ${this.active('vertex', 'n')}
+         SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = ${sql.param(uid, '::uuid')} AND ${this.active('vertex', 'n')}
        ), reach(id, level, visited) AS (
          SELECT id, 0, ARRAY[id] FROM origin
          UNION ALL
          SELECT ${otherColumn}, r.level + 1, r.visited || ${otherColumn}
-         FROM reach r JOIN edge e ON ${nearColumn} = r.id AND ${this.active('edge', 'e')}
+         FROM reach r JOIN ${this.effectiveEdges()} e ON ${nearColumn} = r.id AND ${this.active('edge', 'e')}
          JOIN entity en ON en.id = e.entity_id AND en.name = ${sql.param(edgeName, '::text')}
          JOIN node reached ON reached.id = ${otherColumn} AND ${this.active('vertex', 'reached')}
          WHERE r.level < ${sql.param(depth, '::int')} AND NOT ${otherColumn} = ANY(r.visited)
@@ -1672,13 +1684,13 @@ export class ReadContext {
       const first = boundedInteger(args['first'], 20, 1, 50, '/first');
       if (uid === '' || through === '' || edge === '') return [];
       const rows = await this.tx.query<Record<string, unknown>>(
-        `WITH me AS (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}),
+        `WITH me AS (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}),
          near AS (
-           SELECT e.from_node AS mid FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           SELECT e.from_node AS mid FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
              WHERE e.to_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
          ),
          far AS (
-           SELECT e.from_node AS node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $3
+           SELECT e.from_node AS node FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $3
              WHERE e.to_node IN (SELECT mid FROM near) AND ${this.active('edge', 'e')}
          ),
          counted AS (SELECT node, count(*)::int AS n FROM far GROUP BY node)
@@ -1707,19 +1719,19 @@ export class ReadContext {
       const first = boundedInteger(args['first'], 20, 0, 50, '/first');
       if (uid === '' || edgeName === '') return [];
       const rows = await this.tx.query<Record<string, unknown>>(
-        `WITH me AS (SELECT id FROM node n WHERE uid = $1::uuid AND ${this.active('vertex', 'n')}),
+        `WITH me AS (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}),
          mine AS (
-           SELECT e.to_node AS node, e.from_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           SELECT e.to_node AS node, e.from_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
              WHERE e.to_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
            UNION ALL
-           SELECT e.from_node AS node, e.to_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           SELECT e.from_node AS node, e.to_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
              WHERE e.from_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
          ),
          sibling AS (
-           SELECT e.to_node AS node, e.from_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           SELECT e.to_node AS node, e.from_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
              WHERE e.from_node IN (SELECT other FROM mine) AND e.to_node <> (SELECT id FROM me) AND ${this.active('edge', 'e')}
            UNION ALL
-           SELECT e.from_node AS node, e.to_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           SELECT e.from_node AS node, e.to_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
              WHERE e.to_node IN (SELECT other FROM mine) AND e.from_node <> (SELECT id FROM me) AND ${this.active('edge', 'e')}
          ),
          shared AS (SELECT node, count(DISTINCT other)::int AS n FROM sibling GROUP BY node)
@@ -1781,7 +1793,7 @@ export class ReadContext {
       const fieldRows = await declarations('manifest.field');
       const dependencies = await this.tx.query<Record<string, unknown>>(
         `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
-         FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
          JOIN node dependent ON dependent.id = e.from_node AND ${this.active('vertex', 'dependent')}
          JOIN node prerequisite ON prerequisite.id = e.to_node AND ${this.active('edge', 'e')} AND ${this.active('vertex', 'prerequisite')}
          WHERE ${this.active('edge', 'e')}

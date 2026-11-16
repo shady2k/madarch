@@ -57,6 +57,9 @@ export interface EdgeWords { readonly [language: string]: { readonly out: string
 export interface KeyEdgeContract { readonly role: string; readonly edge: string; readonly direction: 'from' | 'to'; readonly onDelete: 'restrict' | 'cascade' }
 
 export interface VertexContract {
+  /** Declared identity boundary for homonyms, independent of a resolver's chosen signals. */
+  readonly duplicateSubjectEdge?:string;
+  readonly duplicateSubjectRequired?:boolean;
   readonly evidence?: {readonly immutable:true;readonly digestField?:string;readonly contentField?:string;readonly digestAlgorithm?:'sha256'};
   readonly contractUid?: string;
   readonly identity?: {readonly namespace: string; readonly origin: readonly string[]};

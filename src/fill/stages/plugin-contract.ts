@@ -38,7 +38,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
     if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
-    vertex.push({ ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
+    vertex.push({ ...(kind.duplicateSubjectEdge===undefined?{}:{duplicateSubjectEdge:kind.duplicateSubjectEdge}), ...(kind.semantics==='term'?{duplicateSubjectRequired:true}:{}), ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
   }
   if (pageTemplateKind(manifest) === undefined) {
     const fallback = cataloguePageTemplate();

@@ -1167,6 +1167,14 @@ function typedEngineComparisonLiteral(module: GateModule, node: Node, modules: M
 
 /** Exact type declarations are vocabulary only at their authoritative engine boundary. */
 function engineTypeLiteral(module: GateModule, node: Node): boolean {
+  if(module.file==='src/graph/producer-binding.ts') {
+    const declaration=enclosing(module,node).find(entry=>entry['type']==='VariableDeclarator'&&named(entry['id'],'MERGE_ACTION'));
+    const id=declaration?.['id'] as Node|undefined;
+    if(declaration?.['init']===node&&id?.['typeAnnotation']!==undefined&&nodesOf(id['typeAnnotation'] as Node).some(entry=>entry['type']==='TsTypeReference'&&named(entry['typeName'],'ProducerAction'))) {
+      const union=nodesOf(module.tree).find(entry=>entry['type']==='TsTypeAliasDeclaration'&&named(entry['id'],'ProducerAction'));
+      return union!==undefined&&nodesOf(union).some(entry=>stringValue(entry)===stringValue(node));
+    }
+  }
   const declarations: Readonly<Record<string, readonly string[]>> = {
     'src/graph/producer-binding.ts': ['ProducerAction'],
     'src/graph/evidence-targets.ts': ['EvidenceLocatorDraft', 'EvidenceTarget'],

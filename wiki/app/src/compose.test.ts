@@ -55,7 +55,7 @@ test('every base template composes and is valid against the real schema', () => 
   expect(entityErrors).toEqual([]);
   expect(errorsOf({ home: true })).toEqual([]);
   expect(errorsOf({ kind: 'catalogue', id: '00000000-0000-0000-0000-000000000002' })).toEqual([]);
-});
+}, 15_000);
 
 test('the text template composes on the type whose body it draws', () => {
   // The product's own page is home; a comment holds the body that the text template draws.

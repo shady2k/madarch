@@ -6,6 +6,9 @@ export const SYSTEM_PROBLEM='system.problem';
 export const SYSTEM_PROBLEM_ABOUT='system.problem-about';
 
 export const SYSTEM_VERTEX_DEFINITIONS: readonly {name:string; fields:VertexContract['fields']; key?:VertexContract['key']; evidence?:VertexContract['evidence']}[] = [
+  {name:'system.merge',fields:[{name:'state',type:'text'},{name:'reason',type:'text'}]},
+  {name:'system.merge-question',fields:[{name:'state',type:'text'},{name:'reason',type:'text'}]},
+  {name:'system.merge-allocation',fields:[{name:'direction',type:'text',nullable:true}]},
   {name:'system.dispute-question',fields:[{name:'property',type:'text'},{name:'language',type:'text',nullable:true},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true},{name:'state',type:'text'}]},
   {name:'system.dispute-resolution',fields:[{name:'rationale',type:'text'},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true}]},
   {name:'system.dispute-pin',fields:[{name:'canonical_value',type:'text'},{name:'digest',type:'text'},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true}]},
@@ -41,6 +44,14 @@ export function SYSTEM_EDGE_DEFINITIONS(targets: readonly string[]): readonly Ed
     ...['subject','source','author','unit','operation','evidence','mentions'].map(relation => edge(`system.assertion-${relation}`,['system.assertion'],targets,relation==='evidence'||relation==='mentions',relation==='unit')),
     edge('system.applicability-product',['system.kind-applicability'],['system.product']),
     edge('system.applicability-kind',['system.kind-applicability'],['manifest.kind']),
+    edge('system.merge-member',['system.merge'],targets,true),
+    edge('system.merge-survivor',['system.merge'],targets),
+    edge('system.merge-question-member',['system.merge-question'],targets,true),
+    edge('system.merge-question-merge',['system.merge-question'],['system.merge'],false,true),
+    edge('system.merge-allocation-merge',['system.merge-allocation'],['system.merge']),
+    edge('system.merge-allocation-assertion',['system.merge-allocation'],['system.assertion']),
+    edge('system.merge-allocation-member',['system.merge-allocation'],targets),
+
     edge('system.dispute-candidate',['system.dispute-question'],['system.assertion'],true),
     edge('system.dispute-resolution-question',['system.dispute-resolution'],['system.dispute-question']),
     edge('system.dispute-chosen',['system.dispute-resolution'],['system.assertion']),

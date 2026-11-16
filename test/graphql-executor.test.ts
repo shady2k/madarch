@@ -27,7 +27,8 @@ import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js'
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readTemplatesOf } from './page-templates-fixture.js';
+import { readFolderTemplates, readTemplatesOf } from './page-templates-fixture.js';
+import { SQL_TRANSACTION_KINDS } from '../src/sql-driver.js';
 import { composePage, type Bootstrap } from '../src/page-contract/index.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -404,14 +405,14 @@ describe('the GraphQL executor', () => {
   test('a list of fifty entities with one edge each costs a small constant number of statements', async () => {
     const { pinContext } = await import('../src/graph/context.js');
     const context = Number(await owner.transaction('write', tx => pinContext(tx, '1', 'bounded-list-fixture')));
-    const many: VertexDraft[] = [];
+    const many: VertexDraft[] = [{ kind: 'demo.repository', key: { name: 'batch-budget' }, values: {}, producer: 'bulk', producerVersion: '1' }];
     const edges: EdgeDraft[] = [];
     // Fifty files, each with one incoming contains edge: the same shape a page's list has.
     for (let at = 0; at < 50; at += 1) {
       const key = { path: `bulk-${String(at)}.ts` };
-      const keyEdges = { repository: { kind: 'demo.repository', key: { name: 'r1' } } };
+      const keyEdges = { repository: { kind: 'demo.repository', key: { name: 'batch-budget' } } };
       many.push({ kind: 'demo.file', key, keyEdges, producer: 'bulk', producerVersion: '1' });
-      edges.push({ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: { kind: 'demo.file', key, keyEdges }, producer: 'bulk', producerVersion: '1' });
+      edges.push({ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'batch-budget' } }, to: { kind: 'demo.file', key, keyEdges }, producer: 'bulk', producerVersion: '1' });
     }
     await owner.transaction('write', async (tx) => {
       await bindTestWriteCapability(tx, contract, 'bf8348b4-0000-7000-8000-000000000001', context);
@@ -697,7 +698,7 @@ describe('the GraphQL executor', () => {
         {}, read, { parentType: { name: 'Undeclared' }, fieldName: 'label' } as never,
       );
     });
-    expect(label).toBe('Fallback');
+    expect(label).toBe('missing');
     expect(counted.statements()).toBe(0);
   });
 
@@ -1076,3 +1077,55 @@ test('GraphQL variable coercion returns a coded refusal without partial data', a
   expect(answer.body.data).toBeUndefined();
   expect(answer.body.errors?.[0]?.extensions).toMatchObject({ code: 'SCHEMA_INVALID', path: '/variables', actual: { first: 'wrong' }, retryable: false });
 });
+
+test('0039.20/32 merged member ids resolve to the survivor in one metadata batch', async () => {
+  const { generatedTableName } = await import('../src/graph/contract.js');
+  const { cataloguePageTemplate } = await import('../src/knowledge/page-template-kind.js');
+  const { resolveDuplicate } = await import('../src/graph/merges.js');
+  const { startupBinding } = await import('../src/graph/manifest-publication.js');
+  const mergeContract = withAssertionContract(withManifestContract({ vertex: [{ name: 'sample', table: generatedTableName('sample', 'vertex'), key: ['name'], capability: 'fixture', fields: [
+    { name: 'name', type: 'text' as const }, { name: 'synonyms', type: 'json' as const, schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } } },
+  ] }, cataloguePageTemplate().vertex], edge: [{ name: 'related', from: ['sample'], to: ['sample'], repeats: false, cardinality: { from: 'many' as const, to: 'many' as const }, labels: { en: { out: 'related', in: 'related' }, ru: { out: 'related', in: 'related' } }, fields: [], capability: 'fixture' }], dictionary: [] }));
+  const database = await createTestDatabaseOwner({ graphContract: mergeContract });
+  try {
+    const scope = await database.transaction(SQL_TRANSACTION_KINDS.write, async tx => (await startupBinding(tx, mergeContract, 'fixture')).binding.productUid);
+    const source = await registerSystemSource(database, mergeContract, { type: 'plugin', installationKey: 'executor-merge', scope, version: '1' });
+    const binding = bindGraphProducer(database, mergeContract, { principal: source.principal, vertices: { sample: ['synonyms'], 'system.content-snapshot': ['content', 'digest'] }, edges: { related: [] }, actions: ['assert', 'merge', 'retract-own'] });
+    const digest = createHash('sha256').update('Merge evidence').digest('hex');
+    const ref = (name: string) => ({ kind: 'sample', key: { name } });
+    await database.transaction(SQL_TRANSACTION_KINDS.write, async tx => {
+      await activateGraphProducer(tx, mergeContract, binding);
+      await publishGraphDrafts(tx, mergeContract, { vertices: [
+        ...['one', 'two', 'parent'].map(name => ({ ...ref(name), values: { synonyms: ['shared'] }, producer: 'fixture', producerVersion: '1' })),
+        { kind: 'system.content-snapshot', key: { digest }, values: { content: 'Merge evidence' }, producer: 'fixture', producerVersion: '1' },
+      ], edges: ['one', 'two'].map(name => ({ kind: 'related', from: ref(name), to: ref('parent'), producer: 'fixture', producerVersion: '1' })), removals: [] });
+    });
+    const members = (await database.transaction(SQL_TRANSACTION_KINDS.snapshot, tx => readKindAssertions(tx, 'vertex', 'sample', ['name'], { contract: mergeContract }))).filter(row => row.values['name'] !== 'parent');
+    await database.transaction(SQL_TRANSACTION_KINDS.write, async tx => {
+      await activateGraphProducer(tx, mergeContract, binding);
+      await resolveDuplicate(tx, mergeContract, binding, { members: members.map(row => ({ kind: 'sample', key: {}, uid: row.uid })) as unknown as readonly [import('../src/graph/contract.js').EntityRefDraft, import('../src/graph/contract.js').EntityRefDraft],
+        signals: { kind: 'sample', name: 'name', synonyms: 'synonyms', edges: ['related'] }, decision: 'sure', reason: 'Confirmed duplicate', evidence: [{ target: { kind: 'system.content-snapshot', key: { digest } } }] });
+    });
+    const survivor = (await database.transaction(SQL_TRANSACTION_KINDS.snapshot, tx => readKindAssertions(tx, 'vertex', 'sample', ['name'], { contract: mergeContract }))).find(row => row.values['name'] !== 'parent')!;
+    await database.transaction(SQL_TRANSACTION_KINDS.write, async tx => {
+      await activateGraphProducer(tx, mergeContract, binding);
+      await writeAssertion(tx, mergeContract, { sort: 'vertex', kind: 'sample', subjectId: String(survivor.id), property: '$exists', operation: 'retract' });
+    });
+    await database.transaction(SQL_TRANSACTION_KINDS.snapshot, async tx => {
+      const baseManifest = manifest as KindsManifest;
+      const sampleManifest = { ...baseManifest, kinds: new Map([['sample', { ...baseManifest.kinds.get('demo.repository')!, name: 'sample', key: ['name'], fields: [{ name: 'name', type: 'text' as const }, { name: 'synonyms', type: 'json' as const, schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } } }] }]]), edges: new Map() };
+      const held = readFolderTemplates(folder);
+      let metadataBatches = 0;
+      const counted = { ...tx, query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes('AS requested_uid')) metadataBatches += 1;
+        return await tx.query<Row>(sql, values);
+      } };
+      const read = new ReadContext(counted, sampleManifest, { kinds: [{ name: 'sample', key: ['name'], fields: [{ name: 'name', type: 'text' }] }], edges: [], relations: [] }, folder, 'en', 'fixture', held.templates, held.files, held.bodies, held.findings);
+      const info = { fieldName: 'entity', parentType: { name: 'Query' } } as never;
+      const entities = await Promise.all(members.map(row => read.resolve(undefined, { id: row.uid }, read, info)));
+      expect(entities).toHaveLength(2);
+      expect(entities.map(entity => (entity as { uid: string } | null)?.uid)).toEqual([survivor.uid, survivor.uid]);
+      expect(metadataBatches).toBe(1);
+    });
+  } finally { await database.close(); }
+}, 60000);
