@@ -203,7 +203,7 @@ describe('the GraphQL executor', () => {
 
   test('a pinned context hides assertion identities recorded after its ancestor snapshot', async () => {
     const held = await owner.transaction('write', async (tx) => {
-      const branch = await tx.query<{ id: string }>(`INSERT INTO context(parent,ref) VALUES(1,'graphql-pinned-header') RETURNING id::text`);
+      const branch = await tx.query<{ id: string }>(`INSERT INTO context(parent,ref,parent_recorded_seq) VALUES(1,'graphql-pinned-header',-1) RETURNING id::text`);
       await bindTestWriteCapability(tx, contract, '7692c3ad-0000-7000-8000-000000000001');
       await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } }, values: { lines: 10 }, producer: 'one', producerVersion: '1' }], edges: [], removals: [] });
       const assertion = await tx.query<{ uid: string }>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge subject_edge ON subject_edge.id=s.subject_edge_id JOIN node subject ON subject.id=subject_edge.to_node JOIN entity k ON k.id=subject.entity_id WHERE k.name='demo.file' AND subject.key->>'path'='a.ts' AND a.property='lines' ORDER BY a.recorded_sequence DESC LIMIT 1`);
@@ -873,7 +873,7 @@ test('language fallback agrees with SQL after temporal and context selection', a
   const recordedAt = await owner.run(async tx => new Date((await tx.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now).toISOString());
   const context = await owner.transaction('write', async tx => {
 
-    const id = Number((await tx.query<{ id: string }>("INSERT INTO context(parent,ref) VALUES(1,'language-fallback-pinned') RETURNING id::text")).rows[0]!.id);
+    const id = Number((await tx.query<{ id: string }>("INSERT INTO context(parent,ref,parent_recorded_seq) VALUES(1,'language-fallback-pinned',-1) RETURNING id::text")).rows[0]!.id);
 
     return id;
   });

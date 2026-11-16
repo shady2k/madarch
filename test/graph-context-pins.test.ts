@@ -105,3 +105,22 @@ test('typed assertions use the same ordered sequence as pinned parent snapshots'
     expect(recorded.rows.some((row) => BigInt(row.seq) > BigInt(fence))).toBe(true);
   } finally { await owner.close(); }
 });
+
+
+test('unpinned contexts inherit later parent publications without a recorded fence', async () => {
+  const owner = await createTestDatabaseOwner();
+  try {
+    const child = await owner.transaction('write', async (tx) => {
+      const result = await tx.query<{ id: string }>("INSERT INTO context(parent,ref) VALUES(1,'live-child') RETURNING id::text AS id");
+      return result.rows[0]!.id;
+    });
+    const before = await owner.run((tx) => contextLayers(tx, child));
+    expect(before.map((layer) => layer.recordedThrough)).toEqual([null, null]);
+    await owner.transaction('write', (tx) => nextGraphRecordedSequence(tx));
+    expect(await owner.run((tx) => contextLayers(tx, child))).toEqual(before);
+    const pinned = await owner.transaction('write', (tx) => pinContext(tx, child, 'pinned-grandchild'));
+    const layers = await owner.run((tx) => contextLayers(tx, pinned));
+    expect(layers[1]!.recordedThrough).not.toBeNull();
+    expect(layers[2]!.recordedThrough).toBe(layers[1]!.recordedThrough);
+  } finally { await owner.close(); }
+});
