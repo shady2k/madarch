@@ -20,10 +20,16 @@ test('0039 amendment: repeating a stream value retains its header and attaches t
   const original=(await owner.transaction('snapshot',tx=>loadAssertions(tx,'vertex','repeat-fixture',['amount'])))[0]!;
   const repeated=await owner.transaction('write',async tx=>{
    bind(tx,second);
-   return await writeAssertion(tx,contract,{sort:'vertex',kind:'repeat-fixture',subjectId:String(original.subjectId),property:'amount',operation:'assert',value:7,validFrom:'2021-01-01T00:00:00Z'});
+   const uid=await writeAssertion(tx,contract,{sort:'vertex',kind:'repeat-fixture',subjectId:String(original.subjectId),property:'amount',operation:'assert',value:7,validFrom:'2021-01-01T00:00:00Z'});
+   await publishGraphDrafts(tx,contract,{vertices:[{kind:'repeat-fixture',key:{name:'two'},values:{amount:8},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'}],removals:[]});
+   const fresh=(await tx.query<{id:string}>(`SELECT n.id::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='repeat-fixture' AND n.key->>'name'='two'`)).rows[0]!;
+   bind(tx,first);
+   await writeAssertion(tx,contract,{sort:'vertex',kind:'repeat-fixture',subjectId:fresh.id,property:'amount',operation:'assert',value:8,validFrom:'2021-01-01T00:00:00Z'});
+   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+   return uid;
   });
   expect(repeated).toBe(original.id);
-  const headers=await owner.transaction('snapshot',tx=>loadAssertions(tx,'vertex','repeat-fixture',['amount']));
+  const headers=await owner.transaction('snapshot',tx=>loadAssertions(tx,'vertex','repeat-fixture',['amount'],[original.subjectId]));
   expect(headers).toHaveLength(1);
   expect(headers[0]!.recordedSequence).toBe(original.recordedSequence);
   const passes=await owner.run(tx=>tx.query<{uid:string}>(`SELECT target.uid::text FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE origin.uid=$1::uuid AND k.name='system.assertion-operation' ORDER BY target.uid`,[original.id]));
