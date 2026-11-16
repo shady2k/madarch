@@ -33,6 +33,7 @@ import { linkMention } from './mentions-link.js';
 import type { ProducerBinding } from './producer-binding.js';
 import type { GraphContract } from './contract.js';
 import { holdsMentions, mentionHintsOf } from './mention-graph.js';
+import type { MentionFieldHint, MentionName } from './mention-text.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
@@ -45,6 +46,10 @@ import { checkProductTemplates } from './template-check.js';
 import { join } from 'node:path';
 
 /** One entity the schema answers: a graph vertex, its kind, its key and the concrete GraphQL type it completes as. */
+/** The names one page searches for the pages that name it without a link, and the answers it reads (0039 item 5). */
+const UNLINKED_MENTION_NAMES = 5;
+const UNLINKED_MENTION_PAGES = 25;
+
 export interface EntityValue {
   readonly nodeId: string;
   readonly uid: string;
@@ -264,6 +269,8 @@ export class ReadContext {
   private linkFlush: Promise<void> | undefined;
 
   private catalogueRead: { byName: Map<string, CatalogueValue>; byId: Map<string, CatalogueValue> } | undefined;
+  /** The names a plain-text match runs over, read once for the whole page (0039 item 6). */
+  private mentionNames: readonly MentionName[] | undefined;
 
   constructor(
     private readonly tx: OuterTransaction,
@@ -367,6 +374,8 @@ export class ReadContext {
     if (name === 'backlinks') return this.backlinks(entity, args);
     if (name === 'outgoing') return this.outgoing(entity, args);
     if (name === 'unlinkedMentions') return await this.unlinkedMentions(entity);
+    if (name === 'unlinkedMentionPages') return await this.unlinkedMentionPages(entity);
+    if (name === 'mentionedIn') return await this.mentionedIn(entity);
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
     if (field !== undefined) {
       const read = await this.fieldRead(entity, field);
@@ -463,26 +472,99 @@ export class ReadContext {
    * scanner and dictionary, so a page offers exactly what a write answer would have offered; it never invents a target.
    */
   private async unlinkedMentions(entity: EntityValue): Promise<unknown[]> {
+    return (await this.hintsOf(entity))
+      // The page's own name in its text means the page: offering to link it to itself is no unlinked name.
+      .filter((hint) => hint.candidates.some((candidate) => candidate.uid !== entity.uid))
+      .map((hint) => ({ ...hint, uid: entity.uid, kind: entity.kind, label: '' }));
+  }
+
+  /**
+   * Decision 0039 item 5: the names this entity's own text holds without a link, each with every same-named candidate
+   * and its place. One read is shared by a page's own unlinked names and by the pages that name this entity without a
+   * link, so the two never offer different candidates.
+   */
+  private async hintsOf(entity: EntityValue): Promise<(MentionFieldHint & { readonly field: string; readonly uid: string; readonly kind: string })[]> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return [];
     const fields = kind.fields.filter((field) => holdsMentions(field.type));
     if (fields.length === 0) return [];
     await this.ensureFields(kind.name, entity.nodeId, fields.map((field) => field.name));
-    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
-    const dictionary = await mentionDictionary(this.tx, this.manifest, contract, this.recordedAt);
-    if (dictionary.length === 0) return [];
-    const mentions: unknown[] = [];
+    this.mentionNames ??= await this.dictionaryNames();
+    const hints: (MentionFieldHint & { readonly field: string; readonly uid: string; readonly kind: string })[] = [];
     for (const field of fields) {
       const value = this.selection(this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang)).selected?.value ?? null;
       if (value === null) continue;
-      for (const hint of mentionHintsOf(value, `/${fieldNameOf(field.name)}`, dictionary)) {
-        // The page's own name in its text means the page: offering to link it to itself is no unlinked name.
-        const candidates = hint.candidates.filter((candidate) => candidate.uid !== entity.uid);
-        if (candidates.length === 0) continue;
-        mentions.push({ field: fieldNameOf(field.name), path: hint.path, start: hint.start, end: hint.end, name: hint.name, candidates });
+      for (const hint of mentionHintsOf(value, `/${fieldNameOf(field.name)}`, this.mentionNames)) hints.push({ ...hint, field: fieldNameOf(field.name), uid: entity.uid, kind: entity.kind });
+    }
+    return hints;
+  }
+
+  /**
+   * Decision 0039 item 5 from the other side: the pages whose text names this entity without a link, each at the field
+   * and span a reader may link. The search read finds the pages that hold the name, so a page pays one search and the
+   * unlinked names of its few answers, not a scan of every entity's text.
+   */
+  private async unlinkedMentionPages(entity: EntityValue): Promise<unknown[]> {
+    this.mentionNames ??= await this.dictionaryNames();
+    const names = [...new Set(this.mentionNames.filter((entry) => entry.candidates.some((candidate) => candidate.uid === entity.uid)).map((entry) => entry.name))]
+      .sort(byCodePoint).slice(0, UNLINKED_MENTION_NAMES);
+    const pages: unknown[] = [];
+    const seen = new Set<string>([entity.uid]);
+    for (const name of names) {
+      for (const hit of await this.searchHits(name, undefined, this.lang, UNLINKED_MENTION_PAGES)) {
+        if (seen.has(hit.uid)) continue;
+        seen.add(hit.uid);
+        const holder = this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, this.lang);
+        if (holder === undefined) continue;
+        const label = await this.labelOf(holder);
+        for (const hint of await this.hintsOf(holder)) {
+          if (!hint.candidates.some((candidate) => candidate.uid === entity.uid)) continue;
+          pages.push({ field: hint.field, path: hint.path, start: hint.start, end: hint.end, name: hint.name, uid: hint.uid, kind: hint.kind, label,
+            candidates: hint.candidates.map((candidate) => ({ ...candidate })) });
+        }
       }
     }
-    return mentions;
+    return pages;
+  }
+
+  private async dictionaryNames(): Promise<readonly MentionName[]> {
+    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
+    return await mentionDictionary(this.tx, this.manifest, contract, this.recordedAt);
+  }
+
+  /**
+   * Decision 0039 item 5: the pages whose text mentions this entity by a token — the backlink the mention edges carry.
+   * Each row is the page that holds the token, the field and the span of that occurrence, read from the source's current
+   * statement alone (a mention the text left was retracted by the writer and is no row here).
+   */
+  private async mentionedIn(entity: EntityValue): Promise<unknown[]> {
+    const rows = (await this.tx.query<{
+      node_id: string; uid: string; key: Readonly<Record<string, unknown>>; entity: string; property: string; discriminator: string;
+    }>(`SELECT subject.id::text AS node_id, subject.uid::text AS uid, subject.key, subject_kind.name AS entity,
+        a.property, mention.discriminator
+      FROM edge mention
+      JOIN entity mention_kind ON mention_kind.id=mention.entity_id AND mention_kind.name='system.assertion-mentions'
+      JOIN assertion a ON a.assertion_id=mention.from_node
+      JOIN assertion_vertex_subject held ON held.assertion_id=a.assertion_id
+      JOIN edge attachment ON attachment.id=held.subject_edge_id
+      JOIN node subject ON subject.id=attachment.to_node
+      JOIN entity subject_kind ON subject_kind.id=subject.entity_id
+      WHERE mention.to_node=$1::bigint AND graph_edge_active(mention.id,'system.assertion-mentions',1)
+      ORDER BY subject.uid, a.property, mention.discriminator`, [entity.nodeId])).rows;
+    const taken = new Set<string>();
+    const pages: unknown[] = [];
+    for (const row of rows) {
+      const holder = this.entityFromRow(row, this.lang);
+      if (holder === undefined || holder.uid === entity.uid) continue;
+      // One row per page and field: the first occurrence says where the token stands.
+      const key = `${row.uid}\u0000${row.property}`;
+      if (taken.has(key)) continue;
+      taken.add(key);
+      const occurrence = JSON.parse(row.discriminator) as { path?: unknown; start?: unknown; end?: unknown };
+      pages.push({ entity: holder, field: fieldNameOf(row.property), ...(typeof occurrence.path === 'string' ? { path: occurrence.path } : {}),
+        ...(typeof occurrence.start === 'number' ? { start: occurrence.start } : {}), ...(typeof occurrence.end === 'number' ? { end: occurrence.end } : {}) });
+    }
+    return pages;
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {

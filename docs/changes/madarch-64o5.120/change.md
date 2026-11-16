@@ -1,7 +1,7 @@
 # Mentions in text and JSON strings become edges, with hints for plain names
 
 Change: madarch-64o5.120
-Base: d9a0d32904ec6d033177de9f53f3af9ee66f9788
+Base: d58f64448044aa9af42cf31ce216782ee613e737
 Tasks: madarch-64o5.120
 Kind: behavior
 
@@ -20,9 +20,10 @@ references as scalar names, and an agent able to write without the kind/type che
 point at the same dictionary, so what an agent is offered and what a person sees cannot differ.
 
 ## Out of scope
-- Linking a name from another entity's text through the page: the page lists the names its own entity's text holds.
-- Backlinks drawn from token mentions beside the declared edge kinds: the page's backlinks section keeps reading the
-  declared relations; a mention traversal of all statements is not drawn yet.
+- A scan of every entity's text: the pages that name an entity without a link are found through the read layer's search
+  over the written text (five names, twenty-five answers a page), so a product whose text is not indexed by that read
+  is not searched. A mention written inside an edge's own attribute is recorded as an edge but no page row, since the
+  row needs an entity to open.
 - Screen mockups: this box has no browser (chromium or puppeteer), so the record names the page's place and its texts
   instead of pictures; the owner's review may ask for them from a worker with a browser.
 
@@ -31,6 +32,7 @@ point at the same dictionary, so what an agent is offered and what a person sees
 - graph-storage/mention-hints: add
 - graph-storage/mention-dictionary: add
 - graph-storage/unlinked-mentions: add
+- graph-storage/mention-pages: add
 
 ## Preserved contracts
 - product-wiki/internationalization: unchanged; the section's words come from both locale catalogues (test)
@@ -40,6 +42,7 @@ point at the same dictionary, so what an agent is offered and what a person sees
 - graph-storage/mention-hints: test
 - graph-storage/mention-dictionary: test
 - graph-storage/unlinked-mentions: test
+- graph-storage/mention-pages: test
 - product-wiki/internationalization: test
 
 ## Where it is seen
@@ -70,13 +73,13 @@ Static: `bun run check` passed: `tsc --noEmit` clean; architecture 874 violation
 allowed list); UI architecture 0; catalog 501 kinds read, no finding on 117 page-holding kinds; workflows 4; quarantine
 0. The wiki app's `bun run check` passed: `tsc --noEmit` clean and UI architecture 0.
 Test: `test/mention-text.test.ts`, `test/graphql-writes.test.ts` and `test/page-contract.test.ts` passed together:
-54 passed, 0 failed (the mention grammar's 12; the writes suite's 27, including the new changed-text retraction, the
+55 passed, 0 failed (including the target page's mention list and the pages that name it without a link) (the mention grammar's 12; the writes suite's 27, including the new changed-text retraction, the
 unlinked-mentions read with two same-named candidates and the press that links the shown span; the entity template's
 section list). `test/authored.test.ts`, `test/authored-import.test.ts`, `test/manual-operation.test.ts`,
 `test/system-overlay-binding.test.ts` and `test/graphql-writes.test.ts` passed together: 49 passed, 0 failed, after the
 authored view was narrowed to the kind's own declared fields (a person's form states what the kind declares, not the
-system's synonyms) and a producer's slots were checked against the write contract. The wiki app's suite passed: 127
-passed, 0 failed, including `mentions.test.tsx`'s 3 (two candidates of two kinds each named with its kind, the press
+system's synonyms) and a producer's slots were checked against the write contract. The wiki app's suite passed: 129
+passed, 0 failed, including `mentions.test.tsx`'s 5 (two candidates of two kinds each named with its kind, the press
 sending the `LinkMention` mutation to `/graphql` with the exact span, an all-linked text drawing nothing).
 The full `test/` run with `MADARCH_PLUGIN_SANDBOX=off` (this box has no delegated cgroup) fails the same suites as the
 base commit d9a0d329 does, measured by running them in a worktree of that commit: the disk/git fill fixtures, the
@@ -88,5 +91,6 @@ Review: pending; this record is for the review.
 ## DONE WHEN
 A token in text or a JSON string is a `mentions` edge with its pointer and span, a token naming no vertex is refused,
 a changed text retracts the mentions it left, every text write's answer carries the unlinked names with each
-candidate's kind label through MCP too, and an entity's page lists the names its text leaves unlinked with a kit Button
-that links one as the reader's statement.
+candidate's kind label through MCP too, an entity's page lists the names its text leaves unlinked with a kit Button
+that links one as the reader's statement, and the page of a mentioned entity lists the pages that mention it — with the
+field and a link — beside the pages whose text names it without a link, each with the Button that links it there.

@@ -57,12 +57,46 @@ sections:
       id
       kind
       unlinkedMentions {
+        uid
+        kind
         field
         path
         start
         end
         name
         candidates { uid kind kindLabel label domain }
+      }
+  # 0039 item 5: the pages whose text names this entity without a link — each with the place it stands at and the Button
+  # that links it there, so a person never has to open them one by one to find the name.
+  - id: unlinkedIn
+    component: mentions
+    title: { en: Named without a link in, ru: Упоминается без ссылки в }
+    query: |
+      id
+      kind
+      unlinkedMentionPages {
+        uid
+        kind
+        field
+        path
+        start
+        end
+        name
+        candidates { uid kind kindLabel label domain }
+      }
+    params:
+      path: unlinkedMentionPages
+  # 0039 item 5: the backlink a token in another entity's text creates — the page, the field and the occurrence.
+  - id: mentionedIn
+    component: mentions-in
+    title: { en: Mentioned in, ru: Упоминается в }
+    query: |
+      mentionedIn {
+        entity { id kind label }
+        field
+        path
+        start
+        end
       }
   - id: backlinks
     component: relations

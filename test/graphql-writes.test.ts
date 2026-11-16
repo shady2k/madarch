@@ -214,6 +214,30 @@ describe('the agent writes the graph', () => {
     await expect(graphql(LINK, { kind: 'doc.term', id: page.uid, field: 'body', path: '/body', start: 27, end: 35, name: 'Payments', entity: term.uid })).rejects.toThrow('the text changed since the page showed it');
   });
 
+  test('the target page lists the pages that mention it, and the pages that name it without a link', async () => {
+    const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }];
+    const target = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'cited service' }, values: {}, evidence });
+    const naming = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'A citing term', body: 'It calls nothing yet.' }, evidence });
+    const unlinked = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'A plain term', body: 'It calls cited service and stops.' }, evidence });
+    if (target.uid === undefined || naming.uid === undefined || unlinked.uid === undefined) throw new Error(`${import.meta.path}:1: the written fixture entities have no uid`);
+    const targetUid: string = target.uid;
+    await putEntityAssertion(owner, agent, { kind: 'doc.term', id: naming.uid, values: { body: `It calls [[uid:${targetUid}]] and stops.` }, evidence });
+    const backlinks = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { mentionedIn { entity { id kind label } field path start end } } } }`, { id: targetUid });
+    const cited = ((backlinks['entity'] as Record<string, any>).mentionedIn as Record<string, any>[]).map((one) => ({ entity: one.entity.label, field: one.field, path: one.path }));
+    expect(cited).toEqual([{ entity: 'A citing term', field: 'body', path: '/values/body' }]);
+    const unlinkedPages = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { unlinkedMentionPages { uid kind label field name start end candidates { uid kind kindLabel label } } } } }`, { id: targetUid });
+    const pages = (unlinkedPages['entity'] as Record<string, any>).unlinkedMentionPages as Record<string, any>[];
+    expect(pages.map((one) => ({ uid: one.uid, label: one.label, name: one.name, field: one.field }))).toEqual([
+      { uid: unlinked.uid, label: 'A plain term', name: 'cited service', field: 'body' },
+    ]);
+    expect(pages[0]!.candidates.map((one: Record<string, any>) => one.uid)).toContain(targetUid);
+    // The page that already links the target is no unlinked page, and a page's own list names the page it stands on.
+    expect(pages.map((one) => one.uid)).not.toContain(naming.uid);
+    const own = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { unlinkedMentions { uid kind name } } } }`, { id: unlinked.uid });
+    expect(((own['entity'] as Record<string, any>).unlinkedMentions as Record<string, any>[]).map((one) => ({ uid: one.uid, kind: one.kind, name: one.name })))
+      .toEqual([{ uid: unlinked.uid, kind: 'doc.term', name: 'cited service' }]);
+  });
+
   test('naming declarations name their fields, and the synonyms half is the system field', () => {
     const path = join(folder, 'madarch/kinds/demo/core/demo.note.yaml');
     const content = readFileSync(path, 'utf8');

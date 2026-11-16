@@ -435,6 +435,11 @@ export interface MentionCandidateView {
 }
 
 export interface UnlinkedMention {
+  /** The page whose text holds the name: this page, or the page that names it. */
+  readonly uid: string;
+  readonly kind: string;
+  /** The holding page's label, when the name stands in another page's text. */
+  readonly label: string;
   readonly field: string;
   readonly path: string;
   readonly start: number;

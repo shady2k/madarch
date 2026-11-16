@@ -78,6 +78,32 @@ same-named entity of another kind shall stay another candidate, and a candidate 
 - When: the candidates are shown
 - Then: each candidate carries its kind's label beside its label
 
+## Requirement: mention-pages — A page lists the pages that mention it, and the pages that name it without a link
+
+The page of an entity a token names shall list, beside its declared relations, every page whose current text mentions
+it: the mentioning entity, the field the token stands in and the occurrence's place, each naming a page a reader can
+open. A mention the writer retracted because its text left shall be no row. The same page shall also list the pages
+whose text names the entity in plain text without a link — each row naming the page that holds the name, its field, the
+span and the name, with the kit's Button that links exactly that occurrence in that page's text. That reverse list
+shall be found through the read layer's search over the written text, bounded to a stated number of names and answers,
+so a page pays a search and the few pages it finds, not a scan of every entity's text. A section with no row shall not
+be drawn.
+
+### Scenario: token-backlink
+- Given: a term whose body holds a token naming a repository, and the repository's page
+- When: the repository's page is read
+- Then: it lists the term with the field `body` and the occurrence's span, linked to the term's page
+
+### Scenario: plain-name-page
+- Given: a term whose body names the repository in plain text, and the repository's page
+- When: the repository's page is read
+- Then: it lists the term at the name's span with the Button that links it there, and the term's own page lists the same name
+
+### Scenario: retracted-mention-gone
+- Given: a term whose body held a token naming the repository, rewritten without it
+- When: the repository's page is read
+- Then: the term is no row of its mention list
+
 ## Requirement: unlinked-mentions — A page lists the names its text leaves unlinked, and one press links one
 
 An entity's page shall list the names its own current text leaves without a link, each with the candidates it may

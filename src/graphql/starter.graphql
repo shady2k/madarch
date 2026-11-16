@@ -15,6 +15,8 @@ type Accounting implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -52,6 +54,8 @@ type Activity implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -91,6 +95,8 @@ type ActivityNode implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   type: String
@@ -173,6 +179,8 @@ type Agent implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   installation: String
   installationAssertions: [Assertion!]!
   labelField: String
@@ -206,6 +214,8 @@ type AgentSession implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   installation: String
   installationAssertions: [Assertion!]!
   labelField: String
@@ -239,6 +249,8 @@ type AgentUsage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -352,6 +364,8 @@ type BusinessProcess implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   goal: String
@@ -414,6 +428,8 @@ type CatalogueEntity implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String!
   title: String
   definition: String
@@ -459,6 +475,8 @@ type ChaosExperiment implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   steadyState: String
@@ -500,6 +518,8 @@ type ClassDiagram implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   level: String
@@ -601,6 +621,8 @@ type CodeAuthor implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   email: String
@@ -658,6 +680,8 @@ type CodeBlob implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   digest: String
   digestAssertions: [Assertion!]!
   content: String
@@ -715,6 +739,8 @@ type CodeBroker implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   technology: String
@@ -755,6 +781,8 @@ type CodeChannel implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   address: String
   addressAssertions: [Assertion!]!
   protocol: String
@@ -815,6 +843,8 @@ type CodeCiJob implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   workingDirectory: String
@@ -876,6 +906,8 @@ type CodeCiWorkflow implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   name: String
@@ -936,6 +968,8 @@ type CodeColumn implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   type: String
@@ -1007,6 +1041,8 @@ type CodeCommit implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   hash: String
   hashAssertions: [Assertion!]!
   algorithm: String
@@ -1066,6 +1102,8 @@ type CodeComposeService implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   image: String
@@ -1169,6 +1207,8 @@ type CodeContract implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   format: String
@@ -1234,6 +1274,8 @@ type CodeConvention implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   rule: String
@@ -1277,6 +1319,8 @@ type CodeCycle implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   level: String
   levelAssertions: [Assertion!]!
   size: Int
@@ -1334,6 +1378,8 @@ type CodeDatabase implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   path: String
@@ -1412,6 +1458,8 @@ type CodeDebt implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   line: Int
@@ -1492,6 +1540,8 @@ type CodeDirectory implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   codeContains(first: Int, after: String): CodeContainsConnection!
@@ -1552,6 +1602,8 @@ type CodeDockerfile implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   baseImage: String
   baseImageAssertions: [Assertion!]!
   stages: JSON
@@ -1611,6 +1663,8 @@ type CodeDocumentSection implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   anchor: String
   anchorAssertions: [Assertion!]!
   heading: String
@@ -1676,6 +1730,8 @@ type CodeEntryPoint implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   language: String
   languageAssertions: [Assertion!]!
   starts: String
@@ -1753,6 +1809,8 @@ type CodeEnvDefinition implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   place: String
   placeAssertions: [Assertion!]!
   scope: String
@@ -1812,6 +1870,8 @@ type CodeEnvVar implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   required: Boolean
@@ -1872,6 +1932,8 @@ type CodeField implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   symbolKind: String
@@ -1937,6 +1999,8 @@ type CodeFile implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   mode: String
@@ -2123,6 +2187,8 @@ type CodeGitlink implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   commitHash: String
@@ -2239,6 +2305,8 @@ type CodeHealthEndpoint implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   method: String
@@ -2321,6 +2389,8 @@ type CodeImage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   registry: String
   registryAssertions: [Assertion!]!
   repository: String
@@ -2420,6 +2490,8 @@ type CodeIndex implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   unique: Boolean
@@ -2500,6 +2572,8 @@ type CodeInput implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   source: String
@@ -2557,6 +2631,8 @@ type CodeK8sDeployment implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   namespace: String
   namespaceAssertions: [Assertion!]!
   name: String
@@ -2604,6 +2680,8 @@ type CodeK8sService implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   namespace: String
   namespaceAssertions: [Assertion!]!
   name: String
@@ -2645,6 +2723,8 @@ type CodeLockfile implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   format: String
@@ -2726,6 +2806,8 @@ type CodeLogger implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   library: String
   libraryAssertions: [Assertion!]!
   format: String
@@ -2805,6 +2887,8 @@ type CodeMakeTarget implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   phony: Boolean
@@ -2864,6 +2948,8 @@ type CodeManifest implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   ecosystem: String
@@ -2928,6 +3014,8 @@ type CodeMessage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   eventTypes: JSON
@@ -3005,6 +3093,8 @@ type CodeMetric implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   metricType: String
@@ -3068,6 +3158,8 @@ type CodeMetricsEndpoint implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   method: String
@@ -3131,6 +3223,8 @@ type CodeMigration implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   ordinal: Int
@@ -3188,6 +3282,8 @@ type CodeModule implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   responsibility: String
@@ -3250,6 +3346,8 @@ type CodeNewcomerCommand implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   command: String
   commandAssertions: [Assertion!]!
   purpose: String
@@ -3309,6 +3407,8 @@ type CodeOperation implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   method: String
@@ -3375,6 +3475,8 @@ type CodePackage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   ecosystem: String
   ecosystemAssertions: [Assertion!]!
   name: String
@@ -3437,6 +3539,8 @@ type CodePort implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   port: Int
   portAssertions: [Assertion!]!
   protocol: String
@@ -3494,6 +3598,8 @@ type CodeProcess implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   binary: String
@@ -3574,6 +3680,8 @@ type CodeRepository implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   url: String
@@ -3640,6 +3748,8 @@ type CodeRoute implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   method: String
   methodAssertions: [Assertion!]!
   path: String
@@ -3741,6 +3851,8 @@ type CodeService implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   path: String
@@ -3838,6 +3950,8 @@ type CodeSnapshot implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   codeSnapshotCommit(first: Int, after: String): CodeSnapshotCommitConnection!
   codeSnapshotRepository(first: Int, after: String): CodeSnapshotRepositoryConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -3911,6 +4025,8 @@ type CodeSqlBuild implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   name: String
@@ -3968,6 +4084,8 @@ type CodeSqlSink implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   line: Int
@@ -4025,6 +4143,8 @@ type CodeSymbol implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   symbolKind: String
@@ -4124,6 +4244,8 @@ type CodeTable implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   schema: String
@@ -4188,6 +4310,8 @@ type CodeTestCase implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   testKind: String
@@ -4260,6 +4384,8 @@ type CodeTestQuarantine implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   path: String
   pathAssertions: [Assertion!]!
   name: String
@@ -4426,6 +4552,8 @@ type Comment implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   body: String
   bodyAssertions: [Assertion!]!
   createdAt: DateTime
@@ -4485,6 +4613,8 @@ type Constitution implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   body: String
   bodyAssertions: [Assertion!]!
   precedence: JSON
@@ -4544,6 +4674,8 @@ type ContainerHealthCheck implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   platform: String
   platformAssertions: [Assertion!]!
   name: String
@@ -4595,6 +4727,8 @@ type Correction implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   statement: String
   statementAssertions: [Assertion!]!
   correctionReason: String
@@ -4704,6 +4838,8 @@ type DataJob implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   namespace: String
   namespaceAssertions: [Assertion!]!
   name: String
@@ -4744,6 +4880,8 @@ type DataJobRun implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   startedAt: DateTime
   startedAtAssertions: [Assertion!]!
   finishedAt: DateTime
@@ -4803,6 +4941,8 @@ type Dataset implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   namespace: String
   namespaceAssertions: [Assertion!]!
   name: String
@@ -4842,6 +4982,8 @@ type Defect implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   severity: String
@@ -4887,6 +5029,8 @@ type DocDecision implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   identifier: String
   identifierAssertions: [Assertion!]!
   title: String
@@ -4960,6 +5104,8 @@ type DocRequirement implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   identifier: String
   identifierAssertions: [Assertion!]!
   statement: String
@@ -5003,6 +5149,8 @@ type DocRule implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   statement: String
@@ -5042,6 +5190,8 @@ type DocTerm implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   definition: String
@@ -5090,6 +5240,8 @@ type DocUseCase implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   identifier: String
   identifierAssertions: [Assertion!]!
   name: String
@@ -5154,6 +5306,8 @@ type Document implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   content: String
   contentAssertions: [Assertion!]!
   anchors: JSON
@@ -5239,6 +5393,8 @@ type Domain implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -5321,6 +5477,8 @@ type DomainEntity implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -5378,6 +5536,8 @@ type Drill implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   objectivesMet: JSON
@@ -5419,6 +5579,8 @@ interface Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
 }
 
 type EntityConnection {
@@ -5442,6 +5604,8 @@ type Epic implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   need: String
@@ -5485,6 +5649,8 @@ type Event implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -5512,6 +5678,8 @@ type Evidence implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   check: String
   checkAssertions: [Assertion!]!
   result: String
@@ -5553,6 +5721,8 @@ type Feature implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -5594,6 +5764,8 @@ type FieldSet implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   fields: JSON
@@ -5700,6 +5872,8 @@ type Guide implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   purpose: String
@@ -5777,6 +5951,8 @@ type Handoff implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   branch: String
   branchAssertions: [Assertion!]!
   at: DateTime
@@ -5858,6 +6034,8 @@ type IamRole implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -5897,6 +6075,8 @@ type Incident implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   startedAt: DateTime
@@ -5946,6 +6126,8 @@ type JobRun implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   startedAt: DateTime
   startedAtAssertions: [Assertion!]!
   finishedAt: DateTime
@@ -6009,6 +6191,8 @@ type Kind implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   concept: String
@@ -6053,6 +6237,8 @@ type KnownIssue implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   symptom: String
@@ -6094,6 +6280,8 @@ type LinkBehaviour implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   cardinality: String
@@ -6135,6 +6323,8 @@ type LinkType implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   fromKinds: JSON
@@ -6235,6 +6425,8 @@ type LogicalDataModel implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -6292,6 +6484,8 @@ type ManifestCatalogue implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6321,6 +6515,8 @@ type ManifestDependency implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6350,6 +6546,8 @@ type ManifestField implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6379,6 +6577,8 @@ type ManifestKind implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6408,6 +6608,8 @@ type ManifestRelation implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6437,6 +6639,8 @@ type ManifestWorkflow implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   declaration: String
@@ -6466,6 +6670,8 @@ type ManifestWorkflowStage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   position: Int
@@ -6512,6 +6718,14 @@ type MentionLink {
   text: String!
 }
 
+type MentionPage {
+  entity: Entity!
+  field: String!
+  path: String
+  start: Int
+  end: Int
+}
+
 type MentionsConnection {
   edges: [MentionsConnectionEdge!]!
   pageInfo: PageInfo!
@@ -6540,6 +6754,8 @@ type Merge implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   source: String
   sourceAssertions: [Assertion!]!
   target: String
@@ -6621,6 +6837,8 @@ type Milestone implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   targetDate: DateTime
@@ -6717,6 +6935,8 @@ type Operation implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -6829,6 +7049,8 @@ type Permission implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   action: String
@@ -6868,6 +7090,8 @@ type Person implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   email: String
@@ -6920,6 +7144,8 @@ type Plugin implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   installation: String
   installationAssertions: [Assertion!]!
   labelField: String
@@ -6953,6 +7179,8 @@ type Practice implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   rule: String
@@ -6996,6 +7224,8 @@ type Principle implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   statement: String
@@ -7039,6 +7269,8 @@ type Problem implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -7066,6 +7298,8 @@ type ProcessEvent implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   type: String
@@ -7127,6 +7361,8 @@ type ProcessGateway implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   type: String
@@ -7188,6 +7424,8 @@ type ProcessStep implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   order: Int
@@ -7287,6 +7525,8 @@ type Product implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   purpose: String
@@ -7349,6 +7589,8 @@ type ProposedKind implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   definition: String
@@ -7417,6 +7659,8 @@ type Question implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   question: String
   questionAssertions: [Assertion!]!
   why: String
@@ -7531,6 +7775,8 @@ type QuestionSide implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   position: Int
   positionAssertions: [Assertion!]!
   claim: String
@@ -7598,6 +7844,8 @@ type Responsibility implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   executorType: String
   executorTypeAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -7673,6 +7921,8 @@ type ReviewFinding implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   severity: String
   severityAssertions: [Assertion!]!
   text: String
@@ -7734,6 +7984,8 @@ type Role implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   purpose: String
@@ -7781,6 +8033,8 @@ type Run implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -7808,6 +8062,8 @@ type RuntimeScenario implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   trigger: String
@@ -7848,6 +8104,8 @@ type ScenarioStep implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   order: Int
   orderAssertions: [Assertion!]!
   message: String
@@ -7987,6 +8245,8 @@ type ScheduledJob implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   cron: String
@@ -8041,6 +8301,8 @@ type Setting implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -8068,6 +8330,8 @@ type Skill implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   when: String
@@ -8111,6 +8375,8 @@ type Source implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   installation: String
   installationAssertions: [Assertion!]!
   labelField: String
@@ -8144,6 +8410,8 @@ type Stage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   acceptanceCriterion: String
@@ -8183,6 +8451,8 @@ type State implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   labelField: String
@@ -8246,6 +8516,8 @@ type StateEvent implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   description: String
@@ -8284,6 +8556,8 @@ type StateMachine implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   lifecycleOfField: String
@@ -8365,6 +8639,8 @@ type Suppression implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   rule: String
   ruleAssertions: [Assertion!]!
   finding: String
@@ -8428,6 +8704,8 @@ type SystemAssertion implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   synonyms: JSON
   synonymsAssertions: [Assertion!]!
 }
@@ -8453,6 +8731,8 @@ type SystemAuthoredImport implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   sourcePath: String
   sourcePathAssertions: [Assertion!]!
   contentDigest: String
@@ -8482,6 +8762,8 @@ type SystemChain implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   productName: String
   productNameAssertions: [Assertion!]!
   state: String
@@ -8513,6 +8795,8 @@ type SystemContentSnapshot implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   digest: String
   digestAssertions: [Assertion!]!
   content: String
@@ -8542,6 +8826,8 @@ type SystemDisputePin implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   canonicalValue: String
   canonicalValueAssertions: [Assertion!]!
   digest: String
@@ -8575,6 +8861,8 @@ type SystemDisputeQuestion implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   property: String
   propertyAssertions: [Assertion!]!
   language: String
@@ -8610,6 +8898,8 @@ type SystemDisputeResolution implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   rationale: String
   rationaleAssertions: [Assertion!]!
   segmentFrom: DateTime
@@ -8641,6 +8931,8 @@ type SystemFillTransition implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   step: String
   stepAssertions: [Assertion!]!
   fromState: String
@@ -8684,6 +8976,8 @@ type SystemOperation implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   words: String
   wordsAssertions: [Assertion!]!
   key: String
@@ -8719,6 +9013,8 @@ type SystemProblem implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   rule: String
   ruleAssertions: [Assertion!]!
   fingerprint: String
@@ -8753,6 +9049,8 @@ type SystemProduct implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   synonyms: JSON
   synonymsAssertions: [Assertion!]!
 }
@@ -8778,6 +9076,8 @@ type SystemProgress implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   seq: Int
   seqAssertions: [Assertion!]!
   at: BigInt
@@ -8817,6 +9117,8 @@ type SystemRun implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   targetPluginsOnly: Boolean
   targetPluginsOnlyAssertions: [Assertion!]!
   targetsPresent: Boolean
@@ -8886,6 +9188,8 @@ type SystemRunSelection implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   role: String
   roleAssertions: [Assertion!]!
   position: Int
@@ -8923,6 +9227,8 @@ type SystemRunStage implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   stageName: String
   stageNameAssertions: [Assertion!]!
   plannedAt: BigInt
@@ -8956,6 +9262,8 @@ type SystemRunTarget implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   role: String
   roleAssertions: [Assertion!]!
   name: String
@@ -8987,6 +9295,8 @@ type SystemTrackedRead implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   queryDigest: String
   queryDigestAssertions: [Assertion!]!
   query: String
@@ -9024,6 +9334,8 @@ type SystemUnit implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   planStageName: String
   planStageNameAssertions: [Assertion!]!
   planStageUnitName: String
@@ -9097,6 +9409,8 @@ type SystemUnitCacheVersion implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   version: String
@@ -9138,6 +9452,8 @@ type SystemUnread implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   repository: String
   repositoryAssertions: [Assertion!]!
   path: String
@@ -9169,6 +9485,8 @@ type Task implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   tracker: String
   trackerAssertions: [Assertion!]!
   key: String
@@ -9242,6 +9560,8 @@ type Technology implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   version: String
@@ -9288,6 +9608,8 @@ type TestResult implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   outcome: String
   outcomeAssertions: [Assertion!]!
   at: DateTime
@@ -9348,6 +9670,8 @@ type Transition implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   guard: String
   guardAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -9463,6 +9787,8 @@ type Unit implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
   synonyms: JSON
@@ -9482,6 +9808,9 @@ type UnitEdge {
 }
 
 type UnlinkedMention {
+  uid: ID!
+  kind: String!
+  label: String!
   field: String!
   path: String!
   start: Int!
@@ -9499,6 +9828,8 @@ type UseCaseStep implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   order: Int
   orderAssertions: [Assertion!]!
   action: String
@@ -9617,6 +9948,8 @@ type ValueSet implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   labelEn: String
@@ -9663,6 +9996,8 @@ type ValueSetEntry implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   value: String
   valueAssertions: [Assertion!]!
   labelEn: String
@@ -9731,6 +10066,8 @@ type WorkSpan implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   step: String
   stepAssertions: [Assertion!]!
   executorType: String
@@ -9800,6 +10137,8 @@ type Workflow implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  unlinkedMentionPages: [UnlinkedMention!]!
+  mentionedIn: [MentionPage!]!
   name: String
   nameAssertions: [Assertion!]!
   status: String

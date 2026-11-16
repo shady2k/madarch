@@ -11,6 +11,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { MentionsSection } = await import('./mentions.js');
+const { MentionsInSection } = await import('./mentions-in.js');
 const { TooltipProvider } = await import('./ui/tooltip.js');
 const { setWikiLanguage } = await import('../i18n.js');
 import type { SectionContext } from './types.js';
@@ -23,6 +24,7 @@ let reloaded = 0;
 const MENTIONS = {
   id: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.note',
   unlinkedMentions: [{
+  uid: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.note', label: '',
   field: 'body', path: '/body', start: 6, end: 14, name: 'Payments',
   candidates: [
     { uid: '019a0000-0000-7000-8000-000000000001', kind: 'demo.domain', kindLabel: 'Domain', label: 'Payments', domain: '' },
@@ -31,9 +33,9 @@ const MENTIONS = {
   }],
 };
 
-function context(data: unknown): SectionContext {
+function context(data: unknown, path?: string, component: 'mentions' | 'mentions-in' = 'mentions'): SectionContext {
   return {
-    section: { id: 'mentions', component: 'mentions', on: 'subject', replace: false, params: {}, line: 1, alias: 's_mentions', title: { en: 'Mentions without a link', ru: 'Упоминания без ссылки' } } as unknown as SectionContext['section'],
+    section: { id: 'mentions', component, on: 'subject', replace: false, params: path === undefined ? {} : { path }, line: 1, alias: 's_mentions', title: { en: 'Mentions without a link', ru: 'Упоминания без ссылки' } } as unknown as SectionContext['section'],
     data,
     language: 'ru',
     base: '',
@@ -52,11 +54,11 @@ async function settle(): Promise<void> {
   for (let at = 0; at < 12; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
-async function render(data: unknown): Promise<{ container: HTMLElement; close: () => Promise<void> }> {
+async function render(data: unknown, path?: string, component: 'mentions' | 'mentions-in' = 'mentions'): Promise<{ container: HTMLElement; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  await act(async () => { root.render(createElement(TooltipProvider, null, createElement(MentionsSection, { context: context(data) }))); });
+  await act(async () => { root.render(createElement(TooltipProvider, null, createElement(component === 'mentions' ? MentionsSection : MentionsInSection, { context: context(data, path, component) }))); });
   await settle();
   return { container, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
@@ -96,6 +98,43 @@ test('the press links the span the page showed, as this person’s statement', a
       start: 6, end: 14, name: 'Payments', entity: '019a0000-0000-7000-8000-000000000002',
     });
     expect(reloaded).toBe(1);
+  } finally { await page.close(); }
+});
+
+test('a name another page holds links there, and the press writes that page', async () => {
+  const page = await render({
+    id: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.repository',
+    unlinkedMentionPages: [{
+      uid: '019a0000-0000-7000-8000-0000000000bb', kind: 'demo.note', label: 'A citing note',
+      field: 'body', path: '/body', start: 4, end: 12, name: 'Payments',
+      candidates: [{ uid: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.repository', kindLabel: 'Repository', label: 'Payments', domain: '' }],
+    }],
+  }, 'unlinkedMentionPages');
+  try {
+    expect(page.container.querySelectorAll('[data-testid="unlinked-mention-page"]').length).toBe(1);
+    expect(page.container.querySelector('[data-testid="unlinked-mention-page"]')?.textContent).toBe('A citing note');
+    const button = page.container.querySelector<HTMLButtonElement>('[data-testid="unlinked-mention-link"]')!;
+    await act(async () => { button.click(); });
+    await settle();
+    const sent = requests[0]!.body as { variables: Record<string, unknown> };
+    // The write stands in the page that holds the name, not on the page the reader is reading.
+    expect(sent.variables).toMatchObject({ kind: 'demo.note', id: '019a0000-0000-7000-8000-0000000000bb', start: 4, end: 12 });
+  } finally { await page.close(); }
+});
+
+test('every page whose text mentions the entity stands with its field and a link', async () => {
+  const page = await render({
+    id: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.repository',
+    mentionedIn: [
+      { entity: { id: '019a0000-0000-7000-8000-0000000000bb', kind: 'demo.note', label: 'A citing note' }, field: 'body', path: '/values/body', start: 4, end: 12 },
+      { entity: { id: '019a0000-0000-7000-8000-0000000000cc', kind: 'demo.beta', label: 'A glossary term' }, field: 'title', path: '/values/title', start: 0, end: 8 },
+    ],
+  }, undefined, 'mentions-in');
+  try {
+    const rows = [...page.container.querySelectorAll('[data-testid="mention-page"]')];
+    expect(rows.map((one) => one.textContent)).toEqual(['A citing notebody', 'A glossary termtitle']);
+    expect(rows.map((one) => one.getAttribute('data-field'))).toEqual(['body', 'title']);
+    expect(page.container.querySelectorAll('[data-testid="mention-page"] a').length).toBe(2);
   } finally { await page.close(); }
 });
 

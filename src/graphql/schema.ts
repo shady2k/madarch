@@ -107,6 +107,9 @@ function entityFields(): FieldDef[] {
     { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
     // 0039 item 5: the names this entity's own text leaves unlinked, with the candidates each may mean.
     { name: 'unlinkedMentions', type: '[UnlinkedMention!]!' },
+    // 0039 item 5 from the other side: the pages that name this entity without a link, and the pages that mention it.
+    { name: 'unlinkedMentionPages', type: '[UnlinkedMention!]!' },
+    { name: 'mentionedIn', type: '[MentionPage!]!' },
   ];
 }
 
@@ -158,7 +161,7 @@ class Builder {
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
-      'UnlinkedMention', 'MentionCandidate', 'Mutation', 'MentionLink',
+      'UnlinkedMention', 'MentionCandidate', 'Mutation', 'MentionLink', 'MentionPage',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -186,9 +189,16 @@ class Builder {
         { name: 'start', type: 'Int!' }, { name: 'end', type: 'Int!' }, { name: 'name', type: 'String!' }, { name: 'entity', type: 'ID!' },
       ] },
     ]);
+    // One unlinked name, with the page whose text holds it: this page itself, or the page that names this one.
     this.type('UnlinkedMention', [
+      { name: 'uid', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'label', type: 'String!' },
       { name: 'field', type: 'String!' }, { name: 'path', type: 'String!' }, { name: 'start', type: 'Int!' }, { name: 'end', type: 'Int!' },
       { name: 'name', type: 'String!' }, { name: 'candidates', type: '[MentionCandidate!]!' },
+    ]);
+    // One page whose text mentions this entity by a token: the page, the field and the occurrence's place.
+    this.type('MentionPage', [
+      { name: 'entity', type: 'Entity!' }, { name: 'field', type: 'String!' }, { name: 'path', type: 'String' },
+      { name: 'start', type: 'Int' }, { name: 'end', type: 'Int' },
     ]);
 
 

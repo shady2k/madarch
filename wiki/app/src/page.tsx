@@ -12,6 +12,7 @@ import { FactsSection } from './components/facts.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
 import { MentionsSection } from './components/mentions.js';
+import { MentionsInSection } from './components/mentions-in.js';
 import { TableSection } from './components/table.js';
 import { BarsSection } from './components/bars.js';
 import { DiagramSection } from './components/diagram.js';
@@ -67,8 +68,13 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     if (section.component === 'relations') return edgesOf(at(data[section.id], section.params['path'])).length === 0;
     // 0039 items 5 and 29: a page whose text leaves no name unlinked draws no mention section.
     if (section.component === 'mentions') {
-      const names = at(data[section.id], 'unlinkedMentions');
+      const path = typeof section.params['path'] === 'string' ? String(section.params['path']) : 'unlinkedMentions';
+      const names = at(data[section.id], path);
       return !Array.isArray(names) || names.length === 0;
+    }
+    if (section.component === 'mentions-in') {
+      const pages = at(data[section.id], 'mentionedIn');
+      return !Array.isArray(pages) || pages.length === 0;
     }
     return false;
   };
@@ -112,6 +118,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'text': return <TextSection context={context} />;
     case 'relations': return <RelationsSection context={context} />;
     case 'mentions': return <MentionsSection context={context} />;
+    case 'mentions-in': return <MentionsInSection context={context} />;
     case 'table': return <TableSection context={context} />;
     case 'bars': return <BarsSection context={context} />;
     case 'diagram': return <DiagramSection context={context} />;
