@@ -22,8 +22,8 @@ function executor(values: readonly { property: string; value: unknown; operation
       recorded_at: value.recordedAt ?? '2026-11-14T00:00:00.000Z', recorded_sequence: String(index + 1),
     }));
     else if (sql === 'SELECT transaction_timestamp() AS now') rows = [{ now }];
-    else if (sql.includes('FROM node n')) rows = [{ id: 1, uid: 'subject', key: { name: 'fixture' }, read_at: now }, ...(values.some(value => value.subjectId === 2) ? [{ id: 2, uid: 'other', key: { name: 'other' }, read_at: now }] : [])];
-    else if (sql.includes('FROM edge n')) rows = [{ id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
+    else if (sql.includes('FROM node n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: { name: 'fixture' }, read_at: now }, ...(values.some(value => value.subjectId === 2) ? [{ request_index: 0, id: 2, uid: 'other', key: { name: 'other' }, read_at: now }] : [])];
+    else if (sql.includes('FROM edge n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
     else throw new Error(`Unexpected query: ${sql}`);
     return { rows: rows as Row[] };
   } };

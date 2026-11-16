@@ -6,71 +6,102 @@ import { listDisputeSlots } from './disputes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
-import { loadAssertions, selectAssertionSlots, type StoredAssertion } from './assertion-read.js';
+import { loadAssertionsBatch, selectAssertionSlots, type StoredAssertion } from './assertion-read.js';
 
 export interface AssertionRecord {
   id: number; uid: string; key: Record<string, unknown>; values: Record<string, unknown>;
   assertions: StoredAssertion[]; selectedAssertions: readonly StoredAssertion[]; activeSources: readonly string[]; from?: number; to?: number; discriminator?: string;
 }
 
-/** Internal numeric joins never become public identities. */
-export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], selector: { readonly contract?: GraphContract; readonly validAt?: string; readonly recordedAt?: string; readonly contexts?: readonly number[]; readonly contextRecordedThrough?: Readonly<Record<number, string | null>>; readonly subjectUids?: readonly string[]; readonly subjectIds?: readonly number[] } = {}): Promise<AssertionRecord[]> {
-  return await withSpan('graph.records.kind', { 'graph.kind': kind }, async () => {
-    const disputable = ['$exists', ...fields].some(property => isDisputableProperty(sort, kind, property));
-    if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:24: product assertion reads require an explicit graph contract for dispute resolution`);
-    if (selector.subjectUids?.length === 0 || selector.subjectIds?.length === 0) return [];
-    const parameters: unknown[] = [kind];
-    const predicates = ['k.name=$1'];
-    if (selector.subjectUids !== undefined) { parameters.push(selector.subjectUids); predicates.push(`n.uid=ANY($${parameters.length}::uuid[])`); }
-    if (selector.subjectIds !== undefined) { parameters.push(selector.subjectIds); predicates.push(`n.id=ANY($${parameters.length}::bigint[])`); }
-    const identities = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string; read_at: string | Date }>((sort === 'vertex'
-      ? 'SELECT n.id,n.uid::text,n.key,transaction_timestamp() AS read_at FROM node n JOIN entity k ON k.id=n.entity_id WHERE '
-      : "SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator,transaction_timestamp() AS read_at FROM edge n JOIN entity k ON k.id=n.entity_id WHERE ") + predicates.join(' AND '), parameters);
-    const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)));
-    // Empty identity sets still load typed storage and resolve disputes, so malformed schemas are refused.
+export interface AssertionRecordRequest {
+  readonly sort: 'vertex' | 'edge';
+  readonly kind: string;
+  readonly fields: readonly string[];
+  readonly subjectUids?: readonly string[];
+  readonly subjectIds?: readonly number[];
+}
+export interface AssertionRecordSelector {
+  readonly contract?: GraphContract;
+  readonly validAt?: string;
+  readonly recordedAt?: string;
+  readonly contexts?: readonly number[];
+  readonly contextRecordedThrough?: Readonly<Record<number, string | null>>;
+}
+
+/** One logical read shares its clock, typed storage walk and canonical dispute arbitration. */
+export async function readKindsAssertions(tx: SqlExecutor, requests: readonly AssertionRecordRequest[], selector: AssertionRecordSelector = {}): Promise<AssertionRecord[][]> {
+  return await withSpan('graph.records.batch', {}, async () => {
+    const active = requests.map((request, index) => ({ ...request, index, disputable: ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)) }));
+    for (const request of active) if (request.disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:37: product assertion reads require an explicit graph contract for dispute resolution`);
+    const reads = active.filter(request => request.subjectUids?.length !== 0 && request.subjectIds?.length !== 0);
+    if (reads.length === 0) return requests.map(() => []);
+    const parameters: unknown[] = [];
+    const queries = reads.map(request => {
+      parameters.push(request.kind);
+      const predicates = [`k.name=$${parameters.length}`];
+      if (request.subjectUids !== undefined) { parameters.push(request.subjectUids); predicates.push(`n.uid=ANY($${parameters.length}::uuid[])`); }
+      if (request.subjectIds !== undefined) { parameters.push(request.subjectIds); predicates.push(`n.id=ANY($${parameters.length}::bigint[])`); }
+      return `SELECT ${request.index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"},transaction_timestamp() AS read_at FROM ${request.sort === 'vertex' ? 'node' : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${predicates.join(' AND ')}`;
+    });
+    const identities = await tx.query<{ request_index: number; id: number; uid: string; key: Record<string, unknown>; from_node: number | null; to_node: number | null; discriminator: string | null; read_at: string | Date }>(queries.join(' UNION ALL '), parameters);
+    const identityGroups = requests.map(() => [] as typeof identities.rows);
+    for (const row of identities.rows) identityGroups[Number(row.request_index)]!.push(row);
+    const loaded = await loadAssertionsBatch(tx, reads.map(request => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], subjectIds: identityGroups[request.index]!.map(row => Number(row.id)) })));
     const readAt = identities.rows[0]?.read_at ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now;
     const now = new Date(readAt).toISOString();
     const temporal = { validAt: selector.validAt ?? now, recordedAt: selector.recordedAt ?? now, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) };
-    const slots = new Map(selectAssertionSlots(assertions, temporal));
-    const resolvedIds = new Set<string>();
-    if (disputable) {
-      const disputes = await listDisputeSlots(tx, withAssertionContract(selector.contract!), temporal);
-      const chosenIds = new Set(disputes.flatMap(slot => slot.sort === sort && slot.kind === kind && slot.dispute.selectedAssertionUid !== null ? [slot.dispute.selectedAssertionUid] : []));
-      for (const id of chosenIds) resolvedIds.add(id);
-      for (const [key, selection] of slots) {
-        const chosen = selection.candidates.find(row => chosenIds.has(row.id));
-        if (chosen !== undefined) slots.set(key, { ...selection, selected: chosen, contested: false });
+    const disputes = reads.some(request => request.disputable) ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), temporal) : [];
+    const result: AssertionRecord[][] = requests.map(() => []);
+    for (const [index, request] of reads.entries()) {
+      const { sort, kind, disputable } = request;
+      const assertions = loaded[index]!;
+      const ownIdentities = identityGroups[request.index]!;
+      const slots = new Map(selectAssertionSlots(assertions, temporal));
+      const resolvedIds = new Set<string>();
+      if (disputable) {
+        const chosenIds = new Set(disputes.flatMap(slot => slot.sort === sort && slot.kind === kind && slot.dispute.selectedAssertionUid !== null ? [slot.dispute.selectedAssertionUid] : []));
+        for (const id of chosenIds) resolvedIds.add(id);
+        for (const [key, selection] of slots) {
+          const chosen = selection.candidates.find(row => chosenIds.has(row.id));
+          if (chosen !== undefined) slots.set(key, { ...selection, selected: chosen, contested: false });
+        }
       }
+      const selected = new Set([...slots.values()].flatMap(s => s.selected === null ? [] : [s.selected.id]));
+      const bySubject = new Map<number, StoredAssertion[]>();
+      for (const assertion of assertions) {
+        const own = bySubject.get(assertion.subjectId) ?? [];
+        own.push(assertion);
+        bySubject.set(assertion.subjectId, own);
+      }
+      const assertionSubjects = new Map(assertions.map(assertion => [assertion.id, assertion.subjectId]));
+      const subjectSlots = new Map<number, (typeof slots extends Map<string, infer S> ? S : never)[]>();
+      for (const slot of slots.values()) {
+        const subjectId = slot.candidates[0] === undefined ? undefined : assertionSubjects.get(slot.candidates[0].id);
+        if (subjectId === undefined) continue;
+        const own = subjectSlots.get(subjectId) ?? [];
+        own.push(slot);
+        subjectSlots.set(subjectId, own);
+      }
+      result[request.index] = ownIdentities.flatMap(row => {
+        const own = bySubject.get(Number(row.id)) ?? [];
+        const ownSlots = subjectSlots.get(Number(row.id)) ?? [];
+        const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));
+        const existence = ownSlots.filter(slot => slot.candidates.some(candidate => candidate.property === '$exists'));
+        const decided = existence.flatMap(slot => slot.candidates.filter(candidate => resolvedIds.has(candidate.id)));
+        const exists = decided.length > 0 ? decided.some(candidate => candidate.value === true) : existence.some(slot => slot.candidates.some(candidate => candidate.value === true));
+        if (!exists) return [];
+        values['$exists'] = true;
+        const activeSources = [...new Set(existence.flatMap(slot => slot.candidates.filter(a => a.value === true).map(a => a.source)))];
+        return [{id:Number(row.id),uid:row.uid,key:row.key,values,assertions:own,selectedAssertions:own.filter(a => selected.has(a.id)),activeSources,...(row.from_node === null ? {} : {from:Number(row.from_node),to:Number(row.to_node),discriminator:row.discriminator ?? undefined})}];
+      });
     }
-    const selected = new Set([...slots.values()].flatMap(s => s.selected === null ? [] : [s.selected.id]));
-    const bySubject = new Map<number, StoredAssertion[]>();
-    for (const assertion of assertions) {
-      const own = bySubject.get(assertion.subjectId) ?? [];
-      own.push(assertion);
-      bySubject.set(assertion.subjectId, own);
-    }
-    const assertionSubjects = new Map(assertions.map(assertion => [assertion.id, assertion.subjectId]));
-    const subjectSlots = new Map<number, (typeof slots extends Map<string, infer S> ? S : never)[]>();
-    for (const slot of slots.values()) {
-      const subjectId = slot.candidates[0] === undefined ? undefined : assertionSubjects.get(slot.candidates[0].id);
-      if (subjectId === undefined) continue;
-      const own = subjectSlots.get(subjectId) ?? [];
-      own.push(slot);
-      subjectSlots.set(subjectId, own);
-    }
-    return identities.rows.flatMap(row => {
-      const own = bySubject.get(Number(row.id)) ?? [];
-      const ownSlots = subjectSlots.get(Number(row.id)) ?? [];
-      const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));
-      const existence = ownSlots.filter(slot => slot.candidates.some(candidate => candidate.property === '$exists'));
-      const decided = existence.flatMap(slot => slot.candidates.filter(candidate => resolvedIds.has(candidate.id)));
-      const exists = decided.length > 0 ? decided.some(candidate => candidate.value === true) : existence.some(slot => slot.candidates.some(candidate => candidate.value === true));
-      if (!exists) return [];
-      values['$exists'] = true;
-      const activeSources = [...new Set(existence.flatMap(slot => slot.candidates.filter(a => a.value === true).map(a => a.source)))];
-      return [{id:Number(row.id),uid:row.uid,key:row.key,values,assertions:own,selectedAssertions:own.filter(a => selected.has(a.id)),activeSources,...(row.from_node === undefined ? {} : {from:Number(row.from_node),to:Number(row.to_node),discriminator:row.discriminator})}];
-    });
+    return result;
   });
+}
+
+/** Internal numeric joins never become public identities. */
+export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], selector: AssertionRecordSelector & Pick<AssertionRecordRequest, 'subjectUids' | 'subjectIds'> = {}): Promise<AssertionRecord[]> {
+  return await withSpan('graph.records.kind', { 'graph.kind': kind }, async () => (await readKindsAssertions(tx, [{ sort, kind, fields, ...(selector.subjectUids === undefined ? {} : { subjectUids: selector.subjectUids }), ...(selector.subjectIds === undefined ? {} : { subjectIds: selector.subjectIds }) }], selector))[0]!);
 }
 /** Convenience views load their slot list from the installed graph contract. */
 async function declaredRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[]): Promise<AssertionRecord[]> {

@@ -29,8 +29,8 @@ function reader(columns: readonly string[], row: Record<string, unknown>): { rea
     if (sql.includes('AS assertion_uid')) throw new Error('fixture assertions have no evidence');
     if (sql.includes('AS target_kind')) return { rows: [{ id: 3, kind: 'fixture.file-repository', target_uid: row['scope'], target_kind: GIT_KINDS.repository, target_key: { name: 'repo' } }] };
     if (sql.includes('FROM assertion a JOIN node assertion_node')) return { rows: assertionRows(String(values[0]), values[1] as string[]) };
-    if (sql.includes('FROM node n JOIN entity k')) return { rows: [{ id: 1, uid: row['node'], key: { repository: row['repository'], path: row['path'] }, read_at: at }] };
-    if (sql.includes('FROM edge n JOIN entity k')) return { rows: [{ id: 3, uid: '019a0000-0000-7000-8000-000000000003', key: {}, from_node: 1, to_node: 2, discriminator: '', read_at: at }] };
+    if (sql.includes('FROM node n JOIN entity k')) return { rows: [{ request_index: 0, id: 1, uid: row['node'], key: { repository: row['repository'], path: row['path'] }, read_at: at }] };
+    if (sql.includes('FROM edge n JOIN entity k')) return { rows: [{ request_index: 0, id: 3, uid: '019a0000-0000-7000-8000-000000000003', key: {}, from_node: 1, to_node: 2, discriminator: '', read_at: at }] };
     throw new Error(`unexpected fixture query: ${sql}`);
   } } as unknown as OuterTransaction;
   const file: GeneratedKindRead = { kind: GIT_KINDS.file, table: 'ordinary_file', key: ['repository', 'path'], columns, types: {} };
