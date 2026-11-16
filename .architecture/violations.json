@@ -27,11 +27,6 @@
   {
     "rule": "app-graph-reads",
     "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "readFillRuns"
-  },
-  {
-    "rule": "app-graph-reads",
-    "file": "wiki/app/src/components/overview.tsx",
     "symbol": "readProblemsCount"
   },
   {

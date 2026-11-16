@@ -12,7 +12,7 @@ export function ShellFixed(props: HTMLAttributes<HTMLDivElement>) { return <div 
 export function ShellRow(props: HTMLAttributes<HTMLDivElement>) { return <div className="shell-row flex min-h-0 flex-1 overflow-hidden" {...props} />; }
 export const ShellScroll = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ShellScroll(props, ref) { return <div ref={ref} className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" {...props} />; });
 export function ShellDocument(props: HTMLAttributes<HTMLDivElement>) { return <div className="shell-document w-full" {...props} />; }
-export function ShellToolbar(props: HTMLAttributes<HTMLElement>) { return <header className="shell-toolbar flex min-h-[58px] shrink-0 items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]" {...props} />; }
+export function ShellToolbar(props: HTMLAttributes<HTMLElement>) { return <header className="shell-toolbar flex min-h-[58px] shrink-0 items-center justify-between gap-3 border-b border-line bg-page px-4 text-ink wide:px-[35px]" {...props} />; }
 export function ShellActions(props: HTMLAttributes<HTMLSpanElement>) { return <span className="flex shrink-0 items-center gap-1" {...props} />; }
 export function ShellBreadcrumb(props: HTMLAttributes<HTMLSpanElement>) { return <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary" {...props} />; }
 export function ShellBreadcrumbSeparator() { return <span aria-hidden="true" className="px-2 text-muted">/</span>; }

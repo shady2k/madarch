@@ -520,6 +520,10 @@ class Builder {
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
     this.registry.claimField('Query', 'catalogueDependencies', 'the catalogue graph of kinds');
     this.registry.claimField('Query', 'logs', 'one page of every log madarch keeps');
+    this.registry.claimField('Query', 'products', 'the products this server serves, and the one in front');
+    this.registry.claimField('Query', 'fillStatus', 'the product fill state the home and the frame read');
+    this.registry.claimField('Query', 'fillRuns', 'the product fill runs the catalogue and the home read');
+    this.registry.claimField('Query', 'fillPlan', 'the fill plan one selection would run');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
@@ -537,6 +541,13 @@ class Builder {
         { name: 'sources', type: '[String!]' }, { name: 'level', type: 'String' }, { name: 'run', type: 'String' },
         { name: 'q', type: 'String' }, { name: 'from', type: 'Int' }, { name: 'before', type: 'Int' }, { name: 'limit', type: 'Int' },
       ] },
+      // The service's own state read through the one read API (madarch-64o5.136 restore): the products this server
+      // serves, the fill's state and its runs, and the plan one selection would run. The layer that owns the state
+      // answers them; the graph executor answers the rest.
+      { name: 'products', type: 'JSON' },
+      { name: 'fillStatus', type: 'JSON' },
+      { name: 'fillRuns', type: 'JSON', args: [{ name: 'run', type: 'String' }] },
+      { name: 'fillPlan', type: 'JSON', args: [{ name: 'selected', type: '[String!]' }, { name: 'pluginsOnly', type: 'Boolean' }] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },

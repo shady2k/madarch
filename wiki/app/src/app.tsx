@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { EVERY_ROLE, CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation, type PublicationState } from './client.js';
+import { basePathOf, codesOf, fetchProducts, postQuery, readBootstrap, readNavigation, type Navigation, type ProductsAnswer, type PublicationState } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
@@ -69,6 +69,12 @@ function keepRole(value: string): void {
   }
 }
 
+/** The folder this wiki is served under, from a products home's address; a server that serves one product answers none. */
+function servedFolderOf(base: string): string | null {
+  if (!base.startsWith('/products/')) return null;
+  return decodeURIComponent(base.slice('/products/'.length));
+}
+
 /** What one page's answer holds: its composition, the variables it was asked with, the sections' data and its address. */
 interface Loaded {
   readonly composition: PageComposition;
@@ -100,6 +106,8 @@ export function App(): ReactElement {
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
+  // The products this server serves, for the top bar's switcher and the «?» of madarch's own docs.
+  const products = useCommandRead<ProductsAnswer>('products', (signal) => fetchProducts(base, signal));
   // The live fill run: read once, for the top bar's indicator and the sidebar's «still being written» counts.
   const liveRun = useLiveRun(base);
   const pending = useMemo(() => pendingByKind(liveRun.run), [liveRun.run]);
@@ -490,6 +498,8 @@ export function App(): ReactElement {
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
               run={liveRun}
+              products={products.data?.products ?? null}
+              currentProduct={servedFolderOf(base) ?? products.data?.current ?? null}
               onLanguage={(next) => { void setWikiLanguage(next); }}
               onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}

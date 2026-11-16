@@ -4,6 +4,7 @@
  */
 import type { Bootstrap } from '../../../src/page-contract/index.js';
 import { reportOffline, reportOnline } from './connection.js';
+import { CommandError, offlineWords, type FillPlanView, type FillRunDetail, type FillStatusAnswer } from './components/command.js';
 
 /** One kind of the product's navigation: its names in the reader's language, its group and what the graph holds. */
 export interface NavigationKind {
@@ -167,6 +168,49 @@ export async function readBootstrap(base: string, lang: string): Promise<{ boots
   if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; '), codes: codesOf(answer.errors) };
   if (answer.data?.bootstrap === undefined || answer.data.navigation === undefined) return { message: 'the graph answered no bootstrap' };
   return { bootstrap: answer.data.bootstrap, navigation: answer.data.navigation };
+}
+
+/** One product this server serves: its name, the folder its wiki answers under, and madarch's own wiki when it is. */
+export interface ProductChoice {
+  readonly name: string;
+  readonly folder: string;
+  readonly own?: true;
+}
+
+/** The products this server serves, and the one whose wiki is in front. */
+export interface ProductsAnswer {
+  readonly current: string | null;
+  readonly products: readonly ProductChoice[];
+}
+
+/** One field of the one read API that the layer owning the state answers (madarch-64o5.136 restore). */
+async function serviceField<T>(base: string, query: string, variables: Record<string, unknown>, key: string, signal?: AbortSignal): Promise<T> {
+  const answer = await postQuery<Record<string, T | null>>(base, query, variables, signal);
+  if (answer.offline === true) throw new CommandError(offlineWords(), 'offline');
+  if (answer.errors.length > 0) throw new CommandError(answer.errors.map((error) => error.message).join('; '), answer.errors[0]?.extensions?.code ?? 'failed');
+  const held = answer.data?.[key];
+  if (held === null || held === undefined) throw new CommandError(`the graph answered no ${key}`, 'failed');
+  return held;
+}
+
+/** The products the server serves, for the product menu and madarch's own docs. */
+export async function fetchProducts(base: string, signal?: AbortSignal): Promise<ProductsAnswer> {
+  return await serviceField<ProductsAnswer>(base, 'query Products { products }', {}, 'products', signal);
+}
+
+/** The product's fill state, as the home and the missing-manifest page read it. */
+export async function fetchFillStatus(base: string, signal?: AbortSignal): Promise<FillStatusAnswer> {
+  return await serviceField<FillStatusAnswer>(base, 'query FillStatus { fillStatus }', {}, 'fillStatus', signal);
+}
+
+/** The product's fill runs, newest first, or one run by its id. */
+export async function fetchFillRuns(base: string, run?: string, signal?: AbortSignal): Promise<{ readonly runs: readonly FillRunDetail[] }> {
+  return { runs: await serviceField<readonly FillRunDetail[]>(base, 'query FillRuns($run: String) { fillRuns(run: $run) }', { run: run ?? null }, 'fillRuns', signal) };
+}
+
+/** The plan one selection would run: its kinds, their plugins and what the agent takes. */
+export async function fetchFillPlan(base: string, selected: readonly string[], pluginsOnly = false, signal?: AbortSignal): Promise<{ readonly plan: FillPlanView }> {
+  return { plan: await serviceField<FillPlanView>(base, 'query FillPlan($selected: [String!], $pluginsOnly: Boolean) { fillPlan(selected: $selected, pluginsOnly: $pluginsOnly) }', { selected, pluginsOnly }, 'fillPlan', signal) };
 }
 
 /** The navigation alone, for a page that stays open while a fill changes its counts. */

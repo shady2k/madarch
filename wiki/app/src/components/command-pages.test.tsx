@@ -230,6 +230,15 @@ beforeEach(async () => {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
+    // The state the catalogue reads comes through the one read API (madarch-64o5.136 restore).
+    if (url.pathname.endsWith('/graphql')) {
+      const operation = typeof (body as { query?: unknown } | undefined)?.query === 'string' ? (body as { query: string }).query : '';
+      if (operation.includes('fillRuns')) return answer(url.pathname, { data: { fillRuns: [runAnswer] } });
+      if (operation.includes('fillStatus')) return answer(url.pathname, { data: { fillStatus: { fill: { state: 'idle' }, filled: true, incomplete: false, manifest: 'ok' } } });
+      if (operation.includes('fillPlan')) return answer(url.pathname, { data: { fillPlan: planFor([], false) } });
+      if (operation.includes('products')) return answer(url.pathname, { data: { products: { current: 'portal', products: [] } } });
+      return answer(url.pathname, { data: {} });
+    }
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) {
@@ -350,6 +359,22 @@ test('the catalogue states the kinds and records it shows, the share of each are
   }
 });
 
+
+test('a kind the newest fill left failed wears that state, and the others keep the count of the graph', async () => {
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(),
+    groups: [{ kind: 'demo.gamma', group: 'docs', plugin: 'disk', done: 0, total: 2, state: 'failed', phase: 'failed' }],
+    units: [],
+  };
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-state"]')?.getAttribute('data-state')).toBe('failed');
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-state"]')?.textContent).toBe('Ошибка');
+    expect(page.container.querySelector('[data-kind="demo.alpha"] [data-testid="catalogue-state"]')?.getAttribute('data-state')).toBe('filled');
+  } finally {
+    await page.close();
+  }
+});
 
 test('the catalogue carries a contents list that follows its areas and subgroups', async () => {
   const page = await render([section('catalogue', 'catalogue', {})]);

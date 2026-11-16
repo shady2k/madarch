@@ -219,7 +219,7 @@ function fillRefusalCode(message: string): string | undefined {
         ...(held['variables'] === undefined || held['variables'] === null ? {} : { variables: held['variables'] as Readonly<Record<string, unknown>> }),
         ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
         ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
-      });
+      }, { products: () => ({ current: product.folder, products: siblings() }) });
       return { response: json(answer.status, answer.body) };
     }),
     diagram: guarded('render a diagram', async (request) => {
