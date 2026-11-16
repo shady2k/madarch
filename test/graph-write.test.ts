@@ -1,5 +1,6 @@
 /** The one typed assertion writer: decision 0039 items 1, 14–16, 25–28. */
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { assertionValueTableName, generatedTableName, type GraphContract, type VertexDraft } from '../src/graph/contract.js';
 import { ensureVertex, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { loadAssertions, selectAssertionSlots } from '../src/graph/assertion-read.js';
@@ -130,6 +131,73 @@ test('0039.14: evidence names a real vertex and missing evidence rolls back the 
     expect(lineage.rows).toEqual([{ property: '$exists' }, { property: 'definition' }, { property: 'name' }]);
     await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...term('invalid'), evidence: [{ target: {kind:'fixture.snapshot',key:{digest:'missing'}} }] }], removals: [] }); })).rejects.toThrow('MISSING_ENDPOINT');
     expect((await owner.run(tx => tx.query("SELECT * FROM node WHERE key->>'name'='invalid'"))).rows).toEqual([]);
+  });
+});
+
+test('0039.14: evidence locators use their target content amid newer unrelated history', async () => {
+  await fixture(async owner => {
+    const snapshot = (content: string): VertexDraft => ({ kind: 'fixture.snapshot', key: { digest: createHash('sha256').update(content).digest('hex') }, values: { content }, producer: 'fixture', producerVersion: '1' });
+    const target = snapshot('one line');
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [target, snapshot('newer\nunrelated\ncontent')], removals: [] });
+    });
+    await expect(owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [{ ...term('outside-target'), evidence: [{ target, locator: { lineStart: 1, lineEnd: 2 } }] }], removals: [] });
+    })).rejects.toThrow('EVIDENCE_INVALID locator outside immutable content');
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [{ ...term('inside-target'), evidence: [{ target, locator: { lineStart: 1, lineEnd: 1, digest: String(target.key['digest']) } }] }], removals: [] });
+    });
+    const attachments = await owner.run(tx => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.assertion-evidence'"));
+    expect(attachments.rows).toEqual([{ count: '3' }]);
+  });
+});
+
+test('0039.25: existing identity conflicts and immutable key changes still refuse', async () => {
+  await fixture(async owner => {
+    let uid = '';
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [term('original')], removals: [] });
+      const first = await ensureVertex(tx, graph, ref('original'));
+      uid = first.uid;
+      expect((await ensureVertex(tx, graph, { ...ref('original'), uid })).nodeId).toBe(first.nodeId);
+    });
+    await expect(owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await ensureVertex(tx, graph, { ...ref('different'), uid });
+    })).rejects.toThrow('UID_IDENTITY_CONFLICT');
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      const subject = await ensureVertex(tx, graph, ref('original'));
+      await expect(writeAssertion(tx, graph, { sort: 'vertex', kind: 'fixture.term', subjectId: subject.nodeId, property: 'name', operation: 'assert', value: 'different' })).rejects.toThrow('IMMUTABLE_KEY');
+    });
+    const names = await owner.run(tx => tx.query<{ name: string }>("SELECT n.key->>'name' AS name FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture.term'"));
+    expect(names.rows).toEqual([{ name: 'original' }]);
+  });
+});
+
+test('0039.25: an existing UID with a conflicting stored key is refused before finalization', async () => {
+  await fixture(async owner => {
+    const rollback = new Error('roll back conflicting fixture identity');
+    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); });
+    let uid = '';
+    await expect(owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      uid = (await ensureVertex(tx, graph, ref('original'))).uid;
+      throw rollback;
+    })).rejects.toBe(rollback);
+    await expect(owner.transaction('write', async tx => {
+      const binding = await bindTestWriteCapability(tx, graph);
+      // Model a persisted UID conflict; the malformed fixture is always rolled back.
+      await tx.query(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+        SELECT id,$1::uuid,$2::jsonb,$3::uuid,1 FROM entity WHERE name='fixture.term'`,
+        [uid, JSON.stringify({ name: 'different' }), binding.productUid]);
+      await expect(ensureVertex(tx, graph, ref('original'))).rejects.toThrow('UID_IDENTITY_CONFLICT');
+      throw rollback;
+    })).rejects.toBe(rollback);
   });
 });
 

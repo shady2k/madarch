@@ -64,8 +64,9 @@ async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Pro
 }
 async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  const kindId=await entityId(executor,kind,'node');
- const made=await executor.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[kindId,uid,JSON.stringify(key),scope,context]);
- const row=(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ const made=await executor.query<{id:string;key:unknown;scope:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id,key,identity_scope::text AS scope`,[kindId,uid,JSON.stringify(key),scope,context]);
+ const inserted=made.rows[0];
+ const row=inserted===undefined?(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0]:{...inserted,kind};
  if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
  publicationIdentities.get(executor)?.nodes.set(row.id,uid);publicationIdentities.get(executor)?.uids.set(uid,row.id);
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
@@ -187,14 +188,13 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  return await withSpan('graph.assertion.write',{'graph.kind':input.kind,'graph.property':input.property},async()=>{
  const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);permitted(binding,input.kind,input.property,input.operation==='retract');
  const kind=contract[input.sort].find(k=>k.name===input.kind);if(!kind)throw new Error(`${WHERE}:114: UNKNOWN_KIND ${input.kind}`);
- const subject=(await executor.query<{kind:string}>(`SELECT k.name AS kind FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
+ const subject=(await executor.query<{kind:string;key?:Record<string,unknown>}>(`SELECT k.name AS kind${input.sort==='vertex'?',s.key':''} FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
  await requireAssertionScope(executor,contract,binding,{sort:input.sort,subjectId:input.subjectId},context);
  const field:FieldContract|undefined=input.property==='$exists'?{name:'$exists',type:'boolean' as const}:kind.fields.find(f=>f.name===input.property);
  if(!field)throw new Error(`${WHERE}:116: UNKNOWN_PROPERTY ${input.kind}.${input.property}`);
  if(input.sort==='vertex'&&'key' in kind&&kind.key.includes(input.property)){
-  const held=(await executor.query<{key:Record<string,unknown>}>(`SELECT key FROM node WHERE id=$1::bigint`,[input.subjectId])).rows[0]!;
-  if(input.operation!=='assert'||input.language!=null||!sameValue(held.key[input.property],input.value))throw new Error(`${WHERE}:165: IMMUTABLE_KEY ${input.kind}.${input.property}: identity changes require a new UID`);
+  if(input.operation!=='assert'||input.language!=null||!sameValue(subject.key![input.property],input.value))throw new Error(`${WHERE}:165: IMMUTABLE_KEY ${input.kind}.${input.property}: identity changes require a new UID`);
  }
  if(input.operation==='assert'){validate(field,input.value);validateFieldValue(contract,field,input.value);}else if(input.value!==undefined)throw new Error(`${WHERE}:117: RETRACTION_VALUE`);
  if(input.sort==='vertex'&&'evidence' in kind&&kind.evidence?.immutable){
@@ -242,7 +242,7 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
    const locator=evidence.locator??{};
    validateEvidenceLocator(locator);
    const attach=async()=>{const evidenceKind=contract.vertex.find(vertex=>vertex.name===evidence.target.kind);if(!evidenceKind?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);const endpointNode=await endpoint(executor,contract,evidence.target as EntityRefDraft,context);
-    if(evidenceKind.evidence.contentField){const row=(await executor.query<{value:string}>(`SELECT v.value FROM "${assertionValueTableName(evidenceKind.name,'vertex',evidenceKind.evidence.contentField)}" v JOIN assertion a ON a.assertion_id=v.assertion_id JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id WHERE attachment.to_node=$1::bigint ORDER BY a.recorded_sequence DESC LIMIT 1`,[endpointNode.id])).rows[0];
+    if(evidenceKind.evidence.contentField){const row=(await executor.query<{value:string}>(`WITH target_assertions AS MATERIALIZED (SELECT subject.assertion_id FROM edge attachment JOIN assertion_vertex_subject subject ON subject.subject_edge_id=attachment.id WHERE attachment.to_node=$1::bigint) SELECT v.value FROM target_assertions subject JOIN assertion a ON a.assertion_id=subject.assertion_id JOIN "${assertionValueTableName(evidenceKind.name,'vertex',evidenceKind.evidence.contentField)}" v ON v.assertion_id=a.assertion_id ORDER BY a.recorded_sequence DESC LIMIT 1`,[endpointNode.id])).rows[0];
      if(row&&row.value!==null){const points=[...row.value];const lines=row.value.split('\n');if((typeof locator.end==='number'&&locator.end>points.length)||(typeof locator.lineEnd==='number'&&locator.lineEnd>lines.length))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content`);if(typeof locator.digest==='string'&&createHash('sha256').update(row.value,'utf8').digest('hex')!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);}
     }
     await putEdge(executor,'system.assertion-evidence',made.nodeId,endpointNode.id,canonicalJson({index,relation:evidence.relation??'supports',locator}),context);};
