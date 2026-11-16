@@ -1,4 +1,5 @@
 /** Store and fill services held by the products-home daemon. */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
@@ -10,6 +11,7 @@ import type { RunStatus } from '../fill/orchestrator.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
+import { fillIsolation } from '../plugin/sandbox-probe.js';
 
 export interface DaemonFills {
   /** Publishes validated metadata without starting a fill. */
@@ -46,7 +48,7 @@ interface HeldStore {
  * before a run is asked for or a run record is read, so a server that serves wikis pays nothing
  * for a fill nobody started.
  */
-export function daemonFills(home: string, options: { readonly log?: (line: string) => void } = {}): DaemonFills {
+export function daemonFills(home: string, options: { readonly log?: (line: string) => void; readonly unconfined?: boolean } = {}): DaemonFills {
   const knowledgeRoot = knowledgeRootOf(home);
   const stores = new Map<string, HeldStore>();
   /**
@@ -65,7 +67,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const pending = opening.get(storeFolder);
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
-      mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
+      withSpanSync('fs.mkdir', { 'file.path': dirname(storeDatabasePath(storeFolder)) }, () => mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true }));
       const contract = await readPinnedGraphContract(productFolder);
       await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(productFolder));
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
@@ -99,7 +101,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     return await work(held.service);
   };
   /** One run of one held store: the previous run's service stops, the fill runs, and a success finishes the store. */
-  const runInStore = async (held: HeldStore, request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> => {
+  const runInStore = async (held: HeldStore, request: FillRunRequest, unconfined: boolean): Promise<FillRunResult | RefusedFillRun> => {
     // The next run of this store replaces the service the last one left: one service over the store's one owner.
     if (held.service !== undefined) {
       const previous = held.service;
@@ -118,6 +120,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       home: held.storeFolder,
       store: held.storeFolder,
       keepService: true,
+      ...(unconfined ? { unconfined: true } : {}),
       ...(request.workers === undefined ? {} : { workers: request.workers }),
       ...(request.maxPasses === undefined ? {} : { maxPasses: request.maxPasses }),
       ...(options.log === undefined ? {} : { log: options.log }),
@@ -130,7 +133,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       // written beside the answer, never inside it, so the update's answer is not held behind an analyze.
       const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
       await finishKnowledgeStore(held.owner, undefined, false);
-      void held.owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
+      void held.owner.run(async (tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ANALYZE') }, async () => await tx.query('ANALYZE'))).catch(() => undefined);
     }
     return result;
   };
@@ -160,9 +163,12 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       if (held.running === true) {
         return { ok: false, code: 'fill-orchestrator/chain-active', reason: `fill-orchestrator: the store ${held.storeFolder} is filling, and the run ${JSON.stringify(request.runId)} waits for that fill to end` };
       }
+      let isolation: { readonly unconfined: boolean };
+      try { isolation = options.unconfined === undefined ? await fillIsolation(process.env) : { unconfined: options.unconfined }; }
+      catch (error) { return { ok: false, code: 'fill-orchestrator/sandbox', reason: (error as Error).message }; }
       held.running = true;
       try {
-        return await runInStore(held, request);
+        return await runInStore(held, request, isolation.unconfined);
       } finally {
         held.running = false;
       }

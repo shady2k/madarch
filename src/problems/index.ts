@@ -4,7 +4,7 @@
  * sections judge facts already in the graph and in the loop's own files; the
  * page shows one shape for all of them, and each problem says the rule that
  * found it, its Sonar kind and severity, the place and the entity it is
- * about, one plain reason, the evidence path, and what a person can do.
+ * about, one sentence in the reader's language, the evidence path, and what a person can do.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphReader } from '../knowledge/graph-read.js';
@@ -44,9 +44,9 @@ function problemOf(draft: ProblemDraft): Problem {
   return {
     id: problemId(draft.rule, draft.identity), identity: draft.identity,
     section: draft.section, rule: draft.rule, kind: draft.kind, sonar: draft.sonar, severity: draft.severity,
-    fixer: draft.fixer, closed: draft.closed,
+    closed: draft.closed,
     page: draft.page, pageTitle: draft.pageTitle, statement: draft.statement, sentence: draft.sentence,
-    target: draft.target, reason: draft.reason, file: draft.file, line: draft.line,
+    target: draft.target, text: draft.text, file: draft.file, line: draft.line,
     ...(draft.source === undefined ? {} : { source: draft.source }),
     place: draft.place, entity: draft.entity, evidence: draft.evidence,
     by: draft.by, at: draft.at,
@@ -65,7 +65,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     drafts.push(...judged.problems);
     notes.push(...judged.notes);
   } catch (error) {
-    notes.push({ message: `the code section could not be judged: ${(error as Error).message}` });
+    notes.push({ message: `the code section could not be judged: ${(error as Error).message}`, textKey: 'codeUnjudged', textArgs: { error: (error as Error).message } });
   }
   // Document predicates still have a fixture evaluator, but production must not read retired Markdown entities.
   notes.push({ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates', textKey: 'documentsRetired' });
@@ -81,17 +81,17 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
         drafts.push({
           section: 'code', rule, kind: 'bug', sonar: 'bug',
           severity: entity.properties['severity'] === 'blocker' || entity.properties['severity'] === 'critical' || entity.properties['severity'] === 'major' || entity.properties['severity'] === 'minor' || entity.properties['severity'] === 'info' ? entity.properties['severity'] : 'major',
-          fixer: 'person', closed: false, reason: cause, file: '', line: null, page: null, pageTitle: null,
+          closed: false, text: { code: 'consistencyFinding', args: { cause } }, file: '', line: null, page: null, pageTitle: null,
           statement: null, sentence: null, target: subject === '' ? null : subject,
           place: { label: kind, href: null, key: entity.key },
           entity: subject === '' ? null : { label: subject, href: entityAddress(subject), key: subject },
           evidence: [], by: null, at: null, identity: entity.key,
         });
       }
-      if (found.total > found.rows.length) notes.push({ message: `the consistency section reads the first ${String(found.rows.length)} of ${String(found.total)} findings: the rest are not shown` });
+      if (found.total > found.rows.length) notes.push({ message: `the consistency section reads the first ${String(found.rows.length)} of ${String(found.total)} findings: the rest are not shown`, textKey: 'consistencyTruncated', textArgs: { shown: found.rows.length, total: found.total } });
     }
   } catch (error) {
-    notes.push({ message: `the consistency section could not be read: ${(error as Error).message}` });
+    notes.push({ message: `the consistency section could not be read: ${(error as Error).message}`, textKey: 'consistencyUnread', textArgs: { error: (error as Error).message } });
   }
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));

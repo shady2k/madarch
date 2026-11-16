@@ -95,6 +95,7 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
   const texts = new Map<string, Map<string, string>>();
   const blobs = new Map<string, Map<string, string>>();
   const missing = new Set<string>();
+  const readFailures = new Map<string, string>();
   let next = 0;
   context.progress(0, files.length, 'reading the graph files');
   await Promise.all(Array.from({ length: Math.min(READ_CONCURRENCY, files.length) }, async () => {
@@ -102,19 +103,26 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
       const index = next;
       next += 1;
       const file = files[index]!;
-      const text = await context.graph.value<string | null>(file.kind, file.key, 'content', file.keyEdges);
-      if (typeof text !== 'string') {
+      // The file's text is the blob the graph names, read through the host (decision 0037): the plugin holds no
+      // environment, and the host routes the read to the core plugin that owns git's store (decision 0038).
+      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
+      let read: { readonly text: string; readonly binary: boolean } | undefined;
+      try {
+        read = typeof blob === 'string' && blob !== '' ? await context.read({ repository: file.repository, blob }) : undefined;
+      } catch (error) {
+        // A read the host cannot answer is this file's problem, with its place and its cause: the rest of the unit stands.
+        read = undefined;
+        readFailures.set(`${file.repository}\u0000${file.path}`, error instanceof Error ? error.message : String(error));
+      }
+      if (read === undefined || read.binary) {
         missing.add(`${file.repository}\u0000${file.path}`);
       } else {
         const held = texts.get(file.repository) ?? new Map<string, string>();
-        held.set(file.path, text);
+        held.set(file.path, read.text);
         texts.set(file.repository, held);
-      }
-      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
-      if (typeof blob === 'string') {
-        const held = blobs.get(file.repository) ?? new Map<string, string>();
-        held.set(file.path, blob);
-        blobs.set(file.repository, held);
+        const known = blobs.get(file.repository) ?? new Map<string, string>();
+        known.set(file.path, blob as string);
+        blobs.set(file.repository, known);
       }
       context.progress(index + 1, files.length, 'reading the graph files');
     }
@@ -126,7 +134,7 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
     // the texts so the reader reports it rather than passing an empty file off as a file with no imports.
     const read = await readRepository({ repository, files: known, texts: texts.get(repository) ?? new Map(), blobs: blobs.get(repository) ?? new Map() });
     const unread = [...missing].filter((one) => one.startsWith(`${repository}\u0000`)).map((one) => one.slice(repository.length + 1));
-    const problems = [...read.problems, ...unread.map((path): ImportProblem => ({ repository, path, line: 1, column: 1, lineEnd: 1, specifier: '', form: 'static', message: 'the file content is not in the graph' }))];
+    const problems = [...read.problems, ...unread.map((path): ImportProblem => ({ repository, path, line: 1, column: 1, lineEnd: 1, specifier: '', form: 'static', message: `the file holds no blob the graph names, or the host could not read its text: ${readFailures.get(`${repository}\u0000${path}`) ?? 'the graph states no blob'}` }))];
     answers.push({ repository, records: read.records.map((record) => ({ ...record, repository })), packages: read.packages, problems });
   }
 

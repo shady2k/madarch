@@ -9,6 +9,7 @@ import { daemonFills } from '../src/product/daemon-fills.js';
 import { daemonUpdateWatch } from '../src/product/daemon.js';
 import { readSeenHeads, seenKey } from '../src/product/fill-updates.js';
 import { validateProductManifests } from '../src/graph/manifest-publication.js';
+import { cataloguePageTemplate } from '../src/knowledge/page-template-kind.js';
 import { startServer } from '../src/server/http.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
@@ -65,8 +66,9 @@ test('repo add with the server running advances only the baseline before the fir
     try {
       const rows = await owner.run((tx) => tx.query<{ name: string }>("SELECT DISTINCT k.name FROM node n JOIN entity k ON k.id = n.entity_id ORDER BY k.name"));
       expect(rows.rows.length).toBeGreaterThan(0);
-      // Startup publishes declarations, role-mapped starter values and the product home, not repository facts.
-      expect(rows.rows.every((row) => row.name.startsWith('manifest.') || row.name === 'product' || row.name === 'value-set' || row.name === 'value-set-entry')).toBe(true);
+      // Startup publishes declarations, role-mapped starter values, the product home and its page templates (2026-11-15),
+      // not repository facts.
+      expect(rows.rows.every((row) => row.name.startsWith('manifest.') || row.name === 'product' || row.name === 'value-set' || row.name === 'value-set-entry' || row.name === cataloguePageTemplate().name)).toBe(true);
     } finally { await owner.close(); }
     watch.stop();
     watch = daemonUpdateWatch(home, fills, { debounceMs: 0, intervalMs: 0, enabled: () => true, log: () => undefined });

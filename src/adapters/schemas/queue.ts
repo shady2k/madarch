@@ -1,3 +1,4 @@
+import { withSpan } from '../../obs/trace.js';
 /** Queue installation. Only central store preparation calls prepareQueueSchema. */
 import { PgBoss } from 'pg-boss';
 import type { DatabaseOwner } from '../database-owner.js';
@@ -44,7 +45,7 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
   let release!: (prepared: boolean) => void;
   const finished = new Promise<boolean>((resolve) => { release = resolve; });
   const holding = owner.transaction('write', async (transaction) => {
-    await transaction.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+    await withSpan('db.queue.prepareQueueSchema', { 'db.system': 'postgres' }, async () => await transaction.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]));
     acquired();
     if (await finished) {
       await createSchemaOnce({ transaction: async (_kind, work) => await work(transaction) }, {

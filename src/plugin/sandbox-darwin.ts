@@ -9,6 +9,7 @@
  * bounds. That is a known limit of this platform, stated in the operations
  * page (docs/system/plugin-sandbox.md), not hidden here.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -78,19 +79,19 @@ export function darwinWrapper(spec: DarwinSandboxSpec, profileFile: string): str
  * can answer — none of the cgroup's, so they stay zero.
  */
 export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<SandboxProcess> {
-  mkdirSync(spec.workFolder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': spec.workFolder }, () => mkdirSync(spec.workFolder, { recursive: true }));
   log.info('the macOS sandbox bounds the tree by rlimits and its process group', { limit: DARWIN_SETSID_LIMIT });
   const profileFile = join(spec.workFolder, 'policy.sb');
-  writeFileSync(profileFile, darwinProfile(spec));
+  withSpanSync('fs.write', { 'file.path': profileFile, 'file.bytes': Buffer.byteLength(darwinProfile(spec)) }, () => writeFileSync(profileFile, darwinProfile(spec)));
   const wrapperFile = join(spec.workFolder, 'run.sh');
   const stderrFile = join(spec.workFolder, 'stderr.log');
-  writeFileSync(wrapperFile, darwinWrapper(spec, profileFile), { mode: 0o755 });
+  withSpanSync('fs.write', { 'file.path': wrapperFile, 'file.bytes': Buffer.byteLength(darwinWrapper(spec, profileFile)) }, () => writeFileSync(wrapperFile, darwinWrapper(spec, profileFile), { mode: 0o755 }));
   const stderr = { bytes: 0, kept: Buffer.alloc(0), truncated: false };
   const env: Record<string, string> = { HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', ...spec.environment };
   for (const tool of spec.tools ?? []) env[`MADARCH_TOOL_${tool.name.replaceAll('-', '_').toUpperCase()}`] = tool.executable;
   let child: ChildProcess;
   try {
-    child = spawn('/bin/sh', [wrapperFile], { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder });
+    child = withSpanSync('process.run', { 'process.command': '/bin/sh', 'process.args': [wrapperFile] }, () => spawn('/bin/sh', [wrapperFile], { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder }));
   } catch (error) {
     throw new Error(`${WHERE}:1: sandbox-exec could not be started for ${spec.closureFolder}: ${(error as Error).message}`);
   }
@@ -128,7 +129,7 @@ export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<Sandb
     kill: () => signalGroup('SIGKILL'),
     counters: (): CgroupCounters => ({ memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 }),
     stderr: (): StderrLog => {
-      writeFileSync(stderrFile, stderr.kept);
+      withSpanSync('fs.write', { 'file.path': stderrFile, 'file.bytes': Buffer.byteLength(stderr.kept) }, () => writeFileSync(stderrFile, stderr.kept));
       return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
     },
     exited,

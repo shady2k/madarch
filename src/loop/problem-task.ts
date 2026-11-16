@@ -9,11 +9,13 @@
  */
 import { canonicalJsonDigest } from '../model/canonical.js';
 import type { Problem } from './views.js';
-import { contentLanguage } from '../knowledge/plural.js';
+import { contentLanguage, pluralForm } from '../knowledge/plural.js';
+import en from '../../wiki/app/src/locales/en.json';
+import ru from '../../wiki/app/src/locales/ru.json';
 
 /** The kind a problem's task is an entity of: the product's own task kind, which the starter catalogue declares. */
 
-export const problemFingerprint = (problem: Pick<Problem, 'rule' | 'reason' | 'file' | 'line'>, aboutUid: string | null): string => canonicalJsonDigest({ rule: problem.rule, reason: problem.reason, file: problem.file, line: problem.line, aboutUid });
+export const problemFingerprint = (problem: Pick<Problem, 'rule' | 'text' | 'file' | 'line'>, aboutUid: string | null): string => canonicalJsonDigest({ rule: problem.rule, text: problem.text, file: problem.file, line: problem.line, aboutUid });
 
 /** The language a task's words are written in: the product's, Russian only when it is asked for by name. */
 export const problemTaskLanguage = (language: string | undefined): 'en' | 'ru' => contentLanguage(language);
@@ -74,11 +76,33 @@ function placeOf(problem: Problem): string {
   return problem.line === null ? problem.file : `${problem.file}:${problem.line}`;
 }
 
-/** The finding in the reader's words: the rule's own sentence, or the finding's own words when the rule states none. */
+/** A task uses the same localized sentence as the page, from the same locale data. */
 function statementOf(problem: Problem, language: 'en' | 'ru'): string {
-  const words = problem.words?.[language];
-  if (words !== undefined && words !== '') return words;
-  return problem.sentence ?? problem.statement ?? problem.reason;
+  const words = (language === 'ru' ? ru : en).loop.problemText;
+  const code = problem.text.code;
+  let template: string;
+  if (code === 'largeFile') {
+    const count = problem.text.args?.['count'];
+    if (typeof count !== 'number' || !Number.isFinite(count)) throw new Error('src/loop/problem-task.ts:86: largeFile requires a finite numeric count');
+    template = words[`largeFile_${pluralForm(language, count)}`];
+  } else {
+    template = words[code];
+  }
+  let statement = '';
+  let offset = 0;
+  while (offset < template.length) {
+    const start = template.indexOf('{{', offset);
+    if (start === -1) return statement + template.slice(offset);
+    statement += template.slice(offset, start);
+    const end = template.indexOf('}}', start + 2);
+    if (end === -1) throw new Error(`src/loop/problem-task.ts:89: invalid locale template for ${problem.text.code}`);
+    const name = template.slice(start + 2, end);
+    const value = problem.text.args?.[name];
+    if (value === undefined) throw new Error(`src/loop/problem-task.ts:92: missing locale argument ${name} for ${problem.text.code}`);
+    statement += String(value);
+    offset = end + 2;
+  }
+  return statement;
 }
 
 /**
@@ -92,9 +116,11 @@ export function problemTaskRecord(problem: Problem, options: { readonly language
   const place = placeOf(problem);
   const statement = statementOf(problem, language);
   const title = language === 'ru' ? `Исправить: ${name} — ${place}` : `Fix: ${name} — ${place}`;
-  const body = language === 'ru'
-    ? [`Правило: ${name}`, `Место: ${place}`, `Что не так: ${statement}`].join('\n')
-    : [`Rule: ${name}`, `Place: ${place}`, `What is wrong: ${statement}`].join('\n');
+  const lines = language === 'ru'
+    ? [`Правило: ${name}`, `Место: ${place}`]
+    : [`Rule: ${name}`, `Place: ${place}`];
+  if (statement !== '') lines.push(language === 'ru' ? `Что не так: ${statement}` : `What is wrong: ${statement}`);
+  const body = lines.join('\n');
   return {
     title, body, statement,
     // The problem's stable id, as its rule and identity rather than as one string, and the identity as its parts: a

@@ -4,10 +4,11 @@ import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
+import { readRunAgentExchanges } from '../src/fill/agent-exchange.js';
 import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -52,8 +53,10 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const b = await ask('fs/read_text_file', { sessionId, path: '/repo/docs/b.md' });
     const outside = await ask('fs/read_text_file', { sessionId, path: '/repo/private.md' });
     const write = await ask('fs/write_text_file', { sessionId, path: '/repo/docs/a.md', content: 'changed' });
-    const ok = a.result?.content === 'Alpha\\n' && b.result?.content === 'Beta\\n' && outside.error && write.error;
-    const result = ok ? ${JSON.stringify(answer)} : { vertices: [{ kind: 'fixture-read-refusal', key: {}, values: { detail: JSON.stringify({ a, b, outside, write }) } }], end: { state: 'complete' } };
+    // No shell: the agent asks for a terminal, and the client offers none (owner's decision, 2026-11-15; decision 0038).
+    const shell = await ask('terminal/create', { sessionId, command: 'cat /etc/hostname', args: [] });
+    const ok = a.result?.content === 'Alpha\\n' && b.result?.content === 'Beta\\n' && outside.error && write.error && shell.error;
+    const result = ok ? ${JSON.stringify(answer)} : { vertices: [{ kind: 'fixture-read-refusal', key: {}, values: { detail: JSON.stringify({ a, b, outside, write, shell }) } }], end: { state: 'complete' } };
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'usage_update', used: 31, size: 1000 } } });
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } } });
     send({ id: m.id, result: { stopReason: 'end_turn' } });
@@ -78,7 +81,7 @@ function fixture(agent: boolean) {
   const product = makeProduct(home, 'agent-fixture', repo, 'repo');
   const folder = join(product, 'plugins/probe-summary');
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.summary', fields: '*', reads: ['code.file'] }], ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
+  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', tier: 'ordinary', capabilities: ['agents'], entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.summary', fields: '*', reads: ['code.file'] }], ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
@@ -184,7 +187,25 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(prompt).toContain('Read both allowed documents and state one evidenced summary.');
       expect(prompt).toContain('A summary of the fixture documents.');
       expect(prompt).not.toMatch(/[\u0400-\u04FF]/u);
+      // The unit's whole exchange is madarch's own record (madarch-64o5.88): what it was given, the files it opened,
+      // what it returned and the context it reported — not only what the agent chose to keep in its own transcript.
+      const exchanges = readRunAgentExchanges(join(f.home, 'traces'), run.runId);
+      expect(exchanges.problems).toEqual([]);
+      const unit = exchanges.units.find((one) => one.unit === 'probe-summary:probe.summary');
+      expect(unit).toBeDefined();
+      expect(unit?.state).toBe('turned');
+      expect(unit?.given.prompt).toContain('Read both allowed documents and state one evidenced summary.');
+      expect(unit?.given.prompt).toContain('Task:');
+      expect(unit?.given.files).toEqual(['repo/docs/a.md', 'repo/docs/b.md']);
+      expect(unit?.opened.map((open) => open.path)).toEqual(['docs/a.md', 'docs/b.md']);
+      expect(unit?.returned?.text).toBe(JSON.stringify(answer));
+      expect(unit?.usage?.context).toEqual({ used: 31, size: 1000 });
+      // Each plugin run's standard error is kept with the run too (madarch-64o5.88): the unit's scratch folder is
+      // temporary, and the logs page reads the record after it is gone.
+      const pluginLogs = readdirSync(join(f.home, 'traces', `${run.runId}.plugins`));
+      expect(pluginLogs.length).toBeGreaterThanOrEqual(1);
     } finally { delete process.env['PROMPT_FILE']; await owner.close(); }
+
   }, 120_000);
 
   test('the bundled general agent refines a declared kind already filled by another plugin', async () => {

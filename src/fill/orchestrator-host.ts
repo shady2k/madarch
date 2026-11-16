@@ -28,6 +28,8 @@ import {
   createOrchestrator,
   driveRun,
   stopHeartbeat,
+  beginRunHeartbeat,
+  type RunClaim,
   pauseRun,
   planRun,
   resumeRun,
@@ -77,6 +79,7 @@ interface ProductFill {
 }
 
 export interface FillRunRequest {
+  readonly claim?: RunClaim;
   readonly product: FillProduct;
   readonly runId: string;
   readonly resume?: boolean;
@@ -152,6 +155,10 @@ export interface FillOrchestratorServiceOptions {
 /** The units' queue's name in the process's database. */
 const DEFAULT_FILL_QUEUE = 'fill-units';
 
+/** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
+export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
+export const RUN_JOB_HEARTBEAT_SECONDS = 30;
+
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
 
@@ -212,7 +219,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const lent = options.owner;
       if (lent === undefined) {
         if (databasePath === undefined) throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
-        await mkdir(dirname(databasePath), { recursive: true });
+        await withSpan('fs.mkdir', { 'file.path': dirname(databasePath) }, async () => await mkdir(dirname(databasePath), { recursive: true }));
       }
       const database = lent ?? await createDatabaseOwner({ store: databasePath!, connectOnly: true });
 
@@ -313,8 +320,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;
+      beginRunHeartbeat(orchestrator, request.runId, request.claim);
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId }));
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId, ...(request.claim === undefined ? {} : { claim: request.claim }) }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
         const held = await planRun(orchestrator, { runId: request.runId });

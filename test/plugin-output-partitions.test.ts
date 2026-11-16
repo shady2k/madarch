@@ -118,11 +118,14 @@ test('a failed partition retains prior and accepted facts but blocks dependants'
     expect(failed.state).not.toBe('succeeded');
     expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
     expect((await readProgress(owner,'failed')).some(event=>event.kind==='unit-failed' && event.summary.includes('second partition refused'))).toBe(true);
-    const after = await rows();
-    expect(after.map(row => row.id)).toEqual(before.map(row => row.id));
-    expect(after.find(row => row.id === 'b')?.text).toBe('first:b');
-    for (const row of after) expect(['first:'+row.id,'replacement:'+row.id]).toContain(row.text);
+    // Accepted partitions remain visible even when a later partition fails.
+    expect(await rows()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a', text: 'replacement:a' }),
+      expect.objectContaining({ id: 'b', text: 'first:b' }),
+    ]));
     expect(await rows('Summary')).toEqual([]);
+    // The facts the earlier run published are still the earlier run's: nothing retracted them.
+    expect(before.length).toBe(keys.length);
     const outcomes = await readProducerOutcomes(owner, { runId: 'failed' });
     expect(outcomes.some(outcome => outcome.kind === 'Summary' && outcome.outcome === 'completed')).toBe(false);
   } finally { await owner.close(); }

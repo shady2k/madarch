@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../obs/log.js';
+import { withSpanSync } from '../obs/trace.js';
 
 /** The cgroup filesystem madarch reads and writes. */
 const CGROUP_ROOT = '/sys/fs/cgroup';
@@ -51,11 +52,24 @@ export interface CgroupCounters {
 export interface SetupProblem {
   readonly code: 'cgroup-delegation' | 'user-namespaces' | 'sandbox-platform';
   readonly message: string;
+  /**
+   * For a cgroup delegation problem, which of the cgroup's own fields is short and which controllers it lacks: the
+   * files that were read, never the message's words, so a reader can say what the machine lacks without reading prose.
+   */
+  readonly delegation?: {
+    readonly kind: 'not-cgroup' | 'not-offered' | 'not-handed';
+    readonly missing: readonly string[];
+  };
 }
 
 /** The cgroup folder this process runs in, as `/proc/self/cgroup` names it. */
 export function ownCgroupFolder(): string {
-  const line = readFileSync('/proc/self/cgroup', 'utf8').split('\n').find((entry) => entry.startsWith('0::'));
+  const held = withSpanSync('fs.read', { 'file.path': '/proc/self/cgroup' }, (span) => {
+    const text = readFileSync('/proc/self/cgroup', 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(text));
+    return text;
+  });
+  const line = held.split('\n').find((entry) => entry.startsWith('0::'));
   const path = line === undefined ? '/' : line.slice('0::'.length);
   return join(CGROUP_ROOT, path);
 }
@@ -73,8 +87,13 @@ export function cgroupParent(env: Readonly<Record<string, string | undefined>> =
 
 /** The controllers a cgroup offers its children, as `cgroup.controllers` lists them. */
 export function availableControllers(parent: string): string[] {
+  const file = join(parent, 'cgroup.controllers');
   try {
-    return readFileSync(join(parent, 'cgroup.controllers'), 'utf8').trim().split(/\s+/u).filter((name) => name !== '').sort();
+    return withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held.trim().split(/\s+/u).filter((name) => name !== '').sort();
+    });
   } catch {
     return [];
   }
@@ -82,8 +101,13 @@ export function availableControllers(parent: string): string[] {
 
 /** The controllers a cgroup hands its children, as `cgroup.subtree_control` lists them. */
 function delegatedControllers(parent: string): string[] {
+  const file = join(parent, 'cgroup.subtree_control');
   try {
-    return readFileSync(join(parent, 'cgroup.subtree_control'), 'utf8').trim().split(/\s+/u).filter((name) => name !== '');
+    return withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held.trim().split(/\s+/u).filter((name) => name !== '');
+    });
   } catch {
     return [];
   }
@@ -99,6 +123,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
   if (!existsSync(join(parent, 'cgroup.controllers'))) {
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-cgroup', missing: [...REQUIRED_CONTROLLERS] },
       message: `${WHERE}:1: ${parent} is not a cgroup v2 folder: the sandbox puts every plugin in a cgroup of its own for its memory, cpu and pids bounds. Mount cgroup v2 at ${CGROUP_ROOT} and delegate a folder to madarch (docs/system/plugin-sandbox.md), then name it in MADARCH_PLUGIN_CGROUP`,
     };
   }
@@ -107,6 +132,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
   if (missing.length > 0) {
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-offered', missing },
       message: `${WHERE}:1: ${parent} does not offer the ${missing.join(', ')} controller${missing.length === 1 ? '' : 's'}: the sandbox bounds a plugin's memory, cpu and processes. Enable ${missing.join(', ')} on the cgroup that holds madarch (systemd: start its unit with Delegate=yes and list the controllers in its unit file; docs/system/plugin-sandbox.md), then run again`,
     };
   }
@@ -117,6 +143,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
     // which is the case the operations page names as the one to fix with a slice of its own.
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-handed', missing: unhanded },
       message: `${WHERE}:1: ${parent} does not hand the ${unhanded.join(', ')} controller${unhanded.length === 1 ? '' : 's'} to its children (cgroup.subtree_control holds ${handed.length === 0 ? 'nothing' : handed.join(' ')}): madarch is not delegated a cgroup it may bound plugins in. Give madarch a cgroup of its own with the controllers enabled — systemd: a slice with Delegate=yes, for example systemd-run --slice=madarch.slice --scope true and MADARCH_PLUGIN_CGROUP=/sys/fs/cgroup/madarch.slice — and run again; docs/system/plugin-sandbox.md holds the whole setup`,
     };
   }
@@ -129,7 +156,11 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
  * AppArmor profile) that refuses them runs no confined plugin at all.
  */
 export function checkUserNamespaces(files: { read?: (path: string) => string; uid?: number | undefined } = {}): SetupProblem | undefined {
-  const read = files.read ?? ((path: string) => readFileSync(path, 'utf8'));
+  const read = files.read ?? ((path: string) => withSpanSync('fs.read', { 'file.path': path }, (span) => {
+    const held = readFileSync(path, 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  }));
   const uid = files.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined);
   const readNumber = (path: string): number | undefined => {
     try {
@@ -181,7 +212,7 @@ export class PluginCgroup {
    */
   static create(parent: string, name: string, limits: CgroupLimits): PluginCgroup {
     const folder = join(parent, name);
-    mkdirSync(folder);
+    withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder));
     const cgroup = new PluginCgroup(folder, limits);
     cgroup.write('memory.max', String(limits.memoryBytes));
     cgroup.write('memory.swap.max', '0');
@@ -191,11 +222,17 @@ export class PluginCgroup {
   }
 
   private write(file: string, value: string): void {
-    writeFileSync(join(this.folder, file), value);
+    const target = join(this.folder, file);
+    withSpanSync('fs.write', { 'file.path': target, 'file.bytes': Buffer.byteLength(value) }, () => writeFileSync(target, value));
   }
 
   private read(file: string): string {
-    return readFileSync(join(this.folder, file), 'utf8');
+    const target = join(this.folder, file);
+    return withSpanSync('fs.read', { 'file.path': target }, (span) => {
+      const held = readFileSync(target, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
   }
 
   /** Puts one process — and everything it forks after — into the cgroup. */

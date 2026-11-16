@@ -1,6 +1,10 @@
 {
   "name": "test-quarantine",
   "version": "1.0.0",
+  "tier": "ordinary",
+  "capabilities": [
+    "git"
+  ],
   "entry": "entry.ts",
   "runtime": {
     "name": "bun",
@@ -27,6 +31,6 @@
   "concurrency": 1,
   "labels": {
     "en": "Test quarantine",
-    "ru": "Карантин тестов"
+    "ru": "\u041a\u0430\u0440\u0430\u043d\u0442\u0438\u043d \u0442\u0435\u0441\u0442\u043e\u0432"
   }
 }

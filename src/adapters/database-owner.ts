@@ -32,7 +32,7 @@ import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { types } from 'pg';
-import { withSpan } from '../obs/trace.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
 import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
@@ -67,8 +67,8 @@ const STORE_DATABASE = 'madarch';
  * given — the name is the shape of the statement, never its data.
  */
 function statementOf(sql: string): { operation: string; table: string; name: string } {
-  const operation = (/^\s*(?:\/\*[\s\S]*?\*\/\s*)*([A-Za-z]+)/u.exec(sql)?.[1] ?? 'SQL').toUpperCase();
-  const table = /(?:\bFROM|\bINTO|\bUPDATE|\bTABLE|\bJOIN)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([A-Za-z_][A-Za-z0-9_.]*)/iu.exec(sql)?.[1] ?? '';
+  const operation = (sql.match(/^\s*(?:\/\*[\s\S]*?\*\/\s*)*([A-Za-z]+)/u)?.[1] ?? 'SQL').toUpperCase();
+  const table = sql.match(/(?:\bFROM|\bINTO|\bUPDATE|\bTABLE|\bJOIN)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([A-Za-z_][A-Za-z0-9_.]*)/iu)?.[1] ?? '';
   return { operation, table, name: `${operation}${table === '' ? '' : ` ${table}`}` };
 }
 
@@ -167,7 +167,11 @@ export interface DatabaseOwner {
  */
 async function refuseAborted(transaction: OuterTransaction, location: string): Promise<void> {
   try {
-    await transaction.query('SELECT 1');
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT 1') }, async (span) => {
+      const answer = await transaction.query('SELECT 1');
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
   } catch (error) {
     throw new Error(`the transaction of the database owner "${location}" was aborted by a failed statement and cannot be committed, so it was rolled back and nothing it wrote was kept: ${errorMessage(error)}`);
   }
@@ -218,7 +222,11 @@ class PostgresOwner implements DatabaseOwner {
       client.on('error', (error) => console.error(`PostgreSQL client "${this.location}": ${errorMessage(error)}`));
     });
     this.hasVector = hasVector;
-    this.ready = this.named(async () => { await this.pool.query('SELECT 1'); });
+    this.ready = this.named(async () => { await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT 1') }, async (span) => {
+      const answer = await this.pool.query('SELECT 1');
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    }); });
     // The caller that opened the owner observes a failure; this handler only
     // keeps it from becoming an unhandled rejection before that use happens.
     void this.ready.catch(() => {});
@@ -274,7 +282,11 @@ class PostgresOwner implements DatabaseOwner {
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
-      await this.named(async () => await client.query(begin));
+      await this.named(async () => await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(begin) }, async (span) => {
+        const answer = await client.query(begin);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      }));
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
         let statements = 0;
         let rows = 0;
@@ -303,7 +315,11 @@ class PostgresOwner implements DatabaseOwner {
       return value;
     } catch (error) {
       try {
-        await client.query('ROLLBACK');
+        await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ROLLBACK') }, async (span) => {
+          const answer = await client.query('ROLLBACK');
+          span.setAttribute('db.rows', answer.rows.length);
+          return answer;
+        });
       } catch (rollbackError) {
         releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
       }
@@ -351,7 +367,11 @@ class PostgresOwner implements DatabaseOwner {
         // The failed statement left this client's transaction open (or
         // aborted); returning it to the pool without rolling back would hand the
         // next caller a connection inside someone else's transaction.
-        await client.query('ROLLBACK');
+        await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ROLLBACK') }, async (span) => {
+          const answer = await client.query('ROLLBACK');
+          span.setAttribute('db.rows', answer.rows.length);
+          return answer;
+        });
       } catch (rollbackError) {
         releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
       }
@@ -441,8 +461,12 @@ class ServerStoreOwner implements DatabaseOwner {
     });
   }
 
-  exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]> {
-    return this.inner.exec<Row>(text);
+  async exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]> {
+    return await withSpan('db.batch', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(text) }, async (span) => {
+      const results = await this.inner.exec<Row>(text);
+      span.setAttribute('db.rows', results.reduce((sum, result) => sum + result.rows.length, 0));
+      return results;
+    });
   }
 
   close(): Promise<void> {
@@ -494,17 +518,19 @@ const LEGACY_DATABASE_FOLDERS = ['graph', 'state.db'] as const;
 
 /** Why a store folder cannot be opened as a store of this build, or undefined when it can. */
 function legacyStoreProblem(store: string): string | undefined {
-  if (existsSync(join(store, 'pgdata'))) return undefined;
-  const held = LEGACY_DATABASE_FOLDERS.filter((name) => {
-    try {
-      return statSync(join(store, name)).isDirectory();
-    } catch {
-      return false;
-    }
+  return withSpanSync('store.legacy', { 'file.path': store, 'store.folders': LEGACY_DATABASE_FOLDERS.length }, () => {
+    if (existsSync(join(store, 'pgdata'))) return undefined;
+    const held = LEGACY_DATABASE_FOLDERS.filter((name) => {
+      try {
+        return statSync(join(store, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    if (held.length === 0) return undefined;
+    const folders = held.map((name) => join(store, name)).join(' and ');
+    return `the store "${store}" holds ${folders}, a database of an older madarch kept as files in the store itself: this build runs a PostgreSQL server and reads no such files, and nothing migrates them. Run the fill again into a store of this build, or remove ${folders} first (src/adapters/database-owner.ts)`;
   });
-  if (held.length === 0) return undefined;
-  const folders = held.map((name) => join(store, name)).join(' and ');
-  return `the store "${store}" holds ${folders}, a database of an older madarch kept as files in the store itself: this build runs a PostgreSQL server and reads no such files, and nothing migrates them. Run the fill again into a store of this build, or remove ${folders} first (src/adapters/database-owner.ts)`;
 }
 
 /**
@@ -551,7 +577,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
     const opened = cluster;
     release = async () => {
       await opened.stop();
-      rmSync(root, { recursive: true, force: true });
+      withSpanSync('fs.remove', { 'file.path': root }, () => rmSync(root, { recursive: true, force: true }));
     };
   }
   try {

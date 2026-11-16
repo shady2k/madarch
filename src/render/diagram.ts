@@ -6,6 +6,7 @@
  * request give the same bytes; the clock and the machine never enter. Nothing here reads the graph: the input is what
  * `ReadContext.diagramNeighbourhood` answered, so this module is a writer of pictures, not a read surface.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArchifyVendor } from './archify-vendor.js';
@@ -343,13 +344,13 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   try {
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
-    writeFileSync(input, JSON.stringify(document));
+    withSpanSync('fs.write', { 'file.path': input, 'file.bytes': Buffer.byteLength(JSON.stringify(document)) }, () => writeFileSync(input, JSON.stringify(document)));
     // The release binary carries the renderer inside its own bundle, which only its own process can open: the vendor
     // folder is laid beside the document, file by file, and the renderer runs from there (madarch-64o5.97). The same
     // layout serves a checkout's vendor tree, whose entry imports its sibling modules and reads its template.
     copyArchifyVendor(vendor, join(folder, 'archify'));
     const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
-    const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
+    const child = withSpanSync('process.run', { 'process.command': process.execPath, 'process.args': [renderer, input, output], 'process.cwd': folder }, () => Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } }));
     options.started?.(child.pid, folder);
     const ended = await Promise.race([child.exited, new Promise<'deadline-expired'>((resolve) => { timer = setTimeout(() => resolve('deadline-expired'), timeout); })]);
     if (ended === 'deadline-expired') {
@@ -361,11 +362,11 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
       throw new Error(`the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
     }
     if (!existsSync(output)) throw new Error('the archify renderer wrote no page');
-    return forwarder(readFileSync(output, 'utf8'), graph);
+    return forwarder(withSpanSync('fs.read', { 'file.path': output }, (span) => { const held = readFileSync(output, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }), graph);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     options.stopped?.();
-    rmSync(folder, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true }));
   }
 }
 

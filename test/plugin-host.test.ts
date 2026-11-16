@@ -200,7 +200,7 @@ describe('the handshake', () => {
     const session = await open(probeFolder);
     try {
       expect(session.declared.name).toBe('plugin-probe');
-      expect(session.declared.protocol).toBe('madarch.plugins/2');
+      expect(session.declared.protocol).toBe('madarch.plugins/3');
       expect(session.declared.outputs.vertices.map((kind) => kind.kind)).toEqual(['probe']);
       expect(session.closureHash).toBe(probeClosure.hash);
     } finally {
@@ -545,7 +545,7 @@ describe('the commands', () => {
     expect(done.code, done.stderr).toBe(0);
     expect(done.stdout).toContain('check: conforms');
     expect(done.stdout).toContain('unit normal: complete,');
-    expect(done.stderr).toContain('MADARCH_PLUGIN_SANDBOX');
+    expect(done.stderr).toContain('Plugins run unconfined');
     expect(existsSync(join(work, 'no-tools'))).toBe(false);
     expect(existsSync(join(work, 'no-cgroup'))).toBe(false);
   }, 30_000);
@@ -594,8 +594,8 @@ describe('the commands', () => {
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, stderr).toBe(0);
     expect(stdout.trim().split('\n')).toEqual(['completed 1', 'completed 2']);
-    expect(stderr.split('\n').filter((line) => line.includes('MADARCH_PLUGIN_SANDBOX'))).toEqual([
-      'Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.',
+    expect(stderr.split('\n').filter((line) => line.includes('Plugins run unconfined'))).toEqual([
+      'Plugins run unconfined because the operator chose to run without confinement; they can read and write everything the user can.',
     ]);
     expect(existsSync(join(work, 'no-tools'))).toBe(false);
     expect(existsSync(join(work, 'no-cgroup'))).toBe(false);

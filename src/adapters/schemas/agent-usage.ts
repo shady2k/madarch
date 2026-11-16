@@ -1,5 +1,6 @@
 /** Store-owner preparation of agent usage tables. */
 import type { DatabaseOwner } from '../database-owner.js';
+import { withSpan } from '../../obs/trace.js';
 import { createSchemaOnce } from '../schema-stamp.js';
 
 /** The tables' names, in code point order, as the schema's stamp holds them. */
@@ -46,7 +47,13 @@ async function prepare(owner: DatabaseOwner): Promise<void> {
     tables: TABLES,
     parts: SCHEMA,
     create: async (transaction) => {
-      for (const statement of SCHEMA) await transaction.query(statement);
+      for (const statement of SCHEMA) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = statement;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await transaction.query(statementSql);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
     },
   });
 }

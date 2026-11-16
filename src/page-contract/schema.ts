@@ -19,14 +19,14 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'details', 'facts', 'fact', 'text', 'file-text', 'relations', 'table', 'bars', 'treemap', 'diagram', 'source', 'source-page', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
-  'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
-  'product-overview', 'repositories',
+  'catalogue', 'dependencies', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
+  'product-overview', 'repositories', 'logs',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
-const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
+const FORMATS = ['text', 'number', 'percent', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
 export type FieldFormat = (typeof FORMATS)[number];
 
 /** Accept only formats the component schemas declare. */
@@ -48,6 +48,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       provenancePath: { type: 'string' },
       /** The home page takes the product's own name from the frame, not the home entity's page title. */
       productTitle: { type: 'boolean' },
+      /** The containers the graph answered, each a link: the list of `{id, kind, label}` the breadcrumb walks. */
+      chainPath: { type: 'string' },
       /** The way up: the field holding the repository and the field holding the path, whose folders the trail names. */
       trail: {
         type: 'object',
@@ -57,6 +59,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['titlePath'],
   },
+  // Every field the graph states of the entity, with the opinions that hold it (madarch-64o5.134).
+  details: { parameters: { path: { type: 'string' } }, required: [] },
   facts: {
     parameters: {
       rows: {
@@ -85,7 +89,22 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['rows'],
   },
-  text: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  text: { parameters: { path: { type: 'string' }, emptyText: LOCALIZED_TEXT_SCHEMA }, required: ['path'] },
+  /** A file's text, by (repository, blob id) through the plugin host (madarch-u3vw.16): its range and its page's chunks. */
+  'file-text': {
+    parameters: { repositoryPath: { type: 'string' }, pathPath: { type: 'string' }, languagePath: { type: 'string' }, chunk: { type: 'number' }, emptyText: LOCALIZED_TEXT_SCHEMA },
+    required: ['repositoryPath', 'pathPath'],
+  },
+  /** One graph fact as a card (madarch-64o5.133): the kind it counts, the field its rows group by and how it is drawn. */
+  fact: {
+    parameters: {
+      kind: { type: 'string' },
+      display: { type: 'string', enum: ['number', 'bar', 'treemap', 'timeline'] },
+      /** The field the answer groups, buckets or ranks by, named as the graph names it and shown in the ground. */
+      by: { type: 'string' },
+    },
+    required: ['kind', 'display'],
+  },
   relations: {
     parameters: {
       path: { type: 'string' },
@@ -102,6 +121,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   table: {
     parameters: {
       path: { type: 'string' },
+      rowAnchorPath: { type: 'string' },
+      rowAnchorPrefix: { type: 'string' },
       columns: {
         type: 'array',
         minItems: 1,
@@ -132,6 +153,21 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       },
       pageSize: { type: 'integer' },
       emptyText: LOCALIZED_TEXT_SCHEMA,
+      /** The field the search text narrows, and the facets whose counts the reader filters by (madarch-64o5.128). */
+      searchField: { type: 'string' },
+      facets: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'field', 'path'],
+          additionalProperties: false,
+          properties: {
+            label: LOCALIZED_TEXT_SCHEMA,
+            field: { type: 'string' },
+            path: { type: 'string' },
+          },
+        },
+      },
     },
     required: ['path', 'columns'],
   },
@@ -146,8 +182,33 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['path'],
   },
+  treemap: {
+    parameters: {
+      path: { type: 'string' },
+      pathPath: { type: 'string' },
+      valuePath: { type: 'string' },
+      languagePath: { type: 'string' },
+      changedPath: { type: 'string' },
+      rootPath: { type: 'string' },
+      pageSize: { type: 'integer' },
+      valuePaths: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'path'],
+          additionalProperties: false,
+          properties: { label: LOCALIZED_TEXT_SCHEMA, path: { type: 'string' } },
+        },
+      },
+    },
+    required: ['path', 'pathPath', 'valuePath'],
+  },
   diagram: { parameters: { depth: { type: 'integer', enum: [1] }, aggregateAbove: { type: 'integer' } }, required: [] },
-  source: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  source: { parameters: { path: { type: 'string' }, urlPath: { type: 'string' } }, required: ['path'] },
+  'source-page': {
+    parameters: { repoVariable: { type: 'string' }, pathVariable: { type: 'string' }, lineVariable: { type: 'string' } },
+    required: [],
+  },
   tabs: {
     parameters: {
       sections: { type: 'array', items: { type: 'string' } },
@@ -172,6 +233,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
   kinds: { parameters: {}, required: [] },
   catalogue: { parameters: {}, required: [] },
+  dependencies: { parameters: { focus: { type: 'boolean' } }, required: [] },
   prepare: { parameters: {}, required: [] },
   runs: { parameters: {}, required: [] },
   'first-run': { parameters: {}, required: [] },
@@ -179,6 +241,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   repositories: { parameters: {}, required: [] },
   'fill-kind': { parameters: { kindPath: { type: 'string' } }, required: ['kindPath'] },
   run: { parameters: { runVariable: { type: 'string' } }, required: ['runVariable'] },
+  logs: { parameters: {}, required: [] },
   'problem-actions': { parameters: { path: { type: 'string' } }, required: ['path'] },
   'settings-form': { parameters: { group: { type: 'string' } }, required: ['group'] },
   sources: { parameters: {}, required: [] },

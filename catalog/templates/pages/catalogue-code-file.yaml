@@ -130,13 +130,15 @@ sections:
     after: age
     title: { en: Records, ru: Записи }
     query: |
-      instances(first: $records_first, after: $records_after) {
+      facetsLanguage: instancesAggregate(where: $records_where) { groupBy(field: "language", limit: 20) { key count } }
+      facetsClass: instancesAggregate(where: $records_where) { groupBy(field: "class", limit: 20) { key count } }
+      instances(where: $records_where, orderBy: $records_orderBy, first: $records_first, after: $records_after) {
         edges {
           node {
             id
             kind
             label
-            ... on CodeFile {
+            ... on KindCodeFile {
               path
               language
               class
@@ -154,9 +156,15 @@ sections:
     params:
       path: instances
       pageSize: 50
+      searchField: label
+      filterFields:
+        - { field: label, label: { en: Path, ru: Путь } }
+      facets:
+        - { field: language, label: { en: Language, ru: Язык }, path: facetsLanguage.groupBy }
+        - { field: class, label: { en: Class, ru: Класс }, path: facetsClass.groupBy }
       columns:
-        - { label: { en: Path, ru: Путь }, path: node.label }
-        - { label: { en: Language, ru: Язык }, path: node.language }
-        - { label: { en: Class, ru: Класс }, path: node.class }
-        - { label: { en: Lines, ru: Строк }, path: node.lines, format: number }
-        - { label: { en: Last change, ru: Последнее изменение }, path: node.lastChange, format: date }
+        - { label: { en: Path, ru: Путь }, path: node.label, sortField: label }
+        - { label: { en: Language, ru: Язык }, path: node.language, sortField: language }
+        - { label: { en: Class, ru: Класс }, path: node.class, sortField: class }
+        - { label: { en: Lines, ru: Строк }, path: node.lines, format: number, sortField: lines }
+        - { label: { en: Last change, ru: Последнее изменение }, path: node.lastChange, format: date, sortField: lastChange }

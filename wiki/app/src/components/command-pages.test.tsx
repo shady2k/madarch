@@ -32,9 +32,9 @@ const NAVIGATION = {
     { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
   ],
   kinds: [
-    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1' },
-    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2' },
-    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3' },
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
   ],
   purposes: [],
 };
@@ -80,8 +80,32 @@ const RUN = {
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
     { seq: 2, at: new Date(Date.now() - 4000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-published', summary: 'disk:demo.alpha published 12 facts under /work/product/madarch/catalog.yaml 0123456789abcdef0123456789abcdef01234567' },
     { seq: 3, at: new Date(Date.now() - 3000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
+    // The same retry again: the journal says one line with its count, never four identical rows.
+    { seq: 4, at: new Date(Date.now() - 2000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
   ],
   records: 12, publishedUnits: 2, agentUsage: null,
+  // The run's trace as its run view states it: the stage's own id and the time it took.
+  summary: { wallMs: 29_000, steps: [{ step: 'plugin-turns', wallMs: 29_000 }] },
+};
+
+/** One agent unit's exchange, as madarch records it (madarch-64o5.88): its prompt, its steps, its files, its answer. */
+const EXCHANGE = {
+  run: 'fill-run-1', unit: 'agent-fill:demo.beta', agent: 'codex', model: 'gpt-5', session: 'session-1',
+  startedAt: new Date(Date.now() - 5000).toISOString(), endedAt: new Date(Date.now() - 1000).toISOString(), durationMs: 4000, state: 'turned',
+  given: {
+    prompt: 'Fill the requested kind from its manifest definition.\nFiles available through ACP fs/read_text_file:\n/repo/docs/a.md\nTask: {"kind":"demo.beta"}\nOutput contract: {}',
+    bytes: 190, cut: false, task: { kind: 'demo.beta' }, files: ['repo/docs/a.md'], filesTotal: 1,
+  },
+  steps: [
+    { at: new Date(Date.now() - 4000).toISOString(), sessionUpdate: 'agent_thought_chunk', kind: 'thought', text: 'Читаю определение' },
+    { at: new Date(Date.now() - 3000).toISOString(), sessionUpdate: 'tool_call', kind: 'tool-call', title: 'Читаю docs/a.md', tool: 'read', status: 'completed', path: '/repo/docs/a.md' },
+  ],
+  stepsDropped: 0,
+  opened: [{ at: new Date(Date.now() - 3000).toISOString(), repository: 'repo', path: 'docs/a.md', bytes: 42 }],
+  openedDropped: 0,
+  returned: { text: '{"vertices":[],"end":{"state":"complete"}}', bytes: 43, cut: false },
+  usage: { inputTokens: 300, outputTokens: 40, cachedWriteTokens: 25, cachedReadTokens: 75, totalTokens: 340, context: { used: 1200, size: 200000 }, turns: 1, reported: true },
+  stop: 'end_turn', failure: null,
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
@@ -96,6 +120,8 @@ let agentOffers: { id: string; label: string; installed: boolean; login: string;
 let savedAgent: { id: string; label: string } | null = null;
 /** What `/api/product-settings` answers, and a switch to hold it open while a test presses early (madarch-64o5.90). */
 let productSettings: Record<string, unknown> = { tokenCap: 200_000 };
+/** What `/api/settings` answers: this machine, not the product. */
+let readerSettings: Record<string, unknown> = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
 let holdSettings: (() => void) | null = null;
 /** A held `/api/agent-choices` answer, so a test can switch agents while one is pending. */
 let holdChoices: (() => void) | null = null;
@@ -193,6 +219,7 @@ beforeEach(async () => {
   runAnswer = RUN;
   savedAgent = null;
   productSettings = { tokenCap: 200_000 };
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
   holdSettings = null;
   holdChoices = null;
   agentOffers = [
@@ -206,6 +233,15 @@ beforeEach(async () => {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
+    // The state the catalogue reads comes through the one read API (madarch-64o5.136 restore).
+    if (url.pathname.endsWith('/graphql')) {
+      const operation = typeof (body as { query?: unknown } | undefined)?.query === 'string' ? (body as { query: string }).query : '';
+      if (operation.includes('fillRuns')) return answer(url.pathname, { data: { fillRuns: [runAnswer] } });
+      if (operation.includes('fillStatus')) return answer(url.pathname, { data: { fillStatus: { fill: { state: 'idle' }, filled: true, incomplete: false, manifest: 'ok' } } });
+      if (operation.includes('fillPlan')) return answer(url.pathname, { data: { fillPlan: planFor([], false) } });
+      if (operation.includes('products')) return answer(url.pathname, { data: { products: { current: 'portal', products: [] } } });
+      return answer(url.pathname, { data: {} });
+    }
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) {
@@ -218,6 +254,13 @@ beforeEach(async () => {
       return answer(url.pathname, { agent: offeredAgent, ...offered });
     }
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
+    if (url.pathname.endsWith('/api/settings')) {
+      if (method === 'POST') {
+        const asked = body as { pluginsUnconfined?: boolean } | null;
+        if (asked?.pluginsUnconfined !== undefined) readerSettings = { ...readerSettings, pluginsUnconfined: asked.pluginsUnconfined };
+      }
+      return answer(url.pathname, readerSettings);
+    }
     if (url.pathname.endsWith('/api/product-settings')) {
       if (holdSettings !== null) return await new Promise<Response>((resolve) => { holdSettings = () => resolve(answer(url.pathname, productSettings)); });
       return answer(url.pathname, productSettings);
@@ -245,14 +288,44 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(TooltipProvider, null, createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: {
+        base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null,
+        open: (path: string) => { opened.push(path); }, reload: () => undefined, role: 'everything',
+        // The frame reads this machine's plugin isolation once (`/api/settings`); a page reads it from the runtime.
+        machine: {
+          pluginIsolation: (readerSettings['pluginIsolation'] as { capable: boolean; reason: string } | undefined) ?? null,
+          pluginsUnconfined: (readerSettings['pluginsUnconfined'] as boolean | null | undefined) ?? null,
+          reload: () => undefined,
+        },
+      },
     })));
   });
   await settle();
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
+/** One choice of a kit menu: its trigger is pressed and its item is chosen. */
+async function choose(container: HTMLElement, menu: string, value: string): Promise<void> {
+  const trigger = container.querySelector(`[data-testid="${menu}"]`) as HTMLElement | null;
+  expect(trigger).not.toBeNull();
+  await act(async () => {
+    trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger!.click();
+  });
+  await settle();
+  const item = document.querySelector(`[data-testid="${menu}-${value}"]`) as HTMLElement | null;
+  expect(item).not.toBeNull();
+  await act(async () => { item!.click(); });
+  await settle();
+}
+
 /** A native value set, so React's value tracker sees the typed text. */
+
+/** The checked state of the kit's Radix Checkbox, as the button itself states it. */
+function checkedOf(element: Element | null): boolean {
+  return element?.getAttribute('data-state') === 'checked';
+}
+
 function type(input: HTMLInputElement, value: string): void {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ?? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
   const setter = descriptor?.set;
@@ -285,17 +358,73 @@ test('the catalogue reads by default, in the catalogue\'s words, with counts, «
   }
 });
 
+test('the catalogue states the kinds and records it shows, the share of each area, and the fill state of every kind', async () => {
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    // Three kinds and five records stand here, and each area states its own share of both (madarch-64o5.133).
+    expect(page.container.querySelector('[data-testid="catalogue-total"]')?.textContent).toBe('3 вида, 5 записей');
+    const totals = [...page.container.querySelectorAll('[data-testid="catalogue-group-total"]')].map((one) => one.textContent);
+    expect(totals).toEqual(['1 вид, 2 записи', '2 вида, 3 записи']);
+    // A kind's badge is the graph's own count and the run's own verdict: two records is filled, none is never filled.
+    const state = (kind: string): { value: string | null; text: string } => {
+      const badge = page.container.querySelector(`[data-kind="${kind}"] [data-testid="catalogue-state"]`);
+      return { value: badge?.getAttribute('data-state') ?? null, text: badge?.textContent ?? '' };
+    };
+    expect(state('demo.alpha')).toEqual({ value: 'filled', text: 'Заполнено' });
+    expect(state('demo.beta')).toEqual({ value: 'never', text: 'Не заполнено' });
+    expect(state('demo.gamma')).toEqual({ value: 'filled', text: 'Заполнено' });
+  } finally {
+    await page.close();
+  }
+});
+
+
+test('a kind the newest fill left failed wears that state, and the others keep the count of the graph', async () => {
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(),
+    groups: [{ kind: 'demo.gamma', group: 'docs', plugin: 'disk', done: 0, total: 2, state: 'failed', phase: 'failed' }],
+    units: [],
+  };
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-state"]')?.getAttribute('data-state')).toBe('failed');
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-state"]')?.textContent).toBe('Ошибка');
+    expect(page.container.querySelector('[data-kind="demo.alpha"] [data-testid="catalogue-state"]')?.getAttribute('data-state')).toBe('filled');
+  } finally {
+    await page.close();
+  }
+});
+
+test('the catalogue carries a contents list that follows its areas and subgroups', async () => {
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    const contents = page.container.querySelector('[data-testid="catalogue-contents"]');
+    const links = [...(contents?.querySelectorAll('a') ?? [])];
+    expect(links.map((one) => one.getAttribute('href'))).toEqual(['#catalogue-section-demo.code', '#catalogue-section-demo.docs']);
+    // Every destination the contents names stands on the page, so a press reaches it (an id may hold a dot: the
+    // contents scroll to it by id, as the kit's own contents do).
+    for (const link of links) expect(page.container.querySelector(`[id="${(link.getAttribute('href') ?? '#none').slice(1)}"]`)).not.toBeNull();
+  } finally {
+    await page.close();
+  }
+});
+
 test('selection mode keeps its kinds through a filter, marks the plan\'s prerequisite and leads to preparation', async () => {
   const page = await render([section('catalogue', 'catalogue', {})], { select: '1' });
   try {
     expect(page.container.querySelectorAll('[data-testid="catalogue-group-check"]').length).toBeGreaterThan(0);
-    const gamma = page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLInputElement;
-    await act(async () => { gamma.click(); });
+    const gamma = page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLElement;
+    // The kit's Checkbox is a Radix button: a full pointer press and click is what a person's press sends.
+    await act(async () => {
+      gamma.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      gamma.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      gamma.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    });
     await settle();
     expect(page.container.textContent).toContain('Нужно для Сценарии');
     const alpha = page.container.querySelector('[data-testid="catalogue-kind-check-demo.alpha"]') as HTMLInputElement;
-    expect(alpha.checked).toBe(true);
-    expect(alpha.disabled).toBe(true);
+    expect(checkedOf(alpha)).toBe(true);
+    expect(alpha.hasAttribute('disabled')).toBe(true);
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('Выбран 1 вид');
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('добавлена 1 зависимость');
     // The selection survives a filter that hides its group.
@@ -303,7 +432,7 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
     await act(async () => { type(search, 'Файл'); });
     expect(page.container.querySelector('[data-kind="demo.gamma"]')).toBeNull();
     await act(async () => { type(search, ''); });
-    expect((page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLInputElement).checked).toBe(true);
+    expect(checkedOf(page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]'))).toBe(true);
     await act(async () => { (page.container.querySelector('[data-testid="catalogue-prepare"]') as HTMLButtonElement).click(); });
     expect(page.opened).toContain('/p/prepare?kinds=demo.gamma');
   } finally {
@@ -344,15 +473,12 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await settle();
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
     expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
-    // The agent's own model and reasoning level stand beside the cap, and both follow the press (madarch-64o5.90).
-    const modelSelect = page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement;
-    const reasoningSelect = page.container.querySelector('[data-testid="prepare-reasoning"]') as HTMLSelectElement;
-    expect(modelSelect.value).toBe('opus');
-    expect(reasoningSelect.value).toBe('medium');
+    // The agent's own model and reasoning level stand beside the cap in the kit's menus, and both follow the press
+    // (madarch-64o5.90; the kit's one menu control, madarch-64o5.88).
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Opus');
+    expect(page.container.querySelector('[data-testid="prepare-reasoning"]')?.textContent).toContain('Medium');
     expect(page.container.textContent).toContain('Сохранить по умолчанию');
-    await act(async () => { modelSelect.value = 'sonnet'; modelSelect.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
+    await choose(page.container, 'prepare-model', 'sonnet');
     // «Сохранить по умолчанию» saves the agent with the pair beside it; the press itself spends nothing.
     await act(async () => { (page.container.querySelector('[data-testid="prepare-save-defaults"]') as HTMLButtonElement).click(); });
     await settle();
@@ -362,6 +488,7 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('до');
     expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('200');
     // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
+
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     expect(cap.value).toBe('200000');
     expect(page.container.querySelector('[data-testid="prepare-cap-default"]')).toBeNull();
@@ -392,7 +519,7 @@ test('Run waits for the product\'s saved model, so a press never sends the adapt
     await act(async () => { release(); });
     await settle();
     // The saved pair now stands over the agent's own, and the press sends it.
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('sonnet');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Sonnet');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
@@ -408,7 +535,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
   try {
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Opus');
     // Pick Codex while its choices are held: the previous agent's answer is no answer for this one, and Run waits.
     holdChoices = () => undefined;
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-codex"] [role="radio"]') as HTMLButtonElement).click(); });
@@ -419,7 +546,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
     holdChoices = null;
     await act(async () => { release(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('gpt-5-codex');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('GPT-5 Codex');
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
@@ -492,6 +619,30 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     expect(text).not.toContain('/work/product');
     expect(text).not.toContain('0123456789abcdef0123456789abcdef01234567');
     expect(text).not.toContain('the run started 2 stages');
+    // The run journal: the key transitions, a repeated line said once with its count, and every failure with its cause
+    // and the next action in words — the raw summaries stay in the detailed logs.
+    const journal = page.container.querySelector('[data-testid="fill-run-journal"]');
+    expect(journal?.textContent).toContain('Журнал запуска');
+    expect(journal?.textContent).toContain('Повтор: Файлы · disk. ×2');
+    // The failure's own words stand on the page, with the file and line it stands at, and the next action beside them.
+    const causeText = journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent ?? '';
+    expect(causeText).toContain('cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers');
+    // The engine's retry tail is the run's bookkeeping, not the cause: the page states the cause and then what to do.
+    expect(causeText).not.toContain('the attempt is retried');
+    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Разрешите плагинам работать без изоляции на странице подготовки');
+    // The event's own wrapper sentence stays out: the page shows the cause's words, not the engine's framing of them.
+    expect(text).not.toContain('demo.alpha failed');
+    // A failure links to its own row in the logs: the run, the unit's name and the error level.
+    const rowLink = journal?.querySelector('[data-testid="fill-run-and-logs"]');
+    expect(rowLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1&q=disk%3Ademo.alpha&level=error');
+    // The stages are named in the reader's words, never by the engine's key.
+    const stages = page.container.querySelector('[data-testid="fill-run-stage-times"]');
+    expect(stages?.textContent).toContain('Плагины · 29 с');
+    expect(stages?.textContent).not.toContain('plugin-turns');
+    const logsLink = journal?.querySelector('[data-testid="fill-run-logs-link"]');
+    expect(logsLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1');
+    await act(async () => { (logsLink as HTMLElement).click(); });
+    expect(page.opened).toContain('/p/logs?run=fill-run-1');
     // A live run offers «Пауза» and «Остановить».
     const pause = page.container.querySelector('[data-testid="run-pause"]') as HTMLButtonElement;
     await act(async () => { pause.click(); });
@@ -527,4 +678,55 @@ test('the stop confirmation is disabled while the link is away', async () => {
     await page.close();
     reportOnline();
   }
+});
+
+test('the run page shows each agent unit in detail: what it was given, did, returned and cost', async () => {
+  runAnswer = { ...RUN, state: 'succeeded', agentExchanges: [EXCHANGE] };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const card = page.container.querySelector('[data-testid="fill-run-agents"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('Что получил и вернул агент');
+    expect(card?.textContent).toContain('Подробно');
+    expect(card?.textContent).toContain('Термины');
+    // What it was given: the prompt as sent, and how many files it was told about.
+    expect(card?.querySelector('[data-testid="agent-prompt"]')?.textContent).toContain('Task: {"kind":"demo.beta"}');
+    expect(card?.textContent).toContain('Файлов передано: 1');
+    // What it did: the steps, and the file it opened, whose name leads to the source.
+    expect(card?.querySelector('[data-testid="agent-steps"]')?.textContent).toContain('Читаю docs/a.md');
+    const link = card?.querySelector('[data-testid="agent-opened"] a');
+    expect(link?.getAttribute('href')).toBe('/api/source?repo=repo&path=docs%2Fa.md');
+    expect(card?.querySelector('[data-testid="agent-opened"]')?.textContent).toContain('repo: docs/a.md');
+    // What it returned, what it cost, and the raw record behind the words.
+    expect(card?.querySelector('[data-testid="agent-answer"]')?.textContent).toContain('"state":"complete"');
+    expect(card?.querySelector('[data-testid="agent-tokens"]')?.textContent).toContain('Токены: 300 вход · 40 выход · 25 запись кэша · 75 чтение кэша · 340 всего');
+    expect(card?.querySelector('[data-testid="agent-raw"]')?.textContent).toContain('Сырой JSON');
+    expect(card?.querySelector('[data-testid="agent-failure"]')).toBeNull();
+  } finally {
+    await page.close();
+  }
+});
+
+test('a preparation page shows the machine\'s isolation it was handed, and saves the answer it is given', async () => {
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.alpha' });
+  try {
+    // The frame asks this machine once; the page never asks the settings route for itself.
+    expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'GET')).toBe(false);
+    expect(page.container.querySelector('[data-testid="prepare-isolation-question"]')?.textContent).toContain('нельзя изолировать');
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
+    expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-isolation-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { pluginsUnconfined?: boolean }).pluginsUnconfined === true)).toBe(true);
+  } finally { await page.close(); }
+  // The frame reads the settings again and hands the page the answer: the question is gone and the choice stands.
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: true, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
+  const after = await render([section('prepare', 'prepare', {})], { kinds: 'demo.alpha' });
+  try {
+    expect(after.container.querySelector('[data-testid="prepare-isolation-question"]')).toBeNull();
+    expect(after.container.querySelector('[data-testid="prepare-isolation-unconfined"]')?.textContent).toContain('без изоляции');
+    expect(after.container.querySelector('[data-testid="prepare-isolation-link"]')).not.toBeNull();
+    expect(after.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+  } finally { await after.close(); }
 });

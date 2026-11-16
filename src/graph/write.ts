@@ -13,7 +13,7 @@ export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
 /** Serialize graph operations before any identity or queue locks. */
-export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]);}
+export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await withSpan('graph.write.acquireGraphWriteLock', { 'db.system': 'postgres' }, async () => await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]));}
 export interface WriteCapability {
   readonly sourceUid:string; readonly principalUid:string; readonly operationUid:string;
   readonly unitUid?:string; readonly productUid:string; readonly context:number; readonly contractVersion:string; readonly scope:string;
@@ -48,13 +48,13 @@ function permitted(binding:WriteCapability,kind:string,property:string,retract=f
 }
 async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Promise<string>{
  const cache=publicationIdentities.get(executor)?.entities;const key=sort+':'+kind;const held=cache?.get(key);if(held!==undefined)return held;
- const row=(await executor.query<{id:string}>(`SELECT id::text AS id FROM entity WHERE name=$1 AND sort=$2`,[kind,sort])).rows[0];
+ const row=(await withSpan('graph.write.entityId', { 'db.system': 'postgres' }, async () => await executor.query<{id:string}>(`SELECT id::text AS id FROM entity WHERE name=$1 AND sort=$2`,[kind,sort]))).rows[0];
  if(!row)throw new Error(`${WHERE}:35: UNKNOWN_KIND ${kind}`);cache?.set(key,row.id);return row.id;
 }
 async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  const kindId=await entityId(executor,kind,'node');
- const made=await executor.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[kindId,uid,JSON.stringify(key),scope,context]);
- const row=(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ const made=await withSpan('graph.write.identity', { 'db.system': 'postgres' }, async () => await executor.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[kindId,uid,JSON.stringify(key),scope,context]));
+ const row=(await withSpan('graph.write.identity', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid]))).rows[0];
  if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
  publicationIdentities.get(executor)?.nodes.set(row.id,uid);publicationIdentities.get(executor)?.uids.set(uid,row.id);
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
@@ -88,12 +88,12 @@ async function storedReference(executor:SqlExecutor,contract:GraphContract,ref:E
  if(ref.uid===undefined||Object.keys(ref.key).length>0||ref.keyEdges!==undefined)return ref;
  const kind=contract.vertex.find(vertex=>vertex.name===ref.kind);if(!kind)throw new Error(`${WHERE}:74: UNKNOWN_KIND ${ref.kind}`);
  if(visited.includes(ref.uid))throw new Error(`${WHERE}:74: KEY_EDGE_CYCLE ${ref.kind}`);
- const held=(await executor.query<{id:string;kind:string;key:EntityRefDraft['key']}>(`SELECT n.id::text,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[ref.uid])).rows[0];
+ const held=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;key:EntityRefDraft['key']}>(`SELECT n.id::text,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[ref.uid]))).rows[0];
  if(!held||held.kind!==ref.kind)throw new Error(`${WHERE}:74: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
  const keyEdges:Record<string,EntityRefDraft>={};
  for(const role of kind.keyEdges??[]){
   const from=role.direction==='from'?'from_node':'to_node';const to=role.direction==='from'?'to_node':'from_node';
-  const parents=(await executor.query<{uid:string;kind:string}>(`SELECT parent.uid::text,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node parent ON parent.id=e.${to} JOIN entity pk ON pk.id=parent.entity_id WHERE e.${from}=$1::bigint AND ek.name=$2`,[held.id,role.edge])).rows;
+  const parents=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{uid:string;kind:string}>(`SELECT parent.uid::text,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node parent ON parent.id=e.${to} JOIN entity pk ON pk.id=parent.entity_id WHERE e.${from}=$1::bigint AND ek.name=$2`,[held.id,role.edge]))).rows;
   if(parents.length!==1)throw new Error(`${WHERE}:74: REQUIRED_PARENT ${ref.kind}.${role.role}`);
   keyEdges[role.role]=await storedReference(executor,contract,{kind:parents[0]!.kind,key:{},uid:parents[0]!.uid},[...visited,ref.uid]);
  }
@@ -103,9 +103,9 @@ async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRe
  if(isDisputableProperty('vertex',ref.kind,'$exists'))await refreshWriteSemantics(executor);
  const resolved=await storedReference(executor,contract,ref);
  const uid=await refUid(executor,contract,resolved,context);
- const row=(await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ const row=(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid]))).rows[0];
  if(!row||row.kind!==ref.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
- if(!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
+ if(!(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context]))).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
  return {id:row.id,uid};
 }
 /** Resolves a declared identity without creating it. */
@@ -128,7 +128,7 @@ export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,d
 export async function activateBoundIdentities(executor:SqlExecutor,declared:GraphContract):Promise<void>{
  const binding=requireWriteCapability(executor);const contract=withAssertionContract(declared);checkBinding(binding,contract,binding.context);
  for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid]){
-  const held=(await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context])).rows[0];
+  const held=(await withSpan('graph.write.activateBoundIdentities', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context]))).rows[0];
   if(!held)throw new Error(`${WHERE}:57: TARGET_MISSING authenticated lineage ${uid}`);
   if(!held.active)await writeAssertion(executor,contract,{sort:'vertex',kind:held.kind,subjectId:held.id,property:'$exists',operation:'assert',value:true},binding.context);
  }
@@ -137,12 +137,12 @@ async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,di
  const kindId=await entityId(executor,kind,'edge');
  const nodes=publicationIdentities.get(executor)?.nodes??new Map<string,string>();
  const missing=[...new Set([from,to])].filter(id=>!nodes.has(id));
- if(missing.length)for(const row of (await executor.query<{id:string;uid:string}>(`SELECT id::text AS id,uid::text AS uid FROM node WHERE id=ANY($1::bigint[]) ORDER BY uid`,[missing])).rows)nodes.set(row.id,row.uid);
+ if(missing.length)for(const row of (await withSpan('graph.write.putEdge', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;uid:string}>(`SELECT id::text AS id,uid::text AS uid FROM node WHERE id=ANY($1::bigint[]) ORDER BY uid`,[missing]))).rows)nodes.set(row.id,row.uid);
  const uid=keyUid(keyUid('madarch.catalogue.kind',[kind]),[nodes.get(from)!,nodes.get(to)!,discriminator]);
- const made=await executor.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) VALUES($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5,$6) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[uid,kindId,from,to,discriminator,context]);
- return made.rows[0]?.id??(await executor.query<{id:string}>(`SELECT id::text AS id FROM edge WHERE uid=$1::uuid`,[uid])).rows[0]!.id;
+ const made=await withSpan('graph.write.putEdge', { 'db.system': 'postgres' }, async () => await executor.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) VALUES($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5,$6) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[uid,kindId,from,to,discriminator,context]));
+ return made.rows[0]?.id??(await withSpan('graph.write.putEdge', { 'db.system': 'postgres' }, async () => await executor.query<{id:string}>(`SELECT id::text AS id FROM edge WHERE uid=$1::uuid`,[uid]))).rows[0]!.id;
 }
-async function uidNode(executor:SqlExecutor,uid:string):Promise<string>{const cache=publicationIdentities.get(executor);const held=cache?.uids.get(uid);if(held!==undefined)return held;const row=(await executor.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[uid])).rows[0];if(!row)throw new Error(`${WHERE}:102: MISSING_LINEAGE_TARGET ${uid}`);cache?.uids.set(uid,row.id);cache?.nodes.set(row.id,uid);return row.id;}
+async function uidNode(executor:SqlExecutor,uid:string):Promise<string>{const cache=publicationIdentities.get(executor);const held=cache?.uids.get(uid);if(held!==undefined)return held;const row=(await withSpan('graph.write.uidNode', { 'db.system': 'postgres' }, async () => await executor.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[uid]))).rows[0];if(!row)throw new Error(`${WHERE}:102: MISSING_LINEAGE_TARGET ${uid}`);cache?.uids.set(uid,row.id);cache?.nodes.set(row.id,uid);return row.id;}
 export interface AssertionInput {
  readonly sort:'vertex'|'edge'; readonly kind:string; readonly subjectId:string; readonly property:string;
  readonly operation:'assert'|'retract'; readonly value?:unknown; readonly language?:string|null;
@@ -248,7 +248,7 @@ async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContrac
  const binding=requireWriteCapability(executor);
  const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
  const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
- const languages=(await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context])).rows;
+ const languages=(await withSpan('graph.write.retractPropertyStreams', { 'db.system': 'postgres' }, async () => await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context]))).rows;
  for(const language of languages.length?languages:[{language:null}])await writeAssertion(executor,contract,{sort,kind,subjectId,property,operation:'retract',...(language.language===null?{}:{language:language.language})},context);
 }
 export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{

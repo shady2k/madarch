@@ -1,0 +1,44 @@
+# The dedicated source address binds this template; the section reads the graph-backed source root.
+template: source
+variables:
+  repo:
+    type: String
+    required: true
+  path:
+    type: String
+    required: true
+  line:
+    type: Int
+sections:
+  - id: metadata
+    component: facts
+    on: root
+    title: { en: File, ru: Файл }
+    query: |
+      entityByKey(kind: "code.repository", key: { name: $repo }) {
+        related(edge: "code.file-repository", inverse: true, kinds: ["code.file"], where: { path: { _eq: $path } }, first: 1) {
+          edges { node {
+            id
+            ... on KindCodeFile { path language lines lastChange codeFileRepository(first: 1) { edges { node { node { label } } } } }
+            related(edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 1) {
+              edges { node { id kind label ... on KindCodeCommit { hash subject commitDate } } }
+            }
+          } }
+        }
+      }
+    params:
+      path: related.edges.0.node
+      rows:
+        - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
+        - { label: { en: Path, ru: Путь }, path: path }
+        - { label: { en: Language, ru: Язык }, path: language }
+        - { label: { en: Lines, ru: Строки }, path: lines, format: number }
+        - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
+        - { label: { en: Commit, ru: Коммит }, path: related.edges.0.node, format: commit }
+  - id: source
+    component: source-page
+    title: { en: Source, ru: Исходный код }
+    params:
+      repoVariable: repo
+      pathVariable: path
+      lineVariable: line

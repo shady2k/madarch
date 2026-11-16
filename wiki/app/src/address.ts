@@ -26,7 +26,21 @@ export const PAGE_ADDRESSES = {
   sources: '/p/sources',
   settings: '/p/settings',
   runs: '/p/runs',
+  logs: '/p/logs',
 } as const;
+
+/**
+ * The Logs page: every log madarch keeps, filtered and followed live. A `run` filters it to one run, and `q` and `level`
+ * narrow it further — the run journal links a failure straight to the row that states it.
+ */
+export function logsAddress(run?: string, options: { readonly q?: string; readonly level?: string } = {}): string {
+  const query = new URLSearchParams();
+  if (run !== undefined && run !== '') query.set('run', run);
+  if (options.q !== undefined && options.q !== '') query.set('q', options.q);
+  if (options.level !== undefined && options.level !== '') query.set('level', options.level);
+  const text = query.toString();
+  return text === '' ? PAGE_ADDRESSES.logs : `${PAGE_ADDRESSES.logs}?${text}`;
+}
 
 /** The runs page: the history of fills, always reachable, and the way to choose a new fill. */
 export const RUNS_PAGE = '/p/runs';
@@ -49,6 +63,18 @@ export function catalogueSelectionAddress(kinds: readonly string[] = []): string
 /** One fill run's page, the `run` template with the run's id as its variable. */
 export function runAddress(runId: string): string {
   return `/p/run?run=${encodeURIComponent(runId)}`;
+}
+
+/** A press that walks to an address: in the tab in front, or in a tab of its own (a control, command or middle press). */
+export type OpenPage = (address: string, options?: { readonly newTab?: boolean }) => void;
+
+/** A source location, drawn by the source template at the dedicated source address. */
+export function sourceAddress(repository: string | undefined, path: string, line?: number): string {
+  const query = new URLSearchParams();
+  if (repository !== undefined) query.set('repo', repository);
+  query.set('path', path);
+  if (line !== undefined) query.set('line', String(line));
+  return `/src?${query.toString()}${line === undefined ? '' : `#L${String(line)}`}`;
 }
 
 /** One of the frame's own sections. */
@@ -87,12 +113,13 @@ export function parseAddress(pathname: string, search: string, base: string): Ap
   const lang = query.get('lang') ?? undefined;
   const role = query.get('role') ?? undefined;
   const shared = { params, ...(lang === undefined ? {} : { lang }), ...(role === undefined ? {} : { role }) };
+  if (path === '/src') return { page: { ...shared, template: 'source' }, home: false, unknown: false, frame: null };
   if (path === '' || path === '/') return { page: { ...shared, home: true }, home: true, unknown: false, frame: null };
-  const entity = /^\/e\/([^/]+)\/([^/]+)\/?$/u.exec(path);
+  const entity = path.match(/^\/e\/([^/]+)\/([^/]+)\/?$/u);
   if (entity !== null) return { page: { ...shared, kind: decode(entity[1]!), id: decode(entity[2]!) }, home: false, unknown: false, frame: null };
   // The old fill address opens the catalogue's selection mode: the separate fill list page is gone.
   if (path === '/p/fill') return { page: { ...shared, template: 'catalogue', params: { ...params, select: '1' } }, home: false, unknown: false, frame: null };
-  const template = /^\/p\/([^/]+)\/?$/u.exec(path);
+  const template = path.match(/^\/p\/([^/]+)\/?$/u);
   if (template !== null) {
     const name = decode(template[1]!);
     // A search is shared as `?q=`, and the search template names its words `text`: a link in the other spelling searches

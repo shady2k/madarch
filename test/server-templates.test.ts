@@ -11,6 +11,7 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
 import { checkProductTemplates } from '../src/graph/template-check.js';
+import { readFolderTemplates } from './page-templates-fixture.js';
 import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
 import { composePage } from '../src/page-contract/compose.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -48,7 +49,8 @@ test('template component and parameter findings do not stop other pages serving'
     const running = await startPreparedServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       expect((await fetch(running.url)).status).toBe(200);
-      const findings = checkProductTemplates(product);
+      const folderTemplates = readFolderTemplates(product);
+      const findings = checkProductTemplates(folderTemplates.files, folderTemplates.bodies, folderTemplates.findings);
       expect(findings.some((one) => one.file === 'templates/probe.yaml' && one.line > 1 && one.message.includes('carousel'))).toBe(true);
       const answer = await (await fetch(`${running.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ bootstrap { structureRevision catalogueTemplate templates { name body } recordTemplates { kind template } ownTemplates { id template } roles } }' }) })).json() as any;
       expect(composePage(answer.data.bootstrap, { template: 'search' }).findings).toEqual([]);
@@ -65,7 +67,7 @@ test('a reduced manifest keeps query failures on their page and in Problems', as
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   const folder = draft.folder;
   prepareStoreAcceptanceFixture(folder);
-  const running = await startPreparedServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  let running = await startPreparedServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
   try {
     const post = async (query: string, variables = {}) => await (await fetch(`${running.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }) })).json() as any;
     const answer = await post('{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name body } recordTemplates { kind template } ownTemplates { id template } roles } }');
@@ -80,7 +82,12 @@ test('a reduced manifest keeps query failures on their page and in Problems', as
     const listing = await post('{ templateFindings { file line path message } }');
     expect(listing.errors).toBeUndefined();
     expect(listing.data.templateFindings.some((one: any) => one.file === `${folder}/templates/code-file.yaml` && one.line > 1 && one.message.includes('repository'))).toBe(true);
+    // The templates a page reads are the graph's entities, read in the page's own snapshot and republished when the
+    // product is opened again (the owner's decision of 2026-11-15): a file written after start is not a second source,
+    // so the mended template shows once the product is opened again.
     writeFileSync(join(folder, 'templates/code-file.yaml'), 'template: code-file\nrecords: [code.file]\nsections: []\n');
+    await running.stop();
+    running = await startPreparedServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     const refreshed = await post('{ templateFindings { file } }');
     expect(refreshed.data.templateFindings.some((one: { file: string }) => one.file === `${folder}/templates/code-file.yaml`)).toBe(false);
   } finally {
@@ -96,7 +103,8 @@ test('query diagnostics keep an inherited yml section source and use the supplie
   writeFileSync(base, 'template: probe-base\nsections:\n  - id: bad\n    component: header\n    query: missingTemplateField\n    params: { titlePath: id }\n');
   writeFileSync(child, 'template: probe-child\nextends: probe-base\nrecords: [code.file]\n');
   try {
-    const findings = checkProductTemplates(product, manifest.manifest);
+    const folderTemplates = readFolderTemplates(product);
+    const findings = checkProductTemplates(folderTemplates.files, folderTemplates.bodies, folderTemplates.findings, manifest.manifest);
     expect(findings.some((one) => one.file === 'templates/probe-base.yml' && one.line === 3 && one.message.includes('missingTemplateField'))).toBe(true);
     expect(findings.some((one) => one.file === 'templates/probe-child.yaml' && one.message.includes('missingTemplateField'))).toBe(false);
   } finally {

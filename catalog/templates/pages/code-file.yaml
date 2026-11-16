@@ -27,7 +27,7 @@ sections:
     params:
       groups:
         - title: { en: Overview, ru: Обзор }
-          sections: [facts, diagram]
+          sections: [facts, diagram, languages, filetext]
         - title: { en: History, ru: История }
           sections: [history]
         - title: { en: Co-change, ru: Совместные изменения }
@@ -42,9 +42,9 @@ sections:
       lines
       bytes
       addedAt
-      codeFileAddedIn(first: 1) { edges { node { node { id label ... on CodeCommit { hash } } } } }
+      codeFileAddedIn(first: 1) { edges { node { node { id label ... on KindCodeCommit { hash } } } } }
       removedAt
-      codeFileRemovedIn(first: 1) { edges { node { node { id label ... on CodeCommit { hash } } } } }
+      codeFileRemovedIn(first: 1) { edges { node { node { id label ... on KindCodeCommit { hash } } } } }
       lastChange
       commitCount
       codeFileRepository(first: 1) { edges { node { node { id label } } } }
@@ -62,6 +62,29 @@ sections:
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
         - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
         - { label: { en: Folder, ru: Папка }, path: codeFileDirectory.edges.0.node.node.label }
+  - id: languages
+    component: table
+    title: { en: Language assertions, ru: Утверждения о языке }
+    query: |
+      languageAssertions { value source { id label } recordedAt selected }
+    params:
+      path: languageAssertions
+      columns:
+        - { label: { en: Language, ru: Язык }, path: value }
+        - { label: { en: Source, ru: Источник }, path: source.label }
+        - { label: { en: Recorded, ru: Записано }, path: recordedAt, format: date }
+  - id: filetext
+    after: facts
+    component: file-text
+    title: { en: Text, ru: Текст }
+    query: |
+      id
+      codeFileRepository(first: 1) { edges { node { node { label } } } }
+      path
+    params:
+      repositoryPath: codeFileRepository.edges.0.node.node.label
+      pathPath: path
+      chunk: 400
   - id: latest
     component: facts
     on: root
@@ -75,7 +98,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate
@@ -116,7 +139,7 @@ sections:
           node {
             id
             kind
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               subject
               commitDate
               codeAuthoredOf(first: 1) {
@@ -143,6 +166,8 @@ sections:
     query: |
       cochange(id: $id, edge: "code.touched", first: 20) {
         count
+        total
+        share
         node { id kind label }
       }
     params:
@@ -151,6 +176,8 @@ sections:
       columns:
         - { label: { en: File, ru: Файл }, path: node.label }
         - { label: { en: Commits together, ru: Общих коммитов }, path: count, format: number }
+        - { label: { en: Total commits, ru: Всего коммитов }, path: total, format: number }
+        - { label: { en: Share (%), ru: Доля (%) }, path: share, format: percent }
   - id: outgoing
     replace: true
     component: relations
@@ -195,7 +222,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate

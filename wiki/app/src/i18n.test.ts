@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 import { adoptProductLanguage, i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { PROBLEM_TEXT_CODES } from '../../../src/problems/types.js';
 
 function leafKeys(value: unknown, prefix = ''): string[] {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return [prefix];
@@ -15,6 +16,19 @@ function leafKeys(value: unknown, prefix = ''): string[] {
 describe('the wiki\u2019s words', () => {
   test('English and Russian catalogues hold the same message keys', () => {
     expect(leafKeys(en).sort()).toEqual(leafKeys(ru).sort());
+  });
+
+  test('every problem sentence the engine can send has its words in both languages', () => {
+    // The engine sends a code and its values (madarch-64o5.92); a code without a sentence in a catalogue would print
+    // nothing on the page, so both catalogues are read for every code the engine declares.
+    const words = (catalogue: typeof en, code: string): string | undefined => {
+      const held = catalogue.loop.problemText as Record<string, string | undefined>;
+      return held[code] ?? held[`${code}_other`];
+    };
+    for (const code of PROBLEM_TEXT_CODES) {
+      expect([code, words(en, code) !== undefined]).toEqual([code, true]);
+      expect([code, words(ru, code) !== undefined]).toEqual([code, true]);
+    }
   });
 
   test('a browser language tag selects Russian only for ru', () => {

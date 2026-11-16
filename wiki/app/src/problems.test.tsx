@@ -31,9 +31,11 @@ beforeEach(() => {
     const { query } = JSON.parse(init?.body ?? '{}') as { query: string };
     requests.push({ url, query });
     if (query.includes('bootstrap')) return new Response(JSON.stringify({ data: {
-      bootstrap: { structureRevision: 'r1', home: null, catalogueTemplate: null, recordTemplates: [], ownTemplates: [], templates: [], roles: [] },
+      bootstrap: { structureRevision: 'r1', home: null, catalogueTemplate: null, recordTemplates: [], ownTemplates: [], templates: [], roles: [], roleLeads: [] },
       navigation: { product: 'Example', groups: [], kinds: [], purposes: [] },
     } }));
+    // The frame's product list is the service's own answer; the page's failure is the graph's.
+    if (query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'example', products: [] } } }));
     if (failNetwork) throw new Error('Network unavailable');
     return new Response(JSON.stringify(answer));
   }) as typeof fetch;
@@ -57,9 +59,10 @@ test('Problems shows actionable template findings through the product GraphQL en
     expect(main?.textContent).toContain(`${finding.file}:${finding.line}`);
     expect(main?.textContent).toContain(finding.path);
     expect(page.container.querySelector('[data-testid="frame-rebuilding"]')).toBeNull();
-    const graphql = requests.filter(({ url }) => url === '/products/example/graphql');
-    expect(graphql).toHaveLength(2);
-    expect(graphql[1]?.query).toContain('templateFindings { file line path message }');
+    // Two reads: the frame's bootstrap and products, then the Problems page's own operation.
+    const findings = requests.filter(({ url, query }) => url === '/products/example/graphql' && query.includes('templateFindings'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.query).toContain('templateFindings { file line path message }');
   } finally { await page.close(); }
 });
 

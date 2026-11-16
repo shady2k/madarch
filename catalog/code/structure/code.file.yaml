@@ -103,11 +103,6 @@ fields:
   nullable: true
   producers:
   - disk
-- name: content
-  type: text
-  nullable: true
-  producers:
-  - disk
 - name: language
   type: text
   nullable: true
@@ -146,6 +141,11 @@ fields:
   nullable: true
   producers:
   - git
+# The file text is read by its repository edge, path and immutable blob (decision 0037).
+file-text:
+  repository: code.file-repository
+  path: path
+  blob: blob
 key:
 - path
 classes:

@@ -128,7 +128,7 @@ export async function entityCommand(args: readonly string[], options: {
     const rawMessage = error instanceof Error ? error.message : String(error);
     const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
     const guidance = await entityGuidance(product);
-    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : /^field "([^"]+)"/u.test(rawMessage) ? { field: /^field "([^"]+)"/u.exec(rawMessage)![1] } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
+    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : /^field "([^"]+)"/u.test(rawMessage) ? { field: rawMessage.match(/^field "([^"]+)"/u)![1] } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
     else stderr.write(`${message}\n${JSON.stringify(guidance)}\nRun madarch entity --help for examples and options.\n`);
     return 2;
   } finally { await product?.close(); }

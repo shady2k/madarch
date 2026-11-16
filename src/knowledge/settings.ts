@@ -8,7 +8,9 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { withSpanSync } from '../obs/trace.js';
 import { madarchHome, type DraftEnv } from '../product/home.js';
+import { DEFAULT_RAW_DAYS } from '../obs/retention.js';
 import { EVERY_ROLE } from '../product/manifest/kinds.js';
 
 const SETTINGS_FILE = 'settings.json';
@@ -26,24 +28,38 @@ export interface Settings {
   role: string;
   /** Whether the reader was asked (and chose or skipped). */
   asked: boolean;
+  /** Whether this machine and its person chose to run plugins without isolation; absent when nobody was asked. */
+  pluginsUnconfined?: boolean;
 }
 
 export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
 
-/** How many run traces the store keeps (`traceRuns` in settings.json, 20 unless a whole number 1–1000 names one). */
-export function traceKeepOf(env: DraftEnv): number {
-  try {
-    const held = readRaw(settingsPath(env))['traceRuns'];
-    return typeof held === 'number' && Number.isInteger(held) && held >= 1 && held <= 1000 ? held : 20;
-  } catch {
-    return 20;
-  }
+/**
+ * What this machine keeps of the raw telemetry — the spans, the logs and the agent journal (decision 0039, item
+ * 33): `traceRetentionDays` (three days when it is left out, «Пусть у нас очень подробные логи там хранятся 3
+ * дня»), `traceRetentionBytes` (an explicit machine setting; no byte bound when it names none) and `traceRuns`
+ * (twenty). The oldest records go first, whichever bound is reached first.
+ */
+export function rawRetentionOf(env: DraftEnv): { readonly days: number; readonly bytes: number | null; readonly runs: number } {
+  let raw: Record<string, unknown> = {};
+  try { raw = readRaw(settingsPath(env)); } catch { raw = {}; }
+  const days = typeof raw['traceRetentionDays'] === 'number' && Number.isInteger(raw['traceRetentionDays']) && raw['traceRetentionDays'] >= 0
+    ? raw['traceRetentionDays'] : DEFAULT_RAW_DAYS;
+  const bytes = typeof raw['traceRetentionBytes'] === 'number' && Number.isInteger(raw['traceRetentionBytes']) && raw['traceRetentionBytes'] > 0
+    ? raw['traceRetentionBytes'] : null;
+  const runs = typeof raw['traceRuns'] === 'number' && Number.isInteger(raw['traceRuns']) && raw['traceRuns'] >= 1 && raw['traceRuns'] <= 1000
+    ? raw['traceRuns'] : 20;
+  return { days, bytes, runs };
 }
 
 function readRaw(file: string): Record<string, unknown> {
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = withSpanSync('settings.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
   } catch (error) {
     if ((error as { code?: string }).code === 'ENOENT') return {};
     throw new Error(`${file}: the settings cannot be read: ${(error as Error).message}`);
@@ -61,7 +77,32 @@ function readRaw(file: string): Record<string, unknown> {
 export function readSettings(env: DraftEnv, roles: readonly string[]): Settings {
   const raw = readRaw(settingsPath(env));
   const role = typeof raw['role'] === 'string' && roles.includes(raw['role']) ? raw['role'] : EVERY_ROLE;
-  return { role, asked: raw['roleAsked'] === true };
+  const pluginsUnconfined = typeof raw['pluginsUnconfined'] === 'boolean' ? raw['pluginsUnconfined'] : undefined;
+  return { role, asked: raw['roleAsked'] === true, ...(pluginsUnconfined === undefined ? {} : { pluginsUnconfined }) };
+}
+
+/** The isolation answer this machine remembers; absent when nobody was asked. */
+export function readPluginsUnconfined(env: DraftEnv): boolean | undefined {
+  const held = readRaw(settingsPath(env))['pluginsUnconfined'];
+  return typeof held === 'boolean' ? held : undefined;
+}
+
+/** Writes the isolation answer for this machine, keeping every other key of the file. */
+export function writePluginsUnconfined(env: DraftEnv, unconfined: boolean): boolean {
+  const file = settingsPath(env);
+  const raw = readRaw(file);
+  raw['pluginsUnconfined'] = unconfined;
+  withSpanSync('settings.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
+  const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  const text = `${JSON.stringify(raw, null, 2)}\n`;
+  try {
+    withSpanSync('settings.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(text) }, () => writeFileSync(temporary, text, { flag: 'wx', mode: 0o600 }));
+    renameSync(temporary, file);
+  } catch (error) {
+    withSpanSync('settings.remove', { 'file.path': temporary }, () => rmSync(temporary, { force: true }));
+    throw new Error(`${file}: the settings could not be written: ${(error as Error).message}`);
+  }
+  return unconfined;
 }
 
 /** Writes the role (and that the reader was asked), keeping every other key of the file. */
@@ -71,14 +112,15 @@ export function writeRole(env: DraftEnv, role: string, roles: readonly string[])
   const raw = readRaw(file);
   raw['role'] = role;
   raw['roleAsked'] = true;
-  mkdirSync(dirname(file), { recursive: true });
+  withSpanSync('settings.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
   // A file of its own that did not exist (exclusive), so a link left at a guessable name is never written through.
   const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  const text = `${JSON.stringify(raw, null, 2)}\n`;
   try {
-    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    withSpanSync('settings.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(text) }, () => writeFileSync(temporary, text, { flag: 'wx', mode: 0o600 }));
     renameSync(temporary, file);
   } catch (error) {
-    rmSync(temporary, { force: true });
+    withSpanSync('settings.remove', { 'file.path': temporary }, () => rmSync(temporary, { force: true }));
     throw new Error(`${file}: the settings could not be written: ${(error as Error).message}`);
   }
   return { role, asked: true };
@@ -95,13 +137,14 @@ export function writeLanguage(env: DraftEnv, language: 'en' | 'ru'): 'en' | 'ru'
   const file = settingsPath(env);
   const raw = readRaw(file);
   raw['language'] = language;
-  mkdirSync(dirname(file), { recursive: true });
+  withSpanSync('settings.mkdir', { 'file.path': dirname(file) }, () => mkdirSync(dirname(file), { recursive: true }));
   const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  const text = `${JSON.stringify(raw, null, 2)}\n`;
   try {
-    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    withSpanSync('settings.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(text) }, () => writeFileSync(temporary, text, { flag: 'wx', mode: 0o600 }));
     renameSync(temporary, file);
   } catch (error) {
-    rmSync(temporary, { force: true });
+    withSpanSync('settings.remove', { 'file.path': temporary }, () => rmSync(temporary, { force: true }));
     throw new Error(`${file}: the language could not be written: ${(error as Error).message}`);
   }
   return language;

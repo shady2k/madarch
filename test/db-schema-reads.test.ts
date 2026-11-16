@@ -31,6 +31,11 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
         facts: { apply: async () => { throw new Error("unexpected immediate operation"); } },
         signal: new AbortController().signal, heartbeat() {}, progress() {},
         async agent() { throw new Error('no agent requested'); },
+        // The text is the blob the graph names, asked of the host: the fixture answers it as the blob it names.
+        async read(request: { readonly repository: string; readonly blob: string }) {
+          const index = Number(String(request.blob).split('-')[1]);
+          return { text: `const sql = "CREATE TABLE ${String(request.blob).split('-')[0]}_${index} (id integer PRIMARY KEY)";`, lines: 1, bytes: 1, binary: false };
+        },
         graph: {
           async files(value) { pattern = value; patterns.push(value); return value === 'first' ? definitions : [...definitions].reverse(); },
           async value<T>(_kind: string, key: KeyValues, field: string) {
@@ -40,7 +45,8 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
             peak = Math.max(peak, ++active);
             if (delayed) await new Promise<void>((resolve) => setTimeout(resolve, (18 - index) % 4));
             active--;
-            return (index === 0 ? null : index === 1 ? '' : `const sql = "CREATE TABLE ${heldPattern}_${index} (id integer PRIMARY KEY)";`) as T;
+            // The graph names a blob per file; two files hold none, and the fixture reads no text for them.
+            return (index === 0 ? null : index === 1 ? '' : `${heldPattern}-${index}`) as T;
           },
           async removedEnds() { return { rows: [] }; }, async unevidenced() { return { rows: [] }; },
         },
@@ -57,8 +63,8 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
     expect(tables.every((vertex) => String(vertex.key['name']).startsWith('second_'))).toBe(true);
     expect(delayed.patterns).toEqual(['first', 'second']);
     expect(delayed.reads).toEqual([
-      ...definitions.map((file) => `first:${file.key.path}:content`),
-      ...[...definitions].reverse().map((file) => `second:${file.key.path}:content`),
+      ...definitions.map((file) => `first:${file.key.path}:blob`),
+      ...[...definitions].reverse().map((file) => `second:${file.key.path}:blob`),
     ]);
     expect(delayed.peak).toBeGreaterThan(1);
     expect(delayed.peak).toBeLessThanOrEqual(8);

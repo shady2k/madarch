@@ -32,3 +32,13 @@ export function KitState({ label, children, className }: { label: string; childr
     <div className="min-w-0">{children}</div>
   </div>;
 }
+
+/** The kit's own width for a state that reviews the kit at a phone's width. */
+export function KitNarrow({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('grid w-[390px] max-w-full gap-4', className)} data-testid="kit-narrow">{children}</div>;
+}
+
+/** One state of a figure that fills the section rather than standing beside its neighbours. */
+export function KitFigureState({ label, children }: { label: string; children: ReactNode }) {
+  return <KitState label={label} className="w-full">{children}</KitState>;
+}

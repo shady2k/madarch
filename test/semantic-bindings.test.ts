@@ -54,11 +54,11 @@ test('engine projection schema validates declared role slots and rejects unknown
 });
 
 test('problem fingerprints contain diagnostic values and the actual graph target UID, never composite graph keys', () => {
-  const diagnostic = { rule: 'size-rule', reason: '731 lines exceed 600', file: 'src/example.ts', line: 1, identity: 'display-key-one' };
+  const diagnostic = { rule: 'size-rule', text: { code: 'largeFile' as const, args: { count: 731, limit: 600 } }, file: 'src/example.ts', line: 1, identity: 'display-key-one' };
   const first = problemFingerprint(diagnostic, 'target-uid-one');
   const renamedDiagnostic = { ...diagnostic, identity: 'renamed-display-key' };
   expect(problemFingerprint(renamedDiagnostic, 'target-uid-one')).toBe(first);
   expect(problemFingerprint(diagnostic, 'target-uid-two')).not.toBe(first);
-  expect(problemFingerprint({ ...diagnostic, reason: '732 lines exceed 600' }, 'target-uid-one')).not.toBe(first);
+  expect(problemFingerprint({ ...diagnostic, text: { code: 'largeFile', args: { count: 732, limit: 600 } } }, 'target-uid-one')).not.toBe(first);
   expect(first).not.toContain(diagnostic.identity);
 });

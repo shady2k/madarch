@@ -1,3 +1,4 @@
+import { withSpan } from '../obs/trace.js';
 import {Value} from 'typebox/value';
 import {GraphEvidenceEntrySchema} from './evidence-schema.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
@@ -264,7 +265,7 @@ async function manifestOf(tx: OuterTransaction): Promise<KindsManifest> {
 /** Names come only from the manifest's declared page-title field, never a guessed field name. */
 async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contract: GraphContract, values: unknown): Promise<MentionHint[]> {
   const dictionary = new Map<string, MentionCandidate[]>();
-  const cutoff = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+  const cutoff = (await withSpan('graph.graph-writes.writeHints', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now'))).rows[0]!.now;
   for (const kind of manifest.kinds.values()) {
     const vertex = contract.vertex.find(candidate => candidate.name === kind.name);
     const labelField = kind.naming === undefined ? kind.title : kind.naming.label;
@@ -308,17 +309,17 @@ export async function putEntityAssertion(tx: OuterTransaction, source: WriteSour
     let key: Record<string, unknown>;
     let writeUid: string | undefined;
     if (input.id !== undefined) {
-      const rows = await tx.query<{ key: Record<string, unknown> }>(
+      const rows = await withSpan('graph.graph-writes.putEntityAssertion', { 'db.system': 'postgres' }, async () => await tx.query<{ key: Record<string, unknown> }>(
         `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 LIMIT 1`,
         [input.id, input.kind],
-      );
+      ));
       if (rows.rows[0] === undefined) {
         // A uid names one entity of one kind, so a write of another kind that names it is refused: attaching its opinion to
         // that entity would make it a row of a kind it is not. The refusal says which kind the uid belongs to.
-        const held = await tx.query<{ kind: string }>(
+        const held = await withSpan('graph.graph-writes.putEntityAssertion', { 'db.system': 'postgres' }, async () => await tx.query<{ kind: string }>(
           `SELECT e.name AS kind FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid LIMIT 1`,
           [input.id],
-        );
+        ));
         const other = held.rows[0]?.kind;
         if (other !== undefined && other !== input.kind) throw new WriteRefusal(`id ${JSON.stringify(input.id)} belongs to an entity of the kind ${JSON.stringify(other)}, and this write names the kind ${JSON.stringify(input.kind)}: a uid is one entity of one kind`, 'id', 409);
         // A keyless kind's identity is its uid, so a write that names one makes that entity: two writes of one name meet
@@ -354,10 +355,10 @@ async function edgeEndOf(tx: OuterTransaction, contract: GraphContract, side: 'f
   const kind = held['kind'];
   const vertex = vertexOfKind(contract, kind);
   if (held['id'] !== undefined) {
-    const rows = await tx.query<{ key: Record<string, unknown> }>(
+    const rows = await withSpan('graph.graph-writes.edgeEndOf', { 'db.system': 'postgres' }, async () => await tx.query<{ key: Record<string, unknown> }>(
       `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 LIMIT 1`,
       [held['id'], kind],
-    );
+    ));
     if (rows.rows[0] === undefined) throw new WriteRefusal(`the ${side} id ${JSON.stringify(held['id'])}: no entity of the kind ${JSON.stringify(kind)} has it`, side, 404);
     return { kind, key: rows.rows[0].key as Record<string, KeyValueDraft>, uid: String(held['id']) };
   }
@@ -398,10 +399,10 @@ export async function retractAssertion(tx: OuterTransaction, source: WriteSource
         uid = String(held['id']);
         if (vertex.key.length === 0 && (vertex.keyEdges?.length ?? 0) === 0) key = {};
         else {
-          const rows = await tx.query<{ key: Record<string, unknown> }>(
+          const rows = await withSpan('graph.graph-writes.retractAssertion', { 'db.system': 'postgres' }, async () => await tx.query<{ key: Record<string, unknown> }>(
             `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 LIMIT 1`,
             [uid, held['kind']],
-          );
+          ));
           if (rows.rows[0] === undefined) throw new WriteRefusal(`id ${JSON.stringify(uid)}: no entity of the kind ${JSON.stringify(held['kind'])} has it`, 'id', 404);
           key = rows.rows[0].key;
         }
@@ -443,7 +444,7 @@ export async function putProblemTaskAssertion(tx: OuterTransaction, source: Writ
   if (binding.fields['status'] !== undefined && status !== undefined) values[binding.fields['status']] = status;
   const key = keyOfKind(taskKind, Object.fromEntries(taskKind.key.map(field => [field, values[field]])));
   if (Object.values(key).some(value => value === undefined)) throw new WriteRefusal(`${manifest.file}:1: problem-task identity fields require explicit tracker/key bindings`);
-  const cutoff = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+  const cutoff = (await withSpan('graph.graph-writes.putProblemTaskAssertion', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now'))).rows[0]!.now;
   const held = (await readKindAssertions(tx, 'vertex', 'system.problem', ['rule', 'fingerprint'], { validAt: cutoff, recordedAt: cutoff })).filter(record => record.values['rule'] === input.rule && record.values['fingerprint'] === input.fingerprint);
   if (held.length > 1) throw new WriteRefusal('ambiguous protected problem fingerprint');
   const problemUid = held[0]?.uid ?? newUid();

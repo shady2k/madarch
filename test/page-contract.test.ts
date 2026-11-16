@@ -13,6 +13,8 @@ import {
   type Bootstrap, type TemplateFile,
 } from '../src/page-contract/index.js';
 import { validateNode } from '../src/page-contract/validate.js';
+import { kindTypeNameOf } from '../src/graphql/names.js';
+import { starterSchema } from '../scripts/graphql-starter.js';
 import { parseDocument } from 'yaml';
 
 const ROOT = join(import.meta.dir, '..');
@@ -34,6 +36,7 @@ const bootstrap: Bootstrap = {
   recordTemplates: [],
   ownTemplates: [],
   roles: ['analyst', 'engineer'],
+  roleLeads: [],
 };
 
 /** Every object type of the starter schema that implements `Entity`. */
@@ -44,10 +47,9 @@ function entityTypes(): string[] {
     .sort();
 }
 
-/** The kind name a type name decodes back to for the composer: the composer only needs one of its own kinds' names. */
-function kindOf(typeName: string): string {
-  return typeName;
-}
+/** The starter catalogue's kinds, and the type each one opens on (src/graphql/names.ts). */
+const starter = starterSchema();
+const kindTypes = starter.kinds.map((kind) => kindTypeNameOf(kind));
 
 /** One address's operation, and the errors the real schema finds in it. */
 function composed(address: Parameters<typeof composePage>[1]): { operation: string; errors: readonly string[] } {
@@ -72,8 +74,8 @@ describe('the starter templates', () => {
       if (read.template !== undefined) templates.set(name, read.template);
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
-    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'records', 'diagram', 'outgoing', 'backlinks']);
-    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'dependencies', 'records', 'details', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'details', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 
   test('the home page composes against the real schema', () => {
@@ -81,10 +83,12 @@ describe('the starter templates', () => {
   });
 
   test('the entity page composes against every type the schema opens it on', () => {
+    // Every kind of the catalogue is a type the entity page opens on, and the schema opens it on no other.
+    expect(entityTypes().filter((one) => one !== 'CatalogueEntity')).toEqual([...kindTypes].sort());
     const failures: string[] = [];
-    for (const type of entityTypes()) {
-      const page = composed({ kind: kindOf(type), id: '00000000-0000-0000-0000-000000000002' });
-      if (page.errors.length > 0) failures.push(`${type}: ${page.errors.join('; ')}`);
+    for (const kind of starter.kinds) {
+      const page = composed({ kind, id: '00000000-0000-0000-0000-000000000002' });
+      if (page.errors.length > 0) failures.push(`${kind}: ${page.errors.join('; ')}`);
     }
     expect(failures).toEqual([]);
   });
@@ -92,7 +96,7 @@ describe('the starter templates', () => {
   test('the text page composes on a type that holds a body', () => {
     // The product's page is `home`: what a product says about itself is its fields, not one stored text. A comment holds
     // the text the text page draws, so the page is composed on it (madarch-64o5.109: the page field set left the catalogue).
-    const comment = schema.getType('Comment') as GraphQLObjectType | undefined;
+    const comment = schema.getType('KindComment') as GraphQLObjectType | undefined;
     expect(comment?.getFields()['body']).toBeDefined();
     expect(composed({ template: 'text', kind: 'comment', id: '00000000-0000-0000-0000-000000000003' }).errors).toEqual([]);
   });
@@ -107,7 +111,8 @@ describe('the starter templates', () => {
     for (const section of page.sections) expect(page.operation).toContain(`${section.alias}:`);
     expect(page.operation).toStartWith('query Page(');
     const declared = [...page.operation.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*):/gu)].map((match) => match[1]).sort();
-    expect(declared).toEqual(['id', 'lang']);
+    // The relations are paged: each asks its size and its cursor, so a page past the fiftieth row is reachable.
+    expect(declared).toEqual(['backlinks_after', 'backlinks_first', 'id', 'lang', 'outgoing_after', 'outgoing_first']);
     expect(page.variables['id']).toBe('00000000-0000-0000-0000-000000000005');
     // One operation asks every section: a page view is one request.
     expect(page.operation.match(/^query /gmu)).toHaveLength(1);
@@ -139,6 +144,12 @@ describe('the starter templates', () => {
     const analyst = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'analyst' });
     expect(engineer.sections.map((one) => one.id)).toContain('header');
     expect(analyst.sections.map((one) => one.id)).not.toContain('header');
+    // The reader who reads as everything is every role at once, as `/api/settings` names that reader (madarch-64o5.133).
+    const everything = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'everything' });
+    expect(everything.sections.map((one) => one.id)).toContain('header');
+    // A page composed with no role opens as that reader, never as a role no product declares.
+    const unnamed = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007' });
+    expect(unnamed.sections.map((one) => one.id)).toContain('header');
   });
 
   test('a template an address names is composed, and one it cannot bind is refused', () => {

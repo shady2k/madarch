@@ -31,11 +31,11 @@ export function watchdogBound(env: Readonly<Record<string, string | undefined>>)
  */
 import { requestHistoryPreparation, requestHistoryRename } from '../product/store-preparation.js';
 import { existsSync, statSync } from 'node:fs';
-import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
+import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun, withSpanSync } from '../obs/trace.js';
 import { watchRequest } from './watchdog.js';
 import { requestStage } from './stage.js';
 import { log as logEvent } from '../obs/log.js';
-import { traceKeepOf } from '../knowledge/settings.js';
+import { rawRetentionOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
 import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -205,7 +205,11 @@ export interface ReplyMaker {
 /** The manifest a product is opened from, as the products home keys its entries: its modification time, or -1 when it cannot be read. */
 function manifestStampOf(folder: string): number {
   try {
-    return statSync(joinPath(folder, MANIFEST_FILE)).mtimeMs;
+    return withSpanSync('fs.stat', { 'file.path': joinPath(folder, MANIFEST_FILE) }, (span) => {
+      const held = statSync(joinPath(folder, MANIFEST_FILE));
+      span.setAttribute('file.bytes', held.size);
+      return held;
+    }).mtimeMs;
   } catch {
     return -1;
   }
@@ -314,7 +318,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // The server's own trace: one span per request and the spans of the work a request asks for, kept beside
   // the state the server itself holds. A server told of no folder keeps none.
   const obsFolder = options.dataFolder ?? options.knowledgeRoot;
-  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, keep: traceKeepOf(process.env) });
+  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, retention: rawRetentionOf(process.env) });
   let sources: SourceStores | undefined;
   try {
     if (options.dataFolder !== undefined) await requestHistoryPreparation(options.dataFolder);
@@ -376,7 +380,11 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
-    try { stamp = statSync(productHome).mtimeMs; } catch { stamp = -1; }
+    try { stamp = withSpanSync('fs.stat', { 'file.path': productHome }, (span) => {
+      const held = statSync(productHome);
+      span.setAttribute('file.bytes', held.size);
+      return held;
+    }).mtimeMs; } catch { stamp = -1; }
     if (stamp === homeStamp && Date.now() - lastRefresh < 5000) return;
     homeStamp = stamp;
     lastRefresh = Date.now();
@@ -509,7 +517,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     // The daemon's own proof answers for the process, not for one product: a start asks it of the home's own port
     // (madarch-64o5.80).
     if (url.pathname === '/api/daemon') return handle(request);
-    const match = /^\/products\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
+    const match = url.pathname.match(/^\/products\/([^/]+)(?:\/(.*))?$/);
     if (match === null) return notServedFor(request, `this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
     let name: string;
     try { name = decodeURIComponent(match[1]!); } catch { return notServedFor(request, `the product path ${JSON.stringify(url.pathname)} holds a percent escape the server cannot read: ask for the product by its folder name`); }
@@ -591,7 +599,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
+    const child = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } }));
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: async () => {
@@ -720,6 +728,7 @@ export function createHandler(dependencies: {
         { method: 'POST', path: API.fillSelected, handle: (request: Request) => dependencies.knowledge!.fillSelected(request) },
         { method: 'GET', path: API.problems, handle: (request: Request) => dependencies.knowledge!.problems(request) },
         { method: 'GET', path: API.fillRuns, handle: (request: Request) => dependencies.knowledge!.fillRuns(request) },
+        { method: 'GET', path: API.logs, handle: (request: Request) => dependencies.knowledge!.logs(request) },
         { method: 'POST', path: API.pause, handle: (request: Request) => dependencies.knowledge!.pause(request) },
         { method: 'POST', path: API.stop, handle: (request: Request) => dependencies.knowledge!.stop(request) },
         { method: 'GET', path: API.agents, handle: (request: Request) => dependencies.knowledge!.agents(request) },
@@ -1396,7 +1405,7 @@ function namedSourceOf(body: unknown): string | undefined {
  * rolls out-of-range parts over silently).
  */
 function parseIsoWithOffset(text: string): number | undefined {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(text);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/);
   if (match === null) return undefined;
   const year = match[1]!;
   const month = match[2]!;

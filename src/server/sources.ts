@@ -1,3 +1,4 @@
+import { withSpan, withSpanSync } from '../obs/trace.js';
 /**
  * The server's data folder: one PostgreSQL server for the folder (its cluster
  * in `<data folder>/pgdata`, listening on a socket folder of its own) and one
@@ -217,13 +218,6 @@ interface SidecarFile {
 }
 
 /** Whether a path is a directory: a folder an older madarch left is one, and a stray file is not. */
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 export async function createSourceStores(options: SourceStoresOptions): Promise<SourceStores> {
   const { dataFolder, clock } = options;
@@ -231,7 +225,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
 
   let stat: Stats;
   try {
-    stat = statSync(dataFolder);
+    stat = withSpanSync('fs.stat', { 'file.path': dataFolder }, () => statSync(dataFolder));
   } catch (error) {
     throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history directories there`, { cause: error });
   }
@@ -239,14 +233,23 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     throw new Error(`the data folder "${dataFolder}" is not a folder; the server keeps its sources' history directories there`);
   }
 
-  const folderEntries = readdirSync(dataFolder);
+  const folderEntries = withSpanSync('fs.readdir', { 'file.path': dataFolder }, (span) => { const result = readdirSync(dataFolder); span.setAttribute('file.entries', result.length); return result; });
   const legacySqlite = folderEntries.filter((name) => name.endsWith('.sqlite'));
   if (legacySqlite.length > 0) {
     throw new Error(`the data folder holds SQLite history ${legacySqlite.sort(byCodePoint).map((name) => JSON.stringify(name)).join(', ')}; SQLite histories are not migrated, so rebuild the fact log by sending its source models again`);
   }
   // A directory holding a cluster of its own, beside the folder's, is a history of the in-process
   // database an older madarch kept as files: nothing reads it and nothing migrates it.
-  const legacyStores = folderEntries.filter((name) => name !== 'pgdata' && isDirectory(join(dataFolder, name)) && existsSync(join(dataFolder, name, 'PG_VERSION')));
+  const legacyStores = withSpanSync('sources.legacy', { 'file.path': dataFolder, 'file.entries': folderEntries.length }, () => {
+    function isDirectory(path: string): boolean {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    }
+    return folderEntries.filter((name) => name !== 'pgdata' && isDirectory(join(dataFolder, name)) && existsSync(join(dataFolder, name, 'PG_VERSION')));
+  });
   if (legacyStores.length > 0) {
     throw new Error(`the data folder holds ${legacyStores.sort(byCodePoint).map((name) => JSON.stringify(name)).join(', ')}, a history of the in-process database an older madarch kept as files: this server does not read ${legacyStores.length === 1 ? 'it' : 'them'} and nothing migrates ${legacyStores.length === 1 ? 'it' : 'them'}. Remove ${legacyStores.length === 1 ? 'that folder' : 'those folders'} and rebuild the fact log by sending the source models again`);
   }
@@ -330,55 +333,57 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     return a.commit === b.commit && a.committedAt === b.committedAt && a.storedAt === b.storedAt;
   }
 
-  for (const stem of jsonStems) {
-    const path = join(dataFolder, `${stem}.json`);
-    let file: SidecarFile;
-    try {
-      file = JSON.parse(readFileSync(path, 'utf8')) as SidecarFile;
-    } catch (error) {
-      throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
-    }
-    const sidecarHead = headOfSidecar(file, path);
-    const sidecarId = idOfSidecar(file, path);
-    const sidecarNames = formerNamesOfSidecar(file, path, sidecarHead.source);
-    const decoded = decodeSourceName(stem);
-    if (decoded === undefined) {
-      throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
-    }
-    const history = openHistory(cluster.databaseOf(stem));
-    const held = await startupSources(cluster.databaseOf(stem), history);
-    if (held.length !== 1) {
-      await history.close();
-      if (decoded !== sidecarHead.source) {
-        throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
+  await withSpan('sources.read', { 'file.path': dataFolder, 'sources.count': jsonStems.size }, async () => {
+    for (const stem of jsonStems) {
+      const path = join(dataFolder, `${stem}.json`);
+      let file: SidecarFile;
+      try {
+        file = JSON.parse(readFileSync(path, 'utf8')) as SidecarFile;
+      } catch (error) {
+        throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
       }
-      const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
-      throw new Error(`the history database of "${stem}.json" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
-    }
-    const source = held[0]!;
-    const persisted = await history.registry(source);
-    if (decoded !== source || (sidecarHead.source !== source && persisted === undefined)) {
-      await history.close();
-      if (decoded !== sidecarHead.source) {
-        throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
+      const sidecarHead = headOfSidecar(file, path);
+      const sidecarId = idOfSidecar(file, path);
+      const sidecarNames = formerNamesOfSidecar(file, path, sidecarHead.source);
+      const decoded = decodeSourceName(stem);
+      if (decoded === undefined) {
+        throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
       }
-      throw new Error(`the history database of "${stem}.json" holds the sources ${source}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
+      const history = openHistory(cluster.databaseOf(stem));
+      const held = await startupSources(cluster.databaseOf(stem), history);
+      if (held.length !== 1) {
+        await history.close();
+        if (decoded !== sidecarHead.source) {
+          throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
+        }
+        const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
+        throw new Error(`the history database of "${stem}.json" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
+      }
+      const source = held[0]!;
+      const persisted = await history.registry(source);
+      if (decoded !== source || (sidecarHead.source !== source && persisted === undefined)) {
+        await history.close();
+        if (decoded !== sidecarHead.source) {
+          throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
+        }
+        throw new Error(`the history database of "${stem}.json" holds the sources ${source}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
+      }
+      const id = persisted?.id ?? sidecarId ?? randomUUID();
+      const names = persisted?.formerNames ?? sidecarNames;
+      const trueHead = await newestCommit(source, id, history);
+      await history.setRegistry(source, id, names);
+      const namesDiffer = sidecarNames.length !== names.length || sidecarNames.some((name, index) => name !== names[index]);
+      if (sidecarHead.source !== source || !sameHead(trueHead, sidecarHead) || persisted === undefined || sidecarId !== id || namesDiffer) {
+        writeSidecar(stem, trueHead, names);
+        log(sidecarId === undefined
+          ? `assigned the source id ${JSON.stringify(id)} to "${source}" and repaired the sidecar from history`
+          : `repaired the sidecar "${stem}.json" from history for source "${source}"`);
+      }
+      heads.set(source, trueHead);
+      histories.set(source, history);
+      formerNames.set(source, names);
     }
-    const id = persisted?.id ?? sidecarId ?? randomUUID();
-    const names = persisted?.formerNames ?? sidecarNames;
-    const trueHead = await newestCommit(source, id, history);
-    await history.setRegistry(source, id, names);
-    const namesDiffer = sidecarNames.length !== names.length || sidecarNames.some((name, index) => name !== names[index]);
-    if (sidecarHead.source !== source || !sameHead(trueHead, sidecarHead) || persisted === undefined || sidecarId !== id || namesDiffer) {
-      writeSidecar(stem, trueHead, names);
-      log(sidecarId === undefined
-        ? `assigned the source id ${JSON.stringify(id)} to "${source}" and repaired the sidecar from history`
-        : `repaired the sidecar "${stem}.json" from history for source "${source}"`);
-    }
-    heads.set(source, trueHead);
-    histories.set(source, history);
-    formerNames.set(source, names);
-  }
+  });
 
   for (const database of databaseStems.keys()) {
     const stem = databaseStems.get(database)!;
@@ -462,7 +467,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     // Write beside the target and rename: an interrupted write leaves a
     // `.json.tmp` the next start ignores, never a half-written sidecar.
     const tmp = join(dataFolder, `${stem}.json.tmp`);
-    writeFileSync(tmp, JSON.stringify({ ...head, formerNames: names }));
+    withSpanSync('fs.write', { 'file.path': tmp, 'file.bytes': Buffer.byteLength(JSON.stringify({ ...head, formerNames: names })) }, () => writeFileSync(tmp, JSON.stringify({ ...head, formerNames: names })));
     renameSync(tmp, join(dataFolder, `${stem}.json`));
   }
 
@@ -559,7 +564,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     let renamedHistory: HistoryStore | undefined;
     try {
       // The database is renamed with the source: no session may hold it, so its pool was closed above.
-      await cluster.rename(fromDatabase, toDatabase);
+      await withSpan('sources.rename', { 'db.system': 'postgres', 'db.from': fromDatabase, 'db.to': toDatabase }, async () => await cluster.rename(fromDatabase, toDatabase));
       historyMoved = true;
       renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
       sidecarMoved = true;
@@ -568,7 +573,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     } catch (error) {
       await renamedHistory?.close();
       if (sidecarMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.json`), join(dataFolder, `${encodeSourceName(from)}.json`));
-      if (historyMoved) await cluster.rename(toDatabase, fromDatabase).catch(() => undefined);
+      if (historyMoved) await withSpan('sources.rename', { 'db.system': 'postgres', 'db.from': toDatabase, 'db.to': fromDatabase }, async () => await cluster.rename(toDatabase, fromDatabase)).catch(() => undefined);
       histories.set(from, openHistory(fromDatabase));
       throw error;
     }

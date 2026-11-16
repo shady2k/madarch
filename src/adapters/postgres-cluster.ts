@@ -43,6 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
@@ -149,7 +150,13 @@ function socketFolderFor(dataDir: string): string {
 
 /** Runs one of the server's own programs, refusing by name with what it said. */
 function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean; readonly stdio?: 'ignore' | 'pipe' } = {}): { code: number; stdout: string; stderr: string } {
-  const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: { ...process.env, LC_ALL: 'C' }, ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
+  const answer = withSpanSync('process.run', { 'process.command': program, 'process.args': [...args] }, (span) => {
+    const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: { ...process.env, LC_ALL: 'C' }, ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
+  });
   if (answer.error !== undefined) {
     throw new Error(`${program}:1: the server's own program could not run: ${answer.error.message} (src/adapters/postgres-cluster.ts)`);
   }
@@ -165,20 +172,30 @@ function runBinary(program: string, args: readonly string[], options: { readonly
 export function clusterEndpoint(socketDir: string): { host: string; port: number; password?: string } {
   if (process.platform !== 'win32') return { host: socketDir, port: CLUSTER_PORT };
   let port = 0;
-  try { port = Number(readFileSync(join(socketDir, 'postmaster.pid'), 'utf8').split('\n')[3]?.trim()); } catch { /* not started */ }
+  try { port = Number(withSpanSync('fs.read', { 'file.path': join(socketDir, 'postmaster.pid') }, (span) => {
+    const held = readFileSync(join(socketDir, 'postmaster.pid'), 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  }).split('\n')[3]?.trim()); } catch { /* not started */ }
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${join(socketDir, 'postmaster.pid')}:4: no running PostgreSQL TCP port`);
-  return { host: '127.0.0.1', port, password: readFileSync(join(socketDir, '..', 'postgres.password'), 'utf8').trim() };
+  return { host: '127.0.0.1', port, password: withSpanSync('fs.read', { 'file.path': join(socketDir, '..', 'postgres.password') }, (span) => {
+    const held = readFileSync(join(socketDir, '..', 'postgres.password'), 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  }).trim() };
 }
 
 /** Lets the OS choose an unused loopback port. pg_ctl reports a bind race as a failure, never another store. */
 async function freeTcpPort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const listener = createServer();
-    listener.once('error', reject);
-    listener.listen(0, '127.0.0.1', () => {
-      const address = listener.address();
-      if (address === null || typeof address === 'string') { listener.close(); reject(new Error('no TCP port allocated')); return; }
-      listener.close((error) => error ? reject(error) : resolve(address.port));
+  return await withSpan('net.listen', { 'net.host': '127.0.0.1', 'net.port': 0 }, async () => {
+    return await new Promise((resolve, reject) => {
+      const listener = createServer();
+      listener.once('error', reject);
+      listener.listen(0, '127.0.0.1', () => {
+        const address = listener.address();
+        if (address === null || typeof address === 'string') { listener.close(); reject(new Error('no TCP port allocated')); return; }
+        listener.close((error) => error ? reject(error) : resolve(address.port));
+      });
     });
   });
 }
@@ -193,8 +210,12 @@ async function answerFailure(socketDir: string, database: string = CLUSTER_ADMIN
   try {
     client = new Client({ ...clusterEndpoint(socketDir), user: CLUSTER_USER, database, connectionTimeoutMillis: 2_000 });
     client.on('error', (error: Error) => { said = error.message; });
-    await client.connect();
-    await client.query('SELECT 1');
+    await withSpan('db.connect', { 'db.system': 'postgres', 'net.host': socketDir }, async () => await client!.connect());
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT 1') }, async (span) => {
+      const answer = await client!.query('SELECT 1');
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     return undefined;
   } catch (error) {
     return said ?? (error instanceof Error ? error.message : String(error));
@@ -250,8 +271,12 @@ export async function clusterQuery<Row extends Record<string, unknown>>(cluster:
   const client = new Client({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), user: cluster.user, database, connectionTimeoutMillis: 5_000 });
   client.on('error', (error: Error) => console.error(`PostgreSQL cluster client "${cluster.dataDir}/${database}": ${error.message}`));
   try {
-    await client.connect();
-    const answer = await client.query(sql, [...values]);
+    await withSpan('db.connect', { 'db.system': 'postgres', 'net.host': cluster.socketDir }, async () => await client.connect());
+    const answer = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(sql) }, async (span) => {
+      const answer = await client.query(sql, [...values]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     return answer.rows as Row[];
   } catch (error) {
     if (error instanceof Error) { error.message = `PostgreSQL cluster "${cluster.dataDir}/${database}": ${error.message}`; throw error; }
@@ -264,7 +289,11 @@ export async function clusterQuery<Row extends Record<string, unknown>>(cluster:
 /** The pid a data directory's `postmaster.pid` names, or null when no line does. */
 function holderOf(dataDir: string): number | null {
   try {
-    const first = readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]?.trim() ?? '';
+    const first = withSpanSync('fs.read', { 'file.path': join(dataDir, 'postmaster.pid') }, (span) => {
+      const held = readFileSync(join(dataDir, 'postmaster.pid'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }).split('\n')[0]?.trim() ?? '';
     const pid = Number(first);
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
@@ -424,12 +453,16 @@ async function reclaimStaleServer(dataDir: string, bin: string, socketDir: strin
   const pid = holderOf(dataDir);
   if (pid === null) return;
   if (!alive(pid)) {
-    rmSync(join(dataDir, 'postmaster.pid'), { force: true });
+    withSpanSync('fs.remove', { 'file.path': join(dataDir, 'postmaster.pid') }, () => rmSync(join(dataDir, 'postmaster.pid'), { force: true }));
     return;
   }
   let mine = true;
   try {
-    mine = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').includes(dataDir);
+    mine = withSpanSync('fs.read', { 'file.path': `/proc/${String(pid)}/cmdline` }, (span) => {
+      const held = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }).includes(dataDir);
   } catch {
     mine = true;
   }
@@ -451,14 +484,16 @@ async function reclaimStaleServer(dataDir: string, bin: string, socketDir: strin
       while (alive(pid)) await Bun.sleep(20);
     }
   }
-  rmSync(join(dataDir, 'postmaster.pid'), { force: true });
+  withSpanSync('fs.remove', { 'file.path': join(dataDir, 'postmaster.pid') }, () => rmSync(join(dataDir, 'postmaster.pid'), { force: true }));
 }
 
 /** The socket file a dead server left in the folder is not a server: the new one makes its own. */
 function removeSocketFiles(socketDir: string): void {
-  for (const name of [`.s.PGSQL.${String(CLUSTER_PORT)}`, `.s.PGSQL.${String(CLUSTER_PORT)}.lock`]) {
-    rmSync(join(socketDir, name), { force: true });
-  }
+  return withSpanSync('postgres.remove_sockets', { 'file.path': socketDir, 'postgres.files': 2 }, () => {
+    for (const name of [`.s.PGSQL.${String(CLUSTER_PORT)}`, `.s.PGSQL.${String(CLUSTER_PORT)}.lock`]) {
+      rmSync(join(socketDir, name), { force: true });
+    }
+  });
 }
 
 /**
@@ -486,7 +521,7 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
   await createDataDir(dataDir, bin, options.log, options.preparationWaitMs ?? PREPARATION_WAIT_MS, options.initdbTimeoutMs ?? INITDB_TIMEOUT_MS);
   removeSocketFiles(socketDir);
   const logFile = join(dataDir, '..', 'postgres.log');
-  writeFileSync(logFile, '', 'utf8');
+  withSpanSync('fs.write', { 'file.path': logFile, 'file.bytes': Buffer.byteLength('') }, () => writeFileSync(logFile, '', 'utf8'));
   const connection = process.platform === 'win32'
     ? `-h 127.0.0.1 -p ${String(await freeTcpPort())} -c unix_socket_directories=`
     : `-k "${socketDir}" -p ${String(CLUSTER_PORT)} -c listen_addresses=`;
@@ -501,7 +536,11 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
       await awaitServerAnswering({ dataDir, socketDir });
     }
   } catch (error) {
-    throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${readFileSync(logFile, 'utf8')}`);
+    throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${withSpanSync('fs.read', { 'file.path': logFile }, (span) => {
+      const held = readFileSync(logFile, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    })}`);
   } finally {
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.start ${(performance.now() - started).toFixed(1)} ms`);
   }
@@ -518,14 +557,19 @@ function lowerPriorityOf(dataDir: string): void {
 /** The record of a preparation under way, read from beside the data directory; undefined when there is none readable. */
 function preparingRecord(dataDir: string): PreparingRecord | undefined {
   try {
-    const record = JSON.parse(readFileSync(preparingRecordPath(dataDir), 'utf8')) as PreparingRecord;
+    const record = JSON.parse(withSpanSync('fs.read', { 'file.path': preparingRecordPath(dataDir) }, (span) => {
+      const held = readFileSync(preparingRecordPath(dataDir), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    })) as PreparingRecord;
     return typeof record?.startedAt === 'string' ? record : undefined;
   } catch { return undefined; }
 }
 
 /** Writes one of our records beside the data directory, private to the account that runs the store. */
 function writeRecord(path: string, value: object): void {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  const text = `${JSON.stringify(value, null, 2)}\n`;
+  withSpanSync('fs.write', { 'file.path': path, 'file.bytes': Buffer.byteLength(text) }, () => writeFileSync(path, text, { mode: 0o600 }));
 }
 
 /** Whether our record says this data directory was prepared: the only proof of ours that a cluster is whole. */
@@ -558,30 +602,32 @@ export function moveAside(dataDir: string, moment: Date = new Date(), steps: {
   readonly rename?: (from: string, to: string) => void;
 } = {}): string {
   const platform = steps.platform ?? process.platform;
-  const mkdir = steps.mkdir ?? ((path: string) => mkdirSync(path));
-  const rmdir = steps.rmdir ?? ((path: string) => rmdirSync(path));
-  const rename = steps.rename ?? ((from: string, to: string) => renameSync(from, to));
-  const stamp = moment.toISOString().replace(/[:.]/gu, '-');
-  for (let attempt = 1; attempt <= 1_000; attempt++) {
-    const target = attempt === 1 ? `${dataDir}.abandoned-${stamp}` : `${dataDir}.abandoned-${stamp}-${String(attempt)}`;
-    try { mkdir(target); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
-      throw error;
+  return withSpanSync('postgres.move_aside', { 'file.path': dataDir }, () => {
+    const mkdir = steps.mkdir ?? ((path: string) => mkdirSync(path));
+    const rmdir = steps.rmdir ?? ((path: string) => rmdirSync(path));
+    const rename = steps.rename ?? ((from: string, to: string) => renameSync(from, to));
+    const stamp = moment.toISOString().replace(/[:.]/gu, '-');
+    for (let attempt = 1; attempt <= 1_000; attempt++) {
+      const target = attempt === 1 ? `${dataDir}.abandoned-${stamp}` : `${dataDir}.abandoned-${stamp}-${String(attempt)}`;
+      try { mkdir(target); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+        throw error;
+      }
+      // The placeholder is given back before the rename only where a rename never replaces a directory: from that moment
+      // whatever stands at the name is another process's folder, and the error path below never removes it.
+      let placeholder = true;
+      try {
+        if (platform === 'win32') { rmdir(target); placeholder = false; }
+        rename(dataDir, target);
+      } catch (error) {
+        if (placeholder) { try { rmdir(target); } catch { /* the rename took it, or it is gone */ } }
+        throw error;
+      }
+      return target;
     }
-    // The placeholder is given back before the rename only where a rename never replaces a directory: from that moment
-    // whatever stands at the name is another process's folder, and the error path below never removes it.
-    let placeholder = true;
-    try {
-      if (platform === 'win32') { rmdir(target); placeholder = false; }
-      rename(dataDir, target);
-    } catch (error) {
-      if (placeholder) { try { rmdir(target); } catch { /* the rename took it, or it is gone */ } }
-      throw error;
-    }
-    return target;
-  }
-  throw new Error(`${dataDir}:1: a thousand names beside this folder are taken, so the folder is left as it stands and this store does not open: move it by hand and open the store again (src/adapters/postgres-cluster.ts)`);
+    throw new Error(`${dataDir}:1: a thousand names beside this folder are taken, so the folder is left as it stands and this store does not open: move it by hand and open the store again (src/adapters/postgres-cluster.ts)`);
+  });
 }
 
 
@@ -592,37 +638,47 @@ export function moveAside(dataDir: string, moment: Date = new Date(), steps: {
  * removed, and initdb refused the folder it made). undefined when the listing itself cannot be read.
  */
 function preparationHolders(dataDir: string): { pid: number; name: string }[] | undefined {
-  if (process.platform === 'win32') {
-    const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
-    const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
-    if (answer.error !== undefined || answer.status !== 0) return undefined;
-    try {
-      const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
-      const all = Array.isArray(value) ? value : [value];
-      return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && ((row.Name ?? '').toLowerCase().startsWith('cmd')
-        ? (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())
-        : runsOnDataDir(row.Name ?? '', commandLineArguments(row.CommandLine ?? '', 'win32'), dataDir, 'win32'))).map((row) => ({ pid: row.ProcessId, name: row.Name }));
-    } catch { return undefined; }
-  }
-  const holders: { pid: number; name: string }[] = [];
-  try {
-    for (const id of readdirSync('/proc')) {
-      if (!/^\d+$/.test(id)) continue;
+  return withSpanSync('process.holders', { 'file.path': dataDir }, (span) => {
+    if (process.platform === 'win32') {
+      const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+      const answer = withSpanSync('process.run', { 'process.command': 'powershell', 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => {
+        const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+        span.setAttribute('process.exit_code', answer.status ?? -1);
+        span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+        span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+        return answer;
+      });
+      if (answer.error !== undefined || answer.status !== 0) return undefined;
       try {
-        const argv = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
-        const program = argv[0] ?? '';
-        if (!runsOnDataDir(program, argv, dataDir, process.platform)) continue;
-        holders.push({ pid: Number(id), name: program.split('/').pop() ?? '' });
-      } catch { /* gone */ }
+        const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+        const all = Array.isArray(value) ? value : [value];
+        return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && ((row.Name ?? '').toLowerCase().startsWith('cmd')
+          ? (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())
+          : runsOnDataDir(row.Name ?? '', commandLineArguments(row.CommandLine ?? '', 'win32'), dataDir, 'win32'))).map((row) => ({ pid: row.ProcessId, name: row.Name }));
+      } catch { return undefined; }
     }
-  } catch { return undefined; }
-  return holders;
+    const holders: { pid: number; name: string }[] = [];
+    try {
+      const ids = readdirSync('/proc');
+      span.setAttribute('process.entries', ids.length);
+      for (const id of ids) {
+        if (!/^\d+$/.test(id)) continue;
+        try {
+          const argv = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
+          const program = argv[0] ?? '';
+          if (!runsOnDataDir(program, argv, dataDir, process.platform)) continue;
+          holders.push({ pid: Number(id), name: program.split('/').pop() ?? '' });
+        } catch { /* gone */ }
+      }
+    } catch { return undefined; }
+    return holders;
+  });
 }
 
 /** Keeps a whole cluster: writes the record that says so, and drops the record of a preparation it no longer needs. */
 function keepPrepared(dataDir: string): void {
   if (!existsSync(preparedRecordPath(dataDir))) writeRecord(preparedRecordPath(dataDir), { version: runningVersion(), preparedAt: new Date().toISOString() });
-  rmSync(preparingRecordPath(dataDir), { force: true });
+  withSpanSync('fs.remove', { 'file.path': preparingRecordPath(dataDir) }, () => rmSync(preparingRecordPath(dataDir), { force: true }));
 }
 
 
@@ -648,7 +704,13 @@ export function endInitdbTree(pid: number | undefined, dataDir: string, live: bo
 } = {}): void {
   if (pid === undefined) return;
   const platform = reads.platform ?? process.platform;
-  const kill = reads.kill ?? ((target: number, tree: boolean) => { spawnSync('taskkill', ['/F', ...(tree ? ['/T'] : []), '/PID', String(target)], { encoding: 'utf8', timeout: 10_000 }); });
+  const kill = reads.kill ?? ((target: number, tree: boolean) => { withSpanSync('process.run', { 'process.command': 'taskkill', 'process.args': ['/F', ...(tree ? ['/T'] : []), '/PID', String(target)] }, (span) => {
+    const answer = spawnSync('taskkill', ['/F', ...(tree ? ['/T'] : []), '/PID', String(target)], { encoding: 'utf8', timeout: 10_000 });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
+  }); });
   if (platform === 'win32') {
     // While initdb itself lives its pid is its own, and its tree goes with it.
     if (live) { kill(pid, true); return; }
@@ -677,7 +739,13 @@ export function timeoutEndsInitdb(pid: number | undefined, dataDir: string, exit
 /** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
 function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
   const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
-  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+  const answer = withSpanSync('process.run', { 'process.command': 'powershell', 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => {
+    const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
+  });
   if (answer.error !== undefined || answer.status !== 0) return undefined;
   try {
     const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
@@ -688,57 +756,62 @@ function windowsProcesses(): { pid: number; name: string; commandLine: string }[
 
 /** Runs `initdb`, naming the pid it spawned to `named` as soon as there is one, and throws with what initdb said when it fails. */
 async function runInitdb(program: string, args: readonly string[], dataDir: string, named: (pid: number, startTime: string | undefined) => void, timeoutMs: number): Promise<void> {
-  const child = spawn(program, [...args], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, LC_ALL: 'C' },
-    // Its own process group on POSIX, so a timeout ends what initdb started; Windows is ended with `taskkill /T`.
-    detached: process.platform !== 'win32',
-  });
-  if (child.pid !== undefined) named(child.pid, processStartTime(child.pid));
-  let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (part: string) => { stderr += part; });
-  const outcome = await new Promise<{ code: number | null; timedOut: boolean }>((answer) => {
-    let settled = false;
-    let exited = false;
-    let output: ReturnType<typeof setTimeout> | undefined;
-    const finish = (value: { code: number | null; timedOut: boolean }): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (output !== undefined) clearTimeout(output);
-      answer(value);
-    };
-    // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
-    // start that waited for the pipes would hang on an initdb that has already ended.
-    // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
-    // start that waited for the pipes would hang on an initdb that has already ended. Its exit also disarms the timeout:
-    // after it, its pid is nobody's to signal, and a timer that fired in the pipe wait would kill a reused id.
-    child.once('exit', (code) => {
-      exited = true;
-      clearTimeout(timer);
-      output = setTimeout(() => finish({ code, timedOut: false }), INITDB_OUTPUT_WAIT_MS);
-      child.once('close', () => finish({ code, timedOut: false }));
+  return await withSpan('process.run', { 'process.command': program, 'process.args': [...args], 'file.path': dataDir }, async (span) => {
+    const child = spawn(program, [...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, LC_ALL: 'C' },
+      // Its own process group on POSIX, so a timeout ends what initdb started; Windows is ended with `taskkill /T`.
+      detached: process.platform !== 'win32',
     });
-    child.once('error', () => finish({ code: null, timedOut: false }));
-    const timer = setTimeout(() => {
-      timeoutEndsInitdb(child.pid, dataDir, exited);
-      finish({ code: null, timedOut: true });
-    }, timeoutMs);
+    if (child.pid !== undefined) named(child.pid, processStartTime(child.pid));
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (part: string) => { stderr += part; });
+    const outcome = await new Promise<{ code: number | null; timedOut: boolean }>((answer) => {
+      let settled = false;
+      let exited = false;
+      let output: ReturnType<typeof setTimeout> | undefined;
+      const finish = (value: { code: number | null; timedOut: boolean }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (output !== undefined) clearTimeout(output);
+        answer(value);
+      };
+      // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
+      // start that waited for the pipes would hang on an initdb that has already ended.
+      // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
+      // start that waited for the pipes would hang on an initdb that has already ended. Its exit also disarms the timeout:
+      // after it, its pid is nobody's to signal, and a timer that fired in the pipe wait would kill a reused id.
+      child.once('exit', (code) => {
+        exited = true;
+        clearTimeout(timer);
+        output = setTimeout(() => finish({ code, timedOut: false }), INITDB_OUTPUT_WAIT_MS);
+        child.once('close', () => finish({ code, timedOut: false }));
+      });
+      child.once('error', () => finish({ code: null, timedOut: false }));
+      const timer = setTimeout(() => {
+        timeoutEndsInitdb(child.pid, dataDir, exited);
+        finish({ code: null, timedOut: true });
+      }, timeoutMs);
+    });
+    span.setAttribute('process.exit_code', outcome.code ?? -1);
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(stderr));
+    // initdb has ended, one way or the other: what it started is ended with it, and both of its pipes are closed here.
+    // A bootstrap descendant that survived initdb holds its stdout, and a pipe left open keeps this process alive after
+    // the start is over (measured: Bun exited only when the descendant ended, 6 s later).
+    endInitdbTree(child.pid, dataDir, false);
+    child.stdout.destroy();
+    child.stderr.destroy();
+    if (outcome.timedOut) {
+      throw new Error(`${program}:1: ${[...args].join(' ')} did not finish within ${String(timeoutMs)} ms, so initdb and everything it started were ended (src/adapters/postgres-cluster.ts)`);
+    }
+    if (outcome.code !== 0) {
+      const said = stderr.trim();
+      throw new Error(`${program}:1: ${[...args].join(' ')} ${outcome.code === null ? 'could not run' : `exited ${String(outcome.code)}`}${said === '' ? '' : `: ${said}`} (src/adapters/postgres-cluster.ts)`);
+    }
   });
-  // initdb has ended, one way or the other: what it started is ended with it, and both of its pipes are closed here.
-  // A bootstrap descendant that survived initdb holds its stdout, and a pipe left open keeps this process alive after
-  // the start is over (measured: Bun exited only when the descendant ended, 6 s later).
-  endInitdbTree(child.pid, dataDir, false);
-  child.stdout.destroy();
-  child.stderr.destroy();
-  if (outcome.timedOut) {
-    throw new Error(`${program}:1: ${[...args].join(' ')} did not finish within ${String(timeoutMs)} ms, so initdb and everything it started were ended (src/adapters/postgres-cluster.ts)`);
-  }
-  if (outcome.code !== 0) {
-    const said = stderr.trim();
-    throw new Error(`${program}:1: ${[...args].join(' ')} ${outcome.code === null ? 'could not run' : `exited ${String(outcome.code)}`}${said === '' ? '' : `: ${said}`} (src/adapters/postgres-cluster.ts)`);
-  }
+
 }
 
 /**
@@ -775,7 +848,11 @@ async function awaitRecordedInitdb(dataDir: string, record: PreparingRecord | un
 }
 
 async function createDataDir(dataDir: string, bin: string, log: (line: string) => void, waitMs: number, initdbTimeoutMs: number): Promise<void> {
-  const empty = !existsSync(dataDir) || readdirSync(dataDir).length === 0;
+  const empty = !existsSync(dataDir) || withSpanSync('fs.readdir', { 'file.path': dataDir }, (span) => {
+    const held = readdirSync(dataDir);
+    span.setAttribute('file.entries', held.length);
+    return held;
+  }).length === 0;
   if (recordPrepared(dataDir) && !empty) {
     keepPrepared(dataDir);
     return;
@@ -809,7 +886,11 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   }
   // A folder is never deleted here: an abandoned one is moved aside and a person removes it once they have looked.
   if (existsSync(dataDir)) {
-    if (readdirSync(dataDir).length === 0) rmdirSync(dataDir);
+    if (withSpanSync('fs.readdir', { 'file.path': dataDir }, (span) => {
+      const held = readdirSync(dataDir);
+      span.setAttribute('file.entries', held.length);
+      return held;
+    }).length === 0) rmdirSync(dataDir);
     else {
       let target: string;
       try { target = moveAside(dataDir); }
@@ -819,7 +900,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
       defaultLog.warn(`madarch: the store folder ${dataDir} was not a whole store, so it is kept as ${target}: remove it by hand once you have checked it`, { madarch: 'postgres' });
     }
   }
-  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  withSpanSync('fs.mkdir', { 'file.path': dataDir }, () => mkdirSync(dataDir, { recursive: true, mode: 0o700 }));
   // Progress, not a warning: a command whose output a caller reads (a script's, a test's) stays quiet.
   defaultLog.info(`madarch: creating the PostgreSQL data directory ${dataDir}`, { madarch: 'postgres' });
   void log;
@@ -827,7 +908,10 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   if (process.platform === 'win32') {
     // TCP must not trust every local account as a superuser. The store's private credential is shared by its roles.
     const passwordFile = join(dataDir, '..', 'postgres.password');
-    if (!existsSync(passwordFile)) writeFileSync(passwordFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
+    if (!existsSync(passwordFile)) {
+      const password = `${randomBytes(32).toString('hex')}\n`;
+      withSpanSync('fs.write', { 'file.path': passwordFile, 'file.bytes': Buffer.byteLength(password) }, () => writeFileSync(passwordFile, password, { mode: 0o600 }));
+    }
     authentication.splice(0, 1, '--auth=scram-sha-256', `--pwfile=${passwordFile}`);
   }
   const version = runningVersion();
@@ -837,7 +921,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   const id = newPreparationId();
   // A record that outlived the folder it named says nothing about the one being made now: preparation is the record
   // from here until initdb ends, and a crash mid-way must not leave a store that reads as whole.
-  rmSync(preparedRecordPath(dataDir), { force: true });
+  withSpanSync('fs.remove', { 'file.path': preparedRecordPath(dataDir) }, () => rmSync(preparedRecordPath(dataDir), { force: true }));
   writeRecord(preparingRecordPath(dataDir), { id, version, startedAt });
   const started = performance.now();
   try {
@@ -847,11 +931,15 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
       writeRecord(preparingRecordPath(dataDir), { id, version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
     }, initdbTimeoutMs);
     writeRecord(preparedRecordPath(dataDir), { version, preparedAt: new Date().toISOString() });
-    rmSync(preparingRecordPath(dataDir), { force: true });
+    withSpanSync('fs.remove', { 'file.path': preparingRecordPath(dataDir) }, () => rmSync(preparingRecordPath(dataDir), { force: true }));
   } catch (error) {
     // An initdb that wrote nothing never prepared anything: the record of that attempt is not one to keep, since a
     // later open would refuse a folder holding nothing rather than prepare it.
-    if (readdirSync(dataDir).length === 0) rmSync(preparingRecordPath(dataDir), { force: true });
+    if (withSpanSync('fs.readdir', { 'file.path': dataDir }, (span) => {
+      const held = readdirSync(dataDir);
+      span.setAttribute('file.entries', held.length);
+      return held;
+    }).length === 0) withSpanSync('fs.remove', { 'file.path': preparingRecordPath(dataDir) }, () => rmSync(preparingRecordPath(dataDir), { force: true }));
     throw error;
   } finally {
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);
@@ -946,9 +1034,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
   const log = options.log ?? ((line: string) => defaultLog.warn(line, { madarch: 'postgres' }));
   const bin = join(options.bin ?? (await ensurePostgresInstalled({ env, progress: (line) => defaultLog.info(line, { madarch: 'postgres' }) })).bin);
   const socketDir = resolve(options.socketDir);
-  mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+  withSpanSync('fs.mkdir', { 'file.path': socketDir }, () => mkdirSync(socketDir, { recursive: true, mode: 0o700 }));
   chmodSync(socketDir, 0o700);
-  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  withSpanSync('fs.mkdir', { 'file.path': dataDir }, () => mkdirSync(dataDir, { recursive: true, mode: 0o700 }));
   // The use of the server is held before anything else: a stop another process is making ends first, so the server this
   // open finds or starts is never one a leaving process is about to stop.
   const users = await holdLock(usersLockPath(dataDir), LOCK_SH, { what: `the use of the PostgreSQL server on ${dataDir}`, deadlineMs: USERS_LOCK_WAIT_MS });
@@ -994,9 +1082,12 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
 
 /** The store folders of one knowledge root: `<root>/<id>/graph`, each holding a cluster's `pgdata`. */
 export function databaseFoldersUnder(knowledgeRoot: string): string[] {
-  let ids: string[] = [];
-  try { ids = readdirSync(knowledgeRoot); } catch { return []; }
-  return ids.map((id) => join(knowledgeRoot, id, 'graph')).filter((folder) => existsSync(join(folder, 'pgdata')) && readdirSync(folder).includes('pgdata'));
+  return withSpanSync('postgres.folders', { 'file.path': knowledgeRoot }, (span) => {
+    let ids: string[] = [];
+    try { ids = readdirSync(knowledgeRoot); } catch { return []; }
+    span.setAttribute('file.entries', ids.length);
+    return ids.map((id) => join(knowledgeRoot, id, 'graph')).filter((folder) => existsSync(join(folder, 'pgdata')) && readdirSync(folder).includes('pgdata'));
+  });
 }
 
 /** The PostgreSQL servers a knowledge root still records: each data folder whose `postmaster.pid` names a live process. */
@@ -1018,7 +1109,11 @@ function realPathOf(path: string): string {
 export function processStartTime(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
   if (platform !== 'linux') return undefined;
   try {
-    const stat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+    const stat = withSpanSync('fs.read', { 'file.path': `/proc/${String(pid)}/stat` }, (span) => {
+      const held = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
     // The second field is the command in parentheses; the fields after it are space separated.
     const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
     return after[19] ?? undefined;
@@ -1053,15 +1148,29 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
   let host = clusterPaths(dirname(dataDir)).socketDir;
   let password: string | undefined;
   if (platform === 'win32') {
-    try { port = Number(readFileSync(pidFile, 'utf8').split('\n')[3]?.trim()); } catch { return false; }
+    try { port = Number(withSpanSync('fs.read', { 'file.path': pidFile }, (span) => {
+      const held = readFileSync(pidFile, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }).split('\n')[3]?.trim()); } catch { return false; }
     if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
     host = '127.0.0.1';
-    try { password = readFileSync(join(dataDir, '..', 'postgres.password'), 'utf8').trim(); } catch { return false; }
+    try { password = withSpanSync('fs.read', { 'file.path': join(dataDir, '..', 'postgres.password') }, (span) => {
+      const held = readFileSync(join(dataDir, '..', 'postgres.password'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }).trim(); } catch { return false; }
   }
   // `-X` keeps a reader's ~/.psqlrc out of the answer; a fixed environment keeps PGOPTIONS and a locale's words out.
-  const answer = spawnSync(psql, ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
+  const answer = withSpanSync('process.run', { 'process.command': psql, 'process.args': ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'] }, (span) => {
+    const answer = spawnSync(psql, ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
     encoding: 'utf8', timeout: 5_000,
     env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
+  });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
   });
   if (answer.status !== 0) return false;
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
@@ -1092,63 +1201,67 @@ function waitGoneSync(pid: number, timeoutMs: number): boolean {
  * only once the server is confirmed gone, under the cluster's start lock.
  */
 export function stopDatabasesUnderSync(knowledgeRoot: string): void {
-  const bin = join(postgresInstallFolder(process.env), 'bin');
-  if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
-  for (const folder of databaseFoldersUnder(knowledgeRoot)) {
-    const dataDir = join(folder, 'pgdata');
-    const key = resolve(dataDir);
-    mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
-    const users = openLock(usersLockPath(key));
-    try {
-      if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
-        // A live process still uses this server: its own stop is the one that may end it.
-        continue;
-      }
-      const start = openLock(startLockPath(key));
+  return withSpanSync('postgres.stop_all', { 'file.path': knowledgeRoot }, (span) => {
+    const bin = join(postgresInstallFolder(process.env), 'bin');
+    if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
+    const folders = databaseFoldersUnder(knowledgeRoot);
+    span.setAttribute('postgres.stores', folders.length);
+    for (const folder of folders) {
+      const dataDir = join(folder, 'pgdata');
+      const key = resolve(dataDir);
+      mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+      const users = openLock(usersLockPath(key));
       try {
-        if (flock(start, LOCK_EX | LOCK_NB) !== 0) continue;
-        const pidFile = join(dataDir, 'postmaster.pid');
-        const pid = holderOf(dataDir);
-        if (pid === null) continue;
-        if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
-        // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
-        // must not be touched by it either.
-        if (!postmasterOfDataDir(dataDir, pid)) {
-          console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
+        if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+          // A live process still uses this server: its own stop is the one that may end it.
           continue;
         }
-        const verifiedStart = processStartTime(pid);
-        const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
-        if (stopped.status !== 0) {
-          if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
-          if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
-            console.error(`${dataDir}:1: the PostgreSQL server pid ${String(pid)} is no longer the verified process, or the platform cannot verify it; no signal is sent and its record stays`);
+        const start = openLock(startLockPath(key));
+        try {
+          if (flock(start, LOCK_EX | LOCK_NB) !== 0) continue;
+          const pidFile = join(dataDir, 'postmaster.pid');
+          const pid = holderOf(dataDir);
+          if (pid === null) continue;
+          if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
+          // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
+          // must not be touched by it either.
+          if (!postmasterOfDataDir(dataDir, pid)) {
+            console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
             continue;
           }
-          try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
-          waitGoneSync(pid, 10_000);
-          // The escalation follows the verified process itself, never a second socket answer: a server shutting down
-          // refuses connections, and asking again would block the SIGKILL a hung shutdown needs.
-          if (postmasterStill(dataDir, pid, verifiedStart)) {
-            try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+          const verifiedStart = processStartTime(pid);
+          const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
+          if (stopped.status !== 0) {
+            if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
+            if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
+              console.error(`${dataDir}:1: the PostgreSQL server pid ${String(pid)} is no longer the verified process, or the platform cannot verify it; no signal is sent and its record stays`);
+              continue;
+            }
+            try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
+            waitGoneSync(pid, 10_000);
+            // The escalation follows the verified process itself, never a second socket answer: a server shutting down
+            // refuses connections, and asking again would block the SIGKILL a hung shutdown needs.
+            if (postmasterStill(dataDir, pid, verifiedStart)) {
+              try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+            }
           }
+          if (!waitGoneSync(pid, 10_000)) {
+            console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
+            continue;
+          }
+          if (existsSync(pidFile)) {
+            if (alive(pid)) { console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`); continue; }
+            rmSync(pidFile, { force: true });
+          }
+          removeSocketFiles(clusterPaths(folder).socketDir);
+        } finally {
+          releaseLock(start);
         }
-        if (!waitGoneSync(pid, 10_000)) {
-          console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
-          continue;
-        }
-        if (existsSync(pidFile)) {
-          if (alive(pid)) { console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`); continue; }
-          rmSync(pidFile, { force: true });
-        }
-        removeSocketFiles(clusterPaths(folder).socketDir);
       } finally {
-        releaseLock(start);
+        releaseLock(users);
       }
-    } finally {
-      releaseLock(users);
     }
-  }
+  });
 }
 
 /**
@@ -1184,7 +1297,7 @@ export async function stopStoreForExit(store: string, options: { readonly force?
   for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
   userLocks.delete(key);
   openInProcess.delete(key);
-  mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+  withSpanSync('fs.mkdir', { 'file.path': dirname(key) }, () => mkdirSync(dirname(key), { recursive: true, mode: 0o700 }));
   const users = openLock(usersLockPath(key));
   try {
     if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
@@ -1202,11 +1315,15 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     // spend (madarch-8bdc.12).
     // A shutdown checkpoint can wait on disk I/O. Keep the event loop free so the ending role's deadline can fire.
     const postmaster = process.platform === 'win32' ? holderOf(key) : null;
-    const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
-      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
-      env: { ...process.env, LC_ALL: 'C' },
+    const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', key, '-m', 'fast', '-w', 'stop'] }, async (span) => {
+      const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
+        stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
+        env: { ...process.env, LC_ALL: 'C' },
+      });
+      const code = await stopping.exited;
+      span.setAttribute('process.exit_code', code);
+      return code;
     });
-    const code = await stopping.exited;
     if (process.platform === 'win32') {
       // Windows shutdown must finish before its caller can exit; pg_ctl failure is not a stopped store.
       if (code !== 0 && holderOf(key) !== null) throw new Error(`${key}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
@@ -1240,11 +1357,15 @@ async function stopCluster(options: { readonly dataDir: string; readonly socketD
     if (await answering(socketDir)) {
       // Independent stores may stop together; a checkpoint must not block their owners' event loop.
       const postmaster = process.platform === 'win32' ? holderOf(dataDir) : null;
-      const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', dataDir, '-m', 'fast', '-w', 'stop'], {
-        stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
-        env: { ...process.env, LC_ALL: 'C' },
-      });
+      const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', dataDir, '-m', 'fast', '-w', 'stop'] }, async (span) => {
+        const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', dataDir, '-m', 'fast', '-w', 'stop'], {
+          stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
+          env: { ...process.env, LC_ALL: 'C' },
+        });
       const code = await stopping.exited;
+        span.setAttribute('process.exit_code', code);
+        return code;
+      });
       if (process.platform === 'win32') {
         if (code !== 0 && holderOf(dataDir) !== null) throw new Error(`${dataDir}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
         if (holderOf(dataDir) !== null || (postmaster !== null && alive(postmaster))) throw new Error(`${dataDir}:1: PostgreSQL still holds postmaster.pid after pg_ctl stop`);

@@ -16,7 +16,7 @@ import { withSpan } from '../obs/trace.js';
 /** Reconstruct parent-key references from active graph edges, never scalar names. */
 async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind: string, id: number, seen: ReadonlySet<number> = new Set(), selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<import('./contract.js').EntityRefDraft> {
   if (seen.has(id)) throw new Error(`${import.meta.path}:21: key-edge instance cycle at node ${id}`);
-  const found = await tx.query<{ uid: string; key: Record<string, import('./contract.js').KeyValueDraft> }>('SELECT uid::text,key FROM node WHERE id=$1', [id]);
+  const found = await withSpan('graph.plugin-turns.referenceOf', { 'db.system': 'postgres' }, async () => await tx.query<{ uid: string; key: Record<string, import('./contract.js').KeyValueDraft> }>('SELECT uid::text,key FROM node WHERE id=$1', [id]));
   const row = found.rows[0];
   if (row === undefined) throw new Error(`${import.meta.path}:24: missing reference endpoint ${id}`);
   const vertex = contract.vertex.find(v => v.name === kind);
@@ -26,7 +26,7 @@ async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind: strin
     const edges = (await readKindAssertions(tx, 'edge', role.edge, [], { ...selector, contract })).filter(e => (role.direction === 'from' ? e.from : e.to) === id);
     if (edges.length !== 1) throw new Error(`${import.meta.path}:30: ${kind} ${row.uid} requires exactly one key edge ${role.role}, found ${edges.length}`);
     const parentId = (role.direction === 'from' ? edges[0]!.to : edges[0]!.from)!;
-    const parent = await tx.query<{ kind: string }>('SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=$1', [parentId]);
+    const parent = await withSpan('graph.plugin-turns.referenceOf', { 'db.system': 'postgres' }, async () => await tx.query<{ kind: string }>('SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=$1', [parentId]));
     if (parent.rows[0] === undefined) throw new Error(`${import.meta.path}:33: missing key endpoint ${parentId}`);
     keyEdges[role.role] = await referenceOf(tx, contract, parent.rows[0].kind, parentId, new Set([...seen, id]), selector);
   }
@@ -163,7 +163,7 @@ async function completedSnapshot(tx: SqlExecutor, runId: string, unitId: string,
     && (generation === undefined || unit.values['generation'] === generation)
     && unit.values['state'] === 'published');
   if (matches.length !== 1) throw new Error(`${import.meta.path}:141: expected one completed graph unit ${runId}/${unitId}, found ${matches.length}`);
-  const clock = await tx.query<{ now: string }>('SELECT transaction_timestamp()::text AS now');
+  const clock = await withSpan('graph.plugin-turns.completedSnapshot', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string }>('SELECT transaction_timestamp()::text AS now'));
   return { unitUid: matches[0]!.uid, recordedAt: clock.rows[0]!.now, validAt: clock.rows[0]!.now };
 }
 

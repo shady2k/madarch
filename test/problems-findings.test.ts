@@ -72,7 +72,10 @@ describe('a findings kind of the manifest is read as problems, and no other kind
         ['dangling-reference', 'code.file:shop/src/a.ts', 'major'],
         ['removed-end', 'code.commit:aaaa', 'major'],
       ]);
-      expect(shown.map((problem) => problem.reason).sort()).toEqual(['the edge ends at a removed vertex', 'the edge names a key no vertex holds']);
+      expect(shown.map((problem) => problem.text).sort((a, b) => String(a.args?.['cause']).localeCompare(String(b.args?.['cause'])))).toEqual([
+        { code: 'consistencyFinding', args: { cause: 'the edge ends at a removed vertex' } },
+        { code: 'consistencyFinding', args: { cause: 'the edge names a key no vertex holds' } },
+      ]);
       // Retirement leaves the generic findings and their stable dismissals usable, not a failed Markdown read.
       expect(listing.notes.some((note) => note.message.includes('Markdown questions are retired'))).toBe(true);
       expect(listing.notes.some((note) => note.message.includes('documents section could not be judged'))).toBe(false);

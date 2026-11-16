@@ -3,10 +3,11 @@
 # `body` section's query.
 template: text
 extends: entity
+records: [comment, constitution, page.template]
 sections:
   - id: body
     component: text
-    after: header
+    after: details
     title: { en: Text, ru: Текст }
     query: |
       body

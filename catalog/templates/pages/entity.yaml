@@ -11,9 +11,43 @@ sections:
       kind
       label
       template
+      origin
+      trail {
+        id
+        kind
+        label
+      }
     params:
       titlePath: label
       kindPath: kind
+      chainPath: trail
+      provenancePath: origin
+  # Every field the kind declares, with the value its producers agreed and the place each opinion rests on: the page a
+  # template has not described still says what the graph knows of it (madarch-64o5.134).
+  - id: details
+    component: details
+    after: header
+    title: { en: Details, ru: Подробности }
+    query: |
+      details {
+        name
+        type
+        key
+        value
+        contested
+        assertions {
+          id
+          source { id kind label }
+          author { id kind label }
+          recordedAt
+          validFrom
+          selected
+          value
+          evidence { target { id kind label } relation locator }
+        }
+      }
+    params:
+      path: details
   # The picture is drawn by the server (decision 0036, sections 7 and 8): the section names the entity and how far around
   # it reads; no relation is asked here, because the renderer reads the neighbourhood through the graph read layer.
   - id: diagram
@@ -28,8 +62,9 @@ sections:
     component: relations
     title: { en: Leads to, ru: Ведёт к }
     query: |
-      outgoing(first: 50) {
+      outgoing(first: $outgoing_first, after: $outgoing_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -42,18 +77,25 @@ sections:
             }
           }
         }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
         totalCount
+        pageInfo { hasNextPage endCursor }
       }
     params:
       path: outgoing
+      pageSize: 10
       labelPath: relation
       emptyText: { en: Nothing leads out of it, ru: Ничего не ведёт отсюда }
   - id: backlinks
     component: relations
     title: { en: Linked from, ru: Ссылаются }
     query: |
-      backlinks(first: 50) {
+      backlinks(first: $backlinks_first, after: $backlinks_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -66,9 +108,15 @@ sections:
             }
           }
         }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
         totalCount
+        pageInfo { hasNextPage endCursor }
       }
     params:
       path: backlinks
+      pageSize: 10
       labelPath: relation
       emptyText: { en: Nothing links to it yet, ru: Сюда пока ничего не ведёт }

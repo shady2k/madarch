@@ -79,6 +79,19 @@ unprivileged user namespaces must be available:
   must be `0`, or an AppArmor profile must grant the account the namespace.
   Root opens namespaces whatever these say, so the check is skipped there.
 
+## The start probe, and the machine's one answer
+
+At start madarch probes whether it can confine a plugin: on Linux the cgroup
+this process runs in, whether the user's systemd manager delegates cpu, memory
+and pids, the user namespaces, and a real no-op plugin through the same
+bubblewrap arguments a plugin gets; on macOS the sandbox itself. A machine that
+cannot confine asks its person once — in `madarch init` when a terminal answers,
+else on the fill's preparation page — whether plugins run without isolation.
+The answer is kept in `<madarch home>/settings.json` as `pluginsUnconfined`,
+beside the reading role, and is this machine's and its person's, never the
+product's. A fill with no answer on such a machine refuses with the reason and
+names the preparation page.
+
 ## macOS
 
 macOS has no cgroups. The plugin runs under `/usr/bin/sandbox-exec` with a
@@ -94,6 +107,15 @@ is bounded by neither the kill nor the rlimits. On Linux the same escape is
 covered by the cgroup, which every descendant stays in whatever it does to its
 session or group.
 
+## Windows
+
+There is no plugin sandbox on Windows: the probe there answers "this system has
+no plugin sandbox", and the preparation page asks the same question a Linux
+machine without delegation gets. With the run answer, plugins run with the
+account's filesystem and network access; without an answer, the fill does not
+start. Squashing the probe's answer into silence would hide that the machine
+offers no confinement, so the page states it in plain words.
+
 ## The run's record
 
 Every iteration and every host decision leaves a span and a log line under the
@@ -105,12 +127,17 @@ first.
 ## What the host does not run
 
 By default, missing delegation or user namespaces refuse the run, naming the
-missing controllers or setting, the folder and this page. To deliberately run
-without confinement, set `MADARCH_PLUGIN_SANDBOX=off`: no bubblewrap, cgroup,
-seccomp or macOS sandbox is used, and the plugin runs with the host account's
-filesystem and network access. A warning is emitted once per process. Closure
-approval and protocol checks still apply. Leave the variable unset for the
-normal sandbox; every other value, including an empty string, is refused.
+missing controllers or setting, the folder and this page — and a fill on a
+machine that cannot confine refuses until its person has answered the
+preparation page's question. For a one-off run of `madarch plugin check` or
+`madarch plugin run` without confinement, `MADARCH_PLUGIN_SANDBOX=off` is the
+operator's own override: no bubblewrap, cgroup, seccomp or macOS sandbox is
+used, and the plugin runs with the host account's filesystem and network
+access. A warning is emitted once per process. Closure approval and protocol
+checks still apply. Leave the variable unset for the normal sandbox; every
+other value, including an empty string, is refused. The preparation page and
+`madarch init` never mention it: a person answers there, not through a
+variable.
 
 ## System Git approval
 

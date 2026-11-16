@@ -1,5 +1,4 @@
 import {createRecordOwner,recordGraph,repoRef,fileRef,fixtureProducer} from './assertion-record-fixture.js';
-import { contentsOf } from '../src/plugin/stored-text.js';
 /**
  * The ordinary repository plugins (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
@@ -124,7 +123,7 @@ describe('the record tables', () => {
 test('0039.1: parent-bound file facts need no history and a missing file is null',async()=>{
  const files=await createRecordOwner();try{
  const blob='b'.repeat(40);
- await files.transaction('write',tx=>publishGraphDrafts(tx,recordGraph,{vertices:[{...repoRef('files-only'),...fixtureProducer},{...fileRef('src/one.ts'),values:{mode:'100644',blob,bytes:20,form:'text',lines:1,content:'export const n = 1;\n',language:'TypeScript',languages:['TypeScript']},...fixtureProducer}],edges:[{kind:GIT_KINDS.contains,from:repoRef('files-only'),to:fileRef('src/one.ts'),...fixtureProducer}],removals:[]}));
+ await files.transaction('write',tx=>publishGraphDrafts(tx,recordGraph,{vertices:[{...repoRef('files-only'),...fixtureProducer},{...fileRef('src/one.ts'),values:{mode:'100644',blob,bytes:20,form:'text',lines:1,language:'TypeScript',languages:['TypeScript']},...fixtureProducer}],edges:[{kind:GIT_KINDS.contains,from:repoRef('files-only'),to:fileRef('src/one.ts'),...fixtureProducer}],removals:[]}));
  expect(await fileFacts(files,'files-only','src/one.ts',{history:false})).toMatchObject({path:'src/one.ts',mode:'100644',blob,bytes:20,form:'text',lines:1,language:'TypeScript',candidates:['TypeScript'],created:null,modified:null,commitCount:0,authors:[]});
  expect(await fileFacts(files,'files-only','src/missing.ts',{history:false})).toBeNull();
  }finally{await files.close();}
@@ -158,22 +157,21 @@ describe('the two passes over one fixture', () => {
     expect(assertions.rows.every(a=>a.subjects===1&&a.source===1&&a.author===1&&a.operation===1&&a.context_id===1&&new Date(a.recorded_at).getTime()>0)).toBe(true);
   },120000);
 
-  test('a text file\'s bytes stand in ordinary opinions, and a reader takes them there', async () => {
+  test('a text file\'s blob stands in ordinary opinions, and the graph holds no text of its own', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);
-    expect(await contentsOf(reader, 'fixture', ['src/a.ts']).then(texts => texts.get('src/a.ts') ?? null)).toBe('export const a = 2;\n');
-    expect(await contentsOf(reader, 'fixture', ['docs/renamed.md']).then(texts => texts.get('docs/renamed.md') ?? null)).toBe('# one\n');
-    expect(await contentsOf(reader, 'fixture', ['blob.bin']).then(texts => texts.get('blob.bin') ?? null)).toBeNull();
-    // A path that left the tree has no text at the filled commit, though its row and blob remain.
-    expect(await contentsOf(reader, 'fixture', ['docs/same-one.md']).then(texts => texts.get('docs/same-one.md') ?? null)).toBeNull();
-    // Many paths at once are one bound text[] parameter: a quote and a backslash in a name are characters, not SQL.
-    const many = await contentsOf(reader, 'fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
-    expect(many.get('src/a.ts')).toBe('export const a = 2;\n');
-    expect(many.get('docs/renamed.md')).toBe('# one\n');
-    expect(many.get('docs/with "quotes" and \\backslash.md')).toBe('# quoted\n');
-    expect(many.has('src/missing.ts')).toBe(false);
-    const shared=await owner.run(tx=>readKindAssertions(tx,'vertex',GIT_KINDS.file,['content'], { contract: GIT_CONTRACT }));
-    expect(shared.filter(row=>row.values['content']==='# one\n')).toHaveLength(1);
+    // Decision 0037: the graph names each file's bytes by blob id and holds no text; a file's text is read by that blob
+    // through the host (product.fileText), never from a column here.
+    const files = await listFiles(owner, { repository: 'fixture', limit: 100 });
+    const byPath = new Map(files.rows.map((row) => [row.path, row]));
+    const git = (path: string): string => execFileSync('git', ['rev-parse', `HEAD:${path}`], { cwd: repository, encoding: 'utf8' }).trim();
+    expect(byPath.get('src/a.ts')?.blob).toBe(git('src/a.ts'));
+    expect(byPath.get('docs/renamed.md')?.blob).toBe(git('docs/renamed.md'));
+    // Two paths on one blob keep one blob: the identity is content-addressed, not per path.
+    expect(byPath.get('docs/same-one.md')?.blob ?? byPath.get('docs/same-two.md')?.blob).toBeUndefined();
+    const columns = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM information_schema.columns WHERE table_name = $1 AND column_name = 'content'`, [assertionValueTableName(GIT_KINDS.file, 'vertex', 'blob')],
+    ));
+    expect(columns.rows[0]?.n).toBe('0');
   });
 
   test('read git\'s shapes: a rename, a deleted path, a binary, two paths on one blob, a symlink, an extension several languages claim, a space and a newline, a merge', async () => {
@@ -205,14 +203,14 @@ describe('the two passes over one fixture', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 3;\n');
     three = commitAll('three');
-    const before = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines','content'], { contract: GIT_CONTRACT }));
+    const before = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines'], { contract: GIT_CONTRACT }));
     const old = await fileFacts(owner, 'fixture', 'src/a.ts');
     const run = await fillRepository();
     expect(run.units.every(unit => unit.state === 'published')).toBe(true);
     const moved = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(moved?.blob).not.toBe(old?.blob);
     expect(await commitFacts(owner, 'fixture', three)).toMatchObject({ hash: three, subject: 'three' });
-    const after = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines','content'], { contract: GIT_CONTRACT }));
+    const after = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines'], { contract: GIT_CONTRACT }));
     const canonical = (rows: readonly unknown[]) => rows.map(row => JSON.stringify(row)).sort();
     expect(canonical(after.filter(r=>r.key['path']!=='src/a.ts').map(r=>({key:r.key,values:r.values})))).toEqual(canonical(before.filter(r=>r.key['path']!=='src/a.ts').map(r=>({key:r.key,values:r.values}))));
     const a = await fileFacts(owner, 'fixture', 'src/a.ts');

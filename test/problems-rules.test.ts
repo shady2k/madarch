@@ -1,6 +1,6 @@
 /**
  * The rules of the Problems page's code and documents sections
- * (madarch-m38l.19): every rule reads facts and says one reason, a place, an
+ * (madarch-m38l.19): every rule reads facts and says one sentence, a place, an
  * entity and an evidence path. The facts here are the graph's own shapes, so
  * a rule is tested without an agent, a fill or a source file.
  */
@@ -56,8 +56,8 @@ describe('the code section', () => {
       }, span('src/a.ts', 7))],
     }), settings()).problems;
     const problem = only(problems, 'dependency.cycle');
-    expect(problem).toMatchObject({ section: 'code', kind: 'dependency-cycle', sonar: 'bug', severity: 'major', fixer: 'person', file: 'src/a.ts', line: 7, scope: { type: 'file', path: 'src/a.ts' } });
-    expect(problem.reason).toContain('a.ts and b.ts import one another in a cycle of 2 files');
+    expect(problem).toMatchObject({ section: 'code', kind: 'dependency-cycle', sonar: 'bug', severity: 'major', file: 'src/a.ts', line: 7, scope: { type: 'file', path: 'src/a.ts' } });
+    expect(problem.text).toEqual({ code: 'cycleFiles', args: { names: 'a.ts, b.ts' } });
     expect(problem.evidence.map((link) => link.key)).toEqual(['code.file:src/a.ts', 'code.file:src/b.ts']);
     expect(problem.place.href).toContain('code.file');
     expect(problem.entity?.key).toBe('code.cycle:file:src/a.ts|src/b.ts');
@@ -72,7 +72,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'security.sql-input');
     expect(problem).toMatchObject({ sonar: 'vulnerability', severity: 'blocker', file: 'src/orders.ts', line: 35, identity: 'code.sql-sink:src/orders.ts#35\u0000code.sql-build:src/orders.ts#30' });
-    expect(problem.reason).toContain('req.query.q reach selectOrders');
+    expect(problem.text).toEqual({ code: 'sqlInput', args: { inputs: 'req.query.q', build: 'selectOrders', sink: 'db.query' } });
     expect(problem.evidence.map((link) => link.label)).toEqual(['req.query.q', 'selectOrders', 'db.query']);
     expect(problem.scope).toEqual({ type: 'file', path: 'src/orders.ts' });
   });
@@ -88,7 +88,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'security.export-route');
     expect(problem).toMatchObject({ sonar: 'vulnerability', severity: 'critical', file: 'src/routes.ts', line: 9, target: 'code.route:GET /orders/export' });
-    expect(problem.reason).toContain('registered outside the auth group');
+    expect(problem.text).toEqual({ code: 'routeOutsideAuthGroup', args: { route: 'GET /orders/export', root: 'orders', service: 'shop' } });
     expect(problem.evidence.map((link) => link.key)).toEqual(['code.route:GET /orders/export', 'code.symbol:src/routes.ts#exportOrders']);
   });
 
@@ -102,7 +102,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'hotspot');
     expect(problem).toMatchObject({ file: 'src/hot.ts', sonar: 'code-smell', severity: 'major' });
-    expect(problem.reason).toContain('size × churn = 15000');
+    expect(problem.text).toEqual({ code: 'hotspot', args: { path: 'src/hot.ts', count: 300, commits: 50, score: 15000 } });
   });
 
   test('a generated, dependency or test file is not a large-file problem', () => {
@@ -122,7 +122,7 @@ describe('the code section', () => {
       symbols: [entity('code.symbol:src/a.ts#unused', 'unused', { deadExport: true }, span('src/a.ts', 12))],
     }), settings()).problems, 'dead-export');
     expect(problem).toMatchObject({ sonar: 'code-smell', severity: 'minor', scope: { type: 'symbol', key: 'code.symbol:src/a.ts#unused' } });
-    expect(problem.reason).toContain('exported by src/a.ts and no code in this repository refers to it');
+    expect(problem.text).toEqual({ code: 'deadExport', args: { symbol: 'unused', path: 'src/a.ts' } });
   });
 
   test('TODO and FIXME are two rules, each reading the marker the syntax tree put on a comment', () => {
@@ -131,8 +131,8 @@ describe('the code section', () => {
       entity('code.debt:src/a.ts#20', 'FIXME: retry twice', { markerWord: 'FIXME', text: 'retry twice', path: 'src/a.ts', line: 20 }, span('src/a.ts', 20)),
     ];
     const problems = evaluateCode(snapshot({ debts }), settings()).problems;
-    expect(only(problems, 'debt.todo')).toMatchObject({ sonar: 'code-smell', severity: 'info', line: 10, reason: 'TODO in src/a.ts: charge tax' });
-    expect(only(problems, 'debt.fixme')).toMatchObject({ sonar: 'code-smell', severity: 'minor', line: 20, reason: 'FIXME in src/a.ts: retry twice' });
+    expect(only(problems, 'debt.todo')).toMatchObject({ sonar: 'code-smell', severity: 'info', line: 10, text: { code: 'debt', args: { marker: 'TODO', path: 'src/a.ts', body: 'charge tax' } } });
+    expect(only(problems, 'debt.fixme')).toMatchObject({ sonar: 'code-smell', severity: 'minor', line: 20, text: { code: 'debt', args: { marker: 'FIXME', path: 'src/a.ts', body: 'retry twice' } } });
   });
 
   test('the same literal in two files is not a secret: PORT=3000 is a setting, not a vulnerability', () => {
@@ -158,7 +158,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'dependency.declared-unused');
     expect(problem).toMatchObject({ sonar: 'code-smell', severity: 'minor' });
-    expect(problem.reason).toContain('lodash (4.17.21) is declared by package.json');
+    expect(problem.text).toEqual({ code: 'dependencyDeclaredUnused', args: { dependency: 'lodash (4.17.21)', path: 'package.json' } });
   });
 
   test('a third-party import no manifest declares is a bug; a declared or standard library import is not', () => {
@@ -171,7 +171,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'dependency.used-undeclared');
     expect(problem).toMatchObject({ sonar: 'bug', severity: 'major' });
-    expect(problem.reason).toContain('left-pad is imported by src/a.ts');
+    expect(problem.text).toEqual({ code: 'dependencyUsedUndeclared', args: { name: 'left-pad', path: 'src/a.ts' } });
   });
 
   test('a contract operation no route serves is a bug, with the operation page as its entity', () => {
@@ -179,7 +179,8 @@ describe('the code section', () => {
       operations: [entity('code.operation:orders.read', 'orders.read', {}, span('openapi.yaml', 30))],
     }), settings()).problems, 'contract.operation-without-route');
     expect(problem).toMatchObject({ sonar: 'bug', severity: 'major', file: 'openapi.yaml', line: 30 });
-    expect(problem.reason).toContain('no route implements it');
+    expect(problem.text.code).toBe('operationWithoutRoute');
+    expect(problem.text.args).toMatchObject({ operation: 'orders.read', path: 'openapi.yaml' });
   });
 
   test('a route of a service the contract covers, which the contract does not declare, is a bug', () => {
@@ -193,7 +194,8 @@ describe('the code section', () => {
     }), settings()).problems;
     const problem = only(problems, 'contract.route-without-operation');
     expect(problem).toMatchObject({ sonar: 'bug', severity: 'minor', line: 9 });
-    expect(problem.reason).toContain('the service\'s contract declares no such operation');
+    expect(problem.text.code).toBe('routeWithoutOperation');
+    expect(problem.text.args).toMatchObject({ route: 'GET /orders/export', path: 'src/routes.ts' });
   });
 
   test('a service the contract owns is judged even when none of its routes matched an operation', () => {
@@ -227,7 +229,7 @@ describe('the code section', () => {
     }), settings()).problems;
     const foundRoutes = found(problems, 'security.export-route');
     expect(foundRoutes.map((problem) => problem.target)).toEqual(['code.route:GET /export']);
-    expect(foundRoutes[0]!.reason).toContain('requires a token');
+    expect(foundRoutes[0]!.text.code).toBe('routeOutsideAuthContract');
     expect(foundRoutes[0]!.evidence.map((link) => link.key)).toContain('code.operation:contracts/openapi/shop.yaml#GET:/export');
   });
 
@@ -241,7 +243,7 @@ describe('the code section', () => {
 
 describe('the documents section', () => {
   const resolveNothing = async (url: string): Promise<Resolution> => url.includes('README')
-    ? { state: 'broken', target: 'doc:README.md#discounts', reason: 'the graph has no such ground' }
+    ? { state: 'broken', target: 'doc:README.md#discounts', reason: 'the graph has no such ground', why: { code: 'no-document', path: 'README.md' } }
     : { state: 'ok', target: url.replace('madarch:', ''), kind: 'entity', label: url, href: null };
   const resolveAll = async (): Promise<Resolution> => ({ state: 'ok', target: 'doc:README.md#discounts', kind: 'doc.section', label: 'Discounts', href: null });
   const question = (patch: Partial<Question>): Question => ({
@@ -255,28 +257,28 @@ describe('the documents section', () => {
   test('a contradiction is a bug and carries both sides in one reason and the question in its evidence', async () => {
     const problem = only((await documents([question({})])).problems, 'document.contradiction');
     expect(problem).toMatchObject({ section: 'documents', sonar: 'bug', severity: 'major', file: 'docs/questions/discount.md', line: 1, entity: { key: 'question:discount' } });
-    expect(problem.reason).toContain('Ten percent. / Whatever the caller passes.');
+    expect(problem.text).toEqual({ code: 'documentContradiction', args: { title: 'Which discount?', sides: 'Ten percent. / Whatever the caller passes.' } });
     expect(problem.evidence.map((link) => link.key)).toEqual(['question:discount', 'doc:README.md#discounts', 'code.file:src/a.ts', 'domain:orders']);
   });
 
   test('an ambiguous term is a code smell for a person to settle', async () => {
     const problem = only((await documents([question({ type: 'ambiguous-term', title: 'What is an order?' })])).problems, 'document.ambiguous-term');
     expect(problem).toMatchObject({ sonar: 'code-smell', severity: 'minor' });
-    expect(problem.reason).toContain('the term has more than one meaning');
+    expect(problem.text).toEqual({ code: 'documentAmbiguous', args: { title: 'What is an order?' } });
   });
 
   test('undocumented behaviour and a gap are the same rule, with the question\'s why as the reason', async () => {
     for (const type of ['undocumented', 'gap'] as const) {
       const problem = only((await documents([question({ type, why: 'No document says what happens after midnight.' })])).problems, 'document.undocumented');
       expect(problem).toMatchObject({ sonar: 'code-smell', severity: 'major' });
-      expect(problem.reason).toContain('No document says what happens after midnight.');
+      expect(problem.text).toEqual({ code: 'documentUndocumentedWhy', args: { title: 'Which discount?', why: 'No document says what happens after midnight.' } });
     }
   });
 
   test('a ground that no longer resolves is a stale statement, beside whatever rule the question type feeds', async () => {
     const result = await documents([question({})], {}, resolveNothing);
     expect(found(result.problems, 'document.stale')).toHaveLength(1);
-    expect(only(result.problems, 'document.stale').reason).toContain('doc:README.md#discounts no longer resolves: the graph has no such ground');
+    expect(only(result.problems, 'document.stale').text).toEqual({ code: 'documentStale', args: { target: 'doc:README.md#discounts' } });
     expect(found(result.problems, 'document.contradiction')).toHaveLength(1);
   });
 

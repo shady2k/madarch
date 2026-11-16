@@ -8,10 +8,11 @@
  */
 import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA } from '../adapters/pg-boss-queue.js';
 import { withSpan } from '../obs/trace.js';
+import { RUN_JOB_HEARTBEAT_SECONDS, RUN_JOB_LEASE_SECONDS } from './orchestrator-host.js';
 import type { ClaimedJob, QueueService } from './queue.js';
 
-/** The queue one product's fill requests wait in, at the product's store database. */
-const FILL_RUN_QUEUE = 'fill-runs';
+/** The queue one product's fill requests wait in, at the product's store database: its claim is the run's lock. */
+export const FILL_RUN_QUEUE = 'fill-runs';
 
 /** One pressed fill, as the queue carries it to the process that runs it. */
 export interface FillRunJob {
@@ -38,8 +39,10 @@ export interface FillRunJob {
 }
 
 /**
- * The store's fill-run queue, declared: a lease of fifteen minutes is one run's own bound, the job is retried once if the
- * process that took it ends without settling it, and a second press of a product whose job is unfinished waits.
+ * The store's fill-run queue, declared: the claimed job is the run's own lock — one job per product while its run
+ * runs, a lease wide enough for the worst case a fill may take, a heartbeat that shows the process holding it is
+ * alive, and one retry for the claim a next process takes when that process ended. A second press of a product
+ * whose job is unfinished waits.
  */
 /** The one connection the queue runs its statements on, as its adapter takes it: derived, so this module holds none. */
 type QueueOwner = Parameters<typeof createPgBossQueue>[0]['owner'];
@@ -47,7 +50,18 @@ type QueueOwner = Parameters<typeof createPgBossQueue>[0]['owner'];
 export async function openFillRunQueue(owner: QueueOwner): Promise<QueueService> {
   return await withSpan('fill.job.queue', {}, async () => {
     const queue = await createPgBossQueue({ owner, schema: DEFAULT_QUEUE_SCHEMA, supervise: false });
-    await queue.declare({ name: FILL_RUN_QUEUE, leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true });
+    // The claimed job is the run's own lock while it runs (decision 0039, item 12): its lease is the worst case
+    // one fill may take, its heartbeat is renewed by the process that runs it, and its one retry is the claim a
+    // next process takes when the process that held the run ended.
+    await queue.declare({
+      name: FILL_RUN_QUEUE,
+      leaseSeconds: RUN_JOB_LEASE_SECONDS,
+      retries: 1,
+      retryDelaySeconds: 5,
+      retryBackoff: false,
+      heartbeatSeconds: RUN_JOB_HEARTBEAT_SECONDS,
+      singletons: true,
+    });
     return queue;
   });
 }

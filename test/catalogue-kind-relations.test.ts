@@ -11,7 +11,7 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readProductTemplates } from '../src/graph/product-templates.js';
+import { readPublishedTemplates } from '../src/graph/product-templates.js';
 import { diagramGraphOf } from '../src/render/diagram.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -77,9 +77,10 @@ test('the real File catalogue page shares dependency and declared-relation edges
     const dependents = page.derivedBy.edges.map((edge: any) => edge.node.name).sort();
     expect(dependents).toEqual(['code.channel', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.migration', 'code.module', 'code.service', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-quarantine', 'document', 'domain', 'fixture.file-audit', 'fixture.file-review', 'state-machine']);
     const id = String(page.id);
-    const templates = readProductTemplates(folder);
     const read = async () => await owner!.transaction('snapshot', async tx => {
-      const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', templates);
+      // The templates are the graph's entities, read in the page's own snapshot (the owner's decision of 2026-11-15).
+      const held = await readPublishedTemplates(tx, manifest);
+      const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', held.templates, held.files, new Map(held.templates.templates.map((one) => [one.name, one.body])), held.findings);
       const hood = await context.diagramNeighbourhood(id, 1, 'ru');
       if (hood === undefined) throw new Error(`${folder}:1: missing File catalogue entity ${id}`);
       return hood;

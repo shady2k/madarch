@@ -4,7 +4,7 @@
  * fixture tree and reads the rule's own answer: a rule that cannot refuse its own plant is not a gate.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -387,6 +387,69 @@ describe('gate 1: the engine holds no product data', () => {
     expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3]]);
   });
 
+  test('SourceText may declare the actual file-read protocol fields that collide with catalogue fields', () => {
+    const home = fixture({
+      ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+      'src/knowledge/file-text-shape.ts': readFileSync(new URL('../src/knowledge/file-text-shape.ts', import.meta.url), 'utf8'),
+      'src/graphql/schema.ts': readFileSync(new URL('../src/graphql/schema.ts', import.meta.url), 'utf8'),
+    });
+    expect(productDataViolations(home)).toEqual([]);
+  });
+
+  test('protocol vocabulary is scoped to direct SourceText field names, not arbitrary engine strings', () => {
+    const home = fixture({
+      ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n  - name: statement\n    type: text\n  - name: line\n    type: number\n'),
+      'src/knowledge/file-text-shape.ts': 'export interface FileTextResult { readonly bytes: number; readonly next: { readonly line: number }; }',
+      'src/graphql/schema.ts': [
+        "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+        "this.type('SourceText', [{ name: 'statement', type: 'String' }]);",
+        "this.type('SourceText', [{ name: 'line', type: 'Int!' }]);",
+        "this.type('OtherType', [{ name: 'bytes', type: 'Int!' }]);",
+        "this.type('SourceText', [{ name: 'text', type: 'bytes' }]);",
+        "export const arbitrary = 'bytes';",
+      ].join('\n'),
+      'src/a.ts': "export const arbitrary = 'bytes';\n",
+    });
+    expect(productDataViolations(home).map(({ file, line, symbol }) => [file, line, symbol])).toEqual([
+      ['src/a.ts', 1, 'bytes'],
+      ['src/graphql/schema.ts', 4, 'bytes'],
+      ['src/graphql/schema.ts', 3, 'line'],
+      ['src/graphql/schema.ts', 2, 'statement'],
+    ]);
+  });
+
+  test('a protocol word outside its declaration slot is still product data', () => {
+    for (const source of [
+      "export const arbitrary = 'bytes';",
+      "this.type('OtherType', [{ name: 'bytes', type: 'Int!' }]);",
+      "this.type('SourceText', [{ name: 'text', type: 'bytes' }]);",
+      "other.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+      "this.other('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+    ]) {
+      const home = fixture({
+        ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+        'src/knowledge/file-text-shape.ts': 'export interface FileTextResult { readonly bytes: number; }',
+        'src/graphql/schema.ts': source,
+      });
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+    }
+  });
+
+  test('only FileTextResult properties justify a protocol declaration', () => {
+    for (const declaration of [
+      'export interface OtherResult { readonly bytes: number; }',
+      'export interface FileTextResult { readonly text: string; }',
+      '',
+    ]) {
+      const home = fixture({
+        ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+        'src/knowledge/file-text-shape.ts': declaration,
+        'src/graphql/schema.ts': "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+      });
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+    }
+  });
+
   test('an import from catalog/ is refused: the engine reads the product\'s own files', async () => {
     const home = fixture({ 'src/a.ts': "import { x } from '../catalog/work/execution/task.yaml';\nexport const y = x;\n" });
     expect(productDataViolations(home).map((violation) => violation.symbol)).toEqual(['import ../catalog/work/execution/task.yaml']);
@@ -511,6 +574,34 @@ describe('gate 9: every visible string through i18n', () => {
     });
     expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['Save', 'title: Hello']);
   });
+
+  test('a prop that names a test, a key or a style is structure, not words a reader reads', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': [
+        'export const Page = () => (<Stack>',
+        '  <Select testId="a-model" display="timeline" checked="indeterminate" />',
+        '  <svg viewBox="0 0 20 20"><path d="M20 20 L180 80" /></svg>',
+        '  <Text label="Checkbox" emptyText="nothing yet" />',
+        '</Stack>);',
+      ].join('\n'),
+    });
+    // `label` and `emptyText` end in a text word and are read; the rest name a test, a variant, a control's state, a path.
+    expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['emptyText: nothing yet', 'label: Checkbox']);
+  });
+
+  test('a dash, a slash or a bracket standing for an empty value is layout, not a sentence', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': 'export const Page = () => (<Text>—</Text>);\nexport const Sep = () => (<Text> / </Text>);\n',
+    });
+    expect(i18nViolations(home)).toEqual([]);
+  });
+
+  test('an aria-label is heard by a screen reader, so its literal is refused', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': 'export const Page = () => (<Button aria-label="next" />);\n',
+    });
+    expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['aria-label: next']);
+  });
 });
 
 describe('gate 10: I/O runs inside a span', () => {
@@ -524,6 +615,23 @@ describe('gate 10: I/O runs inside a span', () => {
       '}',
     ].join('\n') });
     expect(ioSpansViolations(home).map((violation) => [violation.line, violation.symbol])).toEqual([[2, 'fetch()']]);
+  });
+
+  test('the synchronous form opens a span, and a node in a slot of the span call is enclosed by it', async () => {
+    const home = fixture({ 'src/b.ts': [
+      'export function unspanned(): string {',
+      "  return readFileSync('/tmp/a', 'utf8');",
+      '}',
+      'export function spanned(): string {',
+      "  return String(withSpanSync('a', {}, () => statSync('/tmp/a').isFile()));",
+      '}',
+      'export async function arrow(): Promise<unknown> {',
+      "  return await withSpan('a', {}, async () => {",
+      "    return await fetch('https://example.test');",
+      '  });',
+      '}',
+    ].join('\n') });
+    expect(ioSpansViolations(home).map((violation) => [violation.line, violation.symbol])).toEqual([[2, 'readFileSync()']]);
   });
 });
 

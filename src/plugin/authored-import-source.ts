@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, readdirSync, mkdirSync, linkSync, unlinkSync, 
 import { dirname, join } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 import { insideFolder, type Finding, type KindDecl } from '../product/manifest/kinds.js';
 
 interface ImportedMarkdown {
@@ -107,14 +108,25 @@ export function authoredImportCandidates(root: string, decl: KindDecl, errors: F
       errors.push({ file: path, line: 1, message: `cannot inspect import source: ${String(error)}` });
     }
   }
-  if (file !== undefined) visit(file, true);
-  if (folder !== undefined) visit(folder);
+  if (file !== undefined) withSpanSync('fs.stat', { 'file.path': join(root, file) }, () => visit(file, true));
+  if (folder !== undefined) {
+    // One span for the walk of the import folder: a span for each directory read would bury the imports it found.
+    withSpanSync('fs.readdir', { 'file.path': join(root, folder) }, (span) => {
+      visit(folder);
+      span.setAttribute('file.entries', found.length);
+    });
+  }
   return found;
 }
 
 /** Exact original bytes and their validated legacy entity, never a normal fill reader. */
 export function readAuthoredImport(root: string, file: string, decl: KindDecl, findings: Finding[]) {
-  const bytes = readFileSync(join(root, file));
+  const source = join(root, file);
+  const bytes = withSpanSync('fs.read', { 'file.path': source }, (span) => {
+    const held = readFileSync(source);
+    span.setAttribute('file.bytes', held.byteLength);
+    return held;
+  });
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   return { bytes, entity: readImportedMarkdown(text, file, decl, findings) };
 }
@@ -122,16 +134,27 @@ export function readAuthoredImport(root: string, file: string, decl: KindDecl, f
 /** Archive only the exact committed bytes; links and overwritten destinations remain refused. */
 export function archiveAuthoredImport(root: string, file: string, digest: string, bytes: Buffer, archiveFolder: string): void {
         // Compare immediately before removal; an edited source is never discarded after importing its older bytes.
-        if (!readFileSync(join(root, file)).equals(bytes)) throw new Error('the source changed during import; its committed original is retained in the journal, and the changed file was not moved');
+        const source = join(root, file);
+        const held = withSpanSync('fs.read', { 'file.path': source }, (span) => {
+          const now = readFileSync(source);
+          span.setAttribute('file.bytes', now.byteLength);
+          return now;
+        });
+        if (!held.equals(bytes)) throw new Error('the source changed during import; its committed original is retained in the journal, and the changed file was not moved');
         const archive = join(root, archiveFolder, digest, file);
         let archiveParent = root;
         for (const leg of `${archiveFolder}/${digest}/${file}`.split('/').slice(0, -1)) {
           archiveParent = join(archiveParent, leg);
           if (existsSync(archiveParent) && lstatSync(archiveParent).isSymbolicLink()) throw new Error(`archive ancestor ${archiveParent} is a symbolic link`);
         }
-        mkdirSync(dirname(archive), { recursive: true });
+        withSpanSync('fs.mkdir', { 'file.path': dirname(archive) }, () => mkdirSync(dirname(archive), { recursive: true }));
         if (existsSync(archive)) {
-          if (!lstatSync(archive).isFile() || !readFileSync(archive).equals(bytes)) throw new Error(`the archive path ${archive} already holds different content`);
+          const same = lstatSync(archive).isFile() && withSpanSync('fs.read', { 'file.path': archive }, (span) => {
+            const archived = readFileSync(archive);
+            span.setAttribute('file.bytes', archived.byteLength);
+            return archived;
+          }).equals(bytes);
+          if (!same) throw new Error(`the archive path ${archive} already holds different content`);
         } else linkSync(join(root, file), archive); // exclusive destination, unlike rename's overwrite
         unlinkSync(join(root, file));
 }

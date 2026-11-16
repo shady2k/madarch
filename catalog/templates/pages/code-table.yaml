@@ -1,0 +1,114 @@
+# The page reads declared graph values; every list keeps its total and cursor.
+template: code-table
+extends: entity
+records:
+- code.table
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    codeTableDatabase(first: 1) { edges { node { node { id label } } } }
+    schema
+    unsupported
+    contested
+  params:
+    rows:
+    - label:
+        en: Database
+        ru: База данных
+      path: codeTableDatabase.edges.0.node.node.label
+    - label:
+        en: Schema
+        ru: Схема
+      path: schema
+    - label:
+        en: Unsupported
+        ru: Не поддерживается
+      path: unsupported
+- id: columns
+  component: table
+  'on': root
+  title:
+    en: Columns
+    ru: Столбцы
+  query: |
+    related(id: $id, edge: "code.has-column", inverse: false, kinds: ["code.column"], first: $columns_first, after: $columns_after) {
+      edges { node { id kind label ... on KindCodeColumn { name type nullable default primaryKey unique check } } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pageSize: 20
+    emptyText:
+      en: No records
+      ru: Нет записей
+    columns:
+    - label:
+        en: Name
+        ru: Название
+      path: node.label
+    - label:
+        en: Type
+        ru: Тип
+      path: node.type
+    - label:
+        en: Nullable
+        ru: Может быть пустым
+      path: node.nullable
+      format: boolean
+    - label:
+        en: Default
+        ru: По умолчанию
+      path: node.default
+    - label:
+        en: Primary key
+        ru: Первичный ключ
+      path: node.primaryKey
+      format: boolean
+    - label:
+        en: Unique
+        ru: Уникальное значение
+      path: node.unique
+      format: boolean
+- id: indexes
+  component: table
+  'on': root
+  title:
+    en: Indexes
+    ru: Индексы
+  query: |
+    related(id: $id, edge: "code.has-index", inverse: false, kinds: ["code.index"], first: $indexes_first, after: $indexes_after) {
+      edges { node { id kind label ... on KindCodeIndex { name unique columns: related(edge: "code.index-columns", first: 100) { edges { node { id kind label } } pageInfo { hasNextPage endCursor } totalCount } where } } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pageSize: 20
+    emptyText:
+      en: No records
+      ru: Нет записей
+    columns:
+    - label:
+        en: Name
+        ru: Название
+      path: node.label
+    - label:
+        en: Columns
+        ru: Столбцы
+      path: node.columns
+      format: links
+    - label:
+        en: Unique
+        ru: Уникальный
+      path: node.unique
+      format: boolean
+    - label:
+        en: Condition
+        ru: Условие
+      path: node.where

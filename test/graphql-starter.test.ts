@@ -1,7 +1,8 @@
 /**
  * The starter SDL the frontend builds against (decision 0036, section 9): src/graphql/starter.graphql is what the
- * starter catalogue derives now, graphql-js accepts it, and the kinds a reserved name leaves out are the ones the
- * generator names — a catalogue change that adds or removes one fails here instead of passing unseen.
+ * starter catalogue derives now, graphql-js accepts it, and every catalogue kind is in it — a kind's types carry the
+ * `Kind` prefix that keeps them apart from the engine's own names (src/graphql/names.ts), so no kind is left out for a
+ * name.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildSchema } from 'graphql';
@@ -17,13 +18,21 @@ describe('the starter catalogue schema', () => {
   test('is accepted by graphql-js buildSchema', () => {
     const schema = buildSchema(starterSchema().sdl);
     expect(schema.getQueryType()?.name).toBe('Query');
-    expect(schema.getType('CodeFile')).toBeDefined();
-    expect(schema.getType('CodeRepository')).toBeDefined();
+    expect(schema.getType('KindCodeFile')).toBeDefined();
+    expect(schema.getType('KindCodeRepository')).toBeDefined();
     // The structured page template went with the page layer: no product kind is named `Template`.
-    expect(schema.getType('Template')).toBeUndefined();
+    expect(schema.getType('KindTemplate')).toBeUndefined();
   });
 
-  test('leaves out no kind: every starter kind encodes to a name the schema holds', () => {
-    expect(starterSchema().refused).toEqual([]);
+  test('holds every starter kind, and names each one in the family the engine leaves to products', () => {
+    const starter = starterSchema();
+    const schema = buildSchema(starter.sdl);
+    for (const kind of starter.kinds) {
+      const type = `Kind${kind.split(/[._-]/u).filter((part) => part !== '').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`;
+      expect(schema.getType(type), kind).toBeDefined();
+    }
+    // The page-template kind the decision of 2026-11-15 names sits beside the engine's own `PageTemplate`.
+    expect(schema.getType('KindPageTemplate')).toBeDefined();
+    expect(schema.getType('PageTemplate')).toBeDefined();
   });
 });

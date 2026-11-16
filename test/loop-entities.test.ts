@@ -85,8 +85,8 @@ describe('the refresh decides which pages need an agent unit', () => {
     }] });
     expect(plan.pages).toEqual([]);
     expect(plan.unplaced.map((u) => `${u.kind}:${u.slug}`)).toEqual(['correction:c', 'question:lost']);
-    expect(plan.unplaced[1]!.reason).toContain('docs/questions/q.md');
-    expect(plan.unplaced[0]!.reason).toContain('docs/corrections/c.md');
+    expect(plan.unplaced[1]!.text.args?.['file']).toBe('docs/questions/q.md');
+    expect(plan.unplaced[0]!.text.args?.['file']).toBe('docs/corrections/c.md');
   });
 
   test('an open correction touches the page of its statement; an applied one does not', () => {

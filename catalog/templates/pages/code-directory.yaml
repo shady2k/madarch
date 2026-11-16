@@ -1,0 +1,201 @@
+template: code-directory
+extends: entity
+records:
+- code.directory
+variables:
+  files_where:
+    type: JSON
+  files_orderBy:
+    type: '[RelatedOrder!]'
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    codeDirectoryRepository(first: 1) { edges { node { node { id label } } } }
+    path
+    contested
+  params:
+    rows:
+    - label:
+        en: Repository
+        ru: Репозиторий
+      path: codeDirectoryRepository.edges.0.node.node.label
+    - label:
+        en: Path
+        ru: Путь
+      path: path
+- id: map
+  component: treemap
+  'on': root
+  title:
+    en: Files by size and change
+    ru: Файлы по размеру и изменчивости
+  query: |
+    related(id: $id, edge: "code.contains", inverse: false, kinds: ["code.file"], depth: 3, first: $map_first, after: $map_after) {
+      edges { node { id kind label ... on KindCodeFile { path bytes lines language lastChange } } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pathPath: node.path
+    valuePath: node.bytes
+    languagePath: node.language
+    changedPath: node.lastChange
+    pageSize: 100
+    valuePaths:
+    - label:
+        en: Size
+        ru: Размер
+      path: node.bytes
+    - label:
+        en: Lines
+        ru: Строки
+      path: node.lines
+- id: parent
+  component: table
+  'on': root
+  title:
+    en: One level up
+    ru: На уровень выше
+  query: |
+    related(id: $id, edge: "code.contains", inverse: true, first: $parent_first, after: $parent_after) {
+      edges { node { id kind label  } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pageSize: 20
+    emptyText:
+      en: No records
+      ru: Нет записей
+    columns:
+    - label:
+        en: Name
+        ru: Название
+      path: node.label
+- id: children
+  component: table
+  'on': root
+  title:
+    en: Files and folders
+    ru: Файлы и папки
+  query: |
+    related(id: $id, edge: "code.contains", inverse: false, kinds: ["code.file", "code.directory"], first: $children_first, after: $children_after) {
+      edges { node { id kind label  } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pageSize: 20
+    emptyText:
+      en: No records
+      ru: Нет записей
+    columns:
+    - label:
+        en: Name
+        ru: Название
+      path: node.label
+- id: files
+  component: table
+  'on': root
+  title:
+    en: Files
+    ru: Файлы
+  query: |
+    related(id: $id, edge: "code.contains", inverse: false, kinds: ["code.file"], depth: 3, where: $files_where, orderBy: $files_orderBy, first: $files_first, after: $files_after) {
+      edges { node { id kind label ... on KindCodeFile { path language lines bytes commitCount lastChange } } }
+      pageInfo { hasNextPage endCursor }
+      totalCount
+    }
+  params:
+    path: .
+    pageSize: 20
+    emptyText:
+      en: No records
+      ru: Нет записей
+    columns:
+    - label:
+        en: Path
+        ru: Путь
+      path: node.label
+      sortField: path
+    - label:
+        en: Language
+        ru: Язык
+      path: node.language
+      sortField: language
+    - label:
+        en: Lines
+        ru: Строк
+      path: node.lines
+      format: number
+      sortField: lines
+    - label:
+        en: Size
+        ru: Размер
+      path: node.bytes
+      format: bytes
+      sortField: bytes
+    - label:
+        en: Commits
+        ru: Коммитов
+      path: node.commitCount
+      format: number
+      sortField: commitCount
+    - label:
+        en: Last change
+        ru: Последнее изменение
+      path: node.lastChange
+      format: date
+      sortField: lastChange
+    filterFields:
+    - label:
+        en: Path
+        ru: Путь
+      field: path
+      operator: _contains
+    - label:
+        en: Language
+        ru: Язык
+      field: language
+      operator: _eq
+    - label:
+        en: At least lines
+        ru: Строк не менее
+      field: lines
+      operator: _gte
+    - label:
+        en: At most lines
+        ru: Строк не более
+      field: lines
+      operator: _lte
+    - label:
+        en: At least bytes
+        ru: Байт не менее
+      field: bytes
+      operator: _gte
+    - label:
+        en: At most bytes
+        ru: Байт не более
+      field: bytes
+      operator: _lte
+- id: modules
+  component: text
+  title:
+    en: Modules
+    ru: Модули
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

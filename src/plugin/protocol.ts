@@ -23,7 +23,7 @@
 import { Type, type Static } from 'typebox';
 
 /** The protocol's version: the introduction names it, and a host refuses any other. */
-export const PROTOCOL_VERSION = 'madarch.plugins/2';
+export const PROTOCOL_VERSION = 'madarch.plugins/3';
 
 /** The version of the documents themselves (the schema's `$id` carries it too). */
 export const PROTOCOL_CONTRACT = 2;
@@ -262,10 +262,55 @@ export const PluginIntroduce = Type.Object(
     limits: Type.Optional(PluginLimits),
     outputs: PluginContractDeclaration,
     planOutput: Type.Optional(Type.Boolean()),
+    read: Type.Optional(Type.Boolean({ description: 'The plugin answers the host\'s blob reads: a page\'s text and the agent\'s file reads, by (repository, blob id) (decision 0037).' })),
     reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). A whole-graph plugin is planned once, last, and planned again when anything it read moved.' })),
   },
   { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights, limits and what it reads.' },
 );
+
+/**
+ * One read of a repository's bytes, asked of the plugin by the host (decision 0037, madarch-u3vw.16): a file's text is
+ * always read by (repository, blob id) from git's object store through the git plugin, never from a working copy. The
+ * plugin answers the lines asked for, so a page can virtualise a large file.
+ */
+export const PluginReadRequest = Type.Object(
+  {
+    repository: Type.String({ minLength: 1, description: 'The repository root as the plugin sees it: the sandbox binds it read-only, and the host names that path.' }),
+    blob: Type.String({ minLength: 1, description: 'The git blob id of the content, as the graph holds it.' }),
+    from: Type.Optional(Type.Integer({ minimum: 1, description: 'The first line asked for, 1-based; absent, the first line.' })),
+    to: Type.Optional(Type.Integer({ minimum: 1, description: 'The last line asked for, inclusive; absent, the last line of the blob.' })),
+  },
+  { additionalProperties: false, description: 'One blob read: a repository, a blob id and the lines asked for.' },
+);
+export type PluginReadRequest = Static<typeof PluginReadRequest>;
+
+/** What one blob read answers: the lines' text, the whole blob's counts, and whether it is text at all. */
+export const PluginReadResult = Type.Object(
+  {
+    text: Type.String({ description: 'The lines asked for, joined with their own line breaks; empty when the blob is no text.' }),
+    lines: Type.Integer({ minimum: 0, description: 'Every line of the blob.' }),
+    bytes: Type.Integer({ minimum: 0, description: "The blob's size in bytes." }),
+    binary: Type.Boolean({ description: 'True when the blob is no UTF-8 text: it has no text, and a page says so.' }),
+  },
+  { additionalProperties: false, description: "One blob read's answer." },
+);
+export type PluginReadResult = Static<typeof PluginReadResult>;
+
+/**
+ * One file read a plugin asks of the host (owner's decision, 2026-11-15; decision 0038): an ordinary plugin holds no
+ * environment and reads no repository; it names the repository and the blob id the graph holds, and the host routes the
+ * read to the core plugin that owns git's object store. A plugin that declared no "repository" capability is refused.
+ */
+export const PluginFileReadAsk = Type.Object(
+  {
+    repository: Type.String({ minLength: 1, description: 'The repository’s name, as the graph’s file vertices hold it.' }),
+    blob: Type.String({ minLength: 1, description: 'The git blob id of the content, as the graph holds it.' }),
+    from: Type.Optional(Type.Integer({ minimum: 1, description: 'The first line asked for, 1-based; absent, the first line.' })),
+    to: Type.Optional(Type.Integer({ minimum: 1, description: 'The last line asked for, inclusive; absent, the last line of the blob.' })),
+  },
+  { additionalProperties: false, description: 'One file read an ordinary plugin asks the host for, by repository and blob id.' },
+);
+export type PluginFileReadAsk = Static<typeof PluginFileReadAsk>;
 
 /** One read-only query of the graph: the file vertices whose path matches a pattern (decision 0035, item 15). */
 export const PluginGraphFilesRequest = Type.Object(
@@ -394,6 +439,7 @@ export const PluginAgentRunRequest = Type.Object({ unitId: Type.String({ minLeng
 const AgentRunMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('agent.run'), params: PluginAgentRunRequest }, { additionalProperties: false });
 const GraphFilesMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.files'), params: PluginGraphFilesRequest }, { additionalProperties: false, description: 'The plugin asks the host for the file vertices whose path matches a pattern.' });
 const GraphValueMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.value'), params: PluginGraphValueRequest }, { additionalProperties: false, description: 'The plugin asks the host for one field of one vertex.' });
+const FileReadMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('file.read'), params: PluginFileReadAsk }, { additionalProperties: false, description: 'The plugin asks the host for a file’s text by repository and blob id; the host routes it to the core plugin that owns git.' });
 /**
  * One page of the writer's consistency records: the cursor a previous answer named, and the most rows this page may
  * hold. The host bounds the size, so a plugin walks a large store one page at a time.
@@ -442,6 +488,7 @@ export const PluginProtocolMessage = Type.Union(
     PlanOutputMessage,
     AgentRunMessage,
     GraphFilesMessage,
+    FileReadMessage,
     GraphValueMessage,
     GraphRemovedEndsMessage,
     GraphUnevidencedMessage,

@@ -65,7 +65,7 @@ async function fixture(bound = true, existing?: { folder: string; store: string 
   return { owner, about, folder, contract, grant };
 }
 const person = (name: string, email: string, operationId: string) => ({ ...problemTaskSource({ name, email }), operationId });
-const request = (finding: string, about?: { kind: string; key: Record<string, string>; uid: string }) => ({ kind: 'problem-task' as const, input: { rule: 'large-file', fingerprint: problemFingerprint({ rule: 'large-file', reason: `731 lines exceed the 600-line limit: ${finding}`, file: 'src/big.ts', line: 1 }, about?.uid ?? null), reason: `731 lines exceed the 600-line limit: ${finding}`, title: 'Fix: Large file — src/big.ts:1', description: 'Split the module into smaller units.', ...(about ? { about } : {}) } });
+const request = (finding: string, about?: { kind: string; key: Record<string, string>; uid: string }) => ({ kind: 'problem-task' as const, input: { rule: 'large-file', fingerprint: problemFingerprint({ rule: 'large-file', text: { code: 'largeFile', args: { count: 731, limit: 600, finding } }, file: 'src/big.ts', line: 1 }, about?.uid ?? null), reason: `731 lines exceed the 600-line limit: ${finding}`, title: 'Fix: Large file — src/big.ts:1', description: 'Split the module into smaller units.', ...(about ? { about } : {}) } });
 
 test('manual problem task is idempotent and stores problem/about/task as graph identities, not front JSON', async () => {
   const { owner, about, grant, contract } = await fixture();
@@ -134,7 +134,7 @@ test('a separator-bearing finding uses a fingerprint and never puts its raw iden
   const { owner, about, grant, contract } = await fixture();
   try {
     const identity = 'sink\u0000builder';
-    const fingerprint = problemFingerprint({ rule: 'security.sql-input', reason: 'Untrusted input reaches SQL', file: identity, line: 12 }, about.uid);
+    const fingerprint = problemFingerprint({ rule: 'security.sql-input', text: { code: 'sqlInput', args: { cause: 'Untrusted input reaches SQL' } }, file: identity, line: 12 }, about.uid);
     const operation = { ...request(fingerprint, about), input: { ...request(fingerprint, about).input, rule: 'security.sql-input', fingerprint } };
     const answer = await executeManualOperation(owner, person('Alice', 'alice@example.test', 'separator'), operation, grant);
     expect(answer.uid).toBeDefined();
@@ -166,19 +166,18 @@ test('the task says what has to change in the product\'s own language', () => {
   const problem = {
     id: 'large-file\u0000code.file:product/src/big.ts', identity: 'code.file:product/src/big.ts', section: 'code' as const,
     rule: 'large-file', kind: 'large-file', sonar: 'code-smell' as const, severity: 'minor' as const,
-    fixer: 'person' as const, closed: false,
+    closed: false,
     place: { label: 'src/big.ts:1', href: '/src?path=src%2Fbig.ts&line=1', key: null }, entity: null, evidence: [],
     page: null, pageTitle: null, statement: null, sentence: null, target: null,
-    reason: 'src/big.ts is 731 lines long, over the product\'s 600-line threshold: one module holds too much to change safely.',
-    words: { en: '731 lines, over the 600-line threshold.', ru: '731 строка при пороге 600.' },
+    text: { code: 'largeFile' as const, args: { path: 'src/big.ts', count: 731, limit: 600 } },
     file: 'src/big.ts', line: 1, by: null, at: null, scope: { type: 'file' as const, path: 'src/big.ts' },
   };
   const ru = problemTaskRecord(problem, { language: 'ru', label: { en: 'Large file', ru: 'Большой файл' } });
   expect(ru.title).toBe('Исправить: Большой файл — src/big.ts:1');
-  expect(ru.body).toBe('Правило: Большой файл\nМесто: src/big.ts:1\nЧто не так: 731 строка при пороге 600.');
+  expect(ru.body).toBe('Правило: Большой файл\nМесто: src/big.ts:1\nЧто не так: src/big.ts: 731 строка при пороге 600 — в одном модуле слишком много, чтобы менять его безопасно.');
   const en = problemTaskRecord(problem, { language: 'en', label: { en: 'Large file' } });
   expect(en.title).toBe('Fix: Large file — src/big.ts:1');
-  expect(en.body).toBe('Rule: Large file\nPlace: src/big.ts:1\nWhat is wrong: 731 lines, over the 600-line threshold.');
+  expect(en.body).toBe("Rule: Large file\nPlace: src/big.ts:1\nWhat is wrong: src/big.ts is 731 lines long, over the product's 600-line threshold: one module holds too much to change safely.");
 });
 
 

@@ -18,9 +18,10 @@
  * from the host and what they point at is bound too — nothing else of the
  * host's environment reaches the plugin.
  */
-import { closeSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/elf-runtime.ts';
@@ -62,7 +63,11 @@ class BytesAt {
   private readonly size: number;
   constructor(file: string) {
     this.fd = openSync(file, 'r');
-    this.size = statSync(file).size;
+    this.size = withSpanSync('fs.stat', { 'file.path': file }, (span) => {
+      const stat = statSync(file);
+      span.setAttribute('file.bytes', stat.size);
+      return stat.size;
+    });
   }
   read(offset: number, length: number): Buffer {
     const wanted = Math.min(length, Math.max(0, this.size - offset));
@@ -280,7 +285,12 @@ function linkChain(file: string): string[] {
 /** A folder that stands and is a folder, or undefined. */
 function folderOf(file: string): string | undefined {
   try {
-    return statSync(file).isDirectory() ? resolve(file) : undefined;
+    const isFolder = withSpanSync('fs.stat', { 'file.path': file }, (span) => {
+      const stat = statSync(file);
+      span.setAttribute('file.bytes', stat.size);
+      return stat.isDirectory();
+    });
+    return isFolder ? resolve(file) : undefined;
   } catch {
     return undefined;
   }
@@ -309,7 +319,16 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   const mounts = new Set<string>();
   const problems: string[] = [];
   const environment: Record<string, string> = {};
+  // NixOS keeps every library and the loader in /nix/store, often behind links whose farm entries are not all readable
+  // (the credstore entry is a dangling bind source). Binding the store whole, as buildFHSEnv does, covers the runtime
+  // and every library without asking bwrap to bind each link; /run/current-system covers the system profile.
+  const wholeNixStore = platform.startsWith('linux-') && existsSync('/nix/store');
+  if (wholeNixStore) {
+    mounts.add('/nix/store');
+    if (existsSync('/run/current-system')) mounts.add('/run/current-system');
+  }
   const addFolder = (folder: string): void => {
+    if (wholeNixStore && (folder === '/nix/store' || folder.startsWith('/nix/store/') || folder === '/run/current-system' || folder.startsWith('/run/current-system/'))) return;
     if (bindableFolder(folder)) mounts.add(folder);
   };
   const addPath = (file: string, directory = false): void => {
@@ -435,16 +454,21 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
         // Include every farm entry, not only DT_NEEDED: a plugin may dlopen any of these names later.
         addPath(folder, true);
         try {
-          for (const name of readdirSync(folder).sort(byCodePoint)) {
-            const entry = join(folder, name);
-            try {
-              addPath(entry, statSync(entry).isDirectory());
-            } catch (error) {
-              const problem = `${WHERE}:1: cannot read NIX_LD_LIBRARY_PATH entry ${JSON.stringify(resolve(entry))}: ${(error as Error).message}`;
-              problems.push(problem);
-              refusal = refusal ?? problem;
+          // One span for the folder's entries: a span for each library of a store path would bury the mounts it found.
+          withSpanSync('fs.readdir', { 'file.path': folder }, (span) => {
+            const names = readdirSync(folder).sort(byCodePoint);
+            span.setAttribute('file.entries', names.length);
+            for (const name of names) {
+              const entry = join(folder, name);
+              try {
+                addPath(entry, statSync(entry).isDirectory());
+              } catch (error) {
+                const problem = `${WHERE}:1: cannot read NIX_LD_LIBRARY_PATH entry ${JSON.stringify(resolve(entry))}: ${(error as Error).message}`;
+                problems.push(problem);
+                refusal = refusal ?? problem;
+              }
             }
-          }
+          });
         } catch (error) {
           const problem = `${WHERE}:1: cannot read NIX_LD_LIBRARY_PATH folder ${JSON.stringify(resolve(folder))}: ${(error as Error).message}`;
           problems.push(problem);

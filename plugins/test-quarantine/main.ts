@@ -3,6 +3,19 @@ import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 
 import { quarantinedTests } from './parser.js';
 
 /** Source bytes come only from host graph reads; this plugin opens no repository or tracker. */
+
+/**
+ * One file's text, by the blob id the graph names: the host routes the read to the core plugin that owns git (decision
+ * 0037, decision 0038). Absent when the graph names no blob or the blob is no text.
+ */
+async function textOf(context: ExtractContext, file: import('madarch-plugin-sdk').EntityRef): Promise<string | undefined> {
+  const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
+  if (typeof blob !== 'string' || blob === '') return undefined;
+  const repository = file.keyEdges?.['code.file-repository']?.key['name'];
+  if (typeof repository !== 'string') throw new Error('plugins/test-quarantine/main.ts:15: file lacks its repository key edge');
+  const read = await context.read({ repository, blob });
+  return read.binary ? undefined : read.text;
+}
 export async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const files = await context.graph.files('**/*.test.*');
   const vertices: VertexResult[] = [];
@@ -11,7 +24,7 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
   const problems: string[] = [];
   const reports: { repository: string; entry: Record<string, unknown> }[] = [];
   for (const report of await context.graph.files('**/quarantine-results.json')) {
-    const content = await context.graph.value<string | null>(report.kind, report.key, 'content', report.keyEdges);
+    const content = await textOf(context, report);
     if (typeof content !== 'string') continue;
     try {
       const parsed: unknown = JSON.parse(content);
@@ -30,7 +43,7 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
     const repository = String(repositoryRef.key['name']);
     const path = String(file.key['path'] ?? '');
     if (!/\.test\.[cm]?[jt]sx?$/.test(path)) continue;
-    const source = await context.graph.value<string | null>(file.kind, file.key, 'content', file.keyEdges);
+    const source = await textOf(context, file);
     if (typeof source !== 'string') continue;
     const digest = createHash('sha256').update(source).digest('hex');
     blobVertices.push({ kind: 'code.blob', key: { digest }, values: { content: source } });

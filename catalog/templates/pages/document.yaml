@@ -1,0 +1,38 @@
+# A document of the product (decision 0036, sections 6 and 7): the Markdown the graph holds of it, under a header that
+# names the file it lies in, its place in the folders and the repository. The body is the graph's `markdown` field: the
+# page draws no copy of its own (madarch-64o5.134).
+template: document
+extends: text
+records: [document]
+sections:
+  - id: header
+    replace: true
+    component: header
+    title: { en: Document, ru: Документ }
+    query: |
+      id
+      kind
+      label
+      template
+      origin
+      documentRepository(first: 1) { edges { node { node { id label } } } }
+      path
+      trail {
+        id
+        kind
+        label
+      }
+    params:
+      titlePath: label
+      kindPath: kind
+      provenancePath: origin
+      trail: { repository: documentRepository.edges.0.node.node.label, path: path }
+  - id: body
+    replace: true
+    component: text
+    after: details
+    title: { en: Text, ru: Текст }
+    query: |
+      content
+    params:
+      path: content

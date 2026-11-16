@@ -5355,7 +5355,7 @@ semantic-bindings:
     kind: code.file
     fields:
       path: path
-      content: content
+      blob: blob
     edges:
       repository:
         kind: code.file-repository
@@ -5371,15 +5371,14 @@ semantic-bindings:
       lines: lines
       language: language
       languages: languages
-      content: content
     values:
       form:
         text: text
         binary: binary
     edges:
       repository:
-        kind: code.contains
-        direction: to
+        kind: code.file-repository
+        direction: from
       renamedFrom:
         kind: code.renamed-from
         direction: from

@@ -73,7 +73,7 @@ test('POST /graphql answers the product graph through the one executor', async (
   const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
   expect(catalogue.status).toBe(200);
   expect(catalogue.body.errors).toBeUndefined();
-  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(498);
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(502);
 });
 
 test('POST /graphql refuses a query deeper than six levels', async () => {
@@ -107,7 +107,7 @@ test('the schema route serves the published manifest, not an unpublished edit (#
   const answer = await fetch(`${server!.url}/graphql/schema`);
   expect(answer.status).toBe(200);
   const text = await answer.text();
-  expect(text).toContain('type CodeFile implements Entity');
+  expect(text).toContain('type KindCodeFile implements Entity');
   const queried = await post({ query: '{ allCodeFile(first: 1) { totalCount } }' });
   expect(queried.status).toBe(200);
   expect(queried.body.errors).toBeUndefined();

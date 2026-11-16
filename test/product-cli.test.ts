@@ -16,9 +16,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
+import { writePluginsUnconfined } from '../src/knowledge/settings.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src/product/lifecycle.js';
 import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
+import { probePluginSandbox } from '../src/plugin/sandbox-probe.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
@@ -316,10 +318,16 @@ describe('the single start command', () => {
       const opened = join(base, 'opened.txt');
       writeFileSync(opener, `#!/bin/sh\nprintf '%s' "$1" > ${shQuote(opened)}\n`);
       chmodSync(opener, 0o700);
+      // A machine that cannot confine a plugin asks the isolation question once in a terminal (madarch-64o5.86), and the
+      // answer it is given stands in the home this run serves: the child inherits no answer from the account, and this
+      // test holds whether the machine confines (no question) or not (one question, answered as a person answers it).
+      const probe = await probePluginSandbox({ env: { ...process.env, ...SEALED_GIT } });
+      const env = { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener, MADARCH_LANG: 'en' } as Record<string, string | undefined>;
+      delete env['MADARCH_PLUGINS_UNCONFINED'];
       const proc = Bun.spawn(['script', '-q', '-e', '-c', args.map(shQuote).join(' '), '/dev/null'], {
         cwd: base, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-        // The language is a machine setting asked once on a first run; this test is about the template question.
-        env: { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener, MADARCH_LANG: 'en' },
+        // The language is a machine setting asked once on a first run; this test is about the two terminal questions.
+        env,
       });
       runningChildren.push(proc);
       let output = '';
@@ -328,8 +336,26 @@ describe('the single start command', () => {
       while (!output.includes('Choose 1-') && proc.exitCode === null && Date.now() < deadline) await Bun.sleep(25);
       expect(output).toContain('Which template should the product start from?');
       proc.stdin.write('\n'); proc.stdin.flush();
+      if (probe.state === 'unavailable') {
+        // The second question stands because this machine cannot confine, and it is answered here as a person answers
+        // it: no, the plugins do not run without isolation, and the answer is remembered in this run's own home.
+        const asking = Date.now() + 30_000;
+        while (!output.includes('Plugins cannot be isolated on this machine') && proc.exitCode === null && Date.now() < asking) await Bun.sleep(25);
+        expect(output).toContain('Plugins cannot be isolated on this machine');
+        expect(output).toContain(probe.reason);
+        proc.stdin.write('2\n'); proc.stdin.flush();
+      }
       expect(await proc.exited).toBe(0);
       await reading;
+      // The answer stands in the madarch home this run serves — the folder that holds the products home `--home` names.
+      const settingsFile = join(base, 'settings.json');
+      const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, 'utf8')) as { pluginsUnconfined?: unknown } : {};
+      if (probe.state === 'unavailable') expect(settings.pluginsUnconfined).toBe(false);
+      else {
+        // A machine that confines asks nothing: the question is a machine's, not every init's.
+        expect(output).not.toContain('Plugins cannot be isolated on this machine');
+        expect(settings.pluginsUnconfined).toBeUndefined();
+      }
       expect(output.match(/Which template should the product start from\?/g)?.length).toBe(1);
       expect(output).not.toContain('Which agent');
       expect(output).not.toContain('token cap');
@@ -1336,9 +1362,17 @@ describe('madarch repo add', () => {
     const saved = spawnSync(realGit(), ['-C', draft.folder, 'commit', '-m', 'Use declared plugin producers in the path fixture'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
     if (saved.status !== 0) throw new Error(`fixture workflow commit failed: ${saved.stderr}`);
     const url = sourceRepo(base, 'library-source');
+    // The fill this case ends with needs the machine's isolation answer, and this machine cannot confine a plugin: the
+    // answer a person would have given (run them without isolation) stands in this test's own home, never the account's
+    // (madarch-64o5.86). The case itself is about resolving a relative `--product`.
+    writePluginsUnconfined({ MADARCH_HOME: home }, true);
     const relative = join('products', draft.name);
     const run = runCommand(['repo', 'add', 'library', url, '--mode', 'clone', '--product', relative], { MADARCH_HOME: home }, home);
-    expect(run.stderr).toBe('');
+    // The choice this home remembers is unconfined, and the host says so once per process: a line of stderr is that
+    // notice or nothing, never an error of the command.
+    for (const line of run.stderr.trim().split('\n').filter((one) => one !== '')) {
+      expect(line).toBe('Plugins run unconfined because the operator chose to run without confinement; they can read and write everything the user can.');
+    }
     expect(run.status).toBe(0);
     const target = join(draft.folder, 'repos', 'library');
     // The printed folder is the one the clone landed in, and it holds the repository.
@@ -1349,8 +1383,9 @@ describe('madarch repo add', () => {
     expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
     // And the fill that reads that repository succeeds, run the same way — from the home, naming the product relatively.
     const fill = runCommand(['fill', '--product', relative, '--home', products], { MADARCH_HOME: home }, home);
-    // A run with the plugin sandbox switched off names that once per process; it is the harness's notice, not the command's.
-    expect(fill.stderr.split('\n').filter((line) => line !== '' && !line.startsWith('Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off')).join('\n')).toBe('');
+    // A line of stderr is a notice this machine's isolation answer prints, never an error of the command: the sandbox
+    // switch-off's own notice, or the choice this home remembers.
+    expect(fill.stderr.split('\n').filter((line) => line !== '' && !line.startsWith('Plugins run unconfined because ')).join('\n')).toBe('');
     expect(fill.status).toBe(0);
     expect(fill.stdout).toContain('Fill ');
     expect(fill.stdout).toContain('Units: ');

@@ -238,6 +238,8 @@ export interface WikiStatus {
   publication?: 'pending' | 'done' | 'failed';
   publicationMessage?: string;
   manifestFile: string;
+  /** The guide that writes a product's manifests, for a product that has none (src/product/guides.ts). */
+  manifestGuide: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;
   /** Each kind the manifest declares and how many entities of it the graph holds. */

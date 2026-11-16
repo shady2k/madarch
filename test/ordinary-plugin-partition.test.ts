@@ -7,7 +7,7 @@ for(const [name,partitioned] of [['disk',disk],['git',git]] as const){
  const blob=(digest:string)=>({kind:'Support',key:{digest}});
  const repository={kind:'Repository',key:{name:'fixture'}};
  const unused=async():Promise<never>=>{throw new Error('partition helper must not call the host');};
- const context:Parameters<Parameters<typeof disk>[0]>[1]={signal:new AbortController().signal,progress:()=>{},heartbeat:()=>{},facts:{apply:unused},agent:unused,graph:{files:unused,value:unused,removedEnds:unused,unevidenced:unused}};
+ const context:Parameters<Parameters<typeof disk>[0]>[1]={signal:new AbortController().signal,progress:()=>{},heartbeat:()=>{},facts:{apply:unused},agent:unused,read:unused,graph:{files:unused,value:unused,removedEnds:unused,unevidenced:unused}};
  const unit:Parameters<Parameters<typeof disk>[0]>[0]={unitId:'files',kind:'File',key:{},inputs:{}};
  const fixture=()=>({end:{state:'complete' as const},vertices:[{...file('a'),evidence:{target:blob('a')}},{...file('b'),evidence:{target:blob('b')}},{...blob('a'),values:{content:'a'}},{...blob('b'),values:{content:'b'}},{...blob('inventory'),values:{content:'inventory'}}],edges:[{kind:'contains',from:repository,to:file('a'),evidence:{target:blob('inventory')}},{kind:'contains',from:repository,to:file('b'),evidence:{target:blob('inventory')}},{kind:'about',from:blob('inventory'),to:repository},{kind:'about',from:blob('a'),to:file('a')},{kind:'about',from:blob('b'),to:file('b')}]});
  test(`${name} partitions only output keys and carries referenced evidence support`,async()=>{

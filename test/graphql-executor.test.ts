@@ -27,7 +27,7 @@ import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js'
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readProductTemplates } from '../src/graph/product-templates.js';
+import { readTemplatesOf } from './page-templates-fixture.js';
 import { composePage, type Bootstrap } from '../src/page-contract/index.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -88,12 +88,48 @@ beforeAll(async () => {
   // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
   writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
   writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
-  writeFileSync(join(folder, 'madarch/catalog.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8'));
+  // One role leads the demo area and reads its files: the frame's purposes and audiences, and the role's leading groups.
+  const catalog = readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8')
+    .replace('language: en\n', 'language: en\nroles:\n  developer: { lead: [demo] }\n');
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), catalog + `
+- name: demo.source-repository
+  from: [demo.source]
+  to: [demo.repository]
+  cardinality:
+    from: {min: 1, max: 1}
+    to: {min: 0, max: null}
+  labels:
+    en: {out: belongs to, in: sources}
+    ru: {out: принадлежит, in: исходники}
+  on-parent-delete: restrict
+`);
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.repository.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.repository.yaml'), 'utf8'));
-  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8')
+    .replace('purpose: structure\n', 'purpose: structure\naudience: [developer]\n'));
   execFileSync('git', ['init', '-q'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.source.yaml'), `id: demo.source
+purpose: structure
+definition: A source text fixture.
+description: {en: A source text fixture., ru: Исходный текст для проверки.}
+sources: [https://example.test/standard]
+acquisition: [document]
+relation-constraints: {out: [], in: []}
+template-policy: page
+source: graph
+fields:
+  - {name: path, type: text, producers: [agent]}
+  - {name: blob, type: text, producers: [agent]}
+key: [path]
+derives-from: [demo.repository]
+key-edges:
+  - {role: repository, edge: demo.source-repository, side: from}
+file-text: {repository: repository, path: path, blob: blob}
+labels:
+  en: {one: Source, many: Sources}
+  ru: {one: Источник, many: Источники}
+`);
   const read = readKinds(folder);
   if (!read.present) throw new Error('the fixture product holds no manifest');
   if (read.manifest.findings.length > 0) throw new Error(read.manifest.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
@@ -110,6 +146,7 @@ beforeAll(async () => {
     await bindTestWriteCapability(tx, contract, '7692c3ad-0000-7000-8000-000000000001');
     await publishGraphDrafts(tx, contract, {
       vertices: [
+        { kind: 'demo.source', key: {path: 'sample.ts'}, keyEdges: {repository: repository('r1')}, values: {blob: 'source-blob'}, producer: 'one', producerVersion: '1' },
         { kind: 'demo.repository', key: { name: 'r1' }, values: { url: 'https://one.test', size: 2, archived: true }, producer: 'one', producerVersion: '1' },
         { ...file('a.ts'), values: { lines: 10, language: 'TypeScript' }, producer: 'one', producerVersion: '1' },
         { ...file('b.ts'), values: { lines: 20 }, producer: 'one', producerVersion: '1' },
@@ -175,8 +212,8 @@ beforeAll(async () => {
 }, 120_000);
 
 test('diagram neighbourhood refuses a deeper traversal of the real graph', async () => {
-  const templates = readProductTemplates(folder);
-  await expect(owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'test', templates).diagramNeighbourhood(repositoryId, 2, 'en'))).rejects.toThrow('deeper diagram neighbourhoods are not supported');
+  const held = await owner.transaction('snapshot', (tx) => readTemplatesOf(tx, manifest));
+  await expect(owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'test', held.templates, held.files, held.bodies, held.findings).diagramNeighbourhood(repositoryId, 2, 'en'))).rejects.toThrow('deeper diagram neighbourhoods are not supported');
 });
 
 afterAll(async () => {
@@ -191,8 +228,8 @@ describe('the GraphQL executor', () => {
       await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'demo.file', key: { path: 'a.ts' }, keyEdges: { repository: { kind: 'demo.repository', key: { name: 'r1' } } }, values: { lines: 111 }, validFrom: '2099-01-01T00:00:00.000Z', producer: 'one', producerVersion: '1' }], edges: [], removals: [], edgeRemovals: [] });
     });
     const data = await graphql(`query ($id: ID!) {
-      present: entity(id: $id, validAt: "2027-01-01T00:00:00.000Z") { ... on DemoFile { lines } }
-      future: entity(id: $id, validAt: "2100-01-01T00:00:00.000Z") { ... on DemoFile { lines } }
+      present: entity(id: $id, validAt: "2027-01-01T00:00:00.000Z") { ... on KindDemoFile { lines } }
+      future: entity(id: $id, validAt: "2100-01-01T00:00:00.000Z") { ... on KindDemoFile { lines } }
       beforeRecording: entity(id: $id, recordedAt: "2000-01-01T00:00:00.000Z") { id }
     }`, { id: fileA });
     expect(data['present']).toEqual({ lines: 10 });
@@ -241,8 +278,30 @@ describe('the GraphQL executor', () => {
     expect(data['current']).toEqual({ totalCount: 1 });
   });
 
+  test('stable keys resolve entities without guessing a kind or leaking missing keys', async () => {
+    const data = await graphql(`query { entityByKey(kind: "demo.repository", key: {name: "r1"}) { id label } missing: entityByKey(kind: "demo.repository", key: {name: "absent"}) { id } undeclared: entityByKey(kind: "missing.kind", key: {name: "r1"}) { id } }`);
+    expect(data['entityByKey']).toEqual({ id: repositoryId, label: 'r1' });
+    expect(data['missing']).toBeNull();
+    expect(data['undeclared']).toBeNull();
+  });
+
+  test('generic relations filter, sort, page and inherit the nested entity', async () => {
+    const query = `query ($id: ID!, $after: String) { entity(id: $id) { related(edge: "demo.contains", kinds: ["demo.file"], where: {lines: {_gte: 10}}, orderBy: [{field: "lines", direction: DESC}], first: 1, after: $after) { totalCount pageInfo { endCursor hasNextPage } edges { node { id label related(edge: "demo.contains", inverse: true) { totalCount edges { node { id } } } } } } } }`;
+    const first = await graphql(query, { id: repositoryId });
+    const connection = (first['entity'] as any).related;
+    expect(connection.totalCount).toBe(2);
+    expect(connection.pageInfo.hasNextPage).toBe(true);
+    expect(connection.edges[0].node.label).toBe('b.ts');
+    expect(connection.edges[0].node.related).toMatchObject({ totalCount: 1, edges: [{ node: { id: repositoryId } }] });
+    const second = await graphql(query, { id: repositoryId, after: connection.pageInfo.endCursor });
+    expect((second['entity'] as any).related).toMatchObject({ totalCount: 2, pageInfo: {hasNextPage: false}, edges: [{ node: { label: 'a.ts' } }] });
+    const invalid = await refusal(`{ related(id:"${repositoryId}",edge:"demo.contains",depth:4) {totalCount} }`);
+    expect(invalid.message).toContain('related depth must be between 1 and 3');
+  });
+
+
   test('an entity by id answers its fields and its reference', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind label ... on DemoFile { path lines demoFileRepository(first: 1) { edges { node { node { ... on DemoRepository { name } } } } } } } }`, { id: fileA });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind label ... on KindDemoFile { path lines demoFileRepository(first: 1) { edges { node { node { ... on KindDemoRepository { name } } } } } } } }`, { id: fileA });
     const entity = data['entity'] as Record<string, unknown>;
     expect(entity['id']).toBe(fileA);
     expect(entity['kind']).toBe('demo.file');
@@ -253,19 +312,19 @@ describe('the GraphQL executor', () => {
   });
 
   test('an edge answers both ways with its record and attribute', async () => {
-    const from = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 10) { totalCount edges { node { discriminator position node { ... on DemoFile { path } } } } } } } }`, { id: repositoryId });
+    const from = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(first: 10) { totalCount edges { node { discriminator position node { ... on KindDemoFile { path } } } } } } } }`, { id: repositoryId });
     const repository = from['entity'] as Record<string, any>;
     expect(repository.demoContains.totalCount).toBe(3);
     expect(repository.demoContains.edges.map((edge: any) => edge.node.node.path)).toEqual(['a.ts', 'b.ts', 'c.ts']);
     expect(repository.demoContains.edges[0].node.position).toBe(1);
     expect(repository.demoContains.edges[0].node.discriminator).toBe('');
-    const to = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoFile { demoContainsOf(first: 10) { edges { node { node { ... on DemoRepository { name } } } } } } } }`, { id: fileA });
+    const to = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoFile { demoContainsOf(first: 10) { edges { node { node { ... on KindDemoRepository { name } } } } } } } }`, { id: fileA });
     const file = to['entity'] as Record<string, any>;
     expect(file.demoContainsOf.edges[0].node.node.name).toBe('r1');
   });
 
   test('a backlink names the inverse field and the vertex it comes from', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { backlinks(first: 10) { totalCount edges { node { relation from { ... on DemoRepository { name } } } } } } }`, { id: fileA });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { backlinks(first: 10) { totalCount edges { node { relation from { ... on KindDemoRepository { name } } } } } } }`, { id: fileA });
     const entity = data['entity'] as Record<string, any>;
     expect(entity.backlinks.totalCount).toBe(1);
     expect(entity.backlinks.edges[0].node.relation).toBe('demoContainsOf');
@@ -273,12 +332,42 @@ describe('the GraphQL executor', () => {
   });
 
   test('two producers that disagree give null, contested and both opinions', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { url urlAssertions { value source { id } } contested } } }`, { id: repositoryId });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { url urlAssertions { value source { id } } contested } } }`, { id: repositoryId });
     const repository = data['entity'] as Record<string, any>;
     expect(repository.url).toBe('https://two.test');
     expect(repository.contested).toContain('url');
     expect(repository.urlAssertions.map((one: any) => one.value).sort()).toEqual(['https://one.test', 'https://two.test']);
     expect(repository.urlAssertions.map((one: any) => one.source.id).sort()).toEqual(['3fc4ccfe-0000-7000-8000-000000000001', '7692c3ad-0000-7000-8000-000000000001']);
+  });
+
+  test('details answer every declared field with its value, its mark and the opinions that hold it', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { details { name type key value contested opinions { producer value } } } }`, { id: repositoryId });
+    const details = (data['entity'] as Record<string, any>).details as Record<string, any>[];
+    expect(details.map((one: Record<string, any>) => one.name)).toEqual(['archived', 'description', 'name', 'size', 'url']);
+    const url = details.find((one: Record<string, any>) => one.name === 'url')!;
+    expect(url.contested).toBe(true);
+    expect(url.value).toBeNull();
+    expect(url.opinions.map((one: Record<string, any>) => one.producer).sort()).toEqual(['one', 'two']);
+    const size = details.find((one: Record<string, any>) => one.name === 'size')!;
+    expect(size).toMatchObject({ type: 'integer', key: false, value: 2, contested: false });
+    const key = details.find((one: Record<string, any>) => one.name === 'name')!;
+    expect(key.key).toBe(true);
+    expect(key.value).toBe('r1');
+    expect(key.opinions).toEqual([]);
+  });
+
+  test('trail names the containers outermost first', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { label trail { id kind label } } }`, { id: fileA });
+    const trail = (data['entity'] as Record<string, any>).trail as Record<string, any>[];
+    expect(trail.map((one) => one.label)).toEqual(['r1']);
+    expect(trail[0]!.kind).toBe('demo.repository');
+    const repository = await graphql(`query ($id: ID!) { entity(id: $id) { trail { id } } }`, { id: repositoryId });
+    expect((repository['entity'] as Record<string, any>).trail).toEqual([]);
+  });
+
+  test('origin names the place the newest opinion rests on', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { origin } }`, { id: repositoryId });
+    expect((data['entity'] as Record<string, any>).origin).toBeNull();
   });
 
   test('a list filters, orders and pages with a cursor', async () => {
@@ -303,11 +392,11 @@ describe('the GraphQL executor', () => {
     expect(entry.fields.find((field: any) => field.name === 'path').type).toBe('text');
     expect(entry.derivesFrom.edges.map((edge: any) => edge.node.name)).toEqual(['demo.repository']);
     const all = await graphql(`{ allCatalogueEntity(first: 10) { totalCount edges { node { name } } } }`);
-    expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(2);
+    expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(3);
   });
 
   test('a query deeper than seven levels is refused with LIMIT_DEPTH', async () => {
-    const answer = await refusal(`{ allDemoRepository { edges { node { demoContains { edges { node { demoContainsOf { edges { node { node { ... on DemoFile { path } } } } } } } } } } } }`);
+    const answer = await refusal(`{ allDemoRepository { edges { node { demoContains { edges { node { demoContainsOf { edges { node { node { ... on KindDemoFile { path } } } } } } } } } } } }`);
     expect(answer.code).toBe('LIMIT_DEPTH');
     expect(answer.message).toContain('the limit is 7');
   });
@@ -337,12 +426,12 @@ describe('the GraphQL executor', () => {
       query: `{ allDemoFile(context: ${context}, where: { path: { _contains: "bulk-" } }, first: 50) { edges { node { path demoContainsOf(first: 1) { edges { cursor } } } } } }`,
     });
     expect((answer.body as MessageBody).errors).toBeUndefined();
-    expect(((answer.body as MessageBody).data!['allDemoFile'] as { edges: unknown[] }).edges).toHaveLength(50);
+    expect(((answer.body as MessageBody).data as { allDemoFile: { edges: unknown[] } }).allDemoFile.edges).toHaveLength(50);
     expect(counted.statements()).toBeLessThan(12);
   }, 60_000);
 
   test('a field answers its typed value, not a JSON text (#1)', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { size archived description } } }`, { id: repositoryId });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { size archived description } } }`, { id: repositoryId });
     const repository = data['entity'] as Record<string, unknown>;
     expect(repository['size']).toBe(2);
     expect(repository['archived']).toBe(true);
@@ -350,11 +439,11 @@ describe('the GraphQL executor', () => {
   });
 
   test('a key reference answers its inverse, and an agreed non-key reference answers it once (#2, #5)', async () => {
-    const keyed = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }) { edges { node { demoFileRepositoryOf(first: 10) { totalCount edges { node { node { ... on DemoFile { path } } } } } } } } }`);
+    const keyed = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }) { edges { node { demoFileRepositoryOf(first: 10) { totalCount edges { node { node { ... on KindDemoFile { path } } } } } } } } }`);
     const repository = (keyed['allDemoRepository'] as Record<string, any>).edges[0].node;
     expect(repository.demoFileRepositoryOf.totalCount).toBe(3);
     expect(repository.demoFileRepositoryOf.edges.map((edge: any) => edge.node.node.path)).toEqual(['a.ts', 'b.ts', 'c.ts']);
-    const agreed = await graphql(`query ($r1: ID!, $r2: ID!) { r1: entity(id: $r1) { ... on DemoRepository { demoFilePrimaryOf(first: 10) { totalCount edges { node { node { ... on DemoFile { path } } } } } backlinks(first: 20) { edges { node { relation } } } } } r2: entity(id: $r2) { ... on DemoRepository { demoFilePrimaryOf(first: 10) { totalCount } } } }`, { r1: repositoryId, r2: repository2Id });
+    const agreed = await graphql(`query ($r1: ID!, $r2: ID!) { r1: entity(id: $r1) { ... on KindDemoRepository { demoFilePrimaryOf(first: 10) { totalCount edges { node { node { ... on KindDemoFile { path } } } } } backlinks(first: 20) { edges { node { relation } } } } } r2: entity(id: $r2) { ... on KindDemoRepository { demoFilePrimaryOf(first: 10) { totalCount } } } }`, { r1: repositoryId, r2: repository2Id });
     const r1 = agreed['r1'] as Record<string, any>;
     expect(r1.demoFilePrimaryOf.totalCount).toBe(1);
     expect(r1.demoFilePrimaryOf.edges.map((edge: any) => edge.node.node.path)).toEqual(['a.ts']);
@@ -364,7 +453,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('a reference declared text answers its inverse and its backlink, not a database error (madarch-64o5.83)', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoFilePreferredOf(first: 10) { totalCount edges { node { node { ... on DemoFile { path } } } } } backlinks(first: 20) { edges { node { relation } } } } } }`, { id: repositoryId });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoFilePreferredOf(first: 10) { totalCount edges { node { node { ... on KindDemoFile { path } } } } } backlinks(first: 20) { edges { node { relation } } } } } }`, { id: repositoryId });
     const repository = data['entity'] as Record<string, any>;
     expect(repository.demoFilePreferredOf.totalCount).toBe(1);
     expect(repository.demoFilePreferredOf.edges.map((edge: any) => edge.node.node.path)).toEqual(['a.ts']);
@@ -395,7 +484,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('a bigint edge attribute orders by its number, not its text (#7)', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoFile { demoTouched(orderBy: [{ field: weight }], first: 10) { edges { node { weight } } } } } }`, { id: fileA });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoFile { demoTouched(orderBy: [{ field: weight }], first: 10) { edges { node { weight } } } } } }`, { id: fileA });
     const file = data['entity'] as Record<string, any>;
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
@@ -406,7 +495,7 @@ describe('the GraphQL executor', () => {
       home: null,
       catalogueTemplate: 'entity',
       templates: ['catalogue', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
-      recordTemplates: [], ownTemplates: [], roles: [],
+      recordTemplates: [], ownTemplates: [], roles: [], roleLeads: [],
     };
     const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
@@ -418,7 +507,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {
-    const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles } }`);
+    const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles roleLeads { role lead } } }`);
     const held = data['bootstrap'] as Record<string, any>;
     expect(held.structureRevision).toHaveLength(64);
     // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
@@ -428,6 +517,18 @@ describe('the GraphQL executor', () => {
     expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
     expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
     expect(Array.isArray(held.roles)).toBe(true);
+    expect(held.roles).toEqual(['developer']);
+    // The groups a role lists first, as the manifest declares them: the sidebar reads them with the bootstrap.
+    expect(held.roleLeads).toEqual([{ role: 'developer', lead: ['demo'] }]);
+  });
+
+  test('the navigation names each kind\'s purpose and the roles it is meant for', async () => {
+    const data = await graphql(`{ navigation { purposes { id } kinds { kind purpose audience } } }`);
+    const navigation = data['navigation'] as Record<string, any>;
+    expect(navigation.purposes.map((one: any) => one.id)).toEqual(['structure']);
+    const kinds = new Map(navigation.kinds.map((one: any) => [one.kind, one]));
+    expect(kinds.get('demo.file')).toMatchObject({ purpose: 'structure', audience: ['developer'] });
+    expect(kinds.get('demo.repository')).toMatchObject({ purpose: 'structure', audience: null });
   });
 
   test('an entity answers the template its kind\'s record template names', async () => {
@@ -453,7 +554,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('an entity answers the relations it leads out with, as backlinks answer the ones it is reached by', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { outgoing(first: 10) { totalCount edges { node { relation to { kind ... on DemoFile { path } } } } } } }`, { id: repositoryId });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { outgoing(first: 10) { totalCount edges { node { relation to { kind ... on KindDemoFile { path } } } } } } }`, { id: repositoryId });
     const outgoing = (data['entity'] as Record<string, any>).outgoing;
     expect(outgoing.totalCount).toBeGreaterThanOrEqual(3);
     expect(new Set(outgoing.edges.map((edge: any) => edge.node.relation))).toEqual(new Set(['demoContains']));
@@ -481,7 +582,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('a root lang chooses that reader language for its branch (#10)', async () => {
-    const data = await graphql(`query ($id: ID!) { en: entity(id: $id) { ... on DemoRepository { description } } ru: entity(id: $id, lang: "ru") { ... on DemoRepository { description } } }`, { id: repositoryId });
+    const data = await graphql(`query ($id: ID!) { en: entity(id: $id) { ... on KindDemoRepository { description } } ru: entity(id: $id, lang: "ru") { ... on KindDemoRepository { description } } }`, { id: repositoryId });
     expect((data['en'] as Record<string, any>).description).toBe('Hello');
     expect((data['ru'] as Record<string, any>).description).toBe('Привет');
   });
@@ -489,21 +590,21 @@ describe('the GraphQL executor', () => {
   test('SQL filters and the field resolver choose the same language opinion (#11)', async () => {
     const filtered = await graphql(`{ allDemoRepository(where: { description: { _eq: "Hello" } }) { edges { node { name } } } }`);
     expect((filtered['allDemoRepository'] as Record<string, any>).edges.map((edge: any) => edge.node.name)).toEqual(['r1']);
-    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { description contested } } }`, { id: repositoryId });
+    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { description contested } } }`, { id: repositoryId });
     const repository = read['entity'] as Record<string, any>;
     expect(repository.description).toBe('Hello');
     expect(repository.contested).not.toContain('description');
   });
 
   test('a column read for one node is not read as loaded for another (#12)', async () => {
-    const data = await graphql(`query ($a: ID!, $b: ID!, $r: ID!) { a: entity(id: $a) { ... on DemoFile { lines } } b: entity(id: $b) { ... on DemoFile { language } } deep: entity(id: $r) { ... on DemoRepository { demoContains(first: 3) { edges { node { node { ... on DemoFile { language } } } } } } } }`, { a: fileA, b: fileB, r: repositoryId });
+    const data = await graphql(`query ($a: ID!, $b: ID!, $r: ID!) { a: entity(id: $a) { ... on KindDemoFile { lines } } b: entity(id: $b) { ... on KindDemoFile { language } } deep: entity(id: $r) { ... on KindDemoRepository { demoContains(first: 3) { edges { node { node { ... on KindDemoFile { language } } } } } } } }`, { a: fileA, b: fileB, r: repositoryId });
     const deep = data['deep'] as Record<string, any>;
     const languages = deep.demoContains.edges.map((edge: any) => edge.node.node.language);
     expect(languages).toContain('TypeScript');
   });
 
   test('a camel-cased edge attribute answers its value and opinions (#13)', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoFile { demoTouched(orderBy: [{ field: weight }], first: 10) { edges { node { weight changedAt changedAtAssertions { value } changedAtAssertions { id } } } } } } }`, { id: fileA });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoFile { demoTouched(orderBy: [{ field: weight }], first: 10) { edges { node { weight changedAt changedAtAssertions { value } changedAtAssertions { id } } } } } } }`, { id: fileA });
     const file = data['entity'] as Record<string, any>;
     const edge = file.demoTouched.edges[0].node;
     expect(edge.weight).toBe('2');
@@ -514,13 +615,13 @@ describe('the GraphQL executor', () => {
 
   test('references of a list are batched, not one query per row (#14)', async () => {
     const counted = countingOwner();
-    const answer = await executeGraphql(counted.owner, { manifest, folder }, { query: `{ allDemoFile(first: 50) { edges { node { path demoFileRepository(first: 1) { edges { node { node { ... on DemoRepository { name } } } } } } } } }` });
+    const answer = await executeGraphql(counted.owner, { manifest, folder }, { query: `{ allDemoFile(first: 50) { edges { node { path demoFileRepository(first: 1) { edges { node { node { ... on KindDemoRepository { name } } } } } } } } }` });
     expect((answer.body as MessageBody).errors).toBeUndefined();
-    expect(counted.statements()).toBeLessThan(12);
+    expect(counted.statements()).toBeLessThan(14);
   });
 
   test('opinions come newest first, and an edge without attributes still has opinions (#15)', async () => {
-    const data = await graphql(`query ($id: ID!, $file: ID!) { entity(id: $id) { ... on DemoRepository { urlAssertions { source { id } } } } file: entity(id: $file) { ... on DemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { id: repositoryId, file: fileA });
+    const data = await graphql(`query ($id: ID!, $file: ID!) { entity(id: $id) { ... on KindDemoRepository { urlAssertions { source { id } } } } file: entity(id: $file) { ... on KindDemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { id: repositoryId, file: fileA });
     const repository = data['entity'] as Record<string, any>;
     expect(repository.urlAssertions[0].source.id).toBe('3fc4ccfe-0000-7000-8000-000000000001');
     const file = data['file'] as Record<string, any>;
@@ -535,7 +636,7 @@ describe('the GraphQL executor', () => {
         removals: [],
       }, 1, { author: 'many@1' });
     });
-    const bounded = await graphql(`query ($file: ID!) { entity(id: $file) { ... on DemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { file: fileA });
+    const bounded = await graphql(`query ($file: ID!) { entity(id: $file) { ... on KindDemoFile { demoRelated(first: 5) { edges { node { assertions { source { id } } } } } } } }`, { file: fileA });
     const related = (bounded['entity'] as Record<string, any>).demoRelated.edges[0].node.assertions;
     expect(related).toHaveLength(52);
     expect(related[0].source.id).toBeDefined();
@@ -543,7 +644,7 @@ describe('the GraphQL executor', () => {
 
   test('a null where argument is an omitted filter (#16)', async () => {
     const data = await graphql(`{ allDemoFile(where: null, first: 2) { edges { node { path } } } catalogue: allCatalogueEntity(where: null, first: 1) { totalCount } filtered: allDemoFile(where: { lines: { _is_null: true }, path: { _in: ["a.ts", "b.ts", "c.ts"] } }, first: 2) { edges { node { path } } } }`);
-    expect((data['catalogue'] as Record<string, any>).totalCount).toBe(2);
+    expect((data['catalogue'] as Record<string, any>).totalCount).toBe(3);
     expect((data['allDemoFile'] as Record<string, any>).edges).toHaveLength(2);
     expect((data['filtered'] as Record<string, any>).edges.map((edge: any) => edge.node.path)).toEqual(['c.ts']);
   });
@@ -562,33 +663,35 @@ describe('the GraphQL executor', () => {
   });
 
   test('depth admission looks only at the operation the request names (#20)', async () => {
-    const document = `query Shallow { allDemoFile(first: 1) { edges { cursor } } } query Deep { allDemoRepository { edges { node { demoContains { edges { node { node { ... on DemoFile { demoContainsOf { edges { node { node { ... on DemoFile { path } } } } } } } } } } } } } }`;
+    const document = `query Shallow { allDemoFile(first: 1) { edges { cursor } } } query Deep { allDemoRepository { edges { node { demoContains { edges { node { node { ... on KindDemoFile { demoContainsOf { edges { node { node { ... on KindDemoFile { path } } } } } } } } } } } } } }`;
     const shallow = await executeGraphql(owner, { manifest, folder }, { query: document, operationName: 'Shallow' });
     expect((shallow.body as MessageBody).errors).toBeUndefined();
     const deep = await executeGraphql(owner, { manifest, folder }, { query: document, operationName: 'Deep' });
     expect((deep.body as MessageBody).errors?.[0]?.extensions?.code).toBe('LIMIT_DEPTH');
   });
   test('a response over two megabytes is refused with TOO_LARGE (#3)', async () => {
-    const answer = await executeGraphql(owner, { manifest, folder }, { query: `query ($id: ID!) { entity(id: $id) { ... on DemoRepository { description } } }`, variables: { id: repository3Id } });
+    const answer = await executeGraphql(owner, { manifest, folder }, { query: `query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { description } } }`, variables: { id: repository3Id } });
     const body = answer.body as MessageBody;
     expect(body.errors?.[0]?.extensions?.code).toBe('TOO_LARGE');
     expect(body.data).toBeUndefined();
   });
   test('an edge connection keeps its whole count after a page (#9)', async () => {
-    const first = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(where: { position: { _in: [1, 2, 3] } }, first: 1) { totalCount pageInfo { endCursor } edges { node { position } } } } } }`, { id: repositoryId });
+    const first = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(where: { position: { _in: [1, 2, 3] } }, first: 1) { totalCount pageInfo { endCursor } edges { node { position } } } } } }`, { id: repositoryId });
     let connection = (first['entity'] as Record<string, any>).demoContains;
     expect(connection.totalCount).toBe(3);
     for (let at = 0; at < 2; at += 1) {
-      const next = await graphql(`query ($id: ID!, $after: String) { entity(id: $id) { ... on DemoRepository { demoContains(where: { position: { _in: [1, 2, 3] } }, first: 1, after: $after) { totalCount pageInfo { endCursor } edges { node { position } } } } } }`, { id: repositoryId, after: connection.pageInfo.endCursor });
+      const next = await graphql(`query ($id: ID!, $after: String) { entity(id: $id) { ... on KindDemoRepository { demoContains(where: { position: { _in: [1, 2, 3] } }, first: 1, after: $after) { totalCount pageInfo { endCursor } edges { node { position } } } } } }`, { id: repositoryId, after: connection.pageInfo.endCursor });
       connection = (next['entity'] as Record<string, any>).demoContains;
       expect(connection.totalCount).toBe(3);
     }
   });
 
   test('an undeclared storage kind stops its field batch instead of requeuing forever', async () => {
+    // Templates are the graph's entities (the owner's decision of 2026-11-15), read here outside the counted owner.
+    const held = await owner.transaction('snapshot', (tx) => readTemplatesOf(tx, manifest));
     const counted = countingOwner();
     const label = await counted.owner.transaction('snapshot', async (tx) => {
-      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', held.templates, held.files, held.bodies, held.findings);
       return await read.resolve(
         { nodeId: '1', uid: 'missing', kind: 'undeclared', key: { name: 'Fallback' }, typeName: 'Undeclared' },
         {}, read, { parentType: { name: 'Undeclared' }, fieldName: 'label' } as never,
@@ -601,9 +704,10 @@ describe('the GraphQL executor', () => {
   test('catalogue diagram labels use the translated catalogue title', async () => {
     const data = await graphql(`{ catalogueEntity(name: "demo.file") { id } }`);
     const id = (data['catalogueEntity'] as { id: string }).id;
+    const held = await owner.transaction('snapshot', (tx) => readTemplatesOf(tx, manifest));
     const counted = countingOwner();
     const hood = await counted.owner.transaction('snapshot', async (tx) => {
-      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', readProductTemplates(folder));
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', held.templates, held.files, held.bodies, held.findings);
       return await read.diagramNeighbourhood(id, 1, 'ru');
     });
     expect(hood).toBeDefined();
@@ -625,10 +729,11 @@ describe('the GraphQL executor', () => {
     });
     const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "diagram-budget" } }) { edges { node { id } } } }`);
     const id = (data['allDemoRepository'] as { edges: { node: { id: string } }[] }).edges[0]!.node.id;
+    const held = await owner.transaction('snapshot', (tx) => readTemplatesOf(tx, manifest));
     const counted = countingOwner();
     const started = performance.now();
     const hood = await counted.owner.transaction('snapshot', async (tx) => {
-      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', held.templates, held.files, held.bodies, held.findings);
       return await read.diagramNeighbourhood(id, 1, 'en');
     });
     const elapsed = performance.now() - started;
@@ -668,9 +773,11 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   const empty = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 0) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
   expect(empty['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true }, edges: [] });
   expect(transferred.pop()).toBeLessThanOrEqual(1);
-  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } } } }');
+  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } matched } } }');
   expect(grouped['searchGroups']).toMatchObject([{ kind: 'demo.file', count: 60 }]);
   expect((grouped['searchGroups'] as { results: unknown[] }[])[0]!.results).toHaveLength(2);
+  // Each answer names the text of the field the words were found in: the row's excerpt under its title.
+  for (const hit of (grouped['searchGroups'] as { results: { matched: string }[] }[])[0]!.results) expect(hit.matched).toContain('search-bound');
   expect(transferred.pop()).toBeLessThanOrEqual(40);
 });
 
@@ -693,7 +800,7 @@ test('search uses the declared evidence content field rather than conventional p
       return await tx.query(sql, parameters);
     } } as OuterTransaction, searchManifest, { kinds: [{ name: 'demo.file', key: ['path'], fields: [
       { name: 'path', type: 'text' }, { name: 'body', type: 'text' }, { name: 'payload', type: 'text' },
-    ] }], edges: [], relations: [] }, folder, 'en', 'fixture', readProductTemplates(folder));
+    ] }], edges: [], relations: [] }, folder, 'en', 'fixture', (await readTemplatesOf(tx, searchManifest)).templates);
     await context.resolve(undefined, { text: 'needle', kinds: ['demo.file'], first: 2 }, context, { fieldName: 'search', parentType: { name: 'Query' } } as never);
   });
   expect(statements.some(sql => sql.startsWith('WITH hits AS'))).toBe(true);
@@ -732,7 +839,7 @@ test('a durable resolution selects the same value for fields, filters, order and
     await refreshDisputeSelection(tx, disputeContract);
   });
   const result = await graphql(`query ($id: ID!) {
-    entity(id: $id) { ... on DemoRepository { description contested descriptionAssertions { id selected question { id state candidates { id } resolution { id value source { id } } supersededResolutions { id } } } } }
+    entity(id: $id) { ... on KindDemoRepository { description contested descriptionAssertions { id selected question { id state candidates { id } resolution { id value source { id } } supersededResolutions { id } } } } }
     allDemoRepository(where: { description: { _eq: "Chosen resolution" } }, orderBy: [{field: description}]) { totalCount edges { node { description } } }
     ordered: allDemoRepository(orderBy: [{field: description}], first: 1) { edges { node { name } } }
     allDemoRepositoryAggregate(where: { description: { _eq: "Chosen resolution" } }) { count }
@@ -756,14 +863,14 @@ test('a durable resolution selects the same value for fields, filters, order and
   expect(record[0]!.values['description']).toBe('Chosen resolution');
   const resolvedAt = new Date().toISOString();
   await write(gb, 'Changed losing value');
-  const reopened = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { description contested descriptionAssertions { question { state resolution { id } supersededResolutions { id } } } } } }`, { id: repository3Id });
+  const reopened = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { description contested descriptionAssertions { question { state resolution { id } supersededResolutions { id } } } } } }`, { id: repository3Id });
   const openEntity = reopened['entity'] as Record<string, any>;
   expect(openEntity.description).toBe('Changed losing value');
   expect(openEntity.contested).toContain('description');
   expect(openEntity.descriptionAssertions[0].question.state).toBe('OPEN');
   expect(openEntity.descriptionAssertions[0].question.resolution).toBeNull();
   expect(openEntity.descriptionAssertions[0].question.supersededResolutions).toHaveLength(1);
-  const historical = await graphql(`query ($id: ID!, $at: DateTime!) { entity(id: $id, recordedAt: $at) { ... on DemoRepository { description contested } } }`, { id: repository3Id, at: resolvedAt });
+  const historical = await graphql(`query ($id: ID!, $at: DateTime!) { entity(id: $id, recordedAt: $at) { ... on KindDemoRepository { description contested } } }`, { id: repository3Id, at: resolvedAt });
   expect((historical['entity'] as Record<string, any>).description).toBe('Chosen resolution');
   expect((historical['entity'] as Record<string, any>).contested).not.toContain('description');
   // A source can deny existence or withdraw only its own stream, not another source's live assertion.
@@ -858,7 +965,7 @@ test('language fallback agrees with SQL after temporal and context selection', a
   });
   const check = async (selectors: string) => {
     const data = await graphql(`query ($id: ID!) {
-      entity(id: $id, lang: "ru", ${selectors}) { ... on DemoRepository { description } }
+      entity(id: $id, lang: "ru", ${selectors}) { ... on KindDemoRepository { description } }
       filtered: allDemoRepository(lang: "ru", ${selectors}, where: { name: { _eq: "language-fallback-snapshot" }, description: { _eq: "Active English fallback" } }) { totalCount edges { node { description } } }
       ordered: allDemoRepository(lang: "ru", ${selectors}, where: { name: { _eq: "language-fallback-snapshot" } }, orderBy: [{ field: description }]) { edges { node { description } } }
       aggregate: allDemoRepositoryAggregate(lang: "ru", ${selectors}, where: { name: { _eq: "language-fallback-snapshot" }, description: { _eq: "Active English fallback" } }) { count }
@@ -880,3 +987,66 @@ test('language fallback agrees with SQL after temporal and context selection', a
   });
   await check('validAt: "2100-01-01T00:00:00.000Z"');
 }, 30000);
+
+test('recursive generic relations deduplicate paths, stop cycles and page their full count', async () => {
+  const ref = (name: string) => ({kind: 'demo.repository', key: {name}});
+  await owner.transaction('write', async (tx) => {
+    await bindTestWriteCapability(tx, contract);
+    return await publishGraphDrafts(tx, contract, {
+    vertices: ['depth-root', 'depth-a', 'depth-b', 'depth-c'].map((name) => ({...ref(name), values: {}, producer: 'depth', producerVersion: '1'})),
+    edges: [['depth-root', 'depth-a'], ['depth-root', 'depth-b'], ['depth-a', 'depth-c'], ['depth-b', 'depth-c'], ['depth-c', 'depth-root']].map(([from, to]) => ({kind: 'mentions', from: ref(from!), to: ref(to!), discriminator: 'depth', producer: 'depth', producerVersion: '1'})),
+    removals: [],
+  }, 1, {author: 'depth@1'});
+  });
+  const found = await graphql(`{entityByKey(kind:"demo.repository",key:{name:"depth-root"}) {id}}`);
+  const id = (found['entityByKey'] as any).id;
+  const query = `query($id:ID!,$depth:Int!,$after:String){related(id:$id,edge:"mentions",depth:$depth,kinds:["demo.repository"],orderBy:[{field:"name"}],first:2,after:$after){totalCount edges{node{label}} pageInfo{endCursor hasNextPage}}}`;
+  const one = (await graphql(query, {id,depth:1}))['related'] as any;
+  expect(one.totalCount).toBe(2);
+  expect(one.edges.map((e:any)=>e.node.label)).toEqual(['depth-a','depth-b']);
+  const two = (await graphql(query, {id,depth:2}))['related'] as any;
+  expect(two.totalCount).toBe(3);
+  expect(two.pageInfo.hasNextPage).toBe(true);
+  const rest = (await graphql(query, {id,depth:3,after:two.pageInfo.endCursor}))['related'] as any;
+  expect(rest.totalCount).toBe(3);
+  expect(rest.edges.map((e:any)=>e.node.label)).toEqual(['depth-c']);
+  expect(rest.pageInfo.hasNextPage).toBe(false);
+});
+
+test('cochange counts distinct shared events and the target event denominator', async () => {
+  const ref = (name: string) => ({kind: 'demo.repository', key: {name}});
+  const names = ['co-target','co-sibling','co-once','co-event1','co-event2','co-event3'];
+  await owner.transaction('write', async (tx) => {
+    await bindTestWriteCapability(tx, contract);
+    return await publishGraphDrafts(tx, contract, {
+    vertices: names.map((name)=>({...ref(name),values:{},producer:'cochange',producerVersion:'1'})),
+    edges: [
+      ['co-event1','co-target','a'], ['co-event1','co-target','b'], ['co-event2','co-target','a'], ['co-event3','co-target','a'],
+      ['co-event1','co-sibling','a'], ['co-event1','co-sibling','b'], ['co-event2','co-sibling','a'], ['co-event1','co-once','a'],
+    ].map(([from,to,discriminator])=>({kind:'mentions',from:ref(from!),to:ref(to!),discriminator:discriminator!,producer:'cochange',producerVersion:'1'})),
+    removals: [],
+  },1,{author:'cochange@1'});
+  });
+  const found = await graphql(`{entityByKey(kind:"demo.repository",key:{name:"co-target"}){id}}`);
+  const data = await graphql(`query($id:ID!){cochange(id:$id,edge:"mentions"){node{label}count total share}}`,{id:(found['entityByKey'] as any).id});
+  const rows = data['cochange'] as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({node:{label:'co-sibling'},count:2,total:3});
+  expect(rows[0].share).toBeCloseTo(200/3,8);
+});
+
+test('source answers the canonical byte count through the actual GraphQL response', async () => {
+  const asks: Record<string, unknown>[] = [];
+  const answer = await executeGraphql(owner, {
+    manifest, folder,
+    readText: async (ask) => {
+      asks.push(ask);
+      return {text: 'const n = 1;\n', blob: ask.blob, lines: 1, bytes: 13, binary: false, from: ask.from, complete: true, language: 'TypeScript', moved: ask.moved, next: null};
+    },
+  }, {query: '{source(repository:"r1",path:"sample.ts"){text blob lines bytes binary from complete language moved next{line column}}}'});
+  const body = answer.body as MessageBody;
+  expect(answer.status).toBe(200);
+  expect(body.errors).toBeUndefined();
+  expect(body.data).toEqual({source: {text: 'const n = 1;\n', blob: 'source-blob', lines: 1, bytes: 13, binary: false, from: 1, complete: true, language: 'TypeScript', moved: false, next: null}});
+  expect(asks).toEqual([{repository: 'r1', path: 'sample.ts', blob: 'source-blob', from: 1, moved: false}]);
+});

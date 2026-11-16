@@ -1,5 +1,5 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
-import { isAbsolute, join, resolve } from 'node:path';
+import { extname, isAbsolute, join, resolve } from 'node:path';
 import { withSpan } from '../obs/trace.js';
 import { readKindAssertions } from './records.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -25,7 +25,8 @@ import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
-import { homeKind } from '../product/manifest/kinds.js';
+import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
+import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -34,6 +35,7 @@ export interface ValidatedManifests {
   readonly edges: readonly EdgeDraft[];
   /** The starter value sets, written as their own entities beside the catalogue's declarations. */
   readonly starterValues: readonly VertexDraft[];
+  readonly templates: readonly VertexDraft[];
   readonly templatePaths: readonly string[];
   readonly snapshots: readonly VertexDraft[];
 }
@@ -43,10 +45,10 @@ export type ManifestValidation = { readonly ok: true; readonly value: ValidatedM
 export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions']): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   const contract = withAssertionContract(declared);
   await acquireGraphWriteLock(tx);
-  await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]);
-  const installedAt = (await tx.query<{ now: string | Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+  await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]));
+  const installedAt = (await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string | Date }>('SELECT clock_timestamp() AS now'))).rows[0]!.now;
   const identityCutoff = new Date(installedAt).toISOString();
-  const products = await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.product' ORDER BY n.uid");
+  const products = await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.product' ORDER BY n.uid"));
   if (products.rows.length > 1) throw new Error(`${import.meta.path}:49: installation has more than one product identity`);
   const productUid = products.rows[0]?.uid ?? newUid();
   await bootstrapWriteIdentity(tx, 'system.product', productUid, productUid);
@@ -61,7 +63,7 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
   bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
   await activateBoundIdentities(tx, contract);
   for (const [kind, uid] of [['system.product', productUid], ['plugin', sourceUid], ['system.operation', operationUid]] as const) {
-    const subject = (await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [uid])).rows[0]!;
+    const subject = (await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [uid]))).rows[0]!;
     await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property: '$exists', operation: 'assert', value: true });
     if (kind === 'plugin') for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
       await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property, operation: 'assert', value });
@@ -113,9 +115,10 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
-  // Templates are the product's `templates/` files, served as the bootstrap's PageTemplate list (section 6), not
-  // declarations this publication interprets: the Liquid compiler and its `template` kind are deleted with the page layer.
-  const templatePaths: string[] = [];
+  const templateSources = files.filesBelow('templates').filter(path => ['.yaml', '.yml'].includes(extname(path))).map(path => ({
+    name: path.slice('templates/'.length, -extname(path).length), body: declarationContent(files, folder, path, 1), path,
+  })).sort((left, right) => byCodePoint(left.name, right.name));
+  const templatePaths = templateSources.map(template => template.path);
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
   if (findings.length > 0) return { ok: false, findings, templatePaths };
@@ -132,6 +135,16 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     snapshots.set(digest, { kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'manifest', producerVersion: '1' });
     return [{ target: { kind: 'system.content-snapshot', key: { digest } }, locator: { digest, lineStart: line, lineEnd: line } }];
   };
+  const templateKind = pageTemplateKind(manifest);
+  const fallback = cataloguePageTemplate();
+  const nameRole = templateKind?.pageTemplate?.['name'] ?? fallback.nameField;
+  const bodyRole = templateKind?.pageTemplate?.['body'] ?? fallback.bodyField;
+  const pathRole = templateKind?.pageTemplate?.['path'] ?? fallback.pathField;
+  const templates: VertexDraft[] = templateSources.map(template => ({
+    kind: templateKind?.name ?? fallback.name, key: { [nameRole]: template.name },
+    values: { [bodyRole]: template.body, ...(pathRole === undefined ? {} : { [pathRole]: template.path }) },
+    evidence: evidence(template.path, 1), producer: 'manifest', producerVersion: '1',
+  }));
   const add = (category: Parameters<typeof manifestDeclaration>[0], name: string, declaration: unknown, path: string, line: number): void => {
     vertices.push({ kind: manifestDeclaration(category).name, key: { name }, values: { declaration: JSON.stringify(encode(declaration)) },
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
@@ -238,7 +251,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       }
     }
   }
-  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templatePaths, snapshots: [...snapshots.values()] } };
+  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templates, templatePaths, snapshots: [...snapshots.values()] } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -254,7 +267,11 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
  * is stated beside it, when the product's files name one and the graph holds none (the home page opens on the product).
  */
 export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
-  const written = await publishDeclarations(owner, validated, authored);
+  const base = authored ?? graphContractOf(validated.manifest);
+  const fallback = cataloguePageTemplate();
+  const contract = pageTemplateKind(validated.manifest) !== undefined || base.vertex.some(vertex => vertex.name === fallback.name)
+    ? base : { ...base, vertex: [...base.vertex, fallback.vertex] };
+  const written = await publishDeclarations(owner, validated, contract);
   const home = homeKind(validated.manifest);
   await writeProductEntity(owner, home === undefined ? undefined : productEntityOf(validated.folder, { home }, headCommitOf(validated.folder)?.commit));
   return written;
@@ -332,6 +349,16 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     if (valueKinds.size > 0) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
+    const templateKind = pageTemplateKind(validated.manifest);
+    const fallback = cataloguePageTemplate();
+    const kindName = templateKind?.name ?? fallback.name;
+    const nameRole = templateKind?.pageTemplate?.['name'] ?? fallback.nameField;
+    const currentTemplates = await readKindAssertions(tx, 'vertex', kindName, [], { contract: publicationContract });
+    const wantedTemplates = new Set(validated.templates.map(draft => String(draft.key[nameRole])));
+    const removedTemplates: VertexRemovalDraft[] = currentTemplates.filter(row => !wantedTemplates.has(String(row.key[nameRole]))).map(row => ({
+      kind: kindName, key: row.key as VertexRemovalDraft['key'], producer: 'manifest',
+    }));
+    written += await publishGraphDrafts(tx, publicationContract, { vertices: validated.templates, removals: removedTemplates }, 1, { author: 'manifest' });
     await refreshDisputeSelection(tx, publicationContract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return written;

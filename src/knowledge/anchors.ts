@@ -25,6 +25,26 @@ export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, 
 export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'source'): Promise<SourceOpinion[]>;
 export async function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'document' | 'source' = 'document'): Promise<SourceOpinion[]> {
   const entities = await semanticEntities(graph, manifest, role);
+  if (role === 'source' && manifest.semanticBindings?.get(role)?.fields['blob'] !== undefined) {
+    const blobs = [...manifest.kinds.values()].filter(kind => kind.evidence?.immutable && kind.evidence.digestField !== undefined && kind.evidence.contentField !== undefined);
+    if (blobs.length !== 1) throw new Error(`${manifest.file}:1: source blobs require exactly one immutable content kind`);
+    const blobKind = blobs[0]!;
+    const content = new Map<string, string | null>();
+    let after: string | undefined;
+    do {
+      const page = await graph.list(blobKind.name, { limit: 500, ...(after === undefined ? {} : { after }) });
+      for (const blob of page.rows) {
+        const digest = blob.properties[blobKind.evidence!.digestField!];
+        const text = blob.properties[blobKind.evidence!.contentField!];
+        if (typeof digest === 'string' && (typeof text === 'string' || text === null)) content.set(digest, text);
+      }
+      after = page.next ?? undefined;
+    } while (after !== undefined);
+    for (const entity of entities) {
+      const blob = entity.properties['blob'];
+      entity.properties['content'] = typeof blob === 'string' ? content.get(blob) ?? null : null;
+    }
+  }
   const repositories = await semanticEntities(graph, manifest, 'repository');
   const commits = manifest.semanticBindings?.get(role)?.edges?.['commit'] === undefined ? [] : await semanticEntities(graph, manifest, 'commit');
   const endpoint = (entity: GraphEntity, slot: string, targets: GraphEntity[], field: string): string | null => {

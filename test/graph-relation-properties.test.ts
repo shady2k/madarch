@@ -31,7 +31,7 @@ test('relation properties are batched without mixing edges, producers, contexts 
     edge('code.history', repository, heldCommit, { walk: 0 });
     edge('code.authored', author, heldCommit);
     paths.forEach((path, at) => {
-      const file = vertex('code.file', { repository: 'fixture', path }, { mode: '100644', blob: 'b'.repeat(40), bytes: 2, lines: 1, form: 'text', language: 'Text', languages: ['Text'], content: 'x\n' });
+      const file = vertex('code.file', { repository: 'fixture', path }, { mode: '100644', blob: 'b'.repeat(40), bytes: 2, lines: 1, form: 'text', language: 'Text', languages: ['Text'] });
       edge('code.contains', repository, file);
       edge('code.touched', heldCommit, file, { change: 'added', added: at + 1, removed: 0 });
     });

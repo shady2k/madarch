@@ -1,14 +1,21 @@
 /** The CPU read, fold, layout and HTML work lives off the API event loop. */
 import { createPostgresDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { withSpan } from '../obs/trace.js';
 import { readPublishedManifest } from '../graph/manifest-publication.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, structureRevisionOf } from '../graph/graphql-execute.js';
+import { declareFileTextQueue, readFileTextByBlob } from '../knowledge/file-texts.js';
+import { readProduct } from '../product/manifest.js';
+import type { QueueService } from '../fill/queue.js';
+import { openFillRunQueue } from '../fill/run-jobs.js';
+import { join } from 'node:path';
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
-import { readProductTemplates } from '../graph/product-templates.js';
+import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
 import { DIAGRAM_DEPTH, DIAGRAM_AGGREGATE_ABOVE, DIAGRAM_MAX_BYTES, type DiagramAnswer } from '../render/diagram-render.js';
-import type { ReadWork } from '../render/read-worker.js';
+import type { ReadDescriptor, ReadWork } from '../render/read-worker.js';
+import { LOG_LEVELS, LOG_SOURCES, logsAnswer } from '../knowledge/logs.js';
 
 declare const self: Worker;
 const stage = (name: string): void => self.postMessage({ kind: 'stage', stage: name });
@@ -16,13 +23,20 @@ const stage = (name: string): void => self.postMessage({ kind: 'stage', stage: n
 const pictures = new Map<string, DiagramAnswer>();
 async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extract<ReadWork, {kind: 'diagram'}>): Promise<DiagramNeighbourhood | undefined> {
   return await owner.transaction('snapshot', async (tx) => {
-    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(asked.deadlineMs ?? 30_000)]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = "SELECT set_config('statement_timeout', $1, true)";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await tx.query(statementSql, [String(asked.deadlineMs ?? 30_000)]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const manifest = await readPublishedManifest(tx);
     if (manifest === undefined) throw new Error(`${folder}/madarch/catalog.yaml:1: the graph holds no published manifest`);
     const published = publishedManifestOf(manifest);
-    const templates = readProductTemplates(folder);
-    const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
-    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
+    // The templates are the graph's entities (the owner's decision of 2026-11-15), read in this page's own snapshot.
+    const templates = await readPublishedTemplates(tx, manifest);
+    const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates.templates);
+    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
   });
 }
 async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: DatabaseOwner): Promise<DiagramAnswer> {
@@ -49,13 +63,48 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
   pictures.set(key, answer);
   return answer;
 }
+/**
+ * The logs page's read inside the read worker (madarch-64o5.88): the same page of every log the product keeps, filtered
+ * by the operation's arguments. It opens no database and reads no product file.
+ */
+function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<string, unknown>>) => unknown) | undefined {
+  if (descriptor.store === undefined || descriptor.knowledgeRoot === undefined) return undefined;
+  const paths = { store: descriptor.store, knowledgeRoot: descriptor.knowledgeRoot };
+  return (asked) => {
+    const sources = Array.isArray(asked['sources']) ? asked['sources'] : [];
+    for (const name of sources) {
+      if (typeof name !== 'string' || !(LOG_SOURCES as readonly string[]).includes(name)) throw new Error(`${import.meta.path}:1: "sources" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}`);
+    }
+    const level = asked.level;
+    if (level !== undefined && (typeof level !== 'string' || !(LOG_LEVELS as readonly string[]).includes(level))) throw new Error(`${import.meta.path}:1: "level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}`);
+    const whole = (key: string): number | undefined => {
+      const held = asked[key];
+      return typeof held === 'number' && Number.isFinite(held) && held >= 0 ? Math.floor(held) : undefined;
+    };
+    const from = whole('from');
+    const before = whole('before');
+    const limit = whole('limit');
+    const run = typeof asked['run'] === 'string' && asked['run'] !== '' ? asked['run'] : undefined;
+    const text = typeof asked['q'] === 'string' ? asked['q'] : undefined;
+    return logsAnswer(paths, {
+      ...(sources.length === 0 ? {} : { sources: sources as import('../knowledge/logs.js').LogSourceName[] }),
+      ...(level === undefined ? {} : { level: level as import('../knowledge/logs.js').LogLevel }),
+      ...(run === undefined ? {} : { run }),
+      ...(text === undefined ? {} : { q: text }),
+      ...(from === undefined ? {} : { since: from }),
+      ...(before === undefined ? {} : { before }),
+      ...(limit === undefined ? {} : { limit }),
+    });
+  };
+}
+
 self.onmessage = async (event: MessageEvent<ReadWork>) => {
   let owner: DatabaseOwner | undefined;
   try {
     const asked = event.data;
     if (asked.descriptor !== undefined) owner = await createPostgresDatabaseOwner(asked.descriptor.connection);
     const answer = asked.kind === 'graphql'
-      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000 }, asked.operation)
+      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder), logs: logsReaderOf(asked.descriptor) }, asked.operation)
       : await diagram(asked, owner);
     await owner?.close();
     self.postMessage({ kind: 'read-complete', answer });
@@ -64,3 +113,28 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
     self.postMessage({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
   }
 };
+
+/**
+ * The read a page's `source` field answers with (decision 0037): the file's blob comes from the graph, and the bytes come
+ * from the store's one queue, which the fill role answers. The read worker holds the store's connection, so it asks the
+ * queue itself, and no working copy is opened.
+ */
+function fileTextOf(owner: DatabaseOwner, product: string): (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined> {
+  let opened: Promise<QueueService> | undefined;
+  const queue = async (): Promise<QueueService> => {
+    opened ??= openFillRunQueue(owner).then(async (held) => { await declareFileTextQueue(held); return held; });
+    return await opened;
+  };
+  return async (ask) => {
+    // The repository is the one the product connected, read where its manifest declares it: a folder under repos/, or the
+    // product folder itself, checked by the host before a byte is read.
+    const held = readProduct(product);
+    const root = held.ok && ask.repository === held.product.name ? product : join(product, 'repos', ask.repository);
+    const answer = await readFileTextByBlob(await queue(), {
+      product, repository: ask.repository, root, blob: ask.blob, from: ask.from,
+      fromColumn: ask.moved ? null : ask.fromColumn ?? null,
+      to: ask.moved ? null : ask.to ?? null,
+    });
+    return { ...answer, blob: ask.blob, from: ask.from, ...(ask.moved ? { moved: true } : {}) };
+  };
+}

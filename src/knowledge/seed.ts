@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { CATALOG_KINDS, CATALOG_KIND_FILES, CATALOG_RAW_KINDS, type CatalogKindData } from './catalog-starter.js';
@@ -222,24 +223,26 @@ export function seedStarterSet(productFolder: string, templateId: string = DEFAU
   const files = templates === undefined && template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
   const written: string[] = [];
   const root = realpathSync(productFolder);
-  for (const starter of files) {
-    const target = join(productFolder, starter.path);
-    if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
-    // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
-    let ancestor = dirname(target);
-    while (!existsSync(ancestor)) ancestor = dirname(ancestor);
-    const real = realpathSync(ancestor);
-    if (real !== root && !real.startsWith(`${root}${sep}`)) {
-      throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+  withSpanSync('seed.write', { 'file.path': productFolder, 'seed.files': files.length }, () => {
+    for (const starter of files) {
+      const target = join(productFolder, starter.path);
+      if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
+      // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
+      let ancestor = dirname(target);
+      while (!existsSync(ancestor)) ancestor = dirname(ancestor);
+      const real = realpathSync(ancestor);
+      if (real !== root && !real.startsWith(`${root}${sep}`)) {
+        throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+      }
+      try {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
+      } catch (error) {
+        throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
+      }
+      written.push(starter.path);
     }
-    try {
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
-    } catch (error) {
-      throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
-    }
-    written.push(starter.path);
-  }
+  });
   return written;
 }
 

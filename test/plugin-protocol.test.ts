@@ -96,7 +96,7 @@ describe('the published schema is the module render', () => {
       id: 'introduce',
       method: 'introduce',
       params: {
-        protocol: 'madarch.plugins/2',
+        protocol: 'madarch.plugins/3',
         name: 'plugin-probe',
         version: '1.0.0',
         rights: { network: 'none' },

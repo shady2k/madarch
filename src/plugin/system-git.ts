@@ -1,6 +1,7 @@
 /** System Git is approved by its resolved executable path and version, never release bytes. */
 import { execFileSync } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
+import { withSpanSync } from '../obs/trace.js';
 import { ClosureRefusal } from './closure-refusal.js';
 import type { SandboxTool } from './tools.js';
 
@@ -19,10 +20,19 @@ export function systemGit(minimumVersion: string, env: Readonly<Record<string, s
       const path = Bun.which('git', { PATH: env['PATH'] ?? '' });
       if (path === null) return null;
       const executable = realpathSync(path);
-      if (!statSync(executable).isFile()) throw new Error(`${executable} is not a regular executable`);
+      const regular = withSpanSync('fs.stat', { 'file.path': executable }, (span) => {
+        const stat = statSync(executable);
+        span.setAttribute('file.bytes', stat.size);
+        return stat.isFile();
+      });
+      if (!regular) throw new Error(`${executable} is not a regular executable`);
       return executable;
     },
-    version: (executable: string) => execFileSync(executable, ['--version'], { encoding: 'utf8', env: { ...env } }),
+    version: (executable: string) => withSpanSync('process.run', { 'process.command': executable, 'process.args': ['--version'] }, (span) => {
+      const said = execFileSync(executable, ['--version'], { encoding: 'utf8', env: { ...env } });
+      span.setAttribute('process.stdout.bytes', Buffer.byteLength(said));
+      return said;
+    }),
   };
   let executable: string | null;
   try { executable = read.resolve(); }
@@ -31,7 +41,7 @@ export function systemGit(minimumVersion: string, env: Readonly<Record<string, s
   let said: string;
   try { said = read.version(executable).trim(); }
   catch (error) { return refuse(`${executable}, which could not run --version (${error instanceof Error ? error.message : String(error)})`); }
-  const version = /^git version (\d+)\.(\d+)(?:\.(\d+))?(?:\.|\s|$)/u.exec(said);
+  const version = said.match(/^git version (\d+)\.(\d+)(?:\.(\d+))?(?:\.|\s|$)/u);
   const minimum = minimumVersion.split('.').map(Number);
   const found = version === null ? [] : [Number(version[1]), Number(version[2]), Number(version[3] ?? 0)];
   const difference = found.map((part, index) => part - (minimum[index] ?? 0)).find((part) => part !== 0) ?? 0;

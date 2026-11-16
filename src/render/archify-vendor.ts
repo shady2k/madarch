@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * Where the vendored archify renderer is read from (madarch-64o5.97): the checkout's `vendor/archify`, or the copy the
  * wiki app's own build lays under `dist/archify/vendor/archify`. A release binary carries the wiki app's dist as its
@@ -37,19 +38,24 @@ export function archifyVendorCandidates(env: Readonly<Record<string, string | un
  * template and assets it reads beside itself come out whole (madarch-64o5.97).
  */
 export function copyArchifyVendor(source: string, destination: string): void {
-  mkdirSync(destination, { recursive: true });
-  const walk = (from: string, to: string): void => {
-    for (const entry of readdirSync(from, { withFileTypes: true })) {
-      const read = join(from, entry.name);
-      const write = join(to, entry.name);
-      if (entry.isDirectory()) {
-        mkdirSync(write, { recursive: true });
-        walk(read, write);
-      } else {
-        mkdirSync(dirname(write), { recursive: true });
-        writeFileSync(write, readFileSync(read));
+  withSpanSync('archify.copy', { 'file.from': source, 'file.to': destination }, (span) => {
+    let files = 0;
+    mkdirSync(destination, { recursive: true });
+    const walk = (from: string, to: string): void => {
+      for (const entry of readdirSync(from, { withFileTypes: true })) {
+        const read = join(from, entry.name);
+        const write = join(to, entry.name);
+        if (entry.isDirectory()) {
+          mkdirSync(write, { recursive: true });
+          walk(read, write);
+        } else {
+          mkdirSync(dirname(write), { recursive: true });
+          writeFileSync(write, readFileSync(read));
+          files += 1;
+        }
       }
-    }
-  };
-  walk(source, destination);
+    };
+    walk(source, destination);
+    span.setAttribute('archify.files', files);
+  });
 }

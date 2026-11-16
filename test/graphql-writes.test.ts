@@ -197,7 +197,7 @@ describe('the agent writes the graph', () => {
       words: 'the owner asked for the term Kind',
     });
     expect(written.uid).toBeDefined();
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind ... on DocTerm { title body titleAssertions { source { id } evidence { target { kind } locator } } } } }`, { id: written.uid });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind ... on KindDocTerm { title body titleAssertions { source { id } evidence { target { kind } locator } } } } }`, { id: written.uid });
     const term = data['entity'] as Record<string, any>;
     expect(term.kind).toBe('doc.term');
     expect(term.title).toBe('Kind');
@@ -218,7 +218,7 @@ describe('the agent writes the graph', () => {
       kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'the agent says that' },
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     });
-    const data = await graphql(`{ allCodeRepository: allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on DemoRepository { description contested descriptionAssertions { source { id } value } } } } } }`);
+    const data = await graphql(`{ allCodeRepository: allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on KindDemoRepository { description contested descriptionAssertions { source { id } value } } } } } }`);
     const node = (data['allCodeRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBe('the agent says that');
     expect(node.contested).toContain('description');
@@ -228,7 +228,7 @@ describe('the agent writes the graph', () => {
   test('retract closes only the agent\'s own open opinions', async () => {
     const retracted = await retractAssertion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'r1' }, fields: ['description'] }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] });
     expect(retracted.retracted).toBe(true);
-    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on DemoRepository { description contested descriptionAssertions { source { id } operation } } } } } }`);
+    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on KindDemoRepository { description contested descriptionAssertions { source { id } operation } } } } } }`);
     const node = (data['allDemoRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBe('the plugin says this');
     expect(node.contested).not.toContain('description');
@@ -250,7 +250,7 @@ describe('the agent writes the graph', () => {
     expect(written.written).toBeGreaterThan(0);
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
     const id = repository.edges[0].node.id;
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 5) { edges { node { position assertions { source { id } evidence { target { kind } locator } } } } } } } }`, { id });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(first: 5) { edges { node { position assertions { source { id } evidence { target { kind } locator } } } } } } } }`, { id });
     const edge = ((data['entity'] as Record<string, any>).demoContains.edges[0].node);
     expect(edge.position).toBe(1);
     expect(edge.assertions.map((one: any) => one.source.id)).toContain('c452d2e1-0000-7000-8000-000000000001');
@@ -329,12 +329,12 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25  } }],
     });
     expect(edge.written).toBeGreaterThan(0);
-    const forward = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 5) { edges { node { node { ... on DemoRepository { name } } } } } } } }`, { id: term.uid });
+    const forward = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 5) { edges { node { node { ... on KindDemoRepository { name } } } } } } } }`, { id: term.uid });
     const mentioned = ((forward['entity'] as Record<string, any>).mentions.edges[0].node.node);
     expect(mentioned.name).toBe('r1');
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
     const rid = repository.edges[0].node.id;
-    const inverse = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { mentionsOf(first: 5) { edges { node { node { ... on DocTerm { title } } } } } backlinks(first: 20) { edges { node { relation from { kind } } } } } } }`, { id: rid });
+    const inverse = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { mentionsOf(first: 5) { edges { node { node { ... on KindDocTerm { title } } } } } backlinks(first: 20) { edges { node { relation from { kind } } } } } } }`, { id: rid });
     const node = inverse['entity'] as Record<string, any>;
     expect(node.mentionsOf.edges[0].node.node.title).toBe('Mentioned');
     expect(node.backlinks.edges.some((one: any) => one.node.relation === 'mentionsOf')).toBe(true);
@@ -436,7 +436,7 @@ describe('the agent writes the graph', () => {
     });
     expect(retracted.retracted).toBe(true);
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(where: { position: { _gt: 0 } }, first: 10) { edges { node { position assertions { source { id } operation } } } } } } }`, { id: repository.edges[0].node.id });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(where: { position: { _gt: 0 } }, first: 10) { edges { node { position assertions { source { id } operation } } } } } } }`, { id: repository.edges[0].node.id });
     const edges = ((data['entity'] as Record<string, any>).demoContains.edges).map((one: any) => one.node);
     const kept = edges.find((one: any) => one.position === 7);
     expect(kept).toBeDefined();
@@ -497,7 +497,7 @@ describe('the agent writes the graph', () => {
     const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 3  } }];
     await putEdgeAssertion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:3:1', evidence });
     await putEdgeAssertion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:9:1', evidence });
-    const both = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const both = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
     const mentions = (both['entity'] as Record<string, any>).mentions;
     expect(mentions.totalCount).toBe(2);
     expect(mentions.edges.map((one: any) => one.node.discriminator).sort()).toEqual(['docs/glossary.md:3:1', 'docs/glossary.md:9:1']);
@@ -506,7 +506,7 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     });
     expect(retracted.retracted).toBe(true);
-    const left = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const left = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
     const after = (left['entity'] as Record<string, any>).mentions;
     expect(after.totalCount).toBe(1);
     expect(after.edges[0].node.discriminator).toBe('docs/glossary.md:9:1');

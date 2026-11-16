@@ -22,3 +22,10 @@ sections:
   - id: catalogue
     component: catalogue
     after: header
+  - id: dependencies
+    component: dependencies
+    on: root
+    after: catalogue
+    title: { en: Dependency graph, ru: Граф зависимостей }
+    query: |
+      catalogueDependencies(lang: $lang)

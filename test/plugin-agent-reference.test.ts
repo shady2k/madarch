@@ -17,9 +17,10 @@ test('agent natural-key references survive validation and real graph publication
   const answer = { vertices: [{ kind: 'summary', key: {name:'A'}, keyEdges: {repository:{kind:'repository',key:{name:'repo'}}}, evidence: { target:{kind:'fixture.evidence',key:{digest:createHash('sha256').update('Source').digest('hex')}}, path: 'a.md', lineStart: 1, lineEnd: 1 } }], edges: [{kind:'summary-repository',from:{kind:'summary',key:{name:'A'},keyEdges:{repository:{kind:'repository',key:{name:'repo'}}}},to:{kind:'repository',key:{name:'repo'}},evidence:{target:{kind:'fixture.evidence',key:{digest:createHash('sha256').update('Source').digest('hex')}},path:'a.md',lineStart:1,lineEnd:1}}], end: { state: 'complete' } };
   const bridge = new PluginAgentBridge({ prompt: 'Extract', roots: ['repo'] }, {
     adapter: { id: 'fixture', command: 'unused' },
+    readFile: async () => 'Source',
     evidenceContracts:[{name:'fixture.evidence',evidence:{immutable:true,digestField:'digest',contentField:'content',digestAlgorithm:'sha256'}}],
     connect: async () => ({ initialize: async () => ({}), close: async () => {}, newSession: async () => ({ sessionId: 'fixture', model: null, models: null, configOptions: [], usage: () => ({ reported: false, turns: 1, reports: 0 }), prompt: async () => ({ text: JSON.stringify(answer), stopReason: 'end_turn', updates: [] }) } as unknown as AcpSession) } as unknown as AcpConnection),
-  }, { files: async () => [{ kind: 'file', key: { path: 'a.md' }, keyEdges:{'code.file-repository':{kind:'repository',key:{name:'repo'}}} }], value: async () => 'Source' }, outputs);
+  }, { files: async () => [{ kind: 'file', key: { path: 'a.md' }, keyEdges:{'code.file-repository':{kind:'repository',key:{name:'repo'}}} }], value: async (kind: string, _key: PluginEntityRef['key'], field: string) => kind === 'fixture.evidence' ? 'Source' : field === 'blob' ? 'blob-a.md' : null }, outputs);
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     const result = await bridge.run('unit', {});

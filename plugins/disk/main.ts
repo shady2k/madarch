@@ -30,7 +30,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       if (fileDigest !== undefined) snapshots.push({ digest: fileDigest, content: content!, about: [entity] });
       const fileEvidence = { target: fileDigest === undefined ? inventoryTarget : { kind: 'code.blob', key: { digest: fileDigest } }, commit: pin.commit, path: file.path };
       const fileClass = classOfPath(file.path, inputs.classRules ?? []);
-      vertices.push({ ...entity, values: { mode: file.mode, blob: file.blob, bytes: file.bytes, form: file.form, lines: file.lines, content: file.content, language: file.language, languages: file.candidates, ...(fileClass === undefined ? {} : { class: fileClass }) }, evidence: fileEvidence });
+      vertices.push({ ...entity, values: { mode: file.mode, blob: file.blob, bytes: file.bytes, form: file.form, lines: file.lines, language: file.language, languages: file.candidates, ...(fileClass === undefined ? {} : { class: fileClass }) }, evidence: fileEvidence });
       const parent = file.path.includes('/') ? { kind: 'code.directory', key: { path: file.path.slice(0, file.path.lastIndexOf('/')) }, keyEdges: { 'code.directory-repository': repository } } : repository;
       edges.push({ kind: 'code.contains', from: parent, to: entity, evidence });
       if (parent.kind === 'code.directory') edges.push({ kind: 'code.file-directory', from: entity, to: parent, evidence });

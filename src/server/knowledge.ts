@@ -15,10 +15,12 @@ import { Value } from 'typebox/value';
 import { here } from '../model/raise.js';
 import { AuthoredRefusal } from '../graph/authored.js';
 import type { ResetPlan } from '../knowledge/reset.js';
+import { LOG_LEVELS, LOG_SOURCES } from '../knowledge/logs.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
-import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
+import { choosableRoles, readSettings, writePluginsUnconfined, writeRole } from '../knowledge/settings.js';
+import { probePluginSandbox } from '../plugin/sandbox-probe.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
@@ -62,6 +64,8 @@ export interface KnowledgePart {
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
+  /** One page of every log madarch keeps for this product: the server's, the fills', the plugins', the agents', the store's. */
+  logs: (request: Request) => Promise<Handled>;
   /** The open problems the Problems page groups, and a count for the sidebar (workflow state, not a graph read). */
   problems: (request: Request) => Promise<Handled>;
   /** The product's Markdown documents and repositories (the frame's Sources page). */
@@ -109,6 +113,13 @@ function languageOf(path: string): SourceLanguage {
 }
 
 /** The largest file the source view shows whole. */
+/** A git blob id: 40 or 64 hexadecimal digits, read character by character rather than by a pattern. */
+function isBlobId(value: string): boolean {
+  if (value.length !== 40 && value.length !== 64) return false;
+  for (const character of value) if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) return false;
+  return true;
+}
+
 const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
 
 /** A write that is not JSON could be a form another site posted without a preflight: refused. */
@@ -231,7 +242,7 @@ function fillRefusalCode(message: string): string | undefined {
         ...(held['variables'] === undefined || held['variables'] === null ? {} : { variables: held['variables'] as Readonly<Record<string, unknown>> }),
         ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
         ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
-      });
+      }, { products: () => ({ current: product.folder, products: siblings() }) });
       return { response: json(answer.status, answer.body) };
     }),
     diagram: guarded('render a diagram', async (request) => {
@@ -330,10 +341,27 @@ function fillRefusalCode(message: string): string | undefined {
       // The source view answers the text the graph was filled with, at the commit it was filled from (section 8): a past
       // commit this graph cannot name is refused rather than answered with the current tree's bytes.
       if (query.has('at')) return refused(409, { field: 'at', message: `historical source is not covered: this graph holds the text of the commit it was filled from, and no other` });
+      // A code file's text is read by the blob id the graph holds, through the plugin host (madarch-u3vw.16, decision
+      // 0037): the graph names the bytes, git serves them, and a page asks for line ranges.
+      if (repo !== null && repo !== '') {
+        const askedFrom = query.get('from');
+        const askedTo = query.get('to');
+        const askedColumn = query.get('fromColumn');
+        const askedBlob = query.get('blobId');
+        const from = askedFrom === null ? 1 : Number(askedFrom);
+        const to = askedTo === null ? undefined : Number(askedTo);
+        const fromColumn = askedColumn === null ? undefined : Number(askedColumn);
+        for (const [field, value] of [['from', from], ['to', to], ['fromColumn', fromColumn]] as const) {
+          if (value !== undefined && (!Number.isInteger(value) || value < 1)) return refused(400, { field, message: `"${field}" is a line number, a whole number from 1` });
+        }
+        // A reader's later ranges name the blob its first answer held (the owner's review of madarch-u3vw.16): a blob id
+        // is 40 or 64 hexadecimal digits, and one that no longer stands answers the current revision, marked `moved`.
+        if (askedBlob !== null && !isBlobId(askedBlob)) return refused(400, { field: 'blobId', message: '"blobId" is the git blob id the first answer named: 40 or 64 hexadecimal digits' });
+        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(askedBlob === null ? {} : { blob: askedBlob }) });
+        if (held !== undefined) return { response: json(200, { repo, language: languageOf(path), ...held }) };
+      }
       const read = await product.source(repo === null || repo === '' ? null : repo, path);
-      if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
-      // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.
-      if ('absent' in read) return refused(404, { field: 'path', message: read.absent });
+      if (read === undefined) return refused(404, { field: 'path', message: `the graph holds no file ${path} in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`}: its blob is what the source view reads` });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
       return { response: json(200, decodeSourceResponse({ repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }, `${import.meta.path}:338`)) };
     }),
@@ -378,6 +406,35 @@ function fillRefusalCode(message: string): string | undefined {
       const runs = await product.fillRuns(runId ?? undefined);
       if (runId !== null && runs.length === 0) return refused(404, { message: `${here()}: this product holds no run ${JSON.stringify(runId)}` });
       return { response: json(200, runId === null ? { runs } : { run: runs[0] }) };
+    }),
+    logs: guarded('read the logs', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const sources = (query.get('source') ?? '').split(',').map((name) => name.trim()).filter((name) => name !== '');
+      for (const name of sources) {
+        if (!(LOG_SOURCES as readonly string[]).includes(name)) return refused(400, { field: 'source', message: `"source" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}` });
+      }
+      const level = query.get('level');
+      if (level !== null && !(LOG_LEVELS as readonly string[]).includes(level)) return refused(400, { field: 'level', message: `"level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}` });
+      const numbers: { from?: number; before?: number; limit?: number } = {};
+      for (const key of ['from', 'before', 'limit'] as const) {
+        const held = query.get(key);
+        if (held === null || held === '') continue;
+        const value = Number(held);
+        if (!Number.isFinite(value) || value < 0) return refused(400, { field: key, message: `"${key}" is a whole number of milliseconds, got ${JSON.stringify(held)}` });
+        numbers[key] = Math.floor(value);
+      }
+      const run = query.get('run');
+      if (run !== null && run.trim() === '') return refused(400, { field: 'run', message: '"run" is a run id, got an empty one' });
+      const text = query.get('q');
+      return {
+        response: json(200, product.logs({
+          ...(sources.length === 0 ? {} : { sources: sources as import('../knowledge/logs.js').LogSourceName[] }),
+          ...(level === null ? {} : { level: level as import('../knowledge/logs.js').LogLevel }),
+          ...(run === null ? {} : { run }),
+          ...(text === null || text === '' ? {} : { q: text }),
+          ...numbers,
+        })),
+      };
     }),
     fillPlan: guarded('plan the fill', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
@@ -460,14 +517,25 @@ function fillRefusalCode(message: string): string | undefined {
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
       // The roles are the product's own: the manifest declares them, the engine keeps none.
       const roles = choosableRoles(await product.declaredRoles());
-      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env, roles)), roles }) };
+      if (request.method === 'GET') {
+        const probe = await probePluginSandbox();
+        const held = settled(() => readSettings(env, roles));
+        return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: probe.state === 'confined', reason: probe.reason } }) };
+      }
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const role = (body as { role?: unknown } | null)?.role;
+      const asked = body as { role?: unknown; pluginsUnconfined?: unknown } | null;
+      if (asked?.pluginsUnconfined !== undefined) {
+        if (typeof asked.pluginsUnconfined !== 'boolean') return refused(400, { field: 'pluginsUnconfined', message: '"pluginsUnconfined" is true to run plugins without isolation on this machine, or false not to' });
+        return { response: json(200, { ...settled(() => ({ ...readSettings(env, roles), pluginsUnconfined: writePluginsUnconfined(env, asked.pluginsUnconfined as boolean) })), roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
+      }
+      const role = asked?.role;
       if (typeof role !== 'string' || !roles.includes(role)) return refused(400, { field: 'role', accepted: roles.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${roles.join(', ')}` });
-      return { response: json(200, { ...settled(() => writeRole(env, role, roles)), roles }) };
+      settled(() => writeRole(env, role, roles));
+      const held = settled(() => readSettings(env, roles));
+      return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
     }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);

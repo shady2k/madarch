@@ -732,7 +732,17 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       while (nextFile < definitions.length) {
         const index = nextFile++;
         const file = definitions[index]!;
-        contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content', file.keyEdges);
+        // The text is the blob the graph names, read through the host (decision 0037): this plugin holds no environment,
+        // and the host routes the read to the core plugin that owns git's store (decision 0038).
+        const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
+        if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
+        try {
+          const read = await context.read({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), blob });
+          contents[index] = read.binary ? undefined : read.text;
+        } catch {
+          // A read the host cannot answer leaves this file out: the other files' facts stand.
+          contents[index] = undefined;
+        }
       }
     }));
     for (const [index, file] of definitions.entries()) {
