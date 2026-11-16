@@ -90,4 +90,4 @@ Resolutions are ordinary typed assertions from a stable source per principal, se
 
 Read selection uses recursive context cutoffs, the nearest layer, per-stream newest recorded assertion and newest valid start/sequence in SQL. Equal observations retain their assertion header and append operation, unit and evidence lineage. Pinned children retain their snapshot; unpinned children follow parent writes and reconcile their persisted question state when affected.
 
-Final ALX-39 acceptance is recorded in `/work/reports/ALX-39.md` and its bundle hand-in. This record does not close the parent atomic cutover task or claim acceptance of unrelated integration failures.
+Final ALX-39 implementation and validation are reported in `/work/reports/ALX-39.md` and its bundle hand-in; acceptance remains the coordinator’s stage decision. This record does not close the parent atomic cutover task or claim acceptance of unrelated integration failures.
