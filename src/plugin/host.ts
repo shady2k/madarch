@@ -113,13 +113,12 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  */
 export interface GraphAnswerer {
   /**
-   * The file vertices whose path matches the pattern, read from the graph as it stands (decision 0039, item 13:
-   * there is no published-generation copy of a producer's answer to read instead — a read that must not see a later
-   * answer is the assertions' history, item 25).
+   * The file vertices whose path matches the pattern. Given a snapshot, the answer is the producer generation's own
+   * — the graph's journal holds what it published — and the graph as it stands otherwise.
    */
-  files(pattern: string): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
-  /** One declared field of one vertex, read from the graph as it stands. */
-  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string): Promise<unknown>;
+  files(pattern: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
+  /** One declared field of one vertex, from the producer generation's own answer when a snapshot is named. */
+  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<unknown>;
   /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
   unresolved?(query: PluginGraphPageRequest): Promise<{ readonly references: readonly PluginGraphUnresolvedReference[]; readonly next?: string }>;
   /** A page of the edges one of whose ends is removed (piece 2). Absent: refused. */

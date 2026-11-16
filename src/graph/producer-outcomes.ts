@@ -31,8 +31,12 @@ export async function readProducerOutcomesIn(executor: SqlExecutor, options: { r
        (SELECT e.summary FROM fill_event e WHERE e.unit_id = g.unit_id AND e.generation = g.generation
          AND e.kind IN ('unit-failed', 'unit-blocked', 'unit-cancelled') ORDER BY e.seq DESC LIMIT 1) AS reason
      FROM fill_unit_generation g JOIN fill_unit u ON u.unit_id = g.unit_id
-     JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-     WHERE u.stage_id = 'plugin-turns' AND ($1::text IS NULL OR g.run_id = $1 OR EXISTS (
+     LEFT JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+     WHERE u.stage_id = 'plugin-turns'
+       -- A split's child answers a part of its parent's kind, and the parent's own outcome counts what it answered:
+       -- the run's list answers the units it planned, so a child is read through its parent and not beside it.
+       AND NOT EXISTS (SELECT 1 FROM fill_unit_split s WHERE s.child_unit_id = g.unit_id AND s.child_generation = g.generation)
+       AND ($1::text IS NULL OR g.run_id = $1 OR EXISTS (
        SELECT 1 FROM fill_event inherited WHERE inherited.run_id = $1 AND inherited.unit_id = g.unit_id
          AND inherited.generation = g.generation AND inherited.kind = 'unit-inherited'))
        AND ($2::text IS NULL OR g.unit_id = $2) AND ($3::integer IS NULL OR g.generation = $3)

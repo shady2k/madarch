@@ -21,7 +21,7 @@ import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { graphFiles, producerEdges, producerEntities, writeRequestEntry, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry, pluginGraphValue, pluginPartitionOutcome, successfulPluginSnapshot, pluginSnapshotVertices } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
@@ -210,13 +210,37 @@ function edgeIdentity(kind: string, from: { readonly kind: string; readonly key:
  * answers — and each it refuses — in the unit's `RequestLog`, so the answerer states no sizes of its own.
  */
 export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>): GraphAnswerer {
+  // One captured generation is read once: a unit's reads of an earlier answer repeat the same generation, and the
+  // journal is read per kind rather than per read.
+  const snapshots = new Map<string, Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]>>();
+  const vertices = (snapshot: import('../graph/plugin-turns.js').PluginSnapshot, kind: string) => {
+    const scope = `${snapshot.runId}:${snapshot.unitId}/${String(snapshot.generation)}:${kind}`;
+    let held = snapshots.get(scope);
+    if (held === undefined) {
+      held = pluginSnapshotVertices(wiring.owner, snapshot, kind);
+      snapshots.set(scope, held);
+    }
+    return held;
+  };
   return {
-    files: async (pattern) => {
+    files: async (pattern, snapshot) => {
+      if (snapshot !== undefined) {
+        return (await vertices(snapshot, 'code.file')).map(({ key }) => {
+          if (typeof key.repository !== 'string' || typeof key.path !== 'string') throw new Error('immutable code.file snapshot has an invalid declared key');
+          return { kind: 'code.file', key: { repository: key.repository, path: key.path } };
+        }).filter((file) => matchesAny([pattern], file.key.path));
+      }
       const files = await graphFiles(wiring.owner, wiring.contract);
       return files.filter((file) => matchesAny([pattern], file.path))
         .map((file) => ({ kind: 'code.file', key: { repository: file.repository, path: file.path } }));
     },
-    value: async (kind, key, field) => await pluginGraphValue(wiring.owner, wiring.contract, kind, key, field),
+    value: async (kind, key, field, snapshot) => {
+      if (snapshot !== undefined) {
+        const vertex = (await vertices(snapshot, kind)).find((held) => canonicalKey(held.key) === canonicalKey(key));
+        return vertex === undefined ? null : vertex.key[field] ?? vertex.values[field] ?? null;
+      }
+      return await pluginGraphValue(wiring.owner, wiring.contract, kind, key, field);
+    },
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
     // by name, and the store is read here, in the fill's own layer, never by the plugin.
     unresolved: async (query) => {
@@ -283,7 +307,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
   });
 }
 
-export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes: StageWriteSink, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
+export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes: StageWriteSink, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
@@ -317,9 +341,33 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, writes
   const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
   const location = `${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}`;
   const reads = declarationPlan.readsFor(unit.plugin.id, unit.kind.name);
+  // An earlier-version read is answered from the producer generation this run knows — its own, or the one it
+  // inherited — never from the graph as a later pass left it (decision 0039, item 11).
+  const snapshots = new Map<string, Awaited<ReturnType<typeof successfulPluginSnapshot>>>();
+  const capturedSnapshots = new Map<string, ReturnType<typeof successfulPluginSnapshot>>();
+  const captureSnapshot = (producer: string, kind: string) => {
+    const scope = pluginTurnUnitId(producer, kind, selectedVertex(wiring, kind));
+    let captured = capturedSnapshots.get(scope);
+    if (captured === undefined) {
+      captured = successfulPluginSnapshot(wiring.owner, runId!, scope);
+      capturedSnapshots.set(scope, captured);
+    }
+    return captured;
+  };
+  for (const read of reads) if (typeof read !== 'string') {
+    if (runId === undefined) throw new Error(`${location}: output ${unit.kind.name} requires current-run identity to capture earlier snapshot ${read.kind} from ${read.producer}`);
+    snapshots.set(read.kind, await captureSnapshot(read.producer, read.kind));
+  }
+  if (runId !== undefined) for (const read of reads) if (typeof read === 'string') {
+    for (const field of wiring.manifest.kinds.get(read)?.fields ?? []) {
+      const producer = declarationPlan.lastProducer(read, field.name);
+      // A unit that reads its own kind reads what stands before its turn: its own generation is not a snapshot yet.
+      if (producer !== undefined && !(producer === unit.plugin.id && read === unit.kind.name)) snapshots.set(`${read}.${field.name}`, await captureSnapshot(producer, read));
+    }
+  }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
     location, plugin: unit.plugin.id, output: unit.kind.name, fields: allowedFields, reads,
-    fileKind: 'code.file', edges: [...unitEdges],
+    fileKind: 'code.file', edges: [...unitEdges], snapshots,
   });
   const outputs = {
     vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => vertex.kind === unit.kind.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.filter((field) => vertex.key.includes(field.name) || allowedFields.includes(field.name)).map((field) => {
@@ -568,14 +616,14 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       const selected = unitOf(wiring, unit.id);
       const partitioned = selected.plugin.declaration?.produces.some((output) => (output.kind === selected.kind.name || output.kind === '*') && output.partition === 'key') === true;
       if (!partitioned) {
-        await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph));
+        await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
         return { outcome: 'writes' };
       }
       const childScope = unit.id.includes('#') ? JSON.parse(unit.scope) as PartitionScope : undefined;
       if (childScope !== undefined && 'keys' in childScope) {
         // A partition unit answers its own keys through the one writer, and records what it answered of them:
         // there is no wrapper to publish later (decision 0039, item 13).
-        await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph), { keys: childScope.keys });
+        await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { keys: childScope.keys });
         return { outcome: 'writes' };
       }
       if (context.sealedChildren !== undefined) {
@@ -585,14 +633,15 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         // graph, and its outcome says whether they are complete.
         const outcome = await pluginPartitionOutcome(wiring.owner, partitions);
         if (!outcome.complete) throw new Error(`partitioned output ${unit.id} did not complete; earlier graph opinions remain unchanged`);
-        if (childScope === undefined) {
-          context.writes.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
-        }
+        // A unit that joined its children answers for them, whether it is the plan's own barrier or a group of
+        // partitions under it: its record is what the next barrier up reads (decision 0039, item 11), and a group
+        // that recorded nothing would read as one that never finished.
+        context.writes.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
         return { outcome: 'writes' };
       }
       if (childScope !== undefined && 'partitions' in childScope) return { outcome: 'split', children: partitionChildren(unit.id, context.runId, childScope.partitions) };
       let planned: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
-      await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph), { plan: (partitions) => { planned = partitions; } });
+      await runPluginTurn(wiring, unit.id, context.writes, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { plan: (partitions) => { planned = partitions; } });
       const declaredKey = wiring.contract.vertex.find((vertex) => vertex.name === selected.kind.name)?.key ?? [];
       const seen = new Set<string>();
       const partitions = planned.map((partition) => {

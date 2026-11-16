@@ -62,49 +62,94 @@ test('catalogue:true does not let a scripted agent read undeclared files', async
   expect(calls).toEqual([]);
 });
 
-test('a declared earlier read answers the graph as it stands, naming its producer', async () => {
-  // There is no stored generation to freeze any more (decision 0039, item 13): a read declared as an earlier
-  // version of one producer's answer reads the graph, and the declaration still names the producer it depends on.
+test('explicit earlier read freezes producer generation and never reads later replacement', async () => {
   const saved = [{ kind: 'Source', key: { id: 'x' }, values: { text: 'original' } }];
-  let reads = 0;
-  const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field) => {
-    reads += 1;
-    const vertex = saved.find((one) => one.kind === kind && one.key.id === key.id);
+  const savedValue = (kind: string, key: Readonly<Record<string, unknown>>, field: string): unknown => {
+    const vertex = saved.find(vertex => vertex.kind === kind && vertex.key.id === key.id);
     return (vertex?.values as Readonly<Record<string, unknown>> | undefined)?.[field] ?? null;
-  } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], fileKind: 'File', edges: [] });
+  };
+  let seen: unknown;
+  const snapshot = { runId: 'run', unitId: 'plugin-turns/base:Source', generation: 1 };
+  const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field, token) => {
+    seen = token;
+    return savedValue(kind, key, field);
+  } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], snapshots: new Map([['Source', snapshot]]), fileKind: 'File', edges: [] });
   expect(await access.graph.value('Source', { id: 'x' }, 'text')).toBe('original');
-  expect(reads).toBe(1);
-  await expect(access.graph.value('Elsewhere', { id: 'x' }, 'text')).rejects.toThrow('undeclared catalogue read of Elsewhere');
+  expect(seen).toEqual(snapshot);
+  expect(savedValue('Source', { id: 'missing' }, 'text')).toBeNull();
+  expect(savedValue('Source', { id: 'x' }, 'omitted')).toBeNull();
 });
 
-test('earlier file enumeration reads the graph the plugin declared', async () => {
-  const calls: string[] = [];
-  const graph = { files: async (pattern: string) => { calls.push(pattern); return [{ kind: 'File', key: { path: 'saved.ts' } }]; }, value: async () => null };
+test('earlier file enumeration forwards the exact named snapshot and refuses missing snapshots', async () => {
+  const snapshot = { runId: 'original', unitId: 'plugin-turns/base:File', generation: 2 };
+  const calls: unknown[] = [];
+  const graph = { files: async (pattern: string, token?: typeof snapshot) => { calls.push([pattern, token]); return [{ kind: 'File', key: { path: 'saved.ts' } }]; }, value: async () => null };
   const scope = { location: '/product/plugin.json:7', plugin: 'refiner', output: 'File', fields: [], reads: [{ kind: 'File', version: 'earlier' as const, producer: 'base' }], fileKind: 'File', edges: [] };
-  const access = pluginInvocationAccess(graph, scope);
+  const access = pluginInvocationAccess(graph, { ...scope, snapshots: new Map([['File', snapshot]]) });
   expect(await access.graph.files('**/*.ts')).toEqual([{ kind: 'File', key: { path: 'saved.ts' } }]);
-  expect(calls).toEqual(['**/*.ts']);
+  expect(calls).toEqual([['**/*.ts', snapshot]]);
+  await expect(pluginInvocationAccess(graph, scope).graph.files('**')).rejects.toThrow('earlier snapshot of File from base is unavailable');
+  expect(calls).toHaveLength(1);
 });
 
 test('tracked optional graph arguments remain absent rather than becoming JSON null', async () => {
   const requests: { method: string; args: unknown[] }[] = [];
   const graph = trackedPluginAnswerer({ query: async (text) => { requests.push(JSON.parse(text)); return [[]]; } });
-  await graph.files('**');
-  await graph.value('File', { path: 'a' }, 'text');
+  await graph.files('**', undefined);
+  await graph.value('File', { path: 'a' }, 'text', undefined);
+  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:File', generation: 1 };
+  await graph.files('**', snapshot);
   expect(requests.map(({ method, args }) => ({ method, args }))).toEqual([
     { method: 'files', args: ['**'] },
     { method: 'value', args: ['File', { path: 'a' }, 'text'] },
+    { method: 'files', args: ['**', snapshot] },
   ]);
 });
 
-test('the host reader answers files and fields from the graph as it stands', async () => {
-  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (_sql: string, values: readonly unknown[]) => {
-    // The file read names its kind and its containment edge; a field read names the key it asks about.
-    if (values.length === 2) return { rows: [{ repository: 'repo', path: 'a.ts' }] };
-    return { rows: [{ value: 'saved' }] };
+test('one reader indexes immutable snapshot files and fields once without sharing with another reader', async () => {
+  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:code.file', generation: 1 };
+  let loads = 0;
+  // The generation's published answer is the journal row that served it (decision 0039, item 11): the reader
+  // rebuilds the vertices of a kind from what the unit declared and the opinions it opened.
+  const change = {
+    vertices: [{ entity: 'code.file', uid: 'uid-a', node: '1', key: { repository: 'repo', path: 'a.ts' }, state: 'declared' }],
+    edges: [],
+    opinions: [{ id: '1', entity: 'code.file', node: 'uid-a', state: 'opened', fields: ['content', 'language'], lang: null, said_by: 'base@1.0.0', values: { content: 'saved', language: 'typescript' } }],
+  };
+  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (sql: string) => {
+    if (sql.includes('FROM operation o')) { loads++; return { rows: [{ change }] }; }
+    return { rows: [] };
   } }) };
-  const wiring = { owner, manifest: {}, contract: { vertex: [{ name: 'code.file', table: 'k_code_file', key: ['repository', 'path'], fields: [{ name: 'content', type: 'text' }] }], edge: [], dictionary: [] } } as unknown as Parameters<typeof pluginGraphAnswerer>[0];
+  const wiring = { owner, manifest: {}, contract: {} } as unknown as Parameters<typeof pluginGraphAnswerer>[0];
   const reader = pluginGraphAnswerer(wiring);
-  expect(await reader.files('*.ts')).toEqual([{ kind: 'code.file', key: { repository: 'repo', path: 'a.ts' } }]);
-  expect(await reader.value('code.file', { repository: 'repo', path: 'a.ts' }, 'content')).toBe('saved');
+  const key = { repository: 'repo', path: 'a.ts' };
+  expect(await reader.files('**/*.ts', snapshot)).toEqual([{ kind: 'code.file', key }]);
+  expect(await reader.value('code.file', key, 'content', snapshot)).toBe('saved');
+  expect(await reader.value('code.file', key, 'language', snapshot)).toBe('typescript');
+  expect(await reader.value('code.file', key, 'omitted', snapshot)).toBeNull();
+  expect(loads).toBe(1);
+  expect(await pluginGraphAnswerer(wiring).value('code.file', key, 'content', snapshot)).toBe('saved');
+  expect(loads).toBe(2);
+});
+
+test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {
+  const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
+  let parameters: readonly unknown[] = [];
+  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (_sql: string, values: readonly unknown[]) => { parameters = values; return { rows: [] }; } }) };
+  await expect(successfulPluginSnapshot(owner as never, 'run-current', 'base:Source')).rejects.toThrow('no successful current-run snapshot');
+  expect(parameters).toEqual(['run-current', 'base:Source']);
+});
+
+test('verified inherited generation freezes original run identity without cloning publication', async () => {
+  const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
+  const queries: string[] = [];
+  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (query: string) => {
+    queries.push(query);
+    return { rows: [{ run_id: 'original-run', unit_id: 'plugin-turns/base:Source', generation: 3, context: { unitOutcome: { outcome: 'unchanged' } } }] };
+  } }) };
+  expect(await successfulPluginSnapshot(owner as never, 'new-run', 'base:Source')).toEqual({ runId: 'original-run', unitId: 'plugin-turns/base:Source', generation: 3 });
+  expect(queries).toHaveLength(1);
+  expect(queries[0]).toContain("e.kind = 'unit-inherited'");
+  expect(queries[0]).toContain('e.generation = g.generation');
+  expect(queries[0]).toContain('FROM fill_unit_generation');
 });

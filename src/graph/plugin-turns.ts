@@ -148,32 +148,159 @@ export async function writeRequestEntry(owner: DatabaseOwner, author: string, re
   });
 }
 
+/** One producer generation as it published: the run, the unit and the generation the reader asks about. */
+export interface PluginSnapshot {
+  readonly runId: string;
+  readonly unitId: string;
+  readonly generation: number;
+}
+
+/** The journal row's session, as the writer states it: the run, the unit and the generation it serves. */
+export function snapshotSession(snapshot: PluginSnapshot): string {
+  return `${snapshot.runId}:${snapshot.unitId}/${String(snapshot.generation)}`;
+}
+
+/**
+ * The generation one producer published for a kind, as the current run knows it: this run's generation for the
+ * scope, or the one it inherited from an earlier run. A producer that did not complete successfully has no
+ * snapshot — later work reads nothing of a half answer.
+ */
+export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT g.run_id, g.unit_id, g.generation, g.context FROM fill_unit_generation g
+       JOIN fill_unit u ON u.unit_id = g.unit_id
+       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+       WHERE (g.run_id = $1 OR EXISTS (
+         SELECT 1 FROM fill_event e WHERE e.run_id = $1 AND e.unit_id = g.unit_id
+           AND e.generation = g.generation AND e.kind = 'unit-inherited'))
+         AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
+       ORDER BY g.generation DESC LIMIT 1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ run_id: string; unit_id: string; generation: unknown; context: unknown }>(sql, [runId, scope]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const row = found.rows[0];
+    if (row === undefined) throw new Error(`no successful current-run snapshot for ${scope}`);
+    const context = typeof row.context === 'string' ? JSON.parse(row.context) as { unitOutcome?: { outcome?: string } | null } : row.context as { unitOutcome?: { outcome?: string } | null };
+    if (!['completed', 'unchanged', 'empty'].includes(context?.unitOutcome?.outcome ?? '')) throw new Error(`producer ${scope} did not complete successfully in run ${runId}`);
+    return { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) };
+  });
+}
+
+/**
+ * Declared vertices of one producer generation, as it answered them — never today's graph (decision 0039, item 11):
+ * the journal keeps every publication's change, and replaying one producer's rows up to the row that served the
+ * generation gives its answer as it stood then, unchanged fields included (a field restated unchanged is no new row,
+ * so its earlier opinion is the one that stands). A partitioned producer's answer is the answer of the partitions
+ * it sealed, so the generation's sealed children are replayed too.
+ */
+export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]> {
+  const replay = await journalAsOf(owner, snapshot);
+  const vertices = new Map<string, { key: import('../plugin/protocol.js').PluginKeyValues; values: Readonly<Record<string, unknown>> }>();
+  for (const [uid, held] of replay) {
+    if (held.kind !== kind || held.removed || held.key === undefined) continue;
+    vertices.set(uid, { key: held.key, values: held.values });
+  }
+  return [...vertices.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, vertex]) => vertex);
+}
+
+/** One vertex as a replay of the journal holds it: its kind, its key once seen, its values, and whether it stands. */
+interface ReplayedVertex {
+  readonly kind: string;
+  readonly key?: import('../plugin/protocol.js').PluginKeyValues;
+  readonly values: Readonly<Record<string, unknown>>;
+  readonly removed: boolean;
+}
+
+/**
+ * The producer's vertices as of one generation's publication: the journal rows up to the row that served the
+ * generation, in order, folded — an opened opinion states its fields, a closed one withdraws them, a removed
+ * vertex leaves. The generation's sealed children are folded in after it, in the order they answered.
+ */
+async function journalAsOf(owner: DatabaseOwner, snapshot: PluginSnapshot): Promise<Map<string, ReplayedVertex>> {
+  const producer = snapshot.unitId.startsWith('plugin-turns/') ? snapshot.unitId.slice('plugin-turns/'.length).split(':')[0]! : snapshot.unitId;
+  const rows = await owner.transaction('snapshot', async (tx) => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT o.seq, o.change FROM operation o
+      WHERE split_part(o.author, '@', 1) = $2 AND o.seq <= COALESCE((
+        SELECT max(served.seq) FROM operation served WHERE served.session = $1), 9223372036854775807)
+      ORDER BY o.seq`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ seq: unknown; change: unknown }>(sql, [snapshotSession(snapshot), producer]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  }));
+  const held = new Map<string, ReplayedVertex>();
+  for (const row of rows.rows) {
+    const change = (typeof row.change === 'string' ? JSON.parse(row.change) : row.change) as {
+      vertices?: readonly { entity: string; uid: string; key?: Readonly<Record<string, unknown>>; state: string }[];
+      opinions?: readonly { node?: string; entity?: string; state: string; values?: Readonly<Record<string, unknown>> }[];
+    } | null;
+    if (change === null || typeof change !== 'object') continue;
+    const keys = new Map((change.vertices ?? []).map((vertex) => [vertex.uid, vertex]));
+    for (const vertex of change.vertices ?? []) {
+      if (vertex.state === 'removed') { held.set(vertex.uid, { kind: vertex.entity, key: (vertex.key ?? {}) as import('../plugin/protocol.js').PluginKeyValues, values: {}, removed: true }); continue; }
+      held.set(vertex.uid, { kind: vertex.entity, key: vertex.key as import('../plugin/protocol.js').PluginKeyValues, values: held.get(vertex.uid)?.values ?? {}, removed: false });
+    }
+    for (const opinion of change.opinions ?? []) {
+      if (opinion.node === undefined || opinion.entity === undefined) continue;
+      if (opinion.state === 'closed') { held.set(opinion.node, { kind: opinion.entity, key: held.get(opinion.node)?.key ?? keys.get(opinion.node)?.key as import('../plugin/protocol.js').PluginKeyValues | undefined, values: {}, removed: true }); continue; }
+      if (opinion.state !== 'opened') continue;
+      const previous = held.get(opinion.node);
+      held.set(opinion.node, { kind: opinion.entity, key: previous?.key ?? keys.get(opinion.node)?.key as import('../plugin/protocol.js').PluginKeyValues | undefined, values: opinion.values ?? {}, removed: false });
+    }
+  }
+  for (const child of await sealedChildren(owner, snapshot)) {
+    for (const [uid, vertex] of await journalAsOf(owner, child)) held.set(uid, vertex);
+  }
+  return held;
+}
+
+/** The generations one split sealed under one generation, with the run that published each. */
+async function sealedChildren(owner: DatabaseOwner, snapshot: PluginSnapshot): Promise<PluginSnapshot[]> {
+  const children = await owner.transaction('snapshot', async (tx) => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT s.child_unit_id, s.child_generation, g.run_id
+       FROM fill_unit_split s
+       JOIN fill_unit_generation g ON g.unit_id = s.child_unit_id AND g.generation = s.child_generation
+       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+      WHERE s.parent_unit_id = $1 AND s.parent_generation = $2 ORDER BY s.child_unit_id`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ child_unit_id: string; child_generation: unknown; run_id: string }>(sql, [snapshot.unitId, snapshot.generation]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  }));
+  return children.rows.map((child) => ({ runId: child.run_id, unitId: child.child_unit_id, generation: Number(child.child_generation) }));
+}
+
 /**
  * What one sealed child generation of a partition answered: complete when it
  * published with a producer outcome that succeeded (decision 0039, item 11), and
- * how many facts its publication applied. The answer is the child's own record —
- * there is no draft set to read (item 13) — so a barrier states what its children
- * answered without a second copy of their writes.
+ * how many facts it answered — the outcome's own `produced`, so a group of
+ * partitions answers for the partitions under it and the barrier above reads one
+ * number. The answer is the child's own record — there is no draft set to read
+ * (item 13) — so a barrier states what its children answered without a second copy
+ * of their writes.
  */
 export async function pluginPartitionOutcome(owner: DatabaseOwner, refs: readonly PartitionReference[]): Promise<{ complete: boolean; produced: number }> {
   return await owner.transaction('snapshot', async (tx) => {
     let produced = 0;
     for (const ref of refs) {
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `SELECT g.state, p.facts, g.context
+        const sql = `SELECT g.state, g.context
            FROM fill_unit_generation g JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
           WHERE g.unit_id = $1 AND g.generation = $2`;
         span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await tx.query<{ state: string; facts: unknown; context: unknown }>(sql, [ref.unitId, ref.generation]);
+        const result = await tx.query<{ state: string; context: unknown }>(sql, [ref.unitId, ref.generation]);
         span.setAttribute('db.rows', result.rows.length);
         return result;
       });
       const row = found.rows[0];
       if (row === undefined || row.state !== 'published') return { complete: false, produced };
-      const context = typeof row.context === 'string' ? JSON.parse(row.context) as { unitOutcome?: { outcome?: string } | null } : row.context as { unitOutcome?: { outcome?: string } | null };
-      const outcome = context?.unitOutcome?.outcome;
-      if (outcome === undefined || !['completed', 'unchanged', 'empty'].includes(outcome)) return { complete: false, produced };
-      produced += Number(row.facts);
+      const context = typeof row.context === 'string' ? JSON.parse(row.context) as { unitOutcome?: { outcome?: string; produced?: number } | null } : row.context as { unitOutcome?: { outcome?: string; produced?: number } | null };
+      const outcome = context?.unitOutcome;
+      if (outcome?.outcome === undefined || !['completed', 'unchanged', 'empty'].includes(outcome.outcome)) return { complete: false, produced };
+      produced += Number(outcome.produced ?? 0);
     }
     return { complete: true, produced };
   });

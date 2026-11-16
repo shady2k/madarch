@@ -33,7 +33,7 @@ await definePlugin({ name: 'pattern-probe', version: '1.0.0', contract: ${JSON.s
       releaseHashes: [closure.hash],
     } as unknown as PluginTurnWiring;
     let planned = false;
-    await runPluginTurn(wiring, 'pattern-probe:Probe', { write() { throw new Error('planning writes nothing'); }, writes() { return { writes: [] }; } }, undefined, undefined, undefined, { plan(partitions) { expect(partitions).toEqual([]); planned = true; } });
+    await runPluginTurn(wiring, 'pattern-probe:Probe', { write() { throw new Error('planning writes no draft'); }, writes() { return { writes: [] }; } }, undefined, undefined, undefined, undefined, { plan(partitions) { expect(partitions).toEqual([]); planned = true; } });
     expect(planned).toBe(true);
   } finally {
     if (previous === undefined) delete process.env.MADARCH_PLUGIN_SANDBOX;
