@@ -13,7 +13,7 @@ import type { ValidatedManifests } from '../graph/manifest-publication.js';
 
 export interface DaemonFills {
   /** Publishes validated metadata without starting a fill. */
-  publishManifests(validated: ValidatedManifests): Promise<void>;
+  publishManifests(validated: ValidatedManifests, signal?: AbortSignal): Promise<void>;
   /** Runs one product's fill through `runFill` and answers what the host answered. */
   run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
   /** One run's status, or null when the store holds no such run. */
@@ -55,11 +55,19 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
    * second request waits for it rather than opening a second connection (madarch-8bdc.2.5, item 4c).
    */
   const opening = new Map<string, Promise<HeldStore>>();
+  const failedOpeningOwners = new Set<Awaited<ReturnType<typeof openFillDatabase>>>();
   let stopped = false;
+  let stopPromise: Promise<void> | undefined;
+  const publications = new Set<Promise<void>>();
+  const publicationAbort = new AbortController();
+  const ensureRunning = (): void => {
+    if (stopped) throw new Error(`${import.meta.path}:64: the daemon fills have stopped`);
+  };
   /** The store of one product, by the one function every caller resolves it with. */
   const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
   /** Opens one store's owner, or answers the opening already under way for it: one owner per store, whichever asks. */
   const openStore = async (storeFolder: string, productFolder: string): Promise<HeldStore> => {
+    ensureRunning();
     const held = stores.get(storeFolder);
     if (held !== undefined) return held;
     const pending = opening.get(storeFolder);
@@ -68,8 +76,19 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
       const contract = await readPinnedGraphContract(productFolder);
       await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(productFolder));
+      ensureRunning();
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
-      await owner.ready;
+      try {
+        await owner.ready;
+        ensureRunning();
+      } catch (error) {
+        try { await owner.close(); }
+        catch (closeError) {
+          failedOpeningOwners.add(owner);
+          throw closeError;
+        }
+        throw error;
+      }
       const one: HeldStore = { storeFolder, owner, fillState: { transaction: owner.transaction.bind(owner), graphContract: contract } };
       stores.set(storeFolder, one);
       return one;
@@ -135,23 +154,34 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     return result;
   };
   return {
-    async publishManifests(validated: ValidatedManifests): Promise<void> {
-      const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
-
-      const { createOrchestratorSchema } = await import('../graph/fill-orchestration.js');
-      const { createOneGraphSchema } = await import('../graph/one-graph.js');
-      const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
-      const folder = storeFolderOfProduct(validated.folder);
-      const contract = graphContractOf(validated.manifest);
-      await requestStorePreparation(storeDatabasePath(folder), contract, await readPinnedPluginInstallations(validated.folder));
-      const held = await store(validated.folder);
-
-      held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: withManifestContract(contract) };
-      await createOrchestratorSchema(held.fillState);
-      await createOneGraphSchema(held.owner, withManifestContract(contract));
-      const started = performance.now();
-      try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); }
-      finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
+    publishManifests(validated: ValidatedManifests, requestedSignal?: AbortSignal): Promise<void> {
+      const signal = requestedSignal === undefined ? publicationAbort.signal : AbortSignal.any([publicationAbort.signal, requestedSignal]);
+      const work = (async () => {
+        signal.throwIfAborted();
+        ensureRunning();
+        const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
+        const { createOrchestratorSchema } = await import('../graph/fill-orchestration.js');
+        const { createOneGraphSchema } = await import('../graph/one-graph.js');
+        const { publishValidatedManifests, publicationDatabaseOwner } = await import('../graph/manifest-publication.js');
+        signal.throwIfAborted();
+        const folder = storeFolderOfProduct(validated.folder);
+        const declared = graphContractOf(validated.manifest);
+        const contract = withManifestContract(declared);
+        await requestStorePreparation(storeDatabasePath(folder), declared, await readPinnedPluginInstallations(validated.folder));
+        signal.throwIfAborted();
+        const held = await store(validated.folder);
+        signal.throwIfAborted();
+        const publishing = publicationDatabaseOwner(held.owner, signal);
+        held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: contract };
+        await createOrchestratorSchema({ transaction: publishing.transaction.bind(publishing) });
+        await createOneGraphSchema(publishing, contract);
+        const started = performance.now();
+        try { await publishValidatedManifests(publishing, validated, contract, signal); }
+        finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
+      })();
+      publications.add(work);
+      void work.then(() => publications.delete(work), () => publications.delete(work));
+      return work;
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const held = await store(request.product.folder);
@@ -200,21 +230,32 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       const answer = await withService(request.productFolder, async (service) => await service.control(request)).catch(() => undefined);
       return answer ?? null;
     },
-    async stop(): Promise<void> {
-      if (stopped) return;
+    stop(): Promise<void> {
+      if (stopPromise !== undefined) return stopPromise;
       stopped = true;
-      let failure: unknown;
-      for (const held of stores.values()) {
-        if (held.service !== undefined) {
-          const service = held.service;
-          held.service = undefined;
-          try { await service.stop(); } catch (error) { failure ??= error; }
+      publicationAbort.abort(new Error(`${import.meta.path}:253: the daemon is stopping; manifest publication was cancelled`));
+      stopPromise = (async () => {
+        await Promise.allSettled([...publications]);
+        await Promise.allSettled([...opening.values()]);
+        let failure: unknown;
+        for (const owner of failedOpeningOwners) {
+          try {
+            await owner.close();
+            failedOpeningOwners.delete(owner);
+          } catch (error) { failure ??= error; }
         }
-        try { await held.owner.close(); } catch (error) { failure ??= error; }
-      }
-      stores.clear();
-      opening.clear();
-      if (failure !== undefined) throw failure;
+        for (const held of stores.values()) {
+          if (held.service !== undefined) {
+            const service = held.service;
+            held.service = undefined;
+            try { await service.stop(); } catch (error) { failure ??= error; }
+          }
+          try { await held.owner.close(); } catch (error) { failure ??= error; }
+        }
+        stores.clear();
+        if (failure !== undefined) throw failure;
+      })();
+      return stopPromise;
     },
   };
 }

@@ -31,7 +31,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { types } from 'pg';
+import { Client, types } from 'pg';
 import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
@@ -107,6 +107,10 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
  * The database one process owns, opened once and lent to every adapter that
  * keeps data in it.
  */
+export interface TransactionOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface DatabaseOwner {
   /** Where the database is, for error messages: a PostgreSQL `host:port/database` description that never carries credentials. */
   readonly location: string;
@@ -131,7 +135,7 @@ export interface DatabaseOwner {
    * to any operation of an adapter lent this owner, which then runs its own
    * statements inside it.
    */
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T>;
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options?: TransactionOptions): Promise<T>;
   /**
    * Runs `work` on the database with no transaction boundary of its own, for a
    * single statement.
@@ -210,7 +214,7 @@ class PostgresOwner implements DatabaseOwner {
   private closing = false;
   private closePromise: Promise<void> | undefined;
 
-  constructor(private readonly pool: Pool, options: PoolConfig, hasVector = true, store?: string) {
+  constructor(private readonly pool: Pool, private readonly options: PoolConfig, hasVector = true, store?: string) {
     this.location = store === undefined ? postgresLocation(options) : `${store} (${postgresLocation(options)})`;
     // pg removes failed idle clients before emitting this event. An unobserved event would crash the process.
     this.pool.on('error', (error) => console.error(`PostgreSQL pool "${this.location}": ${errorMessage(error)}`));
@@ -234,8 +238,8 @@ class PostgresOwner implements DatabaseOwner {
     }
   }
 
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.transactionWork(kind, work);
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
+    return this.transactionWork(kind, work, options.signal);
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
@@ -262,7 +266,8 @@ class PostgresOwner implements DatabaseOwner {
     }
   }
 
-  private async transactionWork<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
+  private async transactionWork<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
     this.ensureOpen();
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
@@ -270,11 +275,39 @@ class PostgresOwner implements DatabaseOwner {
       return await this.named(async () => await this.pool.connect());
     });
     let releaseError: Error | undefined;
+    let activeStatement = false;
+    let cancellation: Promise<void> | undefined;
+    let cancel: (() => void) | undefined;
+    const query = async <Row extends object = Record<string, unknown>>(sql: string, parameters?: unknown[]): Promise<{ rows: Row[] }> => {
+      signal?.throwIfAborted();
+      activeStatement = true;
+      try { return await this.named(async () => await client.query<Row>(sql, parameters)); }
+      finally { activeStatement = false; }
+    };
     try {
+      signal?.throwIfAborted();
+      if (signal !== undefined) {
+        const pid = (await query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        cancel = () => {
+          if (!activeStatement || cancellation !== undefined) return;
+          cancellation = (async () => {
+            const control = new Client(this.options);
+            try {
+              await control.connect();
+              const answer = await control.query<{ cancelled: boolean }>('SELECT pg_cancel_backend($1) AS cancelled', [pid]);
+              if (answer.rows[0]?.cancelled !== true) throw new Error(`${import.meta.path}:300: PostgreSQL refused cancellation of this transaction`);
+            } finally { await control.end(); }
+          })();
+          // The transaction observes this failure after its work drains.
+          void cancellation.catch(() => undefined);
+        };
+        signal.addEventListener('abort', cancel, { once: true });
+        signal.throwIfAborted();
+      }
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
-      await this.named(async () => await client.query(begin));
+      await query(begin);
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
         let statements = 0;
         let rows = 0;
@@ -284,10 +317,12 @@ class PostgresOwner implements DatabaseOwner {
         const counted: OuterTransaction = {
           query: <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
             if (!accepting) return Promise.reject(new Error(`the database owner "${this.location}" transaction has ended`));
+            if (signal?.aborted === true) return Promise.reject(signal.reason);
             const parameters = values === undefined ? undefined : [...values];
             const answer = tail.then(async () => {
+              signal?.throwIfAborted();
               statements += 1;
-              const result = (await spannedStatement(sql, async () => await this.named(async () => await client.query(sql, parameters)) as { rows: unknown[] }, counts)) as { rows: Row[] };
+              const result = await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts);
               rows += result.rows.length;
               return result;
             });
@@ -303,7 +338,11 @@ class PostgresOwner implements DatabaseOwner {
           accepting = false;
           await tail;
         }
-        if (kind === 'write') await refuseAborted(client, this.location);
+        signal?.throwIfAborted();
+        if (kind === 'write') await refuseAborted({ query }, this.location);
+        signal?.throwIfAborted();
+        // COMMIT dispatch is the boundary: after it the server may already have kept the write.
+        if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
         await this.named(async () => await client.query('COMMIT'));
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
@@ -316,13 +355,24 @@ class PostgresOwner implements DatabaseOwner {
       });
       return value;
     } catch (error) {
+      // A late cancellation must never reach ROLLBACK or a subsequent pool borrower.
+      if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
+      if (cancellation !== undefined) {
+        try { await cancellation; }
+        catch (cancelError) { releaseError = cancelError instanceof Error ? cancelError : new Error(errorMessage(cancelError)); }
+      }
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
         releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
       }
-      throw error;
+      throw signal?.aborted === true ? signal.reason : error;
     } finally {
+      if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
+      if (cancellation !== undefined) {
+        try { await cancellation; }
+        catch (cancelError) { releaseError ??= cancelError instanceof Error ? cancelError : new Error(errorMessage(cancelError)); }
+      }
       client.release(releaseError);
     }
   }
@@ -441,11 +491,11 @@ class ServerStoreOwner implements DatabaseOwner {
     this.ready = inner.ready;
   }
 
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options?: TransactionOptions): Promise<T> {
     return this.inner.transaction<T>(kind, async tx => {
       EXECUTOR_OWNER.set(tx, this);
       return await work(tx);
-    });
+    }, options);
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {

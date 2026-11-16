@@ -253,19 +253,37 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
   return read.graph.edges;
 }
 
+/** A borrowed view whose transactions share one cancellation lifetime; it never owns the pool. */
+export function publicationDatabaseOwner(owner: DatabaseOwner, signal: AbortSignal): DatabaseOwner {
+  return {
+    location: owner.location,
+    ready: owner.ready,
+    allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
+    hasVector: owner.hasVector,
+    transaction: (kind, work, options) => owner.transaction(kind, work, { signal: options?.signal === undefined ? signal : AbortSignal.any([signal, options.signal]) }),
+    run: owner.run.bind(owner),
+    exec: owner.exec.bind(owner),
+    close: owner.close.bind(owner),
+  };
+}
+
 /**
  * One transaction closes removed declarations and states the entire valid catalogue atomically; the product's own page
  * is stated beside it, when the product's files name one and the graph holds none (the home page opens on the product).
  */
-export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
-  const written = await publishDeclarations(owner, validated, authored);
+export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
+  signal?.throwIfAborted();
+  const publishing = signal === undefined ? owner : publicationDatabaseOwner(owner, signal);
+  const written = await publishDeclarations(publishing, validated, authored, signal);
+  signal?.throwIfAborted();
   const home = homeKind(validated.manifest);
-  await writeProductEntity(owner, home === undefined ? undefined : productEntityOf(validated.folder, { home }, headCommitOf(validated.folder)?.commit));
+  await writeProductEntity(publishing, home === undefined ? undefined : productEntityOf(validated.folder, { home }, headCommitOf(validated.folder)?.commit));
+  signal?.throwIfAborted();
   return written;
 }
 
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
-async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
+async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
     await installDisputeSelection(tx, withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest))));
     const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
@@ -298,6 +316,7 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     const removals = [...held].filter(([key]) => !wanted.has(key)).map(([, draft]) => draft)
       .sort((left, right) => Number(right.keyEdges !== undefined) - Number(left.keyEdges !== undefined) || byCodePoint(identity(left), identity(right)));
     const unchanged = async (draft: VertexDraft | EdgeDraft, rows: readonly AssertionRecord[]): Promise<boolean> => {
+      signal?.throwIfAborted();
       if (rows.length === 0) return false;
       let record: import('./records.js').AssertionRecord | undefined;
       if ('key' in draft) {

@@ -776,11 +776,24 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup manifest.validate ${(performance.now() - validationStarted).toFixed(1)} ms`);
     for (const value of validated) setManifestPublicationState(value.folder, { status: 'pending' });
-    const publish = async (value: ValidatedManifests): Promise<void> => {
+    const publicationAbort = new AbortController();
+    const activePublications = new Set<Promise<void>>();
+    let manifests: ReturnType<typeof createManifestWatch> | undefined;
+    let watch: UpdateWatch | undefined;
+    let stopping = false;
+    const beginStop = (): void => {
+      stopping = true;
+      watch?.stop();
+      manifests?.stop();
+      publicationAbort.abort(new Error(`${import.meta.path}:792: the daemon is stopping; manifest publication was cancelled`));
+    };
+    const publishOne = async (value: ValidatedManifests): Promise<void> => {
+      publicationAbort.signal.throwIfAborted();
       setManifestPublicationState(value.folder, { status: 'pending' });
       const started = performance.now();
       try {
-        await fills.publishManifests(value);
+        await fills.publishManifests(value, publicationAbort.signal);
+        publicationAbort.signal.throwIfAborted();
         setManifestPublicationState(value.folder, { status: 'published' });
       } catch (error) {
         setManifestPublicationState(value.folder, { status: 'failed', message: String(error) });
@@ -788,6 +801,12 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       } finally {
         if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.publish ${(performance.now() - started).toFixed(1)} ms ${value.folder}`);
       }
+    };
+    const publish = (value: ValidatedManifests): Promise<void> => {
+      const work = publishOne(value);
+      activePublications.add(work);
+      void work.then(() => activePublications.delete(work), () => activePublications.delete(work));
+      return work;
     };
     const { startServer } = await import('../server/http.js');
     const listenerStarted = performance.now();
@@ -799,14 +818,17 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       port: options.port,
       host: '127.0.0.1',
       orchestrator: {
-        stop: async () => { await publication; await fills.stop(); },
+        stop: async () => {
+          beginStop();
+          await publication;
+          await Promise.allSettled([...activePublications]);
+          await fills.stop();
+        },
       },
     });
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup listener ${(performance.now() - listenerStarted).toFixed(1)} ms`);
     // Valid declarations may take seconds to publish. The listener can answer truthfully meanwhile;
     // validation above is still a hard start gate, before any public socket is opened.
-    let manifests: ReturnType<typeof createManifestWatch> | undefined;
-    let stopping = false;
     const publication = (async () => {
       for (const value of validated) {
         if (stopping) return;
@@ -828,7 +850,6 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     // pass is not awaited here — a head that moved while the server was stopped starts a whole run in it, and a
     // server that could not be stopped until a fill ended would be a server nobody can stop — and a watcher that
     // cannot start says so and the server serves on, since a wiki still answers without it.
-    let watch: UpdateWatch | undefined;
     let watching: Promise<void> = Promise.resolve();
     try {
       watch = daemonUpdateWatch(home, fills);
@@ -843,14 +864,21 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       watch = undefined;
     }
     try {
-      await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
+      await new Promise<void>((resolveDone) => {
+        const stop = (): void => {
+          beginStop();
+          process.removeListener('SIGTERM', stop);
+          process.removeListener('SIGINT', stop);
+          resolveDone();
+        };
+        process.once('SIGTERM', stop);
+        process.once('SIGINT', stop);
+      });
     } finally {
       // No pass starts after this one, and a run already under way is not waited for: a stop that waited for a fill
       // to end is a stop nobody can use. The orchestrator's own recovery owns what a killed run leaves (decision
       // 0027's crash suite), and the pass that loses the database says so in the log through `watching`.
-      watch?.stop();
-      stopping = true;
-      manifests?.stop();
+      beginStop();
       void watching;
     }
     await server.stop();
