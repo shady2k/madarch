@@ -544,10 +544,10 @@ class Builder {
       // The service's own state read through the one read API (madarch-64o5.136 restore): the products this server
       // serves, the fill's state and its runs, and the plan one selection would run. The layer that owns the state
       // answers them; the graph executor answers the rest.
-      { name: 'products', type: 'JSON!' },
-      { name: 'fillStatus', type: 'JSON!' },
-      { name: 'fillRuns', type: 'JSON!', args: [{ name: 'run', type: 'String' }] },
-      { name: 'fillPlan', type: 'JSON!', args: [{ name: 'selected', type: '[String!]' }, { name: 'pluginsOnly', type: 'Boolean' }] },
+      { name: 'products', type: 'JSON' },
+      { name: 'fillStatus', type: 'JSON' },
+      { name: 'fillRuns', type: 'JSON', args: [{ name: 'run', type: 'String' }] },
+      { name: 'fillPlan', type: 'JSON', args: [{ name: 'selected', type: '[String!]' }, { name: 'pluginsOnly', type: 'Boolean' }] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },

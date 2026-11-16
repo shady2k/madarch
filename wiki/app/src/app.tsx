@@ -499,7 +499,7 @@ export function App(): ReactElement {
               open={open}
               run={liveRun}
               products={products.data?.products ?? null}
-              currentProduct={products.data?.current ?? servedFolderOf(base)}
+              currentProduct={servedFolderOf(base) ?? products.data?.current ?? null}
               onLanguage={(next) => { void setWikiLanguage(next); }}
               onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}

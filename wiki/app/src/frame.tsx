@@ -241,7 +241,10 @@ export function FrameNavigation({ navigation, base, path, open, tasks, role, pro
  */
 /** The products the server serves, at the address each answers under: a products home serves each below its folder. */
 export function productChoices(base: string, products: readonly ProductChoice[], current: string | null): { readonly name: string; readonly folder: string; readonly href: string; readonly here: boolean }[] {
-  return products.map((product) => ({ name: product.name, folder: product.folder, href: base === '' ? '/' : `/products/${encodeURIComponent(product.folder)}/`, here: product.folder === current }));
+  // The answer names the product in front by its own folder, which the best answer gives as a path: the folder's name
+  // is what both sides compare.
+  const here = current === null ? '' : current.slice(current.lastIndexOf('/') + 1);
+  return products.map((product) => ({ name: product.name, folder: product.folder, href: base === '' ? '/' : `/products/${encodeURIComponent(product.folder)}/`, here: product.folder === current || product.folder === here }));
 }
 
 /**

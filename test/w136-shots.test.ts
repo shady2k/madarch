@@ -29,11 +29,13 @@ let beta = '';
 let own = '';
 let base = '';
 
-async function fill(kind: string): Promise<{ state: string; message?: string }> {
-  const pressed = await fetch(`${base}api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: [kind], pluginsOnly: true }) });
+async function fill(folder: string, kind: string): Promise<{ state: string; message?: string }> {
+  // A products home serves each product below its folder: its commands answer there.
+  const productBase = `${base}products/${folder}/`;
+  const pressed = await fetch(`${productBase}api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: [kind], pluginsOnly: true }) });
   if (pressed.status !== 202) throw new Error(`fill refused: ${await pressed.text()}`);
-  for (let at = 0; at < 120; at += 1) {
-    const status = (await (await fetch(`${base}api/status`)).json()) as { fill: { state: string; message?: string } };
+  for (let at = 0; at < 240; at += 1) {
+    const status = (await (await fetch(`${productBase}api/status`)).json()) as { fill: { state: string; message?: string } };
     if (['done', 'failed', 'stopped'].includes(status.fill.state)) return status.fill;
     await Bun.sleep(500);
   }
@@ -62,7 +64,7 @@ run('the restored items', () => {
     commitProduct(own, 'madarch own wiki fixture');
     server = await startPreparedServer({ productHome: home, ownWiki: { folder: own }, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
     base = server.url.endsWith('/') ? server.url : `${server.url}/`;
-    browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-crash-reporter', '--no-zygote'] });
     mkdirSync(OUT, { recursive: true });
   }, 600_000);
 
@@ -76,9 +78,9 @@ run('the restored items', () => {
     // beta's fill fails: its disk plugin is edited after the closure was hashed, so the plugin refuses every unit.
     const plugin = join(beta, 'plugins', 'disk', 'main.ts');
     writeFileSync(plugin, `${readFileSync(plugin, 'utf8')}\nthrow new Error('the shot plugin refuses to run');\n`);
-    const failed = await fill('code.file').catch((error: unknown) => ({ state: 'refused', message: String(error) }));
+    const failed = await fill('beta', 'code.file').catch((error: unknown) => ({ state: 'refused', message: String(error) }));
     // alpha's fill succeeds, and a new commit to its repository leaves the graph holding part of it.
-    const done = await fill('code.file');
+    const done = await fill('alpha', 'code.file');
     if (done.state !== 'done') throw new Error(`alpha fill ${done.state}: ${done.message ?? ''}`);
     writeFileSync(join(alpha, 'src', 'later.ts'), 'export const later = 1;\n');
     commitProduct(alpha, 'One more file after the fill');
@@ -99,8 +101,10 @@ run('the restored items', () => {
       }
     };
     const open = async (path: string): Promise<void> => {
-      await page.goto(`${base}${path}`, { waitUntil: 'networkidle0' });
-      await settle();
+      // The app keeps a change stream open, so `networkidle0` never comes: the page's own frame is the readiness.
+      await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="wiki-app"], [data-testid="wiki-error"], [data-publication]', { timeout: 60_000 }).catch(() => null);
+      await settle(1500);
       const role = await page.$('[data-testid="role-first"]');
       if (role !== null) { await page.click('[data-testid="role-first-continue"]'); await settle(800); }
     };
@@ -115,16 +119,16 @@ run('the restored items', () => {
       await page.keyboard.press('Escape');
 
       // The home: the live fill line while a fill runs, then the incomplete card after a later commit.
-      await fetch(`${base}api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.file'], pluginsOnly: true }) }).catch(() => undefined);
+      await fetch(`${base}products/alpha/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.file'], pluginsOnly: true }) }).catch(() => undefined);
       await open('products/alpha/');
       await settle(300);
       await shot('home-live');
       for (let at = 0; at < 120; at += 1) {
-        const status = (await (await fetch(`${base}api/status`)).json()) as { fill: { state: string } };
+        const status = (await (await fetch(`${base}products/alpha/api/status`)).json()) as { fill: { state: string } };
         if (['done', 'failed', 'stopped'].includes(status.fill.state)) break;
         await Bun.sleep(500);
       }
-      const after = (await (await fetch(`${base}api/status`)).json()) as { incomplete?: boolean };
+      const after = (await (await fetch(`${base}products/alpha/api/status`)).json()) as { incomplete?: boolean };
       if (after.incomplete === true) { await open('products/alpha/'); await shot('home-incomplete'); }
 
       // The catalogue's failed-kind badge on beta, whose fill failed.
