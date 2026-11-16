@@ -39,6 +39,12 @@ test('ordinary declarations preserve canonical keys and present each assertion s
     const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, generated, undefined, owner.graphContract);
     const files = await reader.find('code.file:src/a.ts');
     expect(files).toHaveLength(1);
+    expect(files[0]!.nodeIds).toEqual([files[0]!.uid!]);
+    expect(files[0]?.uid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(files[0]?.evidence).toEqual([
+      expect.objectContaining({ historicalValidity: 'valid', currentApplicability: 'unknown', availability: 'available' }),
+      expect.objectContaining({ historicalValidity: 'valid', currentApplicability: 'unknown', availability: 'available' }),
+    ]);
     expect(files[0]?.properties).toMatchObject({ recordKey: 'code.file:src/a.ts', path: 'src/a.ts', language: 'TypeScript' });
     expect(files[0]?.opinions?.map(o => o.producer).sort()).toEqual(sources);
     expect(files[0]?.span).toEqual({ path: 'src/a.ts', lineStart: 2, lineEnd: 4, byteStart: 0, byteEnd: 0 });

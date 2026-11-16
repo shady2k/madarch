@@ -15,7 +15,7 @@ function reader(columns: readonly string[], row: Record<string, unknown>): { rea
   const assertionRows = (kind: string, fields: readonly string[]) => fields.map((property, index) => ({
     id: `019a0000-0000-7000-8000-${String((kind === GIT_KINDS.file ? 10 : 30) + index).padStart(12, '0')}`,
     subject_id: kind === GIT_KINDS.file ? 1 : 3,
-    subject_uid: kind === GIT_KINDS.file ? '019a0000-0000-7000-8000-000000000001' : '019a0000-0000-7000-8000-000000000003',
+    subject_uid: kind === GIT_KINDS.file ? String(row['node']) : '019a0000-0000-7000-8000-000000000003',
     edge_from: null, edge_to: null, property, context_id: 1, language: null,
     source: '019a0000-0000-7000-8000-000000000004', author: '019a0000-0000-7000-8000-000000000004',
     unit: null, operation_uid: '019a0000-0000-7000-8000-000000000005', evidence: [],
@@ -26,9 +26,9 @@ function reader(columns: readonly string[], row: Record<string, unknown>): { rea
     queries.push(sql);
     if (sql.includes('WITH anchors AS')) return { rows: [] };
     if (sql.includes('AS assertion_uid')) throw new Error('fixture assertions have no evidence');
-    if (sql.includes('AS target_kind')) return { rows: [{ id: 3, kind: 'fixture.file-repository', to_node: 2, target_kind: GIT_KINDS.repository, target_key: { name: 'repo' } }] };
+    if (sql.includes('AS target_kind')) return { rows: [{ id: 3, kind: 'fixture.file-repository', target_uid: row['scope'], target_kind: GIT_KINDS.repository, target_key: { name: 'repo' } }] };
     if (sql.includes('FROM assertion a JOIN node assertion_node')) return { rows: assertionRows(String(values[0]), values[1] as string[]) };
-    if (sql.includes('FROM node n JOIN entity k')) return { rows: [{ id: 1, uid: '019a0000-0000-7000-8000-000000000001', key: { repository: row['repository'], path: row['path'] }, read_at: at }] };
+    if (sql.includes('FROM node n JOIN entity k')) return { rows: [{ id: 1, uid: row['node'], key: { repository: row['repository'], path: row['path'] }, read_at: at }] };
     if (sql.includes('FROM edge n JOIN entity k')) return { rows: [{ id: 3, uid: '019a0000-0000-7000-8000-000000000003', key: {}, from_node: 1, to_node: 2, discriminator: '', read_at: at }] };
     throw new Error(`unexpected fixture query: ${sql}`);
   } } as unknown as OuterTransaction;
