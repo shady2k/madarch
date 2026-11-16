@@ -14,6 +14,13 @@ import { SchemaRefusal } from '../graphql/names.js';
 import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { readProductTemplates } from './product-templates.js';
+import { writeContractOf } from './graph-writes.js';
+import { bindWriteCapability } from './write.js';
+import { withAssertionContract } from './system-contract.js';
+import { personBinding } from './system-installation.js';
+import { activateGraphProducer, type ProducerBinding } from './producer-binding.js';
+import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
+import type { GraphContract } from './contract.js';
 
 /**
  * The depth a query may reach, counting the root field as one (decision 0036, section 5; seven since the portal frame's
@@ -50,6 +57,13 @@ export interface GraphqlProduct {
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
+}
+
+/** Whether the operation the client names is the one mutation a page makes (0039 items 5 and 29). */
+function isMutation(document: DocumentNode, operationName: string | null | undefined): boolean {
+  const operations = document.definitions.filter((definition): definition is OperationDefinitionNode => definition.kind === Kind.OPERATION_DEFINITION);
+  const chosen = operations.find((definition) => definition.name?.value === operationName) ?? operations[0];
+  return chosen?.operation === 'mutation';
 }
 
 /** The answer of one operation: the GraphQL result, and the HTTP status a route gives it. */
@@ -261,16 +275,26 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   let backend: number | undefined;
   // A caller that holds the manifest is admitted before the snapshot: a refusal costs no connection.
   let prepared: { manifest: KindsManifest; published: ReturnType<typeof publishedManifestOf>; sdl: string; schema: GraphQLSchema } | undefined;
-  if (product.manifest !== undefined) {
-    try {
+  // 0039 items 5 and 29: one mutation, `linkMention`, is the page's own write. It runs as the reader's person source in a
+  // write transaction through the one writer; every other operation is the read it always was.
+  const mutation = isMutation(document, operation.operationName);
+  let write: { person: ProducerBinding; contract: GraphContract } | undefined;
+  try {
+    if (mutation) {
+      const held = product.manifest ?? await owner.transaction('snapshot', async (tx) => await readPublishedManifest(tx));
+      if (held === undefined) throw new GraphqlRefusal('INVALID_MUTATION', `${product.folder}/madarch/catalog.yaml:1: the graph holds no published manifest`, 409);
+      const contract = writeContractOf(held);
+      write = { person: await personBinding(owner, contract), contract: withAssertionContract(contract) };
+      prepared = prepare(held, document, operation);
+    } else if (product.manifest !== undefined) {
       prepared = prepare(product.manifest, document, operation);
-    } catch (error) {
-      if (error instanceof GraphqlRefusal) return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };
-      if (error instanceof SchemaRefusal) return { status: 400, body: { errors: [{ message: error.message }] } };
-      throw error;
     }
+  } catch (error) {
+    if (error instanceof GraphqlRefusal) return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };
+    if (error instanceof SchemaRefusal) return { status: 400, body: { errors: [{ message: error.message }] } };
+    throw error;
   }
-  const work = owner.transaction('snapshot', async (tx) => {
+  const work = owner.transaction(mutation ? 'write' : 'snapshot', async (tx) => {
     await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(deadlineMs)]);
     const pid = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
     backend = Number(pid.rows[0]?.pid);
@@ -295,7 +319,13 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates, {}, write);
+    if (write !== undefined) {
+      // The write's own admission: the person's source, the dispute selection the writer checks, all inside one transaction.
+      // The capability is activated on the transaction itself and bound to the serialized view the resolvers use.
+      await installDisputeSelection(serial, write.contract);
+      bindWriteCapability(serial, await activateGraphProducer(tx, write.contract, write.person));
+    }
     const result = await execute({
       schema,
       document,
@@ -304,6 +334,10 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
       contextValue: context,
       fieldResolver: context.resolve,
     });
+    if (write !== undefined) {
+      await refreshDisputeSelection(serial, write.contract);
+      await serial.query('SET CONSTRAINTS ALL IMMEDIATE');
+    }
     // A statement timeout or a cancellation is the operation's, not a field's: the transaction rolls back and the
     // answer is one TIMEOUT error with no data.
     if (result.errors?.some((error) => isStatementTimeout(error)) === true) throw new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(deadlineMs)} ms`, 200);

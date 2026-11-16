@@ -1,6 +1,6 @@
 /** Protected system contracts, decision 0039 items 9, 24–26. */
 import { MANIFEST_CONTRACT } from './manifest-contract.js';
-import { generatedTableName, type GraphContract, type VertexContract, type EdgeContract } from './contract.js';
+import { generatedTableName, SYNONYMS_FIELD, SYNONYMS_FIELD_CONTRACT, type GraphContract, type VertexContract, type EdgeContract } from './contract.js';
 
 export const SYSTEM_PROBLEM='system.problem';
 export const SYSTEM_PROBLEM_ABOUT='system.problem-about';
@@ -139,7 +139,11 @@ export function withAssertionContract(contract: GraphContract): GraphContract {
   const inherited = withSystemContract(contract);
   const targets = [...new Set([...inherited.vertex.map(kind => kind.name), ...vertices.map(kind => kind.name)])].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
   const protectedContract: GraphContract = { vertex: vertices, edge: SYSTEM_EDGE_DEFINITIONS(targets), dictionary: [] };
-  return inheritProtectedContract(inherited, protectedContract);
+  const merged = inheritProtectedContract(inherited, protectedContract);
+  // Decision 0039 item 6: the system part gives every entity the common synonyms field — the product's kinds, the
+  // manifest's own and the engine's alike; a kind that declares it itself keeps its declaration.
+  return { ...merged, vertex: merged.vertex.map(kind => kind.fields.some(field => field.name === SYNONYMS_FIELD)
+    ? kind : { ...kind, fields: [...kind.fields, SYNONYMS_FIELD_CONTRACT] }) };
 }
 
 /** Foundation identity and declared base fields are not product disagreements. */

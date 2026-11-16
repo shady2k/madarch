@@ -7,7 +7,7 @@ import { readKindAssertions } from './records.js';
 import { publishGraphDrafts } from './write.js';
 import { homedir, userInfo } from 'node:os';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { GraphContract, VertexDraft, EdgeDraft } from './contract.js';
+import { SYNONYMS_FIELD, type GraphContract, type VertexDraft, type EdgeDraft } from './contract.js';
 import { withSystemContract, withAssertionContract } from './system-contract.js';
 import { registerGraphPrincipal, bindGraphProducer, type GraphPrincipal, type ProducerBinding } from './producer-binding.js';
 export interface InstalledSource {
@@ -94,7 +94,8 @@ function writableSlots(contract: GraphContract): { vertices: Record<string, read
   const protectedContract = withAssertionContract({ vertex: [], edge: [], dictionary: [] });
   const vertices = contract.vertex.flatMap((kind) => {
     const base = protectedContract.vertex.find((system) => system.name === kind.name);
-    const fields = kind.fields.filter((field) => !base?.fields.some((system) => system.name === field.name)).map((field) => field.name);
+    // The common synonyms field the system gives every entity is the entity's own names, so a source states it (0039 item 6).
+    const fields = kind.fields.filter((field) => field.name === SYNONYMS_FIELD || !base?.fields.some((system) => system.name === field.name)).map((field) => field.name);
     return base !== undefined && fields.length === 0 ? [] : [[kind.name, fields] as const];
   });
   return { vertices: Object.fromEntries(vertices),

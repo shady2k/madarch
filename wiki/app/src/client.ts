@@ -66,6 +66,19 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   }
 }`;
 
+/**
+ * Decision 0039 items 5 and 29: the one write a page makes — a name the page showed, linked at exactly its place.
+ * It goes through the same `/graphql` endpoint as every read, and the graph writes it as this reader's statement.
+ */
+export const LINK_MENTION_MUTATION = `mutation LinkMention($kind: String!, $id: ID!, $field: String!, $path: String!, $start: Int!, $end: Int!, $name: String!, $entity: ID!) {
+  linkMention(kind: $kind, id: $id, field: $field, path: $path, start: $start, end: $end, name: $name, entity: $entity) {
+    kind
+    uid
+    field
+    text
+  }
+}`;
+
 /** The frame's navigation alone: what the sidebar, the home's kind counts and the catalogue's counts show. */
 export const NAVIGATION_QUERY = `query Navigation($lang: String) {
   navigation(lang: $lang) {

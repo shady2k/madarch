@@ -44,12 +44,12 @@ point at the same dictionary, so what an agent is offered and what a person sees
 
 ## Where it is seen
 Kind: request
-Place: an entity's page in the served wiki, the MCP write tools, and `POST /api/mention-link`.
+Place: an entity's page in the served wiki, the MCP write tools, and the page's one mutation on `POST /graphql`.
 
 1. Open the page of a term whose body names a stated domain in plain text: the section «Упоминания без ссылки» lists
    the name with the domain's own label and kind.
-2. Press the candidate's Button: the page is read again with the name replaced by the token, and the term's body holds
-   the token.
+2. Press the candidate's Button: the `linkMention` mutation runs at `/graphql`, the page is read again with the name
+   replaced by the token, and the term's body holds the token.
 3. Ask the MCP `put_entity` tool the same text: its answer carries the same unlinked span and candidates.
 
 ## Blocking questions
@@ -60,8 +60,9 @@ The grammar lives in `src/graph/mention-text.ts` (token scanner over decoded str
 exact names) and its graph half in `src/graph/mention-graph.ts`. The dictionary is `src/graph/mention-dictionary.ts`,
 read once from the same assertion read the graph uses. The writer asserts each mention as the source's `$exists` of the
 `system.assertion-mentions` edge and retracts the previous statement's mentions; a mention whose text left is therefore
-not active, and the row stays as history. The page reads `Entity.unlinkedMentions`; the Button posts to
-`/api/mention-link`, which binds a person source to the write contract and writes the field through the one writer.
+not active, and the row stays as history. The page reads `Entity.unlinkedMentions`; the Button sends the page's one mutation, `linkMention`, to the same
+`/graphql` endpoint every read uses. The executor opens a write transaction for that operation alone, binds the
+reader's person source to the write contract and writes the field through the one writer; no route is added.
 
 ## Acceptance evidence
 Static: `bun run check` passed: `tsc --noEmit` clean; architecture 874 violations found, 874 listed in

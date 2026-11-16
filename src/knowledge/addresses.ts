@@ -109,7 +109,6 @@ export const API = {
   sources: '/api/sources',
   problemDismiss: '/api/problem-dismiss',
   problemTask: '/api/problem-task',
-  mentionLink: '/api/mention-link',
   journal: '/api/journal',
   refreshPlan: '/api/refresh-plan',
   tasks: '/api/tasks',

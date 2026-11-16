@@ -14,7 +14,6 @@ import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { here } from '../model/raise.js';
 import { AuthoredRefusal } from '../graph/authored.js';
-import { WriteRefusal } from '../graph/graph-writes.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
@@ -80,8 +79,6 @@ export interface KnowledgePart {
   correction: (request: Request) => Promise<Handled>;
   problemDismiss: (request: Request) => Promise<Handled>;
   problemTask: (request: Request) => Promise<Handled>;
-  /** A person links one name a page left unlinked (0039 items 5 and 29). */
-  mentionLink: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
   productSettings: (request: Request) => Promise<Handled>;
   agentChoices: (request: Request) => Promise<Handled>;
@@ -545,27 +542,6 @@ function fillRefusalCode(message: string): string | undefined {
         return { response: json(201, await product.createProblemTask(id)) };
       } catch (error) {
         if (error instanceof LoopRefusal) return refused(error.status, { field: 'id', message: error.message });
-        throw error;
-      }
-    }),
-    mentionLink: guarded('link one name a page left unlinked', async (request) => {
-      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(403, { message: "madarch's own wiki is documentation: a link belongs to the product's graph" });
-      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
-      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const value = body as Record<string, unknown> | null;
-      if (value === null || typeof value !== 'object' || Array.isArray(value)) return refused(400, { message: 'the body is {kind, uid, field, path, start, end, name, entity}' });
-      for (const key of ['kind', 'uid', 'field', 'path', 'name', 'entity'] as const) if (typeof value[key] !== 'string' || (value[key] as string).trim() === '') return refused(400, { field: key, message: `"${key}" is the ${key === 'entity' ? 'entity the name means' : 'place the page showed'}` });
-      for (const key of ['start', 'end'] as const) if (typeof value[key] !== 'number' || !Number.isSafeInteger(value[key])) return refused(400, { field: key, message: `"${key}" is a code-point offset of the span the page showed` });
-      try {
-        const answer = await product.linkMention({
-          kind: value['kind'] as string, uid: value['uid'] as string, field: value['field'] as string, path: value['path'] as string,
-          start: value['start'] as number, end: value['end'] as number, name: value['name'] as string, entity: value['entity'] as string,
-        });
-        return { response: json(200, answer) };
-      } catch (error) {
-        if (error instanceof WriteRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }) });
-        if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
         throw error;
       }
     }),

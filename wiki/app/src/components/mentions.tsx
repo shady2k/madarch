@@ -8,7 +8,8 @@ import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { InlineGroup, ListItem, Metadata, PlainList, Text } from './ui/typography.js';
-import { linkMention, type UnlinkedMention } from './command.js';
+import { LINK_MENTION_MUTATION, postQuery } from '../client.js';
+import type { UnlinkedMention } from './command.js';
 import type { SectionContext } from './types.js';
 
 const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
@@ -28,8 +29,13 @@ function MentionRow({ mention, kind, uid, base, reload, busy }: {
   const link = (entity: string): void => {
     setWorking(entity);
     setError(null);
-    linkMention(base, { kind, uid, field: mention.field, path: mention.path, start: mention.start, end: mention.end, name: mention.name, entity }).then(
-      () => { setWorking(null); reload(); },
+    const variables = { kind, id: uid, field: mention.field, path: mention.path, start: mention.start, end: mention.end, name: mention.name, entity };
+    postQuery<{ linkMention: { text: string } }>(base, LINK_MENTION_MUTATION, variables).then(
+      (answer) => {
+        setWorking(null);
+        if (answer.errors.length > 0) { setError(answer.errors.map((one) => one.message).join('; ')); return; }
+        reload();
+      },
       (failure: unknown) => { setWorking(null); setError(message(failure)); },
     );
   };

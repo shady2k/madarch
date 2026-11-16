@@ -158,7 +158,7 @@ class Builder {
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
-      'UnlinkedMention', 'MentionCandidate',
+      'UnlinkedMention', 'MentionCandidate', 'Mutation', 'MentionLink',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -175,6 +175,16 @@ class Builder {
     this.type('MentionCandidate', [
       { name: 'uid', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'kindLabel', type: 'String!' },
       { name: 'label', type: 'String!' }, { name: 'domain', type: 'String!' },
+    ]);
+    // 0039 items 5 and 29: the one write a page makes — a name it showed, linked at exactly its place.
+    this.type('MentionLink', [
+      { name: 'kind', type: 'String!' }, { name: 'uid', type: 'ID!' }, { name: 'field', type: 'String!' }, { name: 'text', type: 'String!' },
+    ]);
+    this.type('Mutation', [
+      { name: 'linkMention', type: 'MentionLink!', args: [
+        { name: 'kind', type: 'String!' }, { name: 'id', type: 'ID!' }, { name: 'field', type: 'String!' }, { name: 'path', type: 'String!' },
+        { name: 'start', type: 'Int!' }, { name: 'end', type: 'Int!' }, { name: 'name', type: 'String!' }, { name: 'entity', type: 'ID!' },
+      ] },
     ]);
     this.type('UnlinkedMention', [
       { name: 'field', type: 'String!' }, { name: 'path', type: 'String!' }, { name: 'start', type: 'Int!' }, { name: 'end', type: 'Int!' },

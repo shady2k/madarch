@@ -59,8 +59,14 @@ token already covers, or an escaped token, shall not be offered.
 
 The dictionary a plain name is matched against shall be every entity's name and its synonyms. Names shall be matched
 literally, in code-point order, with no case folding, word boundary or guess. The synonyms shall be the common field the
-system part declares on every entity, and a product kind shall not declare a synonyms field of another shape. A
+system part declares on every entity — the product's kinds, the manifest's own and the engine's alike — and a kind that
+declares it itself shall declare a JSON list of text. A source shall be able to state an entity's synonyms, and a
 same-named entity of another kind shall stay another candidate, and a candidate shown to a person shall name its kind.
+
+### Scenario: every-entity
+- Given: an entity of a product kind and an entity of an engine kind
+- When: the write contract is built
+- Then: both carry the system's common synonyms field, and a source may state it
 
 ### Scenario: synonyms-match
 - Given: an entity named `Settlement register` whose synonyms hold `Settlement`

@@ -443,10 +443,6 @@ export interface UnlinkedMention {
   readonly candidates: readonly MentionCandidateView[];
 }
 
-/** Presses «связать»: the token replaces exactly the span the page showed, as this person's statement. */
-export const linkMention = (base: string, input: { readonly kind: string; readonly uid: string; readonly field: string; readonly path: string; readonly start: number; readonly end: number; readonly name: string; readonly entity: string }): Promise<unknown> =>
-  command(base, '/api/mention-link', { method: 'POST', body: JSON.stringify(input) });
-
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
 

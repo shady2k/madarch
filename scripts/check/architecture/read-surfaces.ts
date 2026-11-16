@@ -71,8 +71,6 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/api/correction' },
   { method: '*', path: '/api/problem-dismiss' },
   { method: '*', path: '/api/problem-task' },
-  // Linking one unlinked name on an entity page (0039 items 5 and 29): a person's write of one field's text, not a read.
-  { method: 'POST', path: '/api/mention-link' },
   { method: '*', path: '/api/task-propose' },
   { method: '*', path: '/api/task-close' },
   { method: '*', path: '/api/task-run' },

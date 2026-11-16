@@ -29,6 +29,9 @@ import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
 import { withAssertionContract } from './system-contract.js';
 import { mentionDictionary } from './mention-dictionary.js';
+import { linkMention } from './mentions-link.js';
+import type { ProducerBinding } from './producer-binding.js';
+import type { GraphContract } from './contract.js';
 import { holdsMentions, mentionHintsOf } from './mention-graph.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
@@ -273,6 +276,8 @@ export class ReadContext {
     /** The product's templates and the pages they open, as the bootstrap states them. */
     private readonly productTemplates: ProductTemplates,
     selectors: { readonly context?: number; readonly validAt?: string; readonly recordedAt?: string } = {},
+    /** The source a mutation writes as (0039 items 5 and 29); absent, the operation may only read. */
+    private readonly write?: { readonly person: ProducerBinding; readonly contract: GraphContract },
   ) {
     this.validAt = selectors.validAt ?? new Date().toISOString();
     this.recordedAt = selectors.recordedAt ?? new Date().toISOString();
@@ -314,6 +319,7 @@ export class ReadContext {
     const scoped = source !== null && typeof source === 'object' ? ReadContext.scopes.get(source) : undefined;
     if (scoped !== undefined && scoped !== this) return await scoped.resolve(source, args, _context, info);
     let value: unknown;
+    if (info.parentType.name === 'Mutation') return await this.mutationField(info.fieldName, args as Record<string, unknown>);
     if (info.parentType.name === 'Query') {
       if (args['context'] !== undefined || args['validAt'] !== undefined || args['recordedAt'] !== undefined) {
         const selected = new ReadContext(this.tx, this.manifest, this.published, this.folder, this.lang, this.structure, this.productTemplates, {
@@ -434,6 +440,21 @@ export class ReadContext {
     const selection = selectAssertions(rows, { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
     const resolved = selection.candidates.find(row => this.resolutionAssertionIds.includes(row.id));
     return resolved === undefined ? selection : { ...selection, selected: resolved, contested: false };
+  }
+
+  /**
+   * Decision 0039 items 5 and 29: the one write a page makes. The name the page showed is linked at exactly its place,
+   * as the reader's person source, through the one writer; the answer is the entity and the text the writer stored.
+   */
+  private async mutationField(name: string, args: Record<string, unknown>): Promise<unknown> {
+    if (this.write === undefined) throw new Error(`${import.meta.path}:1: MUTATION_REFUSED: a mutation runs only in a write operation with a person source`);
+    if (name !== 'linkMention') return null;
+    for (const key of ['kind', 'id', 'field', 'path', 'name', 'entity'] as const) if (typeof args[key] !== 'string') throw new Error(`${import.meta.path}:1: INVALID_MUTATION: linkMention.${key} is text`);
+    for (const key of ['start', 'end'] as const) if (typeof args[key] !== 'number' || !Number.isSafeInteger(args[key])) throw new Error(`${import.meta.path}:1: INVALID_MUTATION: linkMention.${key} is a whole number`);
+    return await linkMention(this.tx, this.manifest, this.write.person, {
+      kind: args['kind'] as string, uid: args['id'] as string, field: args['field'] as string, path: args['path'] as string,
+      start: args['start'] as number, end: args['end'] as number, name: args['name'] as string, entity: args['entity'] as string,
+    });
   }
 
   /**

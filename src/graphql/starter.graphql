@@ -181,6 +181,8 @@ type Agent implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type AgentConnection {
@@ -212,6 +214,8 @@ type AgentSession implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type AgentSessionConnection {
@@ -237,6 +241,8 @@ type AgentUsage implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type AgentUsageConnection {
@@ -5481,6 +5487,8 @@ type Event implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type EventConnection {
@@ -6288,6 +6296,8 @@ type ManifestCatalogue implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestCatalogueConnection {
@@ -6315,6 +6325,8 @@ type ManifestDependency implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestDependencyConnection {
@@ -6342,6 +6354,8 @@ type ManifestField implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestFieldConnection {
@@ -6369,6 +6383,8 @@ type ManifestKind implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestKindConnection {
@@ -6396,6 +6412,8 @@ type ManifestRelation implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestRelationConnection {
@@ -6423,6 +6441,8 @@ type ManifestWorkflow implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ManifestWorkflowConnection {
@@ -6483,6 +6503,13 @@ type MentionCandidate {
   kindLabel: String!
   label: String!
   domain: String!
+}
+
+type MentionLink {
+  kind: String!
+  uid: ID!
+  field: String!
+  text: String!
 }
 
 type MentionsConnection {
@@ -6645,6 +6672,10 @@ type ModuleDependsOnEdge {
   node: Entity!
 }
 
+type Mutation {
+  linkMention(kind: String!, id: ID!, field: String!, path: String!, start: Int!, end: Int!, name: String!, entity: ID!): MentionLink!
+}
+
 type Navigation {
   product: String
   groups: [NavigationGroup!]!
@@ -6688,6 +6719,8 @@ type Operation implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type OperationConnection {
@@ -6895,6 +6928,8 @@ type Plugin implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type PluginConnection {
@@ -7006,6 +7041,8 @@ type Problem implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type ProblemConnection {
@@ -7746,6 +7783,8 @@ type Run implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type RunConnection {
@@ -8004,6 +8043,8 @@ type Setting implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SettingConnection {
@@ -8078,6 +8119,8 @@ type Source implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SourceConnection {
@@ -8385,6 +8428,8 @@ type SystemAssertion implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemAssertionConnection {
@@ -8412,6 +8457,8 @@ type SystemAuthoredImport implements Entity {
   sourcePathAssertions: [Assertion!]!
   contentDigest: String
   contentDigestAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemAuthoredImportConnection {
@@ -8441,6 +8488,8 @@ type SystemChain implements Entity {
   stateAssertions: [Assertion!]!
   updatedAt: BigInt
   updatedAtAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemChainConnection {
@@ -8468,6 +8517,8 @@ type SystemContentSnapshot implements Entity {
   digestAssertions: [Assertion!]!
   content: String
   contentAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemContentSnapshotConnection {
@@ -8499,6 +8550,8 @@ type SystemDisputePin implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemDisputePinConnection {
@@ -8532,6 +8585,8 @@ type SystemDisputeQuestion implements Entity {
   segmentToAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemDisputeQuestionConnection {
@@ -8561,6 +8616,8 @@ type SystemDisputeResolution implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemDisputeResolutionConnection {
@@ -8602,6 +8659,8 @@ type SystemFillTransition implements Entity {
   fenceAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemFillTransitionConnection {
@@ -8635,6 +8694,8 @@ type SystemOperation implements Entity {
   digestAssertions: [Assertion!]!
   result: String
   resultAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemOperationConnection {
@@ -8666,6 +8727,8 @@ type SystemProblem implements Entity {
   reasonAssertions: [Assertion!]!
   locator: String
   locatorAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
   taskProblemOf(first: Int, after: String): TaskProblemConnection!
 }
 
@@ -8690,6 +8753,8 @@ type SystemProduct implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   unlinkedMentions: [UnlinkedMention!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemProductConnection {
@@ -8727,6 +8792,8 @@ type SystemProgress implements Entity {
   kindFieldAssertions: [Assertion!]!
   summary: String
   summaryAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemProgressConnection {
@@ -8794,6 +8861,8 @@ type SystemRun implements Entity {
   updatedAtAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemRunConnection {
@@ -8829,6 +8898,8 @@ type SystemRunSelection implements Entity {
   pluginNameAssertions: [Assertion!]!
   stageUnitName: String
   stageUnitNameAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemRunSelectionConnection {
@@ -8860,6 +8931,8 @@ type SystemRunStage implements Entity {
   unitsAssertions: [Assertion!]!
   publications: Int
   publicationsAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemRunStageConnection {
@@ -8889,6 +8962,8 @@ type SystemRunTarget implements Entity {
   nameAssertions: [Assertion!]!
   position: Int
   positionAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemRunTargetConnection {
@@ -8924,6 +8999,8 @@ type SystemTrackedRead implements Entity {
   seqAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemTrackedReadConnection {
@@ -9007,6 +9084,8 @@ type SystemUnit implements Entity {
   committedOperationsAssertions: [Assertion!]!
   lastProgress: String
   lastProgressAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemUnitCacheVersion implements Entity {
@@ -9022,6 +9101,8 @@ type SystemUnitCacheVersion implements Entity {
   nameAssertions: [Assertion!]!
   version: String
   versionAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemUnitCacheVersionConnection {
@@ -9063,6 +9144,8 @@ type SystemUnread implements Entity {
   pathAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type SystemUnreadConnection {
@@ -9382,6 +9465,8 @@ type Unit implements Entity {
   unlinkedMentions: [UnlinkedMention!]!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  synonyms: JSON
+  synonymsAssertions: [Assertion!]!
 }
 
 type UnitConnection {
@@ -10029,8 +10114,8 @@ type Query {
   allStateMachineAggregate(where: StateMachineWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSuppression(where: SuppressionWhere, orderBy: [SuppressionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SuppressionConnection!
   allSuppressionAggregate(where: SuppressionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allSystemAssertion(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemAssertionConnection!
-  allSystemAssertionAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemAssertion(where: SystemAssertionWhere, orderBy: [SystemAssertionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemAssertionConnection!
+  allSystemAssertionAggregate(where: SystemAssertionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemAuthoredImport(where: SystemAuthoredImportWhere, orderBy: [SystemAuthoredImportOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemAuthoredImportConnection!
   allSystemAuthoredImportAggregate(where: SystemAuthoredImportWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemChain(where: SystemChainWhere, orderBy: [SystemChainOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemChainConnection!
@@ -10049,8 +10134,8 @@ type Query {
   allSystemOperationAggregate(where: SystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProblem(where: SystemProblemWhere, orderBy: [SystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProblemConnection!
   allSystemProblemAggregate(where: SystemProblemWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allSystemProduct(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProductConnection!
-  allSystemProductAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProduct(where: SystemProductWhere, orderBy: [SystemProductOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProductConnection!
+  allSystemProductAggregate(where: SystemProductWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProgress(where: SystemProgressWhere, orderBy: [SystemProgressOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProgressConnection!
   allSystemProgressAggregate(where: SystemProgressWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemRun(where: SystemRunWhere, orderBy: [SystemRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemRunConnection!
@@ -10343,6 +10428,12 @@ input AgentSessionScopeFilter {
   _is_null: Boolean
 }
 
+input AgentSessionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input AgentSessionVersionFilter {
   _eq: String
   _neq: String
@@ -10362,6 +10453,13 @@ input AgentSessionWhere {
   labelField: AgentSessionLabelFieldFilter
   version: AgentSessionVersionFilter
   scope: AgentSessionScopeFilter
+  synonyms: AgentSessionSynonymsFilter
+}
+
+input AgentSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
 }
 
 input AgentUsageLabelFieldFilter {
@@ -10384,8 +10482,15 @@ input AgentUsageOrder {
   nulls: NullsOrder
 }
 
+input AgentUsageSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input AgentUsageWhere {
   labelField: AgentUsageLabelFieldFilter
+  synonyms: AgentUsageSynonymsFilter
 }
 
 input AgentVersionFilter {
@@ -10407,6 +10512,7 @@ input AgentWhere {
   labelField: AgentLabelFieldFilter
   version: AgentVersionFilter
   scope: AgentScopeFilter
+  synonyms: AgentSynonymsFilter
 }
 
 input BusinessProcessGoalFilter {
@@ -15620,8 +15726,15 @@ input EventOrder {
   nulls: NullsOrder
 }
 
+input EventSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input EventWhere {
   labelField: EventLabelFieldFilter
+  synonyms: EventSynonymsFilter
 }
 
 input EvidenceAtFilter {
@@ -16457,9 +16570,16 @@ input ManifestCatalogueOrder {
   nulls: NullsOrder
 }
 
+input ManifestCatalogueSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestCatalogueWhere {
   name: ManifestCatalogueNameFilter
   declaration: ManifestCatalogueDeclarationFilter
+  synonyms: ManifestCatalogueSynonymsFilter
 }
 
 input ManifestDependencyDeclarationFilter {
@@ -16496,9 +16616,16 @@ input ManifestDependencyOrder {
   nulls: NullsOrder
 }
 
+input ManifestDependencySynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestDependencyWhere {
   name: ManifestDependencyNameFilter
   declaration: ManifestDependencyDeclarationFilter
+  synonyms: ManifestDependencySynonymsFilter
 }
 
 input ManifestFieldDeclarationFilter {
@@ -16535,9 +16662,16 @@ input ManifestFieldOrder {
   nulls: NullsOrder
 }
 
+input ManifestFieldSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestFieldWhere {
   name: ManifestFieldNameFilter
   declaration: ManifestFieldDeclarationFilter
+  synonyms: ManifestFieldSynonymsFilter
 }
 
 input ManifestKindDeclarationFilter {
@@ -16574,9 +16708,16 @@ input ManifestKindOrder {
   nulls: NullsOrder
 }
 
+input ManifestKindSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestKindWhere {
   name: ManifestKindNameFilter
   declaration: ManifestKindDeclarationFilter
+  synonyms: ManifestKindSynonymsFilter
 }
 
 input ManifestRelationDeclarationFilter {
@@ -16613,9 +16754,16 @@ input ManifestRelationOrder {
   nulls: NullsOrder
 }
 
+input ManifestRelationSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestRelationWhere {
   name: ManifestRelationNameFilter
   declaration: ManifestRelationDeclarationFilter
+  synonyms: ManifestRelationSynonymsFilter
 }
 
 input ManifestWorkflowDeclarationFilter {
@@ -16704,9 +16852,16 @@ input ManifestWorkflowStageWhere {
   executor: ManifestWorkflowStageExecutorFilter
 }
 
+input ManifestWorkflowSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ManifestWorkflowWhere {
   name: ManifestWorkflowNameFilter
   declaration: ManifestWorkflowDeclarationFilter
+  synonyms: ManifestWorkflowSynonymsFilter
 }
 
 input MergeConditionsFilter {
@@ -16855,8 +17010,15 @@ input OperationOrder {
   nulls: NullsOrder
 }
 
+input OperationSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input OperationWhere {
   labelField: OperationLabelFieldFilter
+  synonyms: OperationSynonymsFilter
 }
 
 input OwnedByEdgeOrder {
@@ -17111,6 +17273,12 @@ input PluginScopeFilter {
   _is_null: Boolean
 }
 
+input PluginSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input PluginVersionFilter {
   _eq: String
   _neq: String
@@ -17130,6 +17298,7 @@ input PluginWhere {
   labelField: PluginLabelFieldFilter
   version: PluginVersionFilter
   scope: PluginScopeFilter
+  synonyms: PluginSynonymsFilter
 }
 
 input PracticeNameFilter {
@@ -17318,8 +17487,15 @@ input ProblemOrder {
   nulls: NullsOrder
 }
 
+input ProblemSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input ProblemWhere {
   labelField: ProblemLabelFieldFilter
+  synonyms: ProblemSynonymsFilter
 }
 
 input ProcessEventNameFilter {
@@ -18018,8 +18194,15 @@ input RunOrder {
   nulls: NullsOrder
 }
 
+input RunSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input RunWhere {
   labelField: RunLabelFieldFilter
+  synonyms: RunSynonymsFilter
 }
 
 input RuntimeScenarioDescriptionFilter {
@@ -18207,8 +18390,15 @@ input SettingOrder {
   nulls: NullsOrder
 }
 
+input SettingSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SettingWhere {
   labelField: SettingLabelFieldFilter
+  synonyms: SettingSynonymsFilter
 }
 
 input SkillChecksFilter {
@@ -18335,6 +18525,12 @@ input SourceScopeFilter {
   _is_null: Boolean
 }
 
+input SourceSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SourceVersionFilter {
   _eq: String
   _neq: String
@@ -18354,6 +18550,7 @@ input SourceWhere {
   labelField: SourceLabelFieldFilter
   version: SourceVersionFilter
   scope: SourceScopeFilter
+  synonyms: SourceSynonymsFilter
 }
 
 input StageAcceptanceCriterionFilter {
@@ -18638,6 +18835,22 @@ input SuppressionWhere {
   at: SuppressionAtFilter
 }
 
+input SystemAssertionOrder {
+  field: SystemAssertionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemAssertionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input SystemAssertionWhere {
+  synonyms: SystemAssertionSynonymsFilter
+}
+
 input SystemAuthoredImportContentDigestFilter {
   _eq: String
   _neq: String
@@ -18672,9 +18885,16 @@ input SystemAuthoredImportSourcePathFilter {
   _is_null: Boolean
 }
 
+input SystemAuthoredImportSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemAuthoredImportWhere {
   sourcePath: SystemAuthoredImportSourcePathFilter
   contentDigest: SystemAuthoredImportContentDigestFilter
+  synonyms: SystemAuthoredImportSynonymsFilter
 }
 
 input SystemChainOrder {
@@ -18711,6 +18931,12 @@ input SystemChainStateFilter {
   _is_null: Boolean
 }
 
+input SystemChainSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemChainUpdatedAtFilter {
   _eq: BigInt
   _neq: BigInt
@@ -18727,6 +18953,7 @@ input SystemChainWhere {
   productName: SystemChainProductNameFilter
   state: SystemChainStateFilter
   updatedAt: SystemChainUpdatedAtFilter
+  synonyms: SystemChainSynonymsFilter
 }
 
 input SystemContentSnapshotContentFilter {
@@ -18763,9 +18990,16 @@ input SystemContentSnapshotOrder {
   nulls: NullsOrder
 }
 
+input SystemContentSnapshotSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemContentSnapshotWhere {
   digest: SystemContentSnapshotDigestFilter
   content: SystemContentSnapshotContentFilter
+  synonyms: SystemContentSnapshotSynonymsFilter
 }
 
 input SystemDisputePinCanonicalValueFilter {
@@ -18826,11 +19060,18 @@ input SystemDisputePinSegmentToFilter {
   _is_null: Boolean
 }
 
+input SystemDisputePinSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemDisputePinWhere {
   canonicalValue: SystemDisputePinCanonicalValueFilter
   digest: SystemDisputePinDigestFilter
   segmentFrom: SystemDisputePinSegmentFromFilter
   segmentTo: SystemDisputePinSegmentToFilter
+  synonyms: SystemDisputePinSynonymsFilter
 }
 
 input SystemDisputeQuestionLanguageFilter {
@@ -18905,12 +19146,19 @@ input SystemDisputeQuestionStateFilter {
   _is_null: Boolean
 }
 
+input SystemDisputeQuestionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemDisputeQuestionWhere {
   property: SystemDisputeQuestionPropertyFilter
   language: SystemDisputeQuestionLanguageFilter
   segmentFrom: SystemDisputeQuestionSegmentFromFilter
   segmentTo: SystemDisputeQuestionSegmentToFilter
   state: SystemDisputeQuestionStateFilter
+  synonyms: SystemDisputeQuestionSynonymsFilter
 }
 
 input SystemDisputeResolutionOrder {
@@ -18957,10 +19205,17 @@ input SystemDisputeResolutionSegmentToFilter {
   _is_null: Boolean
 }
 
+input SystemDisputeResolutionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemDisputeResolutionWhere {
   rationale: SystemDisputeResolutionRationaleFilter
   segmentFrom: SystemDisputeResolutionSegmentFromFilter
   segmentTo: SystemDisputeResolutionSegmentToFilter
+  synonyms: SystemDisputeResolutionSynonymsFilter
 }
 
 input SystemFillTransitionAtFilter {
@@ -19075,6 +19330,12 @@ input SystemFillTransitionStepFilter {
   _is_null: Boolean
 }
 
+input SystemFillTransitionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemFillTransitionToStateFilter {
   _eq: String
   _neq: String
@@ -19099,6 +19360,7 @@ input SystemFillTransitionWhere {
   generation: SystemFillTransitionGenerationFilter
   fence: SystemFillTransitionFenceFilter
   at: SystemFillTransitionAtFilter
+  synonyms: SystemFillTransitionSynonymsFilter
 }
 
 input SystemOperationCanonicalRequestFilter {
@@ -19163,12 +19425,19 @@ input SystemOperationResultFilter {
   _is_null: Boolean
 }
 
+input SystemOperationSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemOperationWhere {
   words: SystemOperationWordsFilter
   key: SystemOperationKeyFilter
   canonicalRequest: SystemOperationCanonicalRequestFilter
   digest: SystemOperationDigestFilter
   result: SystemOperationResultFilter
+  synonyms: SystemOperationSynonymsFilter
 }
 
 input SystemOperationWordsFilter {
@@ -19247,11 +19516,34 @@ input SystemProblemRuleFilter {
   _is_null: Boolean
 }
 
+input SystemProblemSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemProblemWhere {
   rule: SystemProblemRuleFilter
   fingerprint: SystemProblemFingerprintFilter
   reason: SystemProblemReasonFilter
   locator: SystemProblemLocatorFilter
+  synonyms: SystemProblemSynonymsFilter
+}
+
+input SystemProductOrder {
+  field: SystemProductOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemProductSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input SystemProductWhere {
+  synonyms: SystemProductSynonymsFilter
 }
 
 input SystemProgressAtFilter {
@@ -19338,6 +19630,12 @@ input SystemProgressSummaryFilter {
   _is_null: Boolean
 }
 
+input SystemProgressSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemProgressUnitNameFilter {
   _eq: String
   _neq: String
@@ -19360,6 +19658,7 @@ input SystemProgressWhere {
   generation: SystemProgressGenerationFilter
   kindField: SystemProgressKindFieldFilter
   summary: SystemProgressSummaryFilter
+  synonyms: SystemProgressSynonymsFilter
 }
 
 input SystemRunCommitFilter {
@@ -19662,6 +19961,12 @@ input SystemRunSelectionStageUnitNameFilter {
   _is_null: Boolean
 }
 
+input SystemRunSelectionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemRunSelectionWhere {
   role: SystemRunSelectionRoleFilter
   position: SystemRunSelectionPositionFilter
@@ -19669,6 +19974,7 @@ input SystemRunSelectionWhere {
   groupName: SystemRunSelectionGroupNameFilter
   pluginName: SystemRunSelectionPluginNameFilter
   stageUnitName: SystemRunSelectionStageUnitNameFilter
+  synonyms: SystemRunSelectionSynonymsFilter
 }
 
 input SystemRunStageOrder {
@@ -19715,6 +20021,12 @@ input SystemRunStageStageNameFilter {
   _is_null: Boolean
 }
 
+input SystemRunStageSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemRunStageUnitsFilter {
   _eq: Int
   _neq: Int
@@ -19732,6 +20044,7 @@ input SystemRunStageWhere {
   plannedAt: SystemRunStagePlannedAtFilter
   units: SystemRunStageUnitsFilter
   publications: SystemRunStagePublicationsFilter
+  synonyms: SystemRunStageSynonymsFilter
 }
 
 input SystemRunStateFilter {
@@ -19745,6 +20058,12 @@ input SystemRunStateFilter {
   _lte: String
   _gt: String
   _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
   _is_null: Boolean
 }
 
@@ -19800,6 +20119,12 @@ input SystemRunTargetRoleFilter {
   _is_null: Boolean
 }
 
+input SystemRunTargetSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemRunTargetVertexFilter {
   _eq: String
   _neq: String
@@ -19818,6 +20143,7 @@ input SystemRunTargetWhere {
   role: SystemRunTargetRoleFilter
   name: SystemRunTargetNameFilter
   position: SystemRunTargetPositionFilter
+  synonyms: SystemRunTargetSynonymsFilter
 }
 
 input SystemRunTargetsPresentFilter {
@@ -19861,6 +20187,7 @@ input SystemRunWhere {
   createdAt: SystemRunCreatedAtFilter
   updatedAt: SystemRunUpdatedAtFilter
   state: SystemRunStateFilter
+  synonyms: SystemRunSynonymsFilter
 }
 
 input SystemTrackedReadAtFilter {
@@ -19947,6 +20274,12 @@ input SystemTrackedReadSeqFilter {
   _is_null: Boolean
 }
 
+input SystemTrackedReadSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemTrackedReadWhere {
   queryDigest: SystemTrackedReadQueryDigestFilter
   query: SystemTrackedReadQueryFilter
@@ -19954,6 +20287,7 @@ input SystemTrackedReadWhere {
   members: SystemTrackedReadMembersFilter
   seq: SystemTrackedReadSeqFilter
   at: SystemTrackedReadAtFilter
+  synonyms: SystemTrackedReadSynonymsFilter
 }
 
 input SystemUnitAttemptFilter {
@@ -19988,6 +20322,12 @@ input SystemUnitCacheVersionOrder {
   nulls: NullsOrder
 }
 
+input SystemUnitCacheVersionSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemUnitCacheVersionVersionFilter {
   _eq: String
   _neq: String
@@ -20005,6 +20345,7 @@ input SystemUnitCacheVersionVersionFilter {
 input SystemUnitCacheVersionWhere {
   name: SystemUnitCacheVersionNameFilter
   version: SystemUnitCacheVersionVersionFilter
+  synonyms: SystemUnitCacheVersionSynonymsFilter
 }
 
 input SystemUnitCommittedOperationsFilter {
@@ -20367,6 +20708,12 @@ input SystemUnitStateFilter {
   _is_null: Boolean
 }
 
+input SystemUnitSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemUnitUnitNameFilter {
   _eq: String
   _neq: String
@@ -20424,6 +20771,7 @@ input SystemUnitWhere {
   state: SystemUnitStateFilter
   committedOperations: SystemUnitCommittedOperationsFilter
   lastProgress: SystemUnitLastProgressFilter
+  synonyms: SystemUnitSynonymsFilter
 }
 
 input SystemUnreadOrder {
@@ -20474,10 +20822,17 @@ input SystemUnreadRepositoryFilter {
   _is_null: Boolean
 }
 
+input SystemUnreadSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input SystemUnreadWhere {
   repository: SystemUnreadRepositoryFilter
   path: SystemUnreadPathFilter
   reason: SystemUnreadReasonFilter
+  synonyms: SystemUnreadSynonymsFilter
 }
 
 input TaskDescriptionFilter {
@@ -20772,8 +21127,15 @@ input UnitOrder {
   nulls: NullsOrder
 }
 
+input UnitSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input UnitWhere {
   labelField: UnitLabelFieldFilter
+  synonyms: UnitSynonymsFilter
 }
 
 input UseCaseStepActionFilter {
@@ -21176,6 +21538,7 @@ enum AgentOrderField {
   labelField
   version
   scope
+  synonyms
 }
 
 enum AgentSessionOrderField {
@@ -21183,10 +21546,12 @@ enum AgentSessionOrderField {
   labelField
   version
   scope
+  synonyms
 }
 
 enum AgentUsageOrderField {
   labelField
+  synonyms
 }
 
 enum AssertionOperation {
@@ -21773,6 +22138,7 @@ enum EpicOrderField {
 
 enum EventOrderField {
   labelField
+  synonyms
 }
 
 enum EvidenceAvailability {
@@ -21886,31 +22252,37 @@ enum LogicalDataModelOrderField {
 enum ManifestCatalogueOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestDependencyOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestFieldOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestKindOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestRelationOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestWorkflowOrderField {
   name
   declaration
+  synonyms
 }
 
 enum ManifestWorkflowStageOrderField {
@@ -21940,6 +22312,7 @@ enum NullsOrder {
 
 enum OperationOrderField {
   labelField
+  synonyms
 }
 
 enum OrderDirection {
@@ -21976,6 +22349,7 @@ enum PluginOrderField {
   labelField
   version
   scope
+  synonyms
 }
 
 enum PracticeOrderField {
@@ -21996,6 +22370,7 @@ enum PrincipleOrderField {
 
 enum ProblemOrderField {
   labelField
+  synonyms
 }
 
 enum ProcessEventOrderField {
@@ -22070,6 +22445,7 @@ enum RoleOrderField {
 
 enum RunOrderField {
   labelField
+  synonyms
 }
 
 enum RuntimeScenarioOrderField {
@@ -22093,6 +22469,7 @@ enum ScheduledJobOrderField {
 
 enum SettingOrderField {
   labelField
+  synonyms
 }
 
 enum SkillOrderField {
@@ -22108,6 +22485,7 @@ enum SourceOrderField {
   labelField
   version
   scope
+  synonyms
 }
 
 enum StageOrderField {
@@ -22142,20 +22520,27 @@ enum SuppressionOrderField {
   at
 }
 
+enum SystemAssertionOrderField {
+  synonyms
+}
+
 enum SystemAuthoredImportOrderField {
   sourcePath
   contentDigest
+  synonyms
 }
 
 enum SystemChainOrderField {
   productName
   state
   updatedAt
+  synonyms
 }
 
 enum SystemContentSnapshotOrderField {
   digest
   content
+  synonyms
 }
 
 enum SystemDisputePinOrderField {
@@ -22163,6 +22548,7 @@ enum SystemDisputePinOrderField {
   digest
   segmentFrom
   segmentTo
+  synonyms
 }
 
 enum SystemDisputeQuestionOrderField {
@@ -22171,12 +22557,14 @@ enum SystemDisputeQuestionOrderField {
   segmentFrom
   segmentTo
   state
+  synonyms
 }
 
 enum SystemDisputeResolutionOrderField {
   rationale
   segmentFrom
   segmentTo
+  synonyms
 }
 
 enum SystemFillTransitionOrderField {
@@ -22189,6 +22577,7 @@ enum SystemFillTransitionOrderField {
   generation
   fence
   at
+  synonyms
 }
 
 enum SystemOperationOrderField {
@@ -22197,6 +22586,7 @@ enum SystemOperationOrderField {
   canonicalRequest
   digest
   result
+  synonyms
 }
 
 enum SystemProblemOrderField {
@@ -22204,6 +22594,11 @@ enum SystemProblemOrderField {
   fingerprint
   reason
   locator
+  synonyms
+}
+
+enum SystemProductOrderField {
+  synonyms
 }
 
 enum SystemProgressOrderField {
@@ -22214,6 +22609,7 @@ enum SystemProgressOrderField {
   generation
   kindField
   summary
+  synonyms
 }
 
 enum SystemRunOrderField {
@@ -22239,6 +22635,7 @@ enum SystemRunOrderField {
   createdAt
   updatedAt
   state
+  synonyms
 }
 
 enum SystemRunSelectionOrderField {
@@ -22248,6 +22645,7 @@ enum SystemRunSelectionOrderField {
   groupName
   pluginName
   stageUnitName
+  synonyms
 }
 
 enum SystemRunStageOrderField {
@@ -22255,12 +22653,14 @@ enum SystemRunStageOrderField {
   plannedAt
   units
   publications
+  synonyms
 }
 
 enum SystemRunTargetOrderField {
   role
   name
   position
+  synonyms
 }
 
 enum SystemTrackedReadOrderField {
@@ -22270,11 +22670,13 @@ enum SystemTrackedReadOrderField {
   members
   seq
   at
+  synonyms
 }
 
 enum SystemUnitCacheVersionOrderField {
   name
   version
+  synonyms
 }
 
 enum SystemUnitOrderField {
@@ -22308,12 +22710,14 @@ enum SystemUnitOrderField {
   state
   committedOperations
   lastProgress
+  synonyms
 }
 
 enum SystemUnreadOrderField {
   repository
   path
   reason
+  synonyms
 }
 
 enum TaskOrderField {
@@ -22346,6 +22750,7 @@ enum TransitionOrderField {
 
 enum UnitOrderField {
   labelField
+  synonyms
 }
 
 enum UseCaseStepOrderField {

@@ -68,7 +68,7 @@ beforeEach(async () => {
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     requests.push({ path: url.pathname, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined });
-    return new Response(JSON.stringify({ kind: 'demo.note', uid: '019a0000-0000-7000-8000-0000000000aa', field: 'body', text: 'Only [[uid:x]] stands' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify({ data: { linkMention: { kind: 'demo.note', uid: '019a0000-0000-7000-8000-0000000000aa', field: 'body', text: 'Only [[uid:x]] stands' } } }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
 });
 
@@ -87,9 +87,12 @@ test('the press links the span the page showed, as this person’s statement', a
     const second = page.container.querySelectorAll<HTMLButtonElement>('[data-testid="unlinked-mention-link"]')[1]!;
     await act(async () => { second.click(); });
     await settle();
-    expect(requests.map((one) => one.path)).toEqual(['/api/mention-link']);
-    expect(requests[0]!.body).toEqual({
-      kind: 'demo.note', uid: '019a0000-0000-7000-8000-0000000000aa', field: 'body', path: '/body',
+    expect(requests.map((one) => one.path)).toEqual(['/graphql']);
+    expect(requests[0]!.method).toBe('POST');
+    const sent = requests[0]!.body as { query: string; variables: Record<string, unknown> };
+    expect(sent.query).toContain('mutation LinkMention');
+    expect(sent.variables).toEqual({
+      kind: 'demo.note', id: '019a0000-0000-7000-8000-0000000000aa', field: 'body', path: '/body',
       start: 6, end: 14, name: 'Payments', entity: '019a0000-0000-7000-8000-000000000002',
     });
     expect(reloaded).toBe(1);

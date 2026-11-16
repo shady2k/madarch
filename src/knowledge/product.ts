@@ -16,7 +16,6 @@ import { here } from '../model/raise.js';
 import { executeManualOperation } from '../graph/manual-operation.js';
 import type { ProducerBinding } from '../graph/producer-binding.js';
 import { installDisputeSelection, refreshDisputeSelection, type ResolveDisputeInput } from '../graph/disputes.js';
-import { linkMention } from '../graph/mentions-link.js';
 import type { MentionFieldHint } from '../graph/mention-text.js';
 import { setProductOperationRunState } from '../graph/operation-host.js';
 import { failRequestedFill } from './fill-run.js';
@@ -351,41 +350,6 @@ export class KnowledgeProduct {
         this.kindCountsCache.clear();
         this.notify();
       }
-      return answer;
-    });
-  }
-
-  /**
-   * A person links one name a page left unlinked (0039 items 5 and 29): the token replaces exactly the span the page
-   * showed, and the write stands as that person's statement of the field, through the one writer.
-   */
-  async linkMention(input: { readonly kind: string; readonly uid: string; readonly field: string; readonly path: string; readonly start: number; readonly end: number; readonly name: string; readonly entity: string }) {
-    return await withSpan('mention.link', { 'graph.kind': input.kind }, async () => {
-      const owner: DatabaseOwner = await this.open();
-      await this.followStoreFill();
-      const read = await this.manifestRead(this.options.productFolder);
-      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
-      if (read.manifest.findings.length > 0) {
-        const first = read.manifest.findings[0]!;
-        throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
-      }
-      const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
-      // The person's source is bound to the contract this write uses, the same one the agent's binding names.
-      const binding = await personBinding(owner, writeContractOf(read.manifest), by);
-      const answer = await owner.transaction('write', async (tx) => {
-        const contract = withAssertionContract(writeContractOf(read.manifest));
-        await installDisputeSelection(tx, contract);
-        const result = await linkMention(tx, read.manifest, binding, input);
-        await refreshDisputeSelection(tx, contract);
-        await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
-        return result;
-      });
-      this.generation += 1;
-      if (this.reader !== undefined) this.reader.seq = this.generation;
-      this.filesMemo = undefined;
-      this.manifestMemo = undefined;
-      this.kindCountsCache.clear();
-      this.notify();
       return answer;
     });
   }

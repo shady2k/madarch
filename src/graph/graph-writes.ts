@@ -15,6 +15,7 @@ import type { EdgeDraft, EvidenceDraft, EvidenceEntry, EntityRefDraft, KeyValueD
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withManifestContract } from './manifest-contract.js';
+import { withAssertionContract } from './system-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { semanticBinding } from '../knowledge/semantic-bindings.js';
 import { resolveEntityRef, publishGraphDrafts } from './write.js';
@@ -63,7 +64,9 @@ export function writeContractOf(manifest: KindsManifest): GraphContract {
       capability: edge.capability ?? 'manifest',
     });
   }
-  return { ...base, edge: edges };
+  // The system part's own kinds and the common fields every entity holds (0039 item 6) are part of the contract a write
+  // is checked against, so a field the system gives is a field a source may state.
+  return withAssertionContract({ ...base, edge: edges });
 }
 
 /** A graph reference is explicit; the writer resolves and validates its target. */

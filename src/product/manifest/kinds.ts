@@ -59,6 +59,12 @@ import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
 import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
 
 /** The manifest's place in the product repository. */
+/**
+ * The fields the system part gives every entity, which a kind writes like its own (decision 0039 item 6): the synonyms
+ * an entity answers to. They are the manifest format's words, so a kind may name them and the engine may speak of them.
+ */
+export const SYSTEM_ENTITY_FIELDS = ['synonyms'] as const;
+
 export const KINDS_FILE = 'madarch/catalog.yaml';
 export const KINDS_FOLDER = 'madarch/kinds';
 const LEGACY_KINDS_FILE = 'madarch/kinds.yaml';
@@ -1950,7 +1956,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const fields = parseFields(decl['fields'], 'fields');
     // Every entity answers to the system's common synonyms field (0039 item 6); a kind declares it only in that shape.
     for (const field of fields) {
-      if (field.name !== SYNONYMS_FIELD) continue;
+      if (!SYSTEM_ENTITY_FIELDS.some((name) => name === field.name)) continue;
       const type: ValueTypeDeclaration | undefined = field.valueType === undefined ? undefined : valueTypes[field.valueType];
       const schema = field.schema ?? type?.schema;
       const list = schema?.['type'] === 'array' && isRecord(schema['items']) && schema['items']['type'] === 'string' && schema['prefixItems'] === undefined;

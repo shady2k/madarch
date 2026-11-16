@@ -9,7 +9,7 @@ import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withAssertionContract } from './system-contract.js';
 import { publishGraphDrafts } from './write.js';
 import { writeContractOf, WriteRefusal } from './graph-writes.js';
-import { activateGraphProducer, producerIdentityOf, type ProducerBinding } from './producer-binding.js';
+import { producerIdentityOf, type ProducerBinding } from './producer-binding.js';
 import { readKindAssertions } from './records.js';
 import { scanMentionText } from './mention-text.js';
 import { holdsMentions } from './mention-graph.js';
@@ -82,7 +82,8 @@ export async function linkMention(tx: SqlExecutor, manifest: KindsManifest, bind
     const target = (await tx.query<{ id: string; kind: string; active: boolean }>(`SELECT n.id::text AS id,k.name AS kind,graph_vertex_active(n.id,k.name,1) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`, [input.entity])).rows[0];
     if (target === undefined || target.active !== true) throw new WriteRefusal(`entity ${JSON.stringify(input.entity)}: the graph holds no such entity`, 'entity', 404);
     const text = [...chars.slice(0, input.start), ...Array.from(`[[uid:${input.entity}]]`), ...chars.slice(input.end)].join('');
-    await activateGraphProducer(tx, writeContractOf(manifest), binding, 1);
+    // The caller has bound this person's source to the transaction (the GraphQL mutation's own admission); the field is
+    // written through the one writer as that source's statement.
     await publishGraphDrafts(tx, contract, { vertices: [{ kind: input.kind, key: record.key as Readonly<Record<string, string | number | boolean>>, uid: record.uid, values: { [field.name]: withValueAt(record.values[field.name], segments.slice(1), text) }, selectedFields: [field.name], producer: producerIdentityOf(binding).producer, producerVersion: producerIdentityOf(binding).version }], removals: [] }, 1);
     return { kind: input.kind, uid: record.uid, field: field.name, text };
   });
