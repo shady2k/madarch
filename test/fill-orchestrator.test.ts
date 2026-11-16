@@ -310,7 +310,7 @@ test('a failed progress batch rolls back its events without rolling back committ
     transaction: async (kind, work) => await opened.owner.transaction(kind, async (transaction) => await work({
       query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
         const result = await transaction.query<Row>(sql, values);
-        if (sql.includes('INSERT INTO fill_event') && ++inserts === 1) throw new Error('injected progress batch failure');
+        if (sql.startsWith('INSERT INTO assertion(') && values?.[1] === 'summary' && ++inserts === 1) throw new Error('injected progress batch failure');
         return result;
       },
     })),
