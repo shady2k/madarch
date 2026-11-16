@@ -52,6 +52,7 @@ export const PluginManifest = Type.Object(
       },
       { additionalProperties: false },
     ),
+    readOnly: Type.Optional(Type.Boolean({ description: 'A read-only plugin may report problems but cannot write graph facts (0039 item 19).' })),
     produces: Type.Array(Type.Object({
       kind: Type.String({ minLength: 1 }),
       fields: Type.Union([Type.Literal('*'), Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })]),

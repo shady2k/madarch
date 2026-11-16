@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import contract from './contract.json';
 /**
  * The glossary plugin (decision 0035, items 3 and 8): it reads a glossary
  * document and answers the terms it states, in either of the two shapes a
@@ -240,7 +241,7 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     vertices.push({
       kind: TERM_KIND,
       key: { name: term.name },
-      values: { definition: term.definition, synonyms: term.synonyms, code: term.code },
+      values: { definition: term.definition, synonyms: term.synonyms, code: term.code, usages },
       evidence: { target: { kind: 'code.repository', key: { name: repository } }, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
     });
   }
@@ -259,20 +260,6 @@ await definePlugin({
   version: '1.0.0',
   // The graph's file vertices and their content, and no repository: the files producer alone reads the source.
   graph: true,
-  contract: {
-    vertices: [
-      {
-        kind: TERM_KIND,
-        key: ['name'],
-        fields: [
-          { name: 'name', type: 'text', meaning: 'The term itself, as the glossary writes it in bold.', example: 'Fill', required: true },
-          { name: 'definition', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
-          { name: 'synonyms', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
-          { name: 'code', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
-        ],
-      },
-    ],
-    edges: [{ kind: 'doc.term-usage', from: TERM_KIND, to: 'code.file', fields: ['line_start', 'line_end', 'count'].map(name => ({ name, type: 'integer' as const, meaning: 'The usage location or count.', example: 1, required: true })) }],
-  },
+  contract: contract.outputs as never,
   extract,
 });

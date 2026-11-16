@@ -48,7 +48,7 @@ function fixture(mode: Mode) {
   // A plugin that runs a tool is a core plugin and names the one source it owns (decision 0038): this one reads git.
   writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'scenarios', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces, ...(mode === 'system-git' ? { tier: 'core', capabilities: ['git'], tools: [{ name: 'git', source: 'system', minimumVersion: '2.31' }] } : {}) }));
   const scenarioContract = mode === 'system-git' ? { vertices: contract.vertices.filter(vertex => vertex.kind !== 'Healthy'), edges: [] } : contract;
-  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
+  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value', 'ownFacts'] } }));
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));
   writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(scenarioContract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
   const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
@@ -57,8 +57,8 @@ function fixture(mode: Mode) {
     const healthy = join(product, 'plugins/healthy'); mkdirSync(healthy, { recursive: true });
     const outputs = { vertices: contract.vertices.filter(vertex => vertex.kind === 'Healthy'), edges: [] };
     writeFileSync(join(healthy, 'plugin.json'), JSON.stringify({ name: 'healthy', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Healthy', fields: '*', reads: [] }] }));
-    writeFileSync(join(healthy, 'contract.json'), JSON.stringify({ id: 'healthy', version: '1.0.0', outputs, rights: { network: 'none' } }));
-    writeFileSync(join(healthy, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk'; await definePlugin({ name: 'healthy', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract() { return { vertices: [{ kind: 'Healthy', key: { id: 'independent' }, values: { text: 'still filled' } }], end: { state: 'complete' } }; } });`);
+    writeFileSync(join(healthy, 'contract.json'), JSON.stringify({ id: 'healthy', version: '1.0.0', outputs, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
+    writeFileSync(join(healthy, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk'; await definePlugin({ name: 'healthy', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract() { return { vertices: [{ kind: 'Healthy', key: { id: 'independent' }, values: { text: 'still filled' }, evidence: { repository: 'repo', path: 'source.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } }; } });`);
     plugins[0]!.outputs = ['X', 'Y'];
     plugins.push({ id: 'healthy', version: 1, path: 'plugins/healthy', inputs: [], outputs: ['Healthy'], closure: ['plugins/healthy/plugin.json', 'plugins/healthy/contract.json', 'plugins/healthy/main.js'] });
   }

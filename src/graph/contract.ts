@@ -169,6 +169,7 @@ export interface EdgeDraft {
 
 /** One edge a producer withdraws: its ends by kind and key, and the discriminator that tells repeats apart. */
 export interface EdgeRemovalDraft {
+  readonly evidence?: readonly EvidenceDraft[];
   readonly kind: string;
   readonly from: EntityRefDraft;
   readonly to: EntityRefDraft;
@@ -179,6 +180,7 @@ export interface EdgeRemovalDraft {
 /** One entity a producer no longer holds: its opinions are closed and it leaves the reads (a removal of a term). */
 export interface VertexRemovalDraft {
   readonly keyEdges?: Readonly<Record<string, EntityRefDraft>>;
+  readonly evidence?: readonly EvidenceDraft[];
   /** Withdraw only these fields, preserving the producer's other fields. */
   readonly selectedFields?: readonly string[];
   readonly kind: string;

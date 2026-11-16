@@ -239,18 +239,18 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  await writeAssertion(executor,contract,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:'$exists',operation:'assert',value:true,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;
  for(const [name,value] of Object.entries(draft.values??{})){await writeAssertion(executor,contract,{sort:'edge',kind:draft.kind,subjectId:edgeId,property:name,operation:'assert',value,language:draft.lang,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo},context);written++;}}
  for(const draft of drafts.removals){if(await removeEntity(executor,contract,draft,context))written++;}
- for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context))written++;}
+ for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context,draft.evidence))written++;}
  if(!inheritedEvidence)for(const attach of evidenceQueue)await attach();
  return written;
  }finally{if(!inheritedEvidence)pendingEvidence.delete(executor);if(!inheritedIdentities)publicationIdentities.delete(executor);}
  });
 }
-async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number):Promise<void>{
+async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<void>{
  const binding=requireWriteCapability(executor);
  const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
  const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
  const languages=(await withSpan('graph.write.retractPropertyStreams', { 'db.system': 'postgres' }, async () => await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context]))).rows;
- for(const language of languages.length?languages:[{language:null}])await writeAssertion(executor,contract,{sort,kind,subjectId,property,operation:'retract',...(language.language===null?{}:{language:language.language})},context);
+ for(const language of languages.length?languages:[{language:null}])await writeAssertion(executor,contract,{sort,kind,subjectId,property,operation:'retract',evidence,...(language.language===null?{}:{language:language.language})},context);
 }
 export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
  return await withSpan('graph.vertex.retract',{},async()=>{
@@ -268,15 +268,15 @@ export async function removeEntity(executor:SqlExecutor,declared:GraphContract,d
   permitted(requireWriteCapability(executor),kindName,'$exists',true);
   await refreshWriteSemantics(executor);
   const incident=(await executor.query<{id:string;kind:string}>(`SELECT e.id::text AS id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id WHERE (e.from_node=$1::bigint OR e.to_node=$1::bigint) AND graph_edge_active(e.id,k.name,$2::bigint)`,[id,context])).rows;
-  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context);
+  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context,draft.evidence);
   const retiredKind=contract.vertex.find(vertex=>vertex.name===kindName)!;
-  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context);
+  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context,draft.evidence);
  };
- if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract'},context);}
+ if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract',evidence:draft.evidence},context);}
  else await retire(draft.kind,subject.id,new Set());
  return true;
  });
 }
-export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1):Promise<boolean>{
- for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context);return true;
+export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1,evidence?:readonly EvidenceDraft[]):Promise<boolean>{
+ for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context,evidence);return true;
 }

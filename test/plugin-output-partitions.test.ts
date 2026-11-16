@@ -41,7 +41,7 @@ function fixture() {
   const contract = { vertices: ['Items', 'Summary'].map(kind => ({ kind, key: ['id'], fields: ['id', 'text'].map(field) })), edges: [] };
   writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'partitions', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version },
     produces: [{ kind: 'Items', fields: '*', reads: [], partition: 'key' }, { kind: 'Summary', fields: '*', reads: ['Items'] }] }));
-  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
+  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value', 'ownFacts'] } }));
   writeFileSync(join(plugin, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk';
 import { mode, revision } from './scenario.js';
 const contract=${JSON.stringify(contract)};
@@ -66,8 +66,8 @@ await definePlugin({ name:'partitions', version:'1.0.0', contract, graph:true, g
   const kinds = Object.fromEntries(['Items', 'Summary'].map(kind => [kind, { source: 'graph', 'derives-from': kind === 'Summary' ? ['Items'] : [], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) }]));
   writeFolderManifest(product, stringify({ language: 'en', kinds, plugins: [{ id: 'partitions', version: 1, path: 'plugins/partitions', inputs: ['Items'], outputs: ['Items', 'Summary'], closure: ['plugins/partitions/plugin.json', 'plugins/partitions/contract.json', 'plugins/partitions/main.js', 'plugins/partitions/scenario.js'] }] }));
   let releaseHashes: string[] = [];
-  function change(mode: Mode, revision: string) {
-    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)};\n`);
+  function change(mode: Mode, revision: string, releaseNote = revision) {
+    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)}; // ${releaseNote}\n`);
     const hash = closureOf(plugin).hash; releaseHashes = [hash];
     writeFileSync(join(product, 'madarch/plugins.lock'), stringify({ plugins: [{ id: 'partitions', path: 'plugins/partitions', version: '1.0.0', closure: hash }] }));
     git(product, 'add', '-A'); git(product, '-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid', 'commit', '-qm', revision);

@@ -25,7 +25,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, PLUGIN_MANIFEST_FILE, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginReadResult, PluginFileReadAsk, type PluginReadRequest, PluginFactsApplyRequest, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { PluginGraphOwnFactsRequest, type PluginGraphOwnFactsResult, graphReadsOf, PluginOutputPlan, PluginReadResult, PluginFileReadAsk, type PluginReadRequest, PluginFactsApplyRequest, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { capabilityProblem, declarationOf, environmentOf, type PluginEnvironment } from './capabilities.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -113,9 +113,9 @@ export type UnitOutcome =
   | (UnitTrace & { readonly state: 'not-extracted'; readonly unitId: string; readonly cause: UnitCause });
 
 /** The graph request methods the host answers, and the capability each one needs from the contract. */
-type GraphMethod = 'graph.files' | 'graph.value' | 'graph.removedEnds' | 'graph.unevidenced';
+type GraphMethod = 'graph.ownFacts' | 'graph.files' | 'graph.value' | 'graph.removedEnds' | 'graph.unevidenced';
 const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
-  'graph.files': 'files', 'graph.value': 'value', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
+  'graph.ownFacts': 'ownFacts', 'graph.files': 'files', 'graph.value': 'value', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
 };
 
 /**
@@ -124,6 +124,7 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
  */
 export interface GraphAnswerer {
+  ownFacts?(query: PluginGraphOwnFactsRequest): Promise<PluginGraphOwnFactsResult>;
   files(pattern: string, snapshot?: import('../graph/plugin-turns.js').PluginSnapshot): Promise<readonly import('./protocol.js').PluginEntityRef[]>;
   value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, keyEdges?: Readonly<Record<string, import('./protocol.js').PluginEntityRef>>, snapshot?: import('../graph/plugin-turns.js').PluginSnapshot): Promise<unknown>;
   /** A page of the edges one of whose ends is removed (piece 2). Absent: refused. */
@@ -219,7 +220,7 @@ export interface PluginHostOptions {
   readonly graph?: GraphAnswerer;
   /** Trusted host binding. The producer names no source, principal or attempt. */
   readonly operations?: {
-    apply(unitId: string, key: string, operation: unknown, preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[], contractVersion?: string): Promise<unknown>;
+    apply(unitId: string, key: string, operation: PluginFactsApplyRequest['operation'], preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[], contractVersion?: string): Promise<unknown>;
   };
   /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
   readonly agent?: PluginAgentOptions;
@@ -483,6 +484,10 @@ ${text === '' ? '(empty)' : text}` };
         this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:441: facts.apply requires an active unit and a trusted operation host`));
         return { outcome: 'refused', size: 0, cause: 'operation-not-bound' };
       }
+      if (this.closureManifest?.readOnly === true) {
+        this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:1: read-only plugin cannot apply graph operations`));
+        return { outcome: 'refused', size: 0, cause: 'writer-denied' };
+      }
       try {
         const answer = await this.options.operations.apply(request.unitId, request.key, request.operation, request.preconditions, request.contractVersion);
         const size = Buffer.byteLength(JSON.stringify(answer));
@@ -543,7 +548,7 @@ ${text === '' ? '(empty)' : text}` };
         void this.answerAgent(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
-      if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
+      if (value.method === 'graph.ownFacts' || value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
         const slot = log?.begin(value.method);
         void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
@@ -699,6 +704,16 @@ ${text === '' ? '(empty)' : text}` };
       return { outcome: 'refused', size: 0, cause: 'graph-denied' };
     }
     try {
+      if (method === 'graph.ownFacts') {
+        if (!Value.Check(PluginGraphOwnFactsRequest, params) || !this.inFlight.has(params.unitId)) {
+          this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.ownFacts requires {unitId,scope} naming an active unit`, { cause: 'graph-invalid' }));
+          return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
+        }
+        if (this.options.graph.ownFacts === undefined) return this.graphUnavailable(id, method);
+        const answer = await this.options.graph.ownFacts(params);
+        this.write(successText(id, answer));
+        return { outcome: 'answered', size: answer.vertices.length + answer.edges.length };
+      }
       if (method === 'graph.files') {
         if (!Value.Check(PluginGraphFilesRequest, params)) {
           const first = [...Value.Errors(PluginGraphFilesRequest, params)][0];

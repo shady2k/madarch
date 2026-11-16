@@ -156,11 +156,58 @@
           }
         },
         "fields": []
+      },
+      {
+        "kind": "doc.term-usage",
+        "from": "doc.term",
+        "to": "code.file",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "used in",
+            "in": "uses term"
+          },
+          "ru": {
+            "out": "употреблён в",
+            "in": "использует термин"
+          }
+        },
+        "fields": [
+          {
+            "name": "line_start",
+            "type": "integer",
+            "meaning": "The usage location or count.",
+            "example": 1,
+            "required": true
+          },
+          {
+            "name": "line_end",
+            "type": "integer",
+            "meaning": "The usage location or count.",
+            "example": 1,
+            "required": true
+          },
+          {
+            "name": "count",
+            "type": "integer",
+            "meaning": "The usage location or count.",
+            "example": 1,
+            "required": true
+          }
+        ]
       }
     ]
   },
   "rights": {
     "network": "none",
-    "graph": true
+    "graph": true,
+    "graphReads": [
+      "files",
+      "value",
+      "ownFacts"
+    ]
   }
 }

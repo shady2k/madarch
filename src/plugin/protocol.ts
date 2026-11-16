@@ -87,12 +87,20 @@ export const PluginEdgeResult = Type.Object(
   { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
 
+/** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
+export const PluginGraphOwnFactsRequest = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  scope: Type.Object({ parent: Type.Optional(PluginEntityRef), repository: Type.Optional(Type.String({ minLength: 1 })), commit: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export const PluginGraphOwnFactsResult = Type.Object({ vertices: Type.Array(PluginVertexResult), edges: Type.Array(PluginEdgeResult) }, { additionalProperties: false });
+
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
 export const PluginRemoval = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
     key: PluginKeyValues,
     keyEdges: Type.Optional(PluginKeyEdges),
+    evidence: Type.Optional(PluginEvidence),
   },
   { additionalProperties: false, description: 'An entity the plugin produced before that the unit\'s input no longer holds.' },
 );
@@ -191,7 +199,7 @@ export const PluginContractDeclaration = Type.Object(
 
 /** One graph read a plugin may declare: its name. */
 export const PluginGraphRead = Type.Union(
-  [Type.Literal('files'), Type.Literal('value'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
+  [Type.Literal('ownFacts'), Type.Literal('files'), Type.Literal('value'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
   { description: 'One graph read the host answers: files and value are the unit reads, removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
 );
 
@@ -464,6 +472,7 @@ export const PluginFactsApplyRequest = Type.Object({
     vertices: Type.Optional(Type.Array(PluginVertexResult)),
     edges: Type.Optional(Type.Array(PluginEdgeResult)),
     removals: Type.Optional(Type.Array(PluginRemoval)),
+    edgeRemovals: Type.Optional(Type.Array(PluginEdgeResult)),
   }, { additionalProperties: false }),
 }, { additionalProperties: false });
 const FactsApplyMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('facts.apply'), params: PluginFactsApplyRequest }, { additionalProperties: false });
@@ -487,6 +496,7 @@ export const PluginProtocolMessage = Type.Union(
     UnitRequestMessage,
     PlanOutputMessage,
     AgentRunMessage,
+    Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.ownFacts'), params: PluginGraphOwnFactsRequest }, { additionalProperties: false }),
     GraphFilesMessage,
     FileReadMessage,
     GraphValueMessage,
@@ -512,6 +522,8 @@ export const PluginProtocolMessage = Type.Union(
   },
 );
 
+export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsRequest>;
+export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
 export type PluginFactsApplyRequest = Static<typeof PluginFactsApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;

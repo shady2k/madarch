@@ -146,3 +146,66 @@ async function commit(tx:SqlExecutor,hash:string):Promise<CommitRecord|null> {co
 export async function commitFacts(owner:DatabaseOwner,_repository:string,hash:string):Promise<CommitRecord|null> {return await withSpan('records.commitFacts',{},async()=>await owner.transaction('snapshot',tx=>commit(tx,hash)));}
 export async function fileFacts(owner:DatabaseOwner,repositoryName:string,path:string,options:{readonly history?:boolean}={}):Promise<(FileRecord&{readonly created:FileDate|null;readonly modified:FileDate|null;readonly commitCount:number;readonly authors:readonly string[]})|null>{return await withSpan('records.fileFacts',{},async()=>await owner.transaction('snapshot',async tx=>{const f=(await files(tx,repositoryName)).find(f=>f.values['path']===path);if(f===undefined)return null;const history: {walk:number;fact:FileDate}[]=[];if(options.history!==false){const repo=await repository(tx,repositoryName);const renamed=await semanticRecords(tx,'file',[],'renamedFrom');const ids=new Set([f.id]);let changed=true;while(changed){changed=false;for(const e of renamed)if(ids.has(e.from!)&&!ids.has(e.to!)){ids.add(e.to!);changed=true;}}const touched=await semanticRecords(tx,'commit',[],'touched');const walks=await semanticRecords(tx,'repository',semanticRoleFields('repository.history'),'history');const commits=await semanticRecords(tx,'commit',['hash']);for(const e of touched.filter(e=>ids.has(e.to!))){const walk=walks.find(w=>w.from===repo?.id&&w.to===e.from);if(walk===undefined)continue;const c=commits.find(c=>c.id===e.from);if(c===undefined)continue;const facts=await commit(tx,String(c.values['hash']));if(facts!==null)history.push({walk:Number(walk.values['walk']),fact:{date:facts.commitDate,offsetMin:facts.commitOffsetMin,commit:facts.hash,author:facts.author.name}});}}history.sort((a,b)=>a.walk-b.walk);return {...file(f),created:history.at(-1)?.fact??null,modified:history[0]?.fact??null,commitCount:new Set(history.map(h=>h.fact.commit)).size,authors:[...new Set(history.map(h=>h.fact.author))].sort()};}));}
 export async function graphKindCounts(owner:DatabaseOwner):Promise<readonly {kind:string;count:number}[]> {return await withSpan('records.kindCounts',{},async()=>await owner.transaction('snapshot',async tx=>{const kinds=await tx.query<{name:string}>(`SELECT name FROM entity WHERE sort='node' ORDER BY name COLLATE "C"`);const rows=[];for(const k of kinds.rows)rows.push({kind:k.name,count:(await declaredRecords(tx,'vertex',k.name,[])).length});return rows;}));}
+
+/** One currently supported assertion whose retained evidence is stale or unavailable. */
+export interface StaleEvidence {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, unknown>>;
+  readonly opinion: string;
+  readonly producer: string;
+  readonly evidence: import('./contract.js').EvidenceEntry;
+  readonly reason: string;
+  readonly applicability: 'stale' | 'unavailable';
+  readonly state: import('./evidence-read.js').EvidenceState;
+}
+
+/** Evaluate current assertion support without rewriting its independent historical validity. */
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
+  const limit = query.limit ?? 200;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${import.meta.path}:181: evidence page limit must be an integer from 1 to 1000`);
+  return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => {
+    const { readPublishedManifest } = await import('./manifest-publication.js');
+    const { evidenceSupportRoles } = await import('./evidence-support.js');
+    const { readEvidenceStates } = await import('./evidence-read.js');
+    const manifest = await readPublishedManifest(tx);
+    const support = evidenceSupportRoles(manifest?.semanticBindings);
+    const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
+    const selector = { validAt: now, recordedAt: now, contexts: [1] };
+    const candidates: { kind: string; key: Record<string, unknown>; assertion: StoredAssertion; target: string; targetKind: string; targetKey: Record<string, import('./contract.js').KeyValueDraft>; locator: Record<string, unknown>; relation: string; cursor: string }[] = [];
+    for (const sort of ['vertex', 'edge'] as const) for (const kind of contract[sort]) {
+      const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
+      const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
+      for (const record of records) {
+        const active = new Set(record.activeSources);
+        const slots = selectAssertionSlots(record.assertions, selector);
+        const ids = new Set([...slots.values()].flatMap(slot => slot.candidates).filter(assertion => active.has(assertion.source)).map(assertion => assertion.id));
+        const assertions = record.assertions.filter(assertion => ids.has(assertion.id) && assertion.evidence.length > 0);
+        if (assertions.length === 0) continue;
+        const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
+          `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid
+           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node origin ON origin.id=e.from_node
+           JOIN node target ON target.id=e.to_node JOIN entity k ON k.id=target.entity_id
+           WHERE ek.name='system.assertion-evidence' AND origin.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]);
+        for (const link of links.rows) {
+          const cursor = `${link.assertion}:${link.uid}`;
+          if (query.after !== undefined && cursor <= query.after) continue;
+          const attachment = JSON.parse(link.discriminator) as { locator: Record<string, unknown>; relation: string };
+          candidates.push({ kind: kind.name, key: sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator }, assertion: assertions.find(assertion => assertion.id === link.assertion)!, target: link.target, targetKind: link.target_kind, targetKey: link.target_key, ...attachment, cursor });
+        }
+      }
+    }
+    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
+    const page = candidates.slice(0, limit);
+    const states = await readEvidenceStates(tx, contract, page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    const rows: StaleEvidence[] = [];
+    for (const [index, candidate] of page.entries()) {
+      const state = states[index]!;
+      const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || state.currentApplicability === 'unknown' ? 'unavailable' : undefined;
+      if (applicability === undefined) continue;
+      rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
+        evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },
+        reason: applicability === 'stale' ? 'the immutable evidence no longer supports the current source' : state.issues.join('; ') || 'current evidence support is unavailable', applicability, state });
+    }
+    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.cursor } : {}) };
+  }));
+}

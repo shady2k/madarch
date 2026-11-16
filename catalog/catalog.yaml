@@ -926,6 +926,7 @@ problems:
     hotspotCommits: 10
     hotspotScore: 10000
   rules:
+    evidence-applicability: { predicate: findings, kind: evidence-applicability, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Evidence no longer supports a current fact", ru: "Основание больше не подтверждает текущий факт" } }
     dependency.cycle: { predicate: dependency-cycle, kind: dependency-cycle, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Dependency cycle", ru: "Цикл зависимостей" } }
     security.sql-input: { predicate: sql-input, kind: sql-input, sonar: vulnerability, severity: blocker, section: code, action: task, enabled: true, label: { en: "Untrusted input reaches SQL", ru: "Внешние данные попадают в SQL" } }
     security.export-route: { predicate: route-outside-auth, kind: route-outside-auth, sonar: vulnerability, severity: critical, section: code, action: task, enabled: true, label: { en: "Route outside the auth group", ru: "Маршрут вне группы авторизации" } }

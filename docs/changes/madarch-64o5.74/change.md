@@ -195,3 +195,5 @@ Validation: bun run check passes with 560 inherited architecture findings, zero 
 | `wiki/app/src/kit-page.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
 | `wiki/app/src/locales/en.json` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
 | `wiki/app/src/locales/ru.json` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+
+Document gate is blocked by the inherited Base f438fd54a15b664d97e502f8de50e6118a7fcf9b not belonging to local main target history. No proposal acceptance is claimed.

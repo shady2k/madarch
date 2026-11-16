@@ -42,7 +42,7 @@ export interface PluginReadResult {
 }
 
 /** One graph read a plugin may declare. */
-export type GraphReadName = 'files' | 'value' | 'removedEnds' | 'unevidenced';
+export type GraphReadName = 'ownFacts' | 'files' | 'value' | 'removedEnds' | 'unevidenced';
 
 export type KeyValues = Readonly<Record<string, string | number | boolean>>;
 
@@ -112,6 +112,93 @@ export interface UnitResult {
   readonly end: UnitEnd;
 }
 
+/** The covered source snapshot (decision 0039, items 18 and 26). */
+export interface ReconciliationScope {
+  /** Explicit parent identity bounding the covered source; no product kind is assumed. */
+  readonly parent?: EntityRef;
+  readonly repository?: string;
+  readonly commit?: string;
+}
+
+/** Only the authenticated plugin's current facts in a covered scope. */
+export interface OwnFacts {
+  readonly vertices: readonly VertexResult[];
+  readonly edges: readonly EdgeResult[];
+}
+
+/** One explicit difference submitted to the one writer. */
+export interface ReconciliationWrite {
+  readonly operation: 'add' | 'update' | 'remove';
+  readonly vertex?: VertexResult;
+  readonly edge?: EdgeResult;
+  readonly evidence?: Evidence;
+}
+
+function codePointOrder(left: string, right: string): number {
+  const a = Array.from(left), b = Array.from(right);
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const difference = a[index]!.codePointAt(0)! - b[index]!.codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
+}
+
+/** Canonical JSON values; object field order is not a source change. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort(codePointOrder).map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function presentValues(values: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values ?? {}).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Decision 0039 items 18 and 26: reconcile only this source, never sweep an
+ * incomplete scan. Evidence changes alone do not turn equal values into updates.
+ */
+export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: ReconciliationScope): ReconciliationWrite[] {
+  const writes: ReconciliationWrite[] = [];
+  if (scope.repository !== undefined && scope.parent === undefined) throw new Error(`${import.meta.filename}:1: repository reconciliation requires an explicit parent identity`);
+  const underParent = (ref: EntityRef): boolean => canonical(ref) === canonical(scope.parent) || Object.values(ref.keyEdges ?? {}).some(underParent);
+  const covered = (fact: VertexResult | EdgeResult): boolean => scope.parent === undefined || ('key' in fact ? underParent(fact) : underParent(fact.from) || underParent(fact.to));
+
+  const compare = <T extends VertexResult | EdgeResult>(type: 'vertex' | 'edge', desired: readonly T[], existing: readonly T[], identity: (fact: T) => string): void => {
+    const index = (facts: readonly T[]): Map<string, T> => {
+      const indexed = new Map<string, T>();
+      for (const fact of facts.filter(covered)) {
+        const key = identity(fact);
+        if (indexed.has(key)) throw new Error(`${import.meta.filename}:1: duplicate ${type} identity in reconciliation: ${key}`);
+        indexed.set(key, fact);
+      }
+      return indexed;
+    };
+    for (const fact of desired) if (!covered(fact)) throw new Error(`${import.meta.filename}:1: source ${type} is outside the reconciliation parent scope`);
+    const before = index(existing), after = index(desired);
+    for (const key of [...after.keys()].sort(codePointOrder)) {
+      const fact = after.get(key)!;
+      const previous = before.get(key);
+      if (previous !== undefined && canonical(presentValues(previous.values)) === canonical(presentValues(fact.values))) continue;
+      writes.push({ operation: previous === undefined ? 'add' : 'update', [type]: fact, ...(fact.evidence === undefined ? {} : { evidence: fact.evidence }) });
+    }
+    if (source.end.state !== 'complete' || (source.problems?.length ?? 0) > 0) return;
+    for (const key of [...before.keys()].sort(codePointOrder)) {
+      if (!after.has(key)) {
+        const fact = before.get(key)!;
+        const evidence = fact.evidence;
+        writes.push({ operation: 'remove', [type]: fact, ...(evidence === undefined ? {} : { evidence }) });
+      }
+    }
+  };
+  compare('vertex', source.vertices ?? [], current.vertices, (vertex) => canonical([vertex.kind, vertex.key, vertex.keyEdges ?? {}]));
+  compare('edge', source.edges ?? [], current.edges, (edge) => canonical([edge.kind, edge.from, edge.to, edge.discriminator ?? '']));
+  return writes;
+}
+
 /** The unit the host hands a plugin. */
 export interface Unit {
   readonly keyEdges?: Readonly<Record<string, EntityRef>>;
@@ -174,6 +261,8 @@ export interface GraphPage<T> {
 
 /** The graph reads a plugin declares and asks for (decision 0035, item 15; madarch-stm0.7.1, pieces 2 and 4). */
 export interface GraphReads {
+  /** This source's current facts, including prior revisions, within the covered scope. */
+  ownFacts(scope: ReconciliationScope): Promise<OwnFacts>;
   /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
   files(pattern: string): Promise<GraphVertex[]>;
   /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
@@ -188,10 +277,13 @@ export interface GraphReads {
 export interface FactsOperation {
   readonly vertices?: readonly VertexResult[];
   readonly edges?: readonly EdgeResult[];
-  readonly removals?: readonly EntityRef[];
+  readonly removals?: readonly (EntityRef & { readonly evidence?: Evidence })[];
+  readonly edgeRemovals?: readonly EdgeResult[];
 }
 
 export interface ExtractContext {
+  /** Compare a covered source snapshot and immediately apply only differences. */
+  reconcile(source: UnitResult, scope: ReconciliationScope): Promise<void>;
   /** Applies one atomic operation; retry the same logical key only with identical content. */
   readonly facts: { apply(key: string, operation: FactsOperation, options?: { readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<unknown> };
   /** Set when the host asked the plugin to stop: a long read should give up at the next check. */
@@ -271,6 +363,8 @@ export interface OutputPlan {
 
 /** What defining a plugin takes: its contract and the one function the author writes. */
 export interface PluginDefinition {
+  /** Read-only plugins do not reconcile their extraction results. */
+  readonly readOnly?: boolean;
   readonly name: string;
   readonly version: string;
   readonly contract: ContractDeclaration;
@@ -405,7 +499,21 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const extract = planning ? definition.planOutput : definition.extract;
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
+        let reconciliation = 0;
+        const reconcile = async (source: UnitResult, scope: ReconciliationScope): Promise<void> => {
+          const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
+          for (const write of reconcileFacts(source, current, scope)) {
+            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:1: reconciliation cancelled for unit ${unit.unitId}`);
+            const vertex = write.vertex;
+            const edge = write.edge;
+            const operation: FactsOperation = vertex !== undefined
+              ? write.operation === 'remove' ? { removals: [{ kind: vertex.kind, key: vertex.key, ...(vertex.keyEdges === undefined ? {} : { keyEdges: vertex.keyEdges }), ...(vertex.evidence === undefined ? {} : { evidence: vertex.evidence }) }] } : { vertices: [vertex] }
+              : write.operation === 'remove' ? { edgeRemovals: [edge!] } : { edges: [edge!] };
+            await askHost('facts.apply', { unitId: unit.unitId, key: `reconcile-${String(reconciliation += 1)}`, operation });
+          }
+        };
         const result = await extract(unit, {
+          reconcile,
           signal: controller.signal,
           facts: { apply: async (key, operation, options) => await askHost('facts.apply', { unitId: unit.unitId, key, operation, ...options }) },
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
@@ -413,6 +521,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
           read: async (request) => await askHost<PluginReadResult>('file.read', { ...request }),
           graph: {
+            ownFacts: async (scope) => await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope }),
             files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
             value: async (kind, key, field, keyEdges) => await askHost<{ value: unknown }>('graph.value', { kind, key, field, ...(keyEdges === undefined ? {} : { keyEdges }) }).then((answer) => answer.value as never),
             removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
@@ -420,13 +529,12 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           },
         }, typeof params?.['cursor'] === 'string' ? params['cursor'] : undefined);
         if (!running.has(id)) return;
-        if (planning) answer(id, { unitId: unit.unitId, ...result });
+        if (planning || definition.readOnly === true) answer(id, { unitId: unit.unitId, ...result });
         else {
           const produced = result as UnitResult;
-          const { vertices, edges, removals, ...terminal } = produced;
-          if ((vertices?.length ?? 0) + (edges?.length ?? 0) + (removals?.length ?? 0) > 0) {
-            await askHost('facts.apply', { unitId: unit.unitId, key: 'extract-result', operation: { ...(vertices === undefined ? {} : { vertices }), ...(edges === undefined ? {} : { edges }), ...(removals === undefined || produced.end.state !== 'complete' ? {} : { removals }) } });
-          }
+          await reconcile(produced, {});
+          if (!running.has(id)) return;
+          const { vertices: _vertices, edges: _edges, removals: _removals, ...terminal } = produced;
           answer(id, { unitId: unit.unitId, ...terminal });
         }
       } catch (error) {
@@ -498,7 +606,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       ...(definition.read === undefined ? {} : { read: true }),
       name: definition.name,
       version: definition.version,
-      rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },
+      rights: { network: 'none', ...(definition.graph === true || definition.readOnly !== true ? { graph: true } : {}), ...(definition.readOnly !== true ? { graphReads: [...new Set<GraphReadName>([...(definition.graphReads ?? ['files', 'value']), 'ownFacts'])] } : definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },
       limits: {
         ...(definition.maxParallelUnits === undefined ? {} : { maxParallelUnits: definition.maxParallelUnits }),
         ...(definition.maxOutputBytes === undefined ? {} : { maxOutputBytes: definition.maxOutputBytes }),

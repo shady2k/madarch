@@ -629,10 +629,33 @@ function stateSelectorListLiteral(module: GateModule, node: Node, modules: Map<s
 }
 
 /** A transaction mode is admitted only where an owner-backed helper forwards that parameter. */
+/** Transaction vocabulary is the exported const registry indexed by its exported type alias. */
+function transactionKindLiterals(modules: Map<string, GateModule>): readonly Node[] {
+  const authority = modules.get('src/sql-driver.ts');
+  if (authority === undefined) return [];
+  const type = nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], 'SqlTransactionKind')
+    && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+  if (type === undefined) return [];
+  const direct = nodesOf(type).filter(entry => entry['type'] === 'StringLiteral');
+  if (direct.length > 0) return direct;
+  const indexed = nodesOf(type).find(entry => entry['type'] === 'TsIndexedAccessType');
+  if (indexed === undefined || !nodesOf(indexed['objectType'] as Node).some(entry => entry['type'] === 'TsTypeQuery'
+    && named(entry['exprName'], 'SQL_TRANSACTION_KINDS'))
+    || !nodesOf(indexed['indexType'] as Node).some(entry => entry['type'] === 'TsTypeOperator' && entry['op'] === 'keyof')
+    || !nodesOf(indexed['indexType'] as Node).some(entry => entry['type'] === 'TsTypeQuery' && named(entry['exprName'], 'SQL_TRANSACTION_KINDS'))) return [];
+  const registry = nodesOf(authority.tree).find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SQL_TRANSACTION_KINDS')
+    && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+  const init = registry?.['init'] as Node | undefined;
+  const object = init?.['type'] === 'TsConstAssertion' ? init['expression'] as Node : undefined;
+  if (object?.['type'] !== 'ObjectExpression') return [];
+  return (object['properties'] as Node[]).flatMap(property => property['type'] === 'KeyValueProperty'
+    && (property['value'] as Node)?.['type'] === 'StringLiteral' ? [property['value'] as Node] : []);
+}
+
 function transactionModeLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const authority = modules.get('src/sql-driver.ts');
   const type = authority === undefined ? undefined : nodesOf(authority.tree).find(entry=>entry['type']==='TsTypeAliasDeclaration' && named(entry['id'],'SqlTransactionKind'));
-  if (type === undefined || !nodesOf(type).some(entry=>entry['type']==='StringLiteral' && stringValue(entry)===stringValue(node))) return false;
+  if (type === undefined || !transactionKindLiterals(modules).some(entry => stringValue(entry) === stringValue(node))) return false;
   const ownerImport = nodesOf(module.tree).some(entry=>entry['type']==='ImportDeclaration'
     && resolve('/',module.file,'..',stringValue(entry['source'] as Node)??'')==='/src/adapters/database-owner.js'
     && nodesOf(entry).some(specifier=>specifier['type']==='ImportSpecifier' && named(specifier['local'],'DatabaseOwner')));
@@ -1134,7 +1157,7 @@ function typedEngineComparisonLiteral(module: GateModule, node: Node, modules: M
     const authority = modules.get(expected.file);
     const declaration = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => ['TsTypeAliasDeclaration', 'TsInterfaceDeclaration'].includes(String(entry['type'])) && named(entry['id'], expected.type));
     if (declaration === undefined) continue;
-    if (nodesOf(declaration).some(entry => stringValue(entry) === stringValue(node))) return true;
+    if ((expected.type === 'SqlTransactionKind' ? transactionKindLiterals(modules) : nodesOf(declaration)).some(entry => stringValue(entry) === stringValue(node))) return true;
     // FieldContract's storage type is itself an authoritative alias.
     if (expected.type === 'FieldContract' && authority !== undefined && nodesOf(authority.tree).some(entry => entry['type'] === 'TsTypeAliasDeclaration'
       && named(entry['id'], 'FieldType') && nodesOf(entry).some(literal => stringValue(literal) === stringValue(node)))) return true;
@@ -1178,24 +1201,51 @@ function engineTypeLiteral(module: GateModule, node: Node): boolean {
 }
 
 /** Database transaction modes are checked against their imported owner and exact argument slot. */
+function databaseOwnerType(module: GateModule, annotation: Node, modules: Map<string, GateModule>, seen = new Set<Node>()): boolean {
+  if (seen.has(annotation)) return false;
+  seen.add(annotation);
+  return nodesOf(annotation).some(reference => {
+    if (reference['type'] !== 'TsTypeReference') return false;
+    const name = reference['typeName'] as Node;
+    if (name?.['type'] !== 'Identifier') return false;
+    const imported = nodesOf(module.tree).find(entry => entry['type'] === 'ImportDeclaration'
+      && nodesOf(entry).some(binding => binding['type'] === 'ImportSpecifier' && named(binding['local'], String(name['value']))));
+    if (imported !== undefined) {
+      const path = resolve('/', module.file, '..', stringValue(imported['source'] as Node) ?? '').slice(1);
+      if (path === 'src/adapters/database-owner.js' && named(name, 'DatabaseOwner')) return true;
+      const authority = modules.get(path.endsWith('.js') ? `${path.slice(0, -3)}.ts` : path);
+      const binding = nodesOf(imported).find(entry => entry['type'] === 'ImportSpecifier' && named(entry['local'], String(name['value'])));
+      const importedName = (binding?.['imported'] ?? binding?.['local']) as Node | undefined;
+      const alias = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration'
+        && named(entry['id'], String(importedName?.['value'])) && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+      if (authority !== undefined && alias !== undefined) return databaseOwnerType(authority, alias['typeAnnotation'] as Node, modules, seen);
+    }
+    const alias = nodesOf(module.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], String(name['value'])));
+    if (alias !== undefined) return databaseOwnerType(module, alias['typeAnnotation'] as Node, modules, seen);
+    return false;
+  });
+}
+
 function ownerTransactionLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const authority = modules.get('src/sql-driver.ts');
   const modes = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], 'SqlTransactionKind'));
-  if (modes === undefined || !nodesOf(modes).some(entry => stringValue(entry) === stringValue(node))) return false;
+  if (modes === undefined || !transactionKindLiterals(modules).some(entry => stringValue(entry) === stringValue(node))) return false;
   const parents = enclosing(module, node);
   const call = parents[0];
   const callee = call?.['callee'] as Node | undefined;
   if (call?.['type'] !== 'CallExpression' || callee?.['type'] !== 'MemberExpression'
     || !named(callee['property'], 'transaction') || (call['arguments'] as { expression: Node }[])[0]?.expression !== node) return false;
   const receiver = callee['object'] as Node;
-  const isOwner = (annotation: Node): boolean => nodesOf(annotation).some(entry => entry['type'] === 'TsTypeReference'
-    && named(entry['typeName'], 'DatabaseOwner'));
-  const imported = nodesOf(module.tree).some(entry => entry['type'] === 'ImportDeclaration'
-    && resolve('/', module.file, '..', stringValue(entry['source'] as Node) ?? '') === '/src/adapters/database-owner.js'
-    && nodesOf(entry).some(specifier => specifier['type'] === 'ImportSpecifier' && named(specifier['local'], 'DatabaseOwner')));
+  const isOwner = (annotation: Node): boolean => databaseOwnerType(module, annotation, modules);
   if (receiver['type'] === 'ThisExpression') return module.file === 'src/adapters/database-owner.ts'
     && parents.some(entry => entry['type'] === 'ClassDeclaration' && named(entry['identifier'], 'DatabaseOwner'));
-  if (!imported || receiver['type'] !== 'Identifier') return false;
+  if (receiver['type'] === 'MemberExpression' && (receiver['object'] as Node)?.['type'] === 'ThisExpression') {
+    const owner = parents.find(entry => entry['type'] === 'ClassDeclaration');
+    return owner !== undefined && nodesOf(owner).some(entry => entry['type'] === 'TsParameterProperty'
+      && nodesOf(entry).some(parameter => parameter['type'] === 'Identifier' && named(parameter, String((receiver['property'] as Node)?.['value']))
+        && parameter['typeAnnotation'] !== undefined && isOwner(parameter['typeAnnotation'] as Node)));
+  }
+  if (receiver['type'] !== 'Identifier') return false;
   return parents.some(scope => nodesOf(scope).some(entry => entry['type'] === 'Identifier'
     && named(entry, String(receiver['value'])) && entry['ctxt'] === receiver['ctxt']
     && entry['typeAnnotation'] !== undefined && isOwner(entry['typeAnnotation'] as Node)));
@@ -1751,7 +1801,7 @@ function graphRefusalGuardLiteral(module: GateModule, node: Node, modules: Map<s
 function externalProtocolLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const value = stringValue(node);
   if (value === undefined) return false;
-  if (graphRefusalGuardLiteral(module, node, modules) || presentationProtocolLiteral(module, node, modules) || operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
+  if ((module.file === 'src/sql-driver.ts' && transactionKindLiterals(modules).includes(node)) || graphRefusalGuardLiteral(module, node, modules) || presentationProtocolLiteral(module, node, modules) || operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
   const ancestors = enclosing(module, node);
   // Only the response predicate's property test, not arbitrary strings inside the predicate, has a wire role.
   if (module.file === 'src/plugin/wire.ts') {

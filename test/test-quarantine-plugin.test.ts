@@ -28,13 +28,14 @@ const file = { kind: 'code.file', key: { path: 'test/example.test.ts' }, keyEdge
 function context(content: string): ExtractContext {
   return {
     facts: { async apply() { throw new Error("pure extraction must return one atomic operation"); } },
-    signal: new AbortController().signal, heartbeat() {}, progress() {},
+    signal: new AbortController().signal, heartbeat() {}, progress() {}, async reconcile() { throw new Error('direct extraction must not invoke reconciliation'); },
       async agent() { throw new Error('this extraction does not request an agent'); },
       async read(request: { readonly repository: string; readonly blob: string }) {
         expect(request).toEqual({ repository: repository.key.name, blob: 'blob-of-the-file' });
         return { text: content, lines: content.split('\n').length, bytes: content.length, binary: false };
       },
     graph: {
+      async ownFacts() { return { vertices: [], edges: [] }; },
       async removedEnds() { throw new Error('unexpected consistency read'); },
       async unevidenced() { throw new Error('unexpected consistency read'); },
       async files(pattern) { expect(['**/*.test.*', '**/quarantine-results.json']).toContain(pattern); return pattern === '**/*.test.*' ? [file] : []; },
@@ -119,7 +120,7 @@ describe('test quarantine extraction', () => {
       // The one blob read, as a fill's host answers it (decision 0038): the graph names the blob, and the reader the
       // caller gave answers its text.
       readBlob: async (ask) => ({ text: ask.blob === 'blob-of-the-file' ? content : '', lines: 1, bytes: content.length, binary: ask.blob !== 'blob-of-the-file' }),
-      graph: { async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return 'blob-of-the-file'; } },
+      graph: { async ownFacts() { return { vertices: [], edges: [] }; }, async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return 'blob-of-the-file'; } },
     });
     try {
       const session = await host.open();

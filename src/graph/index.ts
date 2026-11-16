@@ -1,4 +1,5 @@
 /** Reads of ordinary published graph facts. */
+export { vanishedCurrentEvidence } from './records.js';
 export {
   commitFacts, fileFacts, graphKindCounts, listFiles, listRepositories, repositoryFacts, productFileIndex,
   type FileDate, type FileRecord,

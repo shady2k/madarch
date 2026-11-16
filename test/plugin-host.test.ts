@@ -49,7 +49,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -60,7 +60,7 @@ async function open(folder: string, options: { readonly operations?: { apply(uni
     releaseHashes: options.releaseHashes ?? [closureOf(folder).hash],
     limits: { ...LIMITS, ...(options.limits ?? {}) },
     cgroupParent: options.cgroupParent ?? parent,
-    ...(options.graph === undefined ? {} : { graph: options.graph }),
+    graph: { files: async () => [], value: async () => null, ownFacts: async () => ({ vertices: [], edges: [] }), ...options.graph },
     ...(options.requests === undefined ? {} : { requests: options.requests }),
     operations: options.operations ?? { async apply() { return { accepted:true }; } },
   });
