@@ -200,13 +200,18 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         ${fields.map(field => {
           const table = assertionValueTableName(kind.name,'vertex',field.name);
           const projected = field.type === 'json' ? `identity_key->${literal(field.name)}` : `(identity_key->>${literal(field.name)})::${sqlType(field)}`;
+          const subjectAssertions = `WITH subject_assertions AS MATERIALIZED (
+            SELECT s.assertion_id FROM edge attachment JOIN assertion_vertex_subject s ON s.subject_edge_id=attachment.id
+            WHERE attachment.to_node=subject_id)`;
           return `IF NOT (identity_key ? ${literal(field.name)}) OR NOT EXISTS(
-            SELECT 1 FROM assertion a JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id
-            JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN "${table}" v ON v.assertion_id=a.assertion_id
-            WHERE attachment.to_node=subject_id AND a.property=${literal(field.name)} AND a.operation='assert')
-            OR EXISTS(SELECT 1 FROM assertion a JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id
-            JOIN edge attachment ON attachment.id=s.subject_edge_id LEFT JOIN "${table}" v ON v.assertion_id=a.assertion_id
-            WHERE attachment.to_node=subject_id AND a.property=${literal(field.name)}
+            ${subjectAssertions}
+            SELECT 1 FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
+            JOIN "${table}" v ON v.assertion_id=a.assertion_id
+            WHERE a.property=${literal(field.name)} AND a.operation='assert')
+            OR EXISTS(${subjectAssertions}
+            SELECT 1 FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
+            LEFT JOIN "${table}" v ON v.assertion_id=a.assertion_id
+            WHERE a.property=${literal(field.name)}
               AND (a.operation<>'assert' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM ${projected}))
           THEN RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,${literal(field.name)}; END IF;`;
         }).join('\n')}`;
