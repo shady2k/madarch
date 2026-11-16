@@ -91,3 +91,11 @@ test('0039.30: subject UID bounds apply before assertion loading and preserve co
   expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: [] })).toEqual([]);
   expect(calls).toEqual([]);
 });
+
+test('0039.25: the effective false existence beats an older true candidate from another source', async () => {
+  const tx = executor([
+    { property: '$exists', value: true, source: 'holder' },
+    { property: '$exists', value: false, source: 'denier', validFrom: '2026-11-15T00:00:00.000Z' },
+  ]);
+  expect(await readKindAssertions(tx, 'vertex', 'fixture', [], { contract })).toEqual([]);
+});
