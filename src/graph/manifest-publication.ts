@@ -1,7 +1,7 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
 import { isAbsolute, join, resolve } from 'node:path';
 import { withSpan } from '../obs/trace.js';
-import { readKindAssertions } from './records.js';
+import { readKindAssertions, readKindsAssertions, type AssertionRecord } from './records.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
@@ -267,8 +267,20 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
     await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
+    const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
+      const fields = new Map(kinds.map(kind => [kind, new Set<string>()]));
+      for (const draft of drafts) {
+        const held = fields.get(draft.kind) ?? new Set<string>();
+        for (const field of Object.keys(draft.values ?? {})) held.add(field);
+        fields.set(draft.kind, held);
+      }
+      const requests = [...fields].map(([kind, fields]) => ({ sort, kind, fields: [...fields] }));
+      const records = await readKindsAssertions(tx, requests, { contract: publicationContract });
+      return new Map(requests.map((request, index) => [request.kind, records[index]!]));
+    };
+    const vertexRecords = await readPhase('vertex', MANIFEST_CONTRACT.vertex.map(kind => kind.name), validated.vertices);
     const held = new Map<string, VertexRemovalDraft>();
-    for (const kind of MANIFEST_CONTRACT.vertex) for (const row of await readKindAssertions(tx, 'vertex', kind.name, [])) {
+    for (const kind of MANIFEST_CONTRACT.vertex) for (const row of vertexRecords.get(kind.name)!) {
       const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
       for (const role of kind.keyEdges ?? []) {
         const parent = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.to_node JOIN entity pk ON pk.id=p.entity_id WHERE e.from_node=$1 AND ek.name=$2`, [row.id, role.edge]);
@@ -281,8 +293,7 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     const wanted = new Set(validated.vertices.map(identity));
     const removals = [...held].filter(([key]) => !wanted.has(key)).map(([, draft]) => draft)
       .sort((left, right) => Number(right.keyEdges !== undefined) - Number(left.keyEdges !== undefined) || byCodePoint(identity(left), identity(right)));
-    const unchanged = async (sort: 'vertex' | 'edge', draft: VertexDraft | EdgeDraft): Promise<boolean> => {
-      const rows = await readKindAssertions(tx, sort, draft.kind, Object.keys(draft.values ?? {}), { contract: publicationContract });
+    const unchanged = async (draft: VertexDraft | EdgeDraft, rows: readonly AssertionRecord[]): Promise<boolean> => {
       if (rows.length === 0) return false;
       let record: import('./records.js').AssertionRecord | undefined;
       if ('key' in draft) {
@@ -311,15 +322,16 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       return true;
     };
     const vertices: VertexDraft[] = [];
-    for (const draft of validated.vertices) if (!await unchanged('vertex', draft)) vertices.push(draft);
+    for (const draft of validated.vertices) if (!await unchanged(draft, vertexRecords.get(draft.kind)!)) vertices.push(draft);
     let written = await publishGraphDrafts(tx, publicationContract, { vertices, removals }, 1, { author: 'manifest' });
+    const edgeRecords = await readPhase('edge', MANIFEST_CONTRACT.edge.map(kind => kind.name), validated.edges);
     const edges: EdgeDraft[] = [];
-    for (const draft of validated.edges) if (!await unchanged('edge', draft)) edges.push(draft);
+    for (const draft of validated.edges) if (!await unchanged(draft, edgeRecords.get(draft.kind)!)) edges.push(draft);
     const wantedEdges = new Set(validated.edges.map(e => JSON.stringify([e.kind,e.from.key,e.to.key,e.discriminator ?? ''])));
     const edgeRemovals: EdgeRemovalDraft[] = [];
     for (const kind of MANIFEST_CONTRACT.edge) {
       if (MANIFEST_CONTRACT.vertex.some(vertex => vertex.keyEdges?.some(role => role.edge === kind.name))) continue;
-      const records = await readKindAssertions(tx, 'edge', kind.name, []);
+      const records = edgeRecords.get(kind.name)!;
       for (const record of records) {
         const ends = await tx.query<{ from_key: Record<string,string>; to_key: Record<string,string> }>('SELECT f.key AS from_key,t.key AS to_key FROM edge e JOIN node f ON f.id=e.from_node JOIN node t ON t.id=e.to_node WHERE e.id=$1',[record.id]);
         const one=ends.rows[0]!;
