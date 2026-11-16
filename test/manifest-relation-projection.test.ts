@@ -15,6 +15,7 @@ test('relation projections retain field-qualified declarations without inventing
     from: [any]
     to: [any]
     repeats: false
+    cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
     labels:
       en: { out: mentions, in: mentioned by }
       ru: { out: упоминает, in: упомянут в }

@@ -235,6 +235,9 @@
   "code.author": [
     "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
   ],
+  "code.blob": [
+    "https://www.rfc-editor.org/rfc/rfc6234"
+  ],
   "code.broker": [
     "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
   ],
@@ -659,9 +662,6 @@
     "https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd",
     "https://mlflow.org/docs/latest/index.html"
   ],
-  "event": [
-    "https://www.omg.org/spec/UML/"
-  ],
   "evidence": [
     "https://glossary.istqb.org/en_US/term/test-evidence",
     "https://glossary.istqb.org/en_US/term/acceptance-testing"
@@ -924,6 +924,9 @@
   "maintenance-window": [
     "https://www.rfc-editor.org/rfc/rfc8594.html"
   ],
+  "manifest.workflow-stage": [
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
   "membership": [
     "https://www.w3.org/TR/vocab-org/"
   ],
@@ -1099,6 +1102,9 @@
   "question": [
     "https://arc42.org/overview",
     "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "question-side": [
+    "https://arc42.org/overview"
   ],
   "recipient": [
     "https://gdpr-info.eu/art-30-gdpr/"
@@ -1301,6 +1307,9 @@
     "https://pubs.opengroup.org/architecture/archimate32-doc/"
   ],
   "state": [
+    "https://www.omg.org/spec/UML/"
+  ],
+  "state-event": [
     "https://www.omg.org/spec/UML/"
   ],
   "state-machine": [

@@ -51,8 +51,22 @@ function product(home: string, folder: string, id: string): void {
       - { name: title, type: text, producers: [fixture] }
       - { name: path, type: text, producers: [fixture] }
       - { name: markdown, type: text, producers: [fixture] }
-      - { name: anchors, type: json, producers: [fixture] }
-      - { name: links, type: json, producers: [fixture] }
+      - name: anchors
+        type: json
+        producers: [fixture]
+        schema:
+          $schema: https://json-schema.org/draft/2020-12/schema
+          type: object
+          properties: {}
+          additionalProperties: false
+      - name: links
+        type: json
+        producers: [fixture]
+        schema:
+          $schema: https://json-schema.org/draft/2020-12/schema
+          type: array
+          items: false
+          maxItems: 0
 `);
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
