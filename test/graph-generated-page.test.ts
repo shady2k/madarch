@@ -33,7 +33,7 @@ test('generated pages count before the cursor, preserve empty totals, and read p
         statements.push(sql);
         return await tx.query<Row>(sql, values);
       } };
-      const reader = new GraphReader(owner, () => 'now', undefined, measured, undefined, generated, undefined, owner.graphContract);
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, measured, undefined, generated, undefined, owner.graphContract);
       const first = await reader.list('fixture.page', { limit: 1 });
       expect(first.rows.map((entity) => entity.key)).toEqual(['fixture.page:Alpha']);
       expect(first.rows[0]?.properties['body']).toBe('body Alpha');
