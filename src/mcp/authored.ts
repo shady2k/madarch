@@ -4,6 +4,7 @@
  * the producer and the transport operation identity remain stable across sessions.
  */
 import { Type } from 'typebox';
+import { isDevelopmentTool } from '../graph/development-read.js';
 import { Value } from 'typebox/value';
 import { randomUUID } from 'node:crypto';
 import { KnowledgeProduct } from '../knowledge/product.js';
@@ -157,6 +158,7 @@ export const PRODUCT_TOOLS: readonly McpToolDefinition[] = [...READ_TOOLS, ...WR
 export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown, hostBinding?: ProducerBinding): Promise<UnitToolAnswer> {
   return await withSpan('mcp.product', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
     try {
+      if (isDevelopmentTool(name)) return await product.developmentRead(name, input) as UnitToolAnswer;
       if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
       if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
       const args = (input ?? {}) as Record<string, unknown>;
@@ -271,7 +273,7 @@ export async function serveProductMcp(options: {
     let agent: ProducerBinding | undefined;
     const resolver = options.resolverBinding;
     await serveUnitMcp({
-      tools: PRODUCT_TOOLS,
+      tools: [...PRODUCT_TOOLS, ...await product.developmentRead() as McpToolDefinition[]],
       info: { name: 'madarch', version: runningVersion() },
       onClientInfo: (info) => { client = info.name; },
       call: async (name, args, requestId) => {

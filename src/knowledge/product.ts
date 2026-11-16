@@ -74,6 +74,7 @@ import { PRODUCT_PATH, type UnitAgent } from '../writer/units.js';
 import { CONTENT_LANGUAGES } from '../writer/units.js';
 import type { DraftEnv } from '../product/home.js';
 import { groupViews } from './catalog-view.js';
+import { developmentRead } from '../graph/development-read.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readChangedPages } from './changed-pages.js';
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
@@ -546,6 +547,11 @@ export class KnowledgeProduct {
    * the wiki, MCP and outside systems read through. A manifest whose names cannot make a schema is refused with the
    * line that declares it, never served as a smaller schema.
    */
+  /** Catalogue-derived development reads share a single published-contract snapshot (0039.7,30). */
+  async developmentRead(name?: string, input?: unknown) {
+    return await developmentRead(await this.open(), name, input);
+  }
+
   async graphqlSchema(): Promise<string> {
     // What the graph holds, never the checkout: an edit start has not published is no schema this product serves, and
     // the SDL answers the very schema POST /graphql reads.
