@@ -118,9 +118,12 @@ export function activeExistenceSql(sort: 'vertex' | 'edge', alias: string, kinds
   if (values.length === 0) return structuralClause;
   const attachment = sort === 'vertex' ? 'JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id JOIN edge subject ON subject.id=av.subject_edge_id' : 'JOIN assertion_edge_subject av ON av.assertion_id=a.assertion_id';
   const subject = sort === 'vertex' ? 'subject.to_node' : 'av.edge_id';
-  return `(${structuralClause} OR EXISTS (WITH eligible AS (
+  const targetAssertions = sort === 'vertex'
+    ? `SELECT attachment.assertion_id FROM edge subject_edge CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment WHERE subject_edge.to_node=${alias}.id`
+    : `SELECT attachment.assertion_id FROM assertion_edge_subject attachment WHERE attachment.edge_id=${alias}.id`;
+  return `(${structuralClause} OR EXISTS (WITH target_assertions AS MATERIALIZED (${targetAssertions}), eligible AS (
     SELECT a.*,an.uid,v.value,s.to_node AS source,array_position(${contexts},a.context_id) AS layer
-    FROM assertion a JOIN node an ON an.id=a.assertion_id ${attachment}
+    FROM target_assertions target CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id OFFSET 0) a JOIN node an ON an.id=a.assertion_id ${attachment}
     LEFT JOIN (${values.join(' UNION ALL ')}) v ON v.assertion_id=a.assertion_id
     JOIN edge s ON s.from_node=a.assertion_id JOIN entity sk ON sk.id=s.entity_id AND sk.name='system.assertion-source'
     WHERE ${subject}=${alias}.id AND a.property='$exists' AND a.context_id=ANY(${contexts}) AND a.recorded_at<=${quote(options.recordedAt)}::timestamptz AND ${sequenceFence('a')}
