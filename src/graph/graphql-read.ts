@@ -705,10 +705,13 @@ export class ReadContext {
     const property = sql.param(field.name, '::text');
     const validAt = sql.param(this.validAt, '::timestamptz');
     const recordedAt = sql.param(this.recordedAt, '::timestamptz');
-    return `(WITH eligible AS (
+    const targetAssertions = sort === 'vertex'
+      ? `SELECT attachment.assertion_id FROM edge subject_edge CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment WHERE subject_edge.to_node=${alias}.id`
+      : `SELECT attachment.assertion_id FROM assertion_edge_subject attachment WHERE attachment.edge_id=${alias}.id`;
+    return `(WITH target_assertions AS MATERIALIZED (${targetAssertions}), eligible AS (
       SELECT a.*, an.uid, v.value, source.to_node AS source, ${languageRank} AS language_rank,
         array_position(${sql.param(this.contexts, '::bigint[]')}, a.context_id) AS layer
-      FROM assertion a JOIN node an ON an.id = a.assertion_id ${attachment}
+      FROM target_assertions target CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id OFFSET 0) a JOIN node an ON an.id = a.assertion_id ${attachment}
       LEFT JOIN "${table}" v ON v.assertion_id = a.assertion_id
       JOIN edge source ON source.from_node = a.assertion_id
       JOIN entity sk ON sk.id = source.entity_id AND sk.name = 'system.assertion-source'
