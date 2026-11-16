@@ -7,6 +7,7 @@
  * The fetch case runs the plugin in the sandbox with a source it holds; the fill case runs a product's own fill over a
  * fixture repository with the static plugins disk, git and imports and no agent, and reads the edges the graph holds.
  */
+import { createHash } from 'node:crypto';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -115,13 +116,18 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
     ]);
     const packages = operations.flatMap(operation=>operation.edges??[]).filter((edge) => edge.kind === 'code.imports-package').map((edge) => [edge.from.key['path'], edge.to.key]);
     expect(packages).toEqual([['src/graph/write.ts', { ecosystem: 'node', name: 'pg' }]]);
-    expect(operations.flatMap(operation=>operation.vertices??[]).map((vertex) => vertex.key)).toEqual([{ ecosystem: 'node', name: 'pg' }]);
+    expect(operations.flatMap(operation=>operation.vertices??[]).filter(vertex => vertex.kind === 'code.package').map((vertex) => vertex.key)).toEqual([{ ecosystem: 'node', name: 'pg' }]);
+    const snapshots = operations.flatMap(operation=>operation.vertices??[]).filter(vertex => vertex.kind === 'code.blob');
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.every(vertex => typeof vertex.key['digest'] === 'string')).toBe(true);
     // Missing endpoints are reported as problems and never sent to the atomic writer.
     const dangling=operations.flatMap(operation=>operation.edges??[]).filter(edge=>edge.kind==='code.imports'&&edge.from.key['path']==='src/dangling.ts');
     expect(dangling).toEqual([]);
     // The evidence names the file, its blob and the line the import opens on.
     const first = operations.flatMap(operation=>operation.edges??[]).find((edge) => edge.kind === 'code.imports' && edge.from.key['path'] === 'src/graph/write.ts' && edge.discriminator === '1:1');
-    expect(first?.evidence).toMatchObject({ target:{kind:'code.repository',key:{name:'app'}}, path: 'src/graph/write.ts', lineStart: 1, lineEnd: 1, digest: 'blob-src/graph/write.ts' });
+    const digest = createHash('sha256').update(FILES['src/graph/write.ts']!).digest('hex');
+    expect(first?.evidence).toMatchObject({ target: { kind: 'code.blob', key: { digest } }, path: 'src/graph/write.ts', lineStart: 1, lineEnd: 1, digest });
+    expect(snapshots).toContainEqual(expect.objectContaining({ key: { digest }, values: { content: FILES['src/graph/write.ts'] } }));
   }, 120_000);
 
   test('a file the host did not answer is a problem with its place, and the unit still answers the rest', async () => {
