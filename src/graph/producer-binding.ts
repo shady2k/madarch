@@ -56,8 +56,11 @@ export async function registerGraphPrincipal(owner: DatabaseOwner, input: { read
 export function bindGraphProducer(owner: DatabaseOwner, contract: GraphContract, input: { readonly principal: GraphPrincipal; readonly vertices: Readonly<Record<string, readonly string[]>>; readonly edges: Readonly<Record<string, readonly string[]>>; readonly contextId?: number; readonly scopeUid?: string; readonly actions?: readonly ProducerAction[] }): ProducerBinding {
   const principal = PRINCIPALS.get(input.principal);
   if (principal === undefined || principal.owner !== (OWNER_ID.get(owner) ?? owner)) throw new Error(`${WHERE}: a binding requires the host's retained principal for this product`);
+  // A slot is a field of the contract a write is checked against: the system's kinds and the common fields every entity
+  // holds (0039 item 6) are part of it, even when the caller holds the manifest's contract alone.
+  const writeContract = withAssertionContract(contract);
   const permissions = (sort: 'vertex' | 'edge', values: Readonly<Record<string, readonly string[]>>): ReadonlyMap<string, ReadonlySet<string>> => new Map(Object.entries(values).map(([name, fields]) => {
-    const kind = contract[sort].find(held => held.name === name);
+    const kind = writeContract[sort].find(held => held.name === name);
     if (kind === undefined) throw new Error(`${WHERE}: undeclared ${sort} permission ${name}`);
     for (const field of fields) if (!kind.fields.some(held => held.name === field)) throw new Error(`${WHERE}: undeclared property permission ${name}.${field}`);
     return [name, new Set([...('key' in kind ? kind.key : []), ...fields])];

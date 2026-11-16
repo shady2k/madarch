@@ -82,7 +82,11 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const contract = withAssertionContract(writeContractOf(manifest));
   const vertex = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: no field contract is declared`);
-  const result = { kind, fields: vertex.fields };
+  // The authored view is the kind's own fields: the system gives every entity fields of its own (the synonyms of 0039
+  // item 6), and a person's form states what the kind declares, never the engine's additions.
+  const declaredNames = new Set([...(declaration.fields ?? []).map((field) => field.name), ...vertex.key, ...(declaration.title === undefined ? [] : [declaration.title])]);
+  const ownFields = vertex.fields.filter((field) => declaredNames.has(field.name));
+  const result = { kind, fields: ownFields };
   if (action === 'schema') return result;
   const identity = person === undefined ? undefined : producerIdentityOf(person);
   let admitted: WriteCapability | undefined;
@@ -119,12 +123,12 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const all = identities.map((node) => node.uid);
   const nodes = identities.filter((node) => !node.removed);
   async function history(node: typeof nodes[number]): Promise<StoredAssertion[]> {
-    return await withSpan('graph.authored.history', {}, async () => await loadAssertions(tx, 'vertex', kind, ['$exists', ...vertex!.fields.map((field) => field.name)], [Number(node.node_id)]));
+    return await withSpan('graph.authored.history', {}, async () => await loadAssertions(tx, 'vertex', kind, ['$exists', ...ownFields.map((field) => field.name)], [Number(node.node_id)]));
   }
   async function view(node: typeof nodes[number]): Promise<AuthoredEntity> {
     const assertions = await history(node);
     const values: Record<string, unknown> = {};
-    for (const field of vertex!.fields) {
+    for (const field of ownFields) {
       const selectedAt = new Date().toISOString();
       const selected = selectAssertions(assertions.filter((row) => row.property === field.name), { validAt: selectedAt, recordedAt: selectedAt, contexts: [1] });
       values[field.name] = selected.selected?.value ?? null;

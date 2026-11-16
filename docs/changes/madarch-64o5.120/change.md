@@ -72,8 +72,12 @@ allowed list); UI architecture 0; catalog 501 kinds read, no finding on 117 page
 Test: `test/mention-text.test.ts`, `test/graphql-writes.test.ts` and `test/page-contract.test.ts` passed together:
 54 passed, 0 failed (the mention grammar's 12; the writes suite's 27, including the new changed-text retraction, the
 unlinked-mentions read with two same-named candidates and the press that links the shown span; the entity template's
-section list). The wiki app's suite passed: 127 passed, 0 failed, including `mentions.test.tsx`'s 3 (two candidates of
-two kinds each named with its kind, the press posting the exact span, an all-linked text drawing nothing).
+section list). `test/authored.test.ts`, `test/authored-import.test.ts`, `test/manual-operation.test.ts`,
+`test/system-overlay-binding.test.ts` and `test/graphql-writes.test.ts` passed together: 49 passed, 0 failed, after the
+authored view was narrowed to the kind's own declared fields (a person's form states what the kind declares, not the
+system's synonyms) and a producer's slots were checked against the write contract. The wiki app's suite passed: 127
+passed, 0 failed, including `mentions.test.tsx`'s 3 (two candidates of two kinds each named with its kind, the press
+sending the `LinkMention` mutation to `/graphql` with the exact span, an all-linked text drawing nothing).
 The full `test/` run with `MADARCH_PLUGIN_SANDBOX=off` (this box has no delegated cgroup) fails the same suites as the
 base commit d9a0d329 does, measured by running them in a worktree of that commit: the disk/git fill fixtures, the
 init/start commands, the draft templates, the golden fixture SDL, the catalog row check and the parent-bound fact case

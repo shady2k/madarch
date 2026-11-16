@@ -90,7 +90,9 @@ export async function installAgentSession(owner: DatabaseOwner, contract: GraphC
   const principal = await registerGraphPrincipal(owner, { producer: agent.producer, version: agent.version, kind: agent.kind, uid: agent.uid, sourceUid: agent.uid, principalUid: person.uid, scope: owner.location, sessionUid });
   return { ...agent, principal, sessionUid };
 }
-function writableSlots(contract: GraphContract): { vertices: Record<string, readonly string[]>; edges: Record<string, readonly string[]> } {
+function writableSlots(declared: GraphContract): { vertices: Record<string, readonly string[]>; edges: Record<string, readonly string[]> } {
+  // The contract the write is checked against: the system's own kinds and the fields every entity holds are in it.
+  const contract = withAssertionContract(declared);
   const protectedContract = withAssertionContract({ vertex: [], edge: [], dictionary: [] });
   const vertices = contract.vertex.flatMap((kind) => {
     const base = protectedContract.vertex.find((system) => system.name === kind.name);
