@@ -5,7 +5,8 @@ import {withAssertionContract} from '../src/graph/system-contract.js';
 import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
 import {newUid} from '../src/graph/uid.js';
 import {activeExistenceSql,loadAssertions} from '../src/graph/assertion-read.js';
-import {readDispute,reconcileDisputes,resolveDispute,listDisputeSlots,loadResolutionAssertion} from '../src/graph/disputes.js';
+import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
+import {readDispute,listDisputeSlots,loadResolutionAssertion} from '../src/graph/dispute-read.js';
 import {bindGraphProducer,activateGraphProducer,type ProducerBinding} from '../src/graph/producer-binding.js';
 import {registerSystemSource} from '../src/graph/system-installation.js';
 type ResolutionHost=import('../src/graph/operation-host.js').OperationHost;
@@ -71,18 +72,34 @@ test('0039.17/27: durable resolution survives repeats, reopens on changed value,
    expect(await executeResolution(host,contract,gr,{key:'resolve',input})).toBe(uid);
    await expect(executeResolution(host,contract,gr,{key:'stale',input:{...input,expectedCandidates:[]}})).rejects.toThrow('REVISION_CONFLICT');
   }finally{await queue.stop();}
-  const resolved=(await view())!;expect(resolved.state).toBe('RESOLVED');expect(resolved.selectedAssertionUid).toBe(question.candidates[1]!);
+  const resolved=(await view())!;expect(resolved.state).toBe('RESOLVED');expect(resolved.selectedAssertionUid).not.toBe(question.candidates[1]!);
   await owner.transaction('snapshot',async tx=>{
    const selector={validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]};
    expect((await listDisputeSlots(tx,contract,selector)).map(slot=>slot.dispute.selectedAssertionUid)).toContain(resolved.selectedAssertionUid!);
    const assertion=await loadResolutionAssertion(tx,contract,resolved.resolution!,await loadAssertions(tx,'vertex','sample',['amount']),selector);
    expect(assertion?.author).toBe(resolver.sourceUid);expect(assertion?.evidence).toHaveLength(1);
+   expect(assertion?.id).not.toBe(resolved.resolution);
+   const stored=await loadAssertions(tx,'vertex','sample',['amount']);
+   expect(stored.find(row=>row.id===assertion?.id)??null).toEqual(assertion);
+   expect(assertion?.source).not.toBe(resolver.sourceUid);
+   expect(assertion?.validFrom).toBe('2020-01-01T00:00:00.000Z');
+   expect(assertion?.validTo).toBeNull();
   });
   await expect(owner.transaction('write',async tx=>{await activateGraphProducer(tx,contract,gr);await resolveDispute(tx,contract,gr,{questionUid:question.id,chosenAssertionUid:question.candidates[1]!,expectedCandidates:[],rationale:'Stale',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});})).rejects.toThrow('REVISION_CONFLICT');
+  await owner.transaction('snapshot',async tx=>{
+   const rows=await loadAssertions(tx,'vertex','sample',['amount'],undefined,{validAt:'2020-06-01T00:00:00Z',recordedAt:new Date().toISOString(),contexts:[1]});
+   expect(rows.find(row=>row.selected)?.id).toBe(resolved.selectedAssertionUid!);
+  });
   const cutoff=new Date().toISOString();
   await write(gb,2);const repeated=(await view())!;expect(repeated.id).toBe(question.id);expect(repeated.state).toBe('RESOLVED');expect(repeated.resolution).toBe(resolved.resolution);
   await write(gb,3);const reopened=(await view())!;expect(reopened.id).toBe(question.id);expect(reopened.state).toBe('OPEN');expect(reopened.supersededResolutions).toContain(resolved.resolution!);
   expect((await view(cutoff))!.state).toBe('RESOLVED');
+  await owner.transaction('snapshot',async tx=>{
+   const rows=await loadAssertions(tx,'vertex','sample',['amount'],undefined,{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]});
+   const original=rows.find(row=>row.id===question.candidates[0])!;
+   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.value).toBe(3);
+   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.source).toBe(gb.sourceUid);
+  });
  }finally{await owner.close();}
 },30000);
 
@@ -176,22 +193,21 @@ test('foundation nullable product fields dispute without turning protected base 
 
 test('resolved false existence agrees across SQL sets, records, endpoint and mention admission',async()=>{
  const declared=withAssertionContract({...contract,vertex:contract.vertex.map(kind=>kind.name==='sample'?{...kind,fields:[...kind.fields,{name:'note',type:'text' as const,nullable:true}]}:kind),edge:[{name:'refers',from:['sample'],to:['sample'],cardinality:{from:'many',to:'many'},labels:{en:{out:'refers',in:'referred by'},ru:{out:'refers',in:'referred by'}},fields:[],repeats:false,capability:'fixture'}]});
- const {installDisputeSelection,refreshDisputeSelection}=await import('../src/graph/disputes.js');
  const {startupBinding}=await import('../src/graph/manifest-publication.js');const {readKindAssertions}=await import('../src/graph/records.js');
  const owner=await createTestDatabaseOwner({graphContract:declared});let stage='bootstrap';
  try{
   const productScope=await owner.transaction('write',async tx=>(await startupBinding(tx,declared,'existence-fixture')).binding.productUid);
   const sources=await Promise.all(['exists-a','exists-b','exists-resolver'].map(installationKey=>registerSystemSource(owner,declared,{type:'plugin',installationKey,scope:productScope,version:'1'})));
   const bindings=sources.map(source=>bindGraphProducer(owner,declared,{principal:source.principal,vertices:{sample:['amount','note'],'system.content-snapshot':['digest','content']},edges:{refers:[]},actions:['assert','resolve']}));
-  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await installDisputeSelection(tx,declared);await publishGraphDrafts(tx,declared,{vertices:['target','caller'].map(name=>({kind:'sample',key:{name},values:{amount:1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'})),removals:[]});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);});
+  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await publishGraphDrafts(tx,declared,{vertices:['target','caller'].map(name=>({kind:'sample',key:{name},values:{amount:1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'})),removals:[]});await reconcileDisputes(tx,declared);});
   const target=(await owner.run(tx=>tx.query<{id:string;uid:string}>(`SELECT n.id::text,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key->>'name'='target'`))).rows[0]!;
-  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[1]!);await installDisputeSelection(tx,declared);await writeAssertion(tx,declared,{sort:'vertex',kind:'sample',subjectId:target.id,property:'$exists',operation:'assert',value:false,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);});
+  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[1]!);await writeAssertion(tx,declared,{sort:'vertex',kind:'sample',subjectId:target.id,property:'$exists',operation:'assert',value:false,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,declared);});
   const question=await owner.transaction('snapshot',async tx=>readDispute(tx,declared,await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]),{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}));expect(question?.state).toBe('OPEN');
   const {sha256Hex}=await import('../src/graph/digest.js');const content='Existence proof',digest=sha256Hex(Buffer.from(content));
-  stage='resolve';await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[2]!);await installDisputeSelection(tx,declared);await publishGraphDrafts(tx,declared,{vertices:[{kind:'system.content-snapshot',key:{digest},values:{content},producer:'fixture',producerVersion:'1'}],removals:[]});const rows=await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]);const chosen=rows.find(row=>row.source===bindings[1]!.sourceUid&&row.value===false)!;await resolveDispute(tx,declared,bindings[2]!,{questionUid:question!.id,chosenAssertionUid:chosen.id,expectedCandidates:question!.candidates,rationale:'Target retired',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);await tx.query('SET CONSTRAINTS ALL IMMEDIATE');});
-  stage='unprimed-snapshot';await expect(owner.transaction('snapshot',tx=>tx.query(`SELECT graph_vertex_active($1::bigint,'sample',1)`,[target.id]))).rejects.toThrow('DISPUTE_SELECTION_STALE');
+  stage='resolve';await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[2]!);await publishGraphDrafts(tx,declared,{vertices:[{kind:'system.content-snapshot',key:{digest},values:{content},producer:'fixture',producerVersion:'1'}],removals:[]});const rows=await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]);const chosen=rows.find(row=>row.source===bindings[1]!.sourceUid&&row.value===false)!;await resolveDispute(tx,declared,bindings[2]!,{questionUid:question!.id,chosenAssertionUid:chosen.id,expectedCandidates:question!.candidates,rationale:'Target retired',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});await reconcileDisputes(tx,declared);await tx.query('SET CONSTRAINTS ALL IMMEDIATE');});
+  stage='unprimed-snapshot';expect((await owner.transaction('snapshot',tx=>tx.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,'sample',1) AS active`,[target.id]))).rows[0]?.active).toBe(false);
   stage='snapshot';await owner.transaction('snapshot',async tx=>{
-   await installDisputeSelection(tx,declared);
+
    const result=await tx.query<{scalar:boolean;in_set:boolean}>(`SELECT graph_vertex_active($1::bigint,'sample',1) AS scalar,EXISTS(SELECT 1 FROM graph_vertex_active_ids('sample',1) active(id) WHERE id=$1::bigint) AS in_set`,[target.id]);
    expect(result.rows[0]).toEqual({scalar:false,in_set:false});
    expect((await readKindAssertions(tx,'vertex','sample',['amount'],{contract:declared})).some(row=>row.uid===target.uid)).toBe(false);
@@ -199,33 +215,32 @@ test('resolved false existence agrees across SQL sets, records, endpoint and men
    const resolved=await readDispute(tx,declared,await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]),selectors);
    expect(resolved?.state).toBe('RESOLVED');
    if(resolved?.selectedAssertionUid==null)throw new Error(`${import.meta.path}:201: resolved existence has no canonical selected assertion`);
-   const predicate=activeExistenceSql('vertex','n',declared.vertex.map(kind=>kind.name),{...selectors,resolvedAssertionIds:[resolved.selectedAssertionUid]});
+   const predicate=activeExistenceSql('vertex','n',declared.vertex.map(kind=>kind.name),selectors);
    const visible=await tx.query<{name:string}>(`SELECT n.key->>'name' AS name FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key->>'name'=ANY($1::text[]) AND ${predicate} ORDER BY name COLLATE "C"`,[['target','caller']]);
    expect(visible.rows).toEqual([{name:'caller'}]);
   });
-  const rejected=async(mention:boolean)=>owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await installDisputeSelection(tx,declared);await publishGraphDrafts(tx,declared,{vertices:mention?[{kind:'sample',key:{name:'caller'},values:{note:`[[uid:${target.uid}]]`},producer:'fixture',producerVersion:'1'}]:[],edges:mention?[]:[{kind:'refers',from:{kind:'sample',key:{name:'caller'}},to:{kind:'sample',key:{name:'target'}},producer:'fixture',producerVersion:'1'}],removals:[]});});
+  const rejected=async(mention:boolean)=>owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await publishGraphDrafts(tx,declared,{vertices:mention?[{kind:'sample',key:{name:'caller'},values:{note:`[[uid:${target.uid}]]`},producer:'fixture',producerVersion:'1'}]:[],edges:mention?[]:[{kind:'refers',from:{kind:'sample',key:{name:'caller'}},to:{kind:'sample',key:{name:'target'}},producer:'fixture',producerVersion:'1'}],removals:[]});});
   stage='endpoint-rejection';await expect(rejected(false)).rejects.toThrow('MISSING_ENDPOINT');stage='mention-rejection';await expect(rejected(true)).rejects.toThrow('TARGET_MISSING');
  }catch(error){throw new Error(`resolved false scenario ${stage}: ${error instanceof Error?error.message:String(error)}`,{cause:error});}finally{await owner.close();}
 },60000);
 
 test('late graph writes fail forced constraints and savepoint rollback restores resolved false selection',async()=>{
  const declared=withAssertionContract({...contract,vertex:contract.vertex.map(kind=>kind.name==='sample'?{...kind,fields:[...kind.fields,{name:'note',type:'text' as const,nullable:true}]}:kind),edge:[{name:'refers',from:['sample'],to:['sample'],cardinality:{from:'many',to:'many'},labels:{en:{out:'refers',in:'referred by'},ru:{out:'refers',in:'referred by'}},fields:[],repeats:false,capability:'fixture'}]});
- const {installDisputeSelection,refreshDisputeSelection}=await import('../src/graph/disputes.js');
  const {startupBinding}=await import('../src/graph/manifest-publication.js');
  const owner=await createTestDatabaseOwner({graphContract:declared});let stage='bootstrap';
  try{
   const productScope=await owner.transaction('write',async tx=>(await startupBinding(tx,declared,'existence-fixture')).binding.productUid);
   const sources=await Promise.all(['exists-a','exists-b','exists-resolver'].map(installationKey=>registerSystemSource(owner,declared,{type:'plugin',installationKey,scope:productScope,version:'1'})));
   const bindings=sources.map(source=>bindGraphProducer(owner,declared,{principal:source.principal,vertices:{sample:['amount','note'],'system.content-snapshot':['digest','content']},edges:{refers:[]},actions:['assert','resolve']}));
-  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await installDisputeSelection(tx,declared);await publishGraphDrafts(tx,declared,{vertices:['target','caller'].map(name=>({kind:'sample',key:{name},values:{amount:1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'})),removals:[]});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);});
+  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[0]!);await publishGraphDrafts(tx,declared,{vertices:['target','caller'].map(name=>({kind:'sample',key:{name},values:{amount:1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'})),removals:[]});await reconcileDisputes(tx,declared);});
   const target=(await owner.run(tx=>tx.query<{id:string;uid:string}>(`SELECT n.id::text,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key->>'name'='target'`))).rows[0]!;
-  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[1]!);await installDisputeSelection(tx,declared);await writeAssertion(tx,declared,{sort:'vertex',kind:'sample',subjectId:target.id,property:'$exists',operation:'assert',value:false,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);});
+  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[1]!);await writeAssertion(tx,declared,{sort:'vertex',kind:'sample',subjectId:target.id,property:'$exists',operation:'assert',value:false,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,declared);});
   const question=await owner.transaction('snapshot',async tx=>readDispute(tx,declared,await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]),{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}));expect(question?.state).toBe('OPEN');
   const {sha256Hex}=await import('../src/graph/digest.js');const content='Existence proof',digest=sha256Hex(Buffer.from(content));
-  stage='resolve';await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[2]!);await installDisputeSelection(tx,declared);await publishGraphDrafts(tx,declared,{vertices:[{kind:'system.content-snapshot',key:{digest},values:{content},producer:'fixture',producerVersion:'1'}],removals:[]});const rows=await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]);const chosen=rows.find(row=>row.source===bindings[1]!.sourceUid&&row.value===false)!;await resolveDispute(tx,declared,bindings[2]!,{questionUid:question!.id,chosenAssertionUid:chosen.id,expectedCandidates:question!.candidates,rationale:'Target retired',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});await reconcileDisputes(tx,declared);await refreshDisputeSelection(tx,declared);await tx.query('SET CONSTRAINTS ALL IMMEDIATE');});
+  stage='resolve';await owner.transaction('write',async tx=>{await activateGraphProducer(tx,declared,bindings[2]!);await publishGraphDrafts(tx,declared,{vertices:[{kind:'system.content-snapshot',key:{digest},values:{content},producer:'fixture',producerVersion:'1'}],removals:[]});const rows=await loadAssertions(tx,'vertex','sample',['$exists'],[Number(target.id)]);const chosen=rows.find(row=>row.source===bindings[1]!.sourceUid&&row.value===false)!;await resolveDispute(tx,declared,bindings[2]!,{questionUid:question!.id,chosenAssertionUid:chosen.id,expectedCandidates:question!.candidates,rationale:'Target retired',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});await reconcileDisputes(tx,declared);await tx.query('SET CONSTRAINTS ALL IMMEDIATE');});
   stage='late-write-constraint-fence';
   await owner.transaction('write',async tx=>{
-   await installDisputeSelection(tx,declared);
+
    const selected=async()=> (await tx.query<{scalar:boolean;in_set:boolean}>(`SELECT graph_vertex_active($1::bigint,'sample',1) AS scalar,EXISTS(SELECT 1 FROM graph_vertex_active_ids('sample',1) active(id) WHERE id=$1::bigint) AS in_set`,[target.id])).rows[0];
    expect(await selected()).toEqual({scalar:false,in_set:false});
    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
@@ -234,17 +249,19 @@ test('late graph writes fail forced constraints and savepoint rollback restores 
    const caller=(await tx.query<{id:string}>(`SELECT n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key->>'name'='caller'`)).rows[0]!;
    const inserted=await tx.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,context_id) SELECT $1,id,$2::bigint,$3::bigint,1 FROM entity WHERE name='refers' RETURNING id::text`,[newUid(),caller.id,target.id]);
    expect(inserted.rows).toHaveLength(1);
-   await expect(tx.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow('DISPUTE_SELECTION_STALE');
+   await activateGraphProducer(tx,declared,bindings[0]!);
+   await writeAssertion(tx,declared,{sort:'edge',kind:'refers',subjectId:inserted.rows[0]!.id,property:'$exists',operation:'assert',value:true});
+   await expect(tx.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow('TARGET_MISSING');
    await tx.query('ROLLBACK TO SAVEPOINT before_late_edge');
    expect(await selected()).toEqual({scalar:false,in_set:false});
    await tx.query('SAVEPOINT before_child_projection');
    const child=(await tx.query<{id:string}>(`INSERT INTO context(parent,ref) VALUES(1,'late-fence-child') RETURNING id::text`)).rows[0]!;
-   await installDisputeSelection(tx,declared);
+
    const childSelection=(await tx.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,'sample',$2::bigint) AS active`,[target.id,child.id])).rows[0]!;
    expect(childSelection.active).toBe(false);
    await tx.query('ROLLBACK TO SAVEPOINT before_child_projection');
    expect(await selected()).toEqual({scalar:false,in_set:false});
-   await installDisputeSelection(tx,declared);
+
    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
    expect(await selected()).toEqual({scalar:false,in_set:false});
   });

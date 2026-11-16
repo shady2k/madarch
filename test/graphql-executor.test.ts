@@ -2,7 +2,8 @@ import { activateGraphProducer, bindGraphProducer } from '../src/graph/producer-
 import { registerSystemSource } from '../src/graph/system-installation.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
-import {readDispute,reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
+import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
+import {readDispute} from '../src/graph/dispute-read.js';
 import { writeAssertion } from '../src/graph/write.js';
 import { createHash } from 'node:crypto';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
