@@ -12,11 +12,27 @@ export interface StoredAssertion extends AssertionRow {
   readonly evidence: readonly string[];
 }
 
+export interface AssertionReadRequest {
+  readonly sort: 'vertex' | 'edge';
+  readonly kind: string;
+  readonly properties: readonly string[];
+  readonly subjectIds?: readonly number[];
+}
+
 /** Numeric ids are internal joins only; all exposed identities are graph uids. */
 export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'edge', kind: string, properties: readonly string[], subjectIds?: readonly number[]): Promise<StoredAssertion[]> {
-  return await withSpan('graph.assertions.read', { 'madarch.kind': kind, 'madarch.sort': sort }, async () => {
-    const result: StoredAssertion[] = [];
-    if (properties.length===0||(subjectIds !== undefined && subjectIds.length === 0)) return result;
+  return (await loadAssertionsBatch(executor, [{ sort, kind, properties, ...(subjectIds === undefined ? {} : { subjectIds }) }]))[0]!;
+}
+
+/** One statement reads independent typed requests without merging their field or subject boundaries. */
+export async function loadAssertionsBatch(executor: SqlExecutor, requests: readonly AssertionReadRequest[]): Promise<StoredAssertion[][]> {
+  return await withSpan('graph.assertions.read', { 'madarch.requests': requests.length }, async () => {
+    const result: StoredAssertion[][] = requests.map(() => []);
+    const parameters: unknown[] = [];
+    const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
+    const statements: string[] = [];
+    for (const [requestIndex, { sort, kind, properties, subjectIds }] of requests.entries()) {
+      if (properties.length === 0 || subjectIds?.length === 0) continue;
     const values=properties.map(property=>{
       const table=assertionValueTableName(kind,sort,property);
       const literal="'"+property.replaceAll("'","''")+"'";
@@ -32,13 +48,11 @@ export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'ed
            JOIN entity subject_kind ON subject_kind.id=subject.entity_id
            JOIN node edge_from ON edge_from.id=subject.from_node
            JOIN node edge_to ON edge_to.id=subject.to_node`;
-      const { rows } = await executor.query<{
-        id: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
-        property: string; context_id: number; language: string | null; source: string; author: string;
-        unit: string | null; operation_uid: string; evidence: string[]; value: unknown; value_type:string|null;
-        operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
-        recorded_at: string | Date; recorded_sequence: string;
-      }>(`SELECT assertion_node.uid::text AS id, subject.id AS subject_id, subject.uid::text AS subject_uid,
+      const kindParameter = param(kind);
+      const propertiesParameter = param(properties);
+      const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
+      statements.push(`SELECT ${requestIndex}::integer AS request_index, assertion_rows.* FROM (
+ SELECT assertion_node.uid::text AS id, subject.id AS subject_id, subject.uid::text AS subject_uid,
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
         value_row.value,value_row.value_type,
@@ -49,17 +63,30 @@ export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'ed
         ARRAY(SELECT target.uid::text FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node WHERE lineage.from_node=a.assertion_id AND k.name='system.assertion-evidence' ORDER BY target.uid) AS evidence
         FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
         ${subjectJoin} LEFT JOIN (${values}) value_row ON value_row.assertion_id=a.assertion_id AND value_row.property=a.property
-        WHERE subject_kind.name=$1 AND a.property=ANY($2::text[]) ${subjectIds === undefined ? '' : 'AND subject.id=ANY($3::bigint[])'}
-        ORDER BY array_position($2::text[],a.property),a.recorded_sequence`, subjectIds === undefined ? [kind, properties] : [kind, properties, subjectIds]);
+        WHERE subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND subject.id=ANY(${subjectsParameter}::bigint[])`}
+        ORDER BY array_position(${propertiesParameter}::text[],a.property),a.recorded_sequence) assertion_rows`);
+    }
+    if (statements.length === 0) return result;
+    const { rows } = await executor.query<{
+      request_index: number;
+        id: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
+        property: string; context_id: number; language: string | null; source: string; author: string;
+        unit: string | null; operation_uid: string; evidence: string[]; value: unknown; value_type:string|null;
+        operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
+        recorded_at: string | Date; recorded_sequence: string;
+    }>(statements.join(' UNION ALL '), parameters);
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
-      for (const row of rows) result.push({
+      for (const row of rows) {
+        const request = requests[row.request_index]!;
+        result[row.request_index]!.push({
         id: row.id,
-        subject: sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind, from: row.edge_from!, to: row.edge_to! },
+        subject: request.sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind: request.kind, from: row.edge_from!, to: row.edge_to! },
         subjectId: Number(row.subject_id), property: row.property, context: Number(row.context_id), language: row.language,
         source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence,
         value: row.value_type === 'bigint' && typeof row.value === 'string' && Number.isSafeInteger(Number(row.value)) ? Number(row.value) : row.value_type==='timestamp with time zone'&&typeof row.value==='string' ? new Date(row.value).toISOString() : row.value instanceof Date ? row.value.toISOString() : row.value, operation: row.operation, validFrom: text(row.valid_from), validTo: row.valid_to === null ? null : text(row.valid_to),
         recordedAt: text(row.recorded_at), recordedSequence: BigInt(row.recorded_sequence),
       });
+      }
     return result;
   });
 }

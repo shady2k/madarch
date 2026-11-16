@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {createTestDatabaseOwner} from './test-database.js';
 import {bindTestWriteCapability} from './write-capability-fixture.js';
 import {publishGraphDrafts} from '../src/graph/write.js';
-import {loadAssertions} from '../src/graph/assertion-read.js';
+import {loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
 const graph:GraphContract={vertex:[{name:'typed',table:generatedTableName('typed','vertex'),key:['name'],fields:[{name:'name',type:'text'},{name:'amount',type:'bigint'},{name:'when',type:'timestamp'},{name:'enabled',type:'boolean'},{name:'details',type:'json',schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false}}],capability:'fixture'}],edge:[],dictionary:[]};
 test('assertion property batch preserves native typed values and subject filtering',async()=>{
@@ -17,6 +17,18 @@ test('assertion property batch preserves native typed values and subject filteri
    expect(await loadAssertions(executor,'vertex','typed',['amount'],[])).toEqual([]);expect(reads).toBe(1);
    const all=await loadAssertions(executor,'vertex','typed',['amount']);
    expect(all.map(row=>row.value)).toEqual(['9223372036854775807',9007199254740991]);
+   const beforeBatch=reads;
+   const batches=await loadAssertionsBatch(executor,[
+    {sort:'vertex',kind:'typed',properties:['amount'],subjectIds:[Number(identities.rows[0]!.id)]},
+    {sort:'vertex',kind:'typed',properties:['enabled','amount']},
+    {sort:'vertex',kind:'typed',properties:['details'],subjectIds:[]},
+   ]);
+   expect(reads-beforeBatch).toBe(1);
+   expect(batches.map(batch=>batch.map(row=>[row.property,row.value]))).toEqual([
+    [['amount','9223372036854775807']],
+    [['enabled',true],['enabled',true],['amount','9223372036854775807'],['amount',9007199254740991]],
+    [],
+   ]);
   });
  }finally{await owner.close();}
 },30000);

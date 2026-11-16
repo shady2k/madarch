@@ -13,6 +13,7 @@ function reader(columns: readonly string[], row: Record<string, unknown>): { rea
   const queries: string[] = [];
   const at = '2026-01-01T00:00:00.000Z';
   const assertionRows = (kind: string, fields: readonly string[]) => fields.map((property, index) => ({
+    request_index: 0,
     id: `019a0000-0000-7000-8000-${String((kind === GIT_KINDS.file ? 10 : 30) + index).padStart(12, '0')}`,
     subject_id: kind === GIT_KINDS.file ? 1 : 3,
     subject_uid: kind === GIT_KINDS.file ? String(row['node']) : '019a0000-0000-7000-8000-000000000003',

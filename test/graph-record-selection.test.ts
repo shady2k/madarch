@@ -15,7 +15,7 @@ function executor(values: readonly { property: string; value: unknown; operation
     let rows: Record<string, unknown>[];
     if (sql.includes('WITH anchors AS')) rows = [];
     else if (sql.includes('FROM assertion a')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
-      id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
+      request_index: 0, id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
       property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
       unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
       valid_from: value.validFrom ?? '2026-11-14T00:00:00.000Z', valid_to: null,
