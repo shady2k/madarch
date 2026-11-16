@@ -42,7 +42,8 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
     UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,p.layer+1,least(p.cutoff,p.parent_recorded_seq)
     FROM context c JOIN context_path p ON c.id=p.parent
   ), raw AS MATERIALIZED (${raw}), eligible AS (
-    SELECT r.*,p.layer FROM raw r JOIN context_path p ON p.id=r.context_id
+    SELECT r.request_index,r.subject_id,r.property,r.language,r.source,r.id,r.operation,r.valid_from,r.valid_to,r.recorded_sequence,p.layer
+    FROM raw r JOIN context_path p ON p.id=r.context_id
     WHERE ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(ARRAY[${selector.unitUids.map(quote).join(',')}]::uuid[]))`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences}
   ), layers AS (
     SELECT eligible.*,min(layer) OVER (PARTITION BY request_index,subject_id,property,language,source) AS nearest FROM eligible
@@ -53,8 +54,10 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
   ), selected AS (
     SELECT DISTINCT ON (request_index,subject_id,property,language) * FROM streams WHERE operation='assert'
     ORDER BY request_index,subject_id,property,language,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
-  ) SELECT raw.*,EXISTS(SELECT 1 FROM streams s WHERE s.id=raw.id AND s.operation='assert') AS active,
-    EXISTS(SELECT 1 FROM selected s WHERE s.id=raw.id) AS selected FROM raw`;
+  ) SELECT raw.*,active_stream.id IS NOT NULL AS active,selected_stream.id IS NOT NULL AS selected
+    FROM raw
+    LEFT JOIN streams active_stream ON active_stream.request_index=raw.request_index AND active_stream.id=raw.id AND active_stream.operation='assert'
+    LEFT JOIN selected selected_stream ON selected_stream.request_index=raw.request_index AND selected_stream.id=raw.id`;
 }
 
 
