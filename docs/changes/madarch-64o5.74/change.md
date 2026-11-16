@@ -51,20 +51,22 @@ The remaining issues are implementation and validation blockers under the record
 This existing coverage entry is narrower than the whole cutover. Complete capability requirements and their coverage, current-revision checks and stage acceptance remain owed; the entry must not be read as coverage of all decision 0039 requirements.
 
 ### Current status: unaccepted work in progress
-No final green backend, architecture, wiki, mutation or whole-stage acceptance is claimed. Concurrent implementation reports and older targeted results do not establish the current working tree's result. The coordinator must validate the final integrated tree serially and retain every failure and limitation.
+The atomic cutover is preserved in normal hooked local checkpoint commits, beginning with merge checkpoint a699a96a against f438fd54. No reset, discarded recovery stash, hook bypass, task closure or acceptance approval is claimed.
 
-Verified intermediate recovery milestones reported by the coordinator:
-- A normal hooked local WIP checkpoint commit succeeded: a699a96a. The privacy hook is no longer blocking this checkpoint; no hook bypass occurred. This is a recovery checkpoint, not an accepted cutover or stage closure.
-- Root static and architecture check run 24 passed with 874 of 874 findings matched and zero gained findings against the 1,241-entry baseline comparison.
-- Resolved-false public/core coverage passed 8 tests with 91 assertions, including restart, person, plugin, session and standalone fill paths. The bounded metadata regression passed 30 of 30 checks. These are targeted results, not full-suite evidence; no test timeout was increased.
-- The actual first fill completed within its unchanged 120-second bound, at about 79 seconds, but failed: git output classified an ensure-only vertex as a removal. The implementation fix is in progress; this run is not a passing fill.
+Current integration evidence (2026-11-16):
+- Root `bun run check` run 34 passed: TypeScript, architecture 874/874, UI 0, catalogue 501 kinds/117 page-or-member kinds, four workflows and zero quarantined cases. The required-base architecture comparison has 1,241 entries; the current baseline gains zero entries.
+- All 312 original root test files were attempted serially in fresh `bun --smol test <file>` processes: 215 files exited zero, 97 exited nonzero, including four processes killed with exit 137. The logs report 2,144 passing and 313 failing cases; timeout and cleanup cascades mean those are not counts of independent defects. This pass spans checkpoint changes and is not a passing suite of the final revision. The preceding single-process whole-suite attempt was killed by earlyoom and is incomplete.
+- Current focused disputes, immutable scalar keys and public resolution coverage passed 9 tests and 106 assertions. Late-write forced constraints and savepoint rollback remain covered. Architecture gates passed 38 tests; strict record selectors passed six tests; subject/source/author/operation lineage passed three tests.
+- The wiki app's full native suite passed 124 tests with 587 assertions; its check and build passed. These do not establish root-suite acceptance.
+- The path registry now accepts valid POSIX whitespace while rejecting NUL, empty and non-string values; its native regression passed. Original relation, disk and fill time limits were not raised.
 
-At this update, the following checks remain pending:
-- The git-output correction and a passing actual first fill under the original bound.
-- Complete integrated validation of typed scalar keys without node.key fact fallback; grants and permission scope at all writer doors; context and language selection; disputes, evidence invalidation, mentions and all effective readers.
-- Whole-cutover capability specifications and coverage, the full backend suite, final integrated wiki validation, relevant bounded mutation checks, independent review and stage acceptance. Targeted intermediate results do not replace these obligations.
+Known blockers remain:
+- The original two-pass Git-fill case still times out at 120 seconds. A persisted first-fill trace recorded about 79,000 SQL statements; repeated metadata selection and forced constraints dominate aggregate span time. Batching preserves sequence allocation and rollback in two focused passing tests but has not solved this bound. Many full-catalogue fills also fail with stale queue attempts or excessive memory.
+- A faithful schema-reader fixture now fails explicitly because forced migration blocks on the reader-held typed key table. It no longer hangs while waiting for a removed dictionary table.
+- Canonical typed reader pagination does not meet its unchanged two/one-query budgets. Evidence fixtures, public identity/naming paths, internal lineage visibility, cancellation journaling and remaining failed integration fixtures still require work. No alternate resolver, hidden pre-query work, retired table or weaker assertion was introduced to make them pass.
+- Consistency atomic/hook limits, a clean final-revision root suite, current-source mutation coverage, whole-cutover capability coverage, independent review and stage acceptance remain owed. Historical mutation survivors and unrun scopes remain gaps, not acceptance evidence.
 
-The coordinator retains the checkpoint and refreshes the patch series against f438fd54. This document update creates no commit and changes no source or test file. No task is closed or labelled accepted by this record.
+Detailed per-file results, focused reruns, diagnostic reports, patch application proof and the exact delivered revision are retained with the patch series in `/tmp/madarch-64o5.74-patch-series`. The tracker-free document check still reports missing task/approval records; none is fabricated.
 
 ### Historical endpoint increment only
 The following results belong to the earlier endpoint-only increment, not the present whole cutover or its current revision:

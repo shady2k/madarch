@@ -75,6 +75,7 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
     `  ${kind}:`,
     `    id: ${row.id}`,
     `    group: ${row.group}`,
+    '    purpose: understand',
     '    definition: "A kind the check is asked about."',
     '    sources: ["https://example.test/kind"]',
     `    acquisition: ${row.acquisition}`,

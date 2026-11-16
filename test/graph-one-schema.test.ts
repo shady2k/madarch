@@ -25,7 +25,7 @@ test('0039.25: graph identities have no mutable opinion state and assertion head
 test('0039.25: every assertion has one graph subject and source, author, operation lineage',async()=>{
  const owner=await createTestDatabaseOwner({graphContract:graph});try{
  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:['a','b'].map(name=>({kind:'probe',key:{name},values:{amount:2},producer:'fixture',producerVersion:'1'})),edges:[{kind:'links',from:{kind:'probe',key:{name:'a'}},to:{kind:'probe',key:{name:'b'}},discriminator:'one',values:{weight:3},producer:'fixture',producerVersion:'1'}],removals:[]}));
- const headers=await owner.run(tx=>tx.query<{assertion_id:string;subject_kind:string;subjects:number;source:number;author:number;operation:number}>(`SELECT a.assertion_id::text,
+ const headers=await owner.run(tx=>tx.query<{assertion_id:string;subject_kind:string;property:string;subjects:number;source:number;author:number;operation:number}>(`SELECT a.assertion_id::text,a.property,
  coalesce((SELECT k.name FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id WHERE s.assertion_id=a.assertion_id),
  (SELECT k.name FROM assertion_edge_subject s JOIN edge e ON e.id=s.edge_id JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id=a.assertion_id)) AS subject_kind,
  ((SELECT count(*) FROM assertion_vertex_subject s WHERE s.assertion_id=a.assertion_id)+(SELECT count(*) FROM assertion_edge_subject s WHERE s.assertion_id=a.assertion_id))::integer AS subjects,
@@ -33,7 +33,11 @@ test('0039.25: every assertion has one graph subject and source, author, operati
  (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-author')::integer AS author,
  (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-operation')::integer AS operation FROM assertion a`));
  const published = headers.rows.filter(row => row.subject_kind === 'probe' || row.subject_kind === 'links');
- expect(published).toHaveLength(9);
+ expect(published.map(row => [row.subject_kind, row.property]).sort()).toEqual([
+  ['probe','$exists'],['probe','name'],['probe','amount'],
+  ['probe','$exists'],['probe','name'],['probe','amount'],
+  ['links','$exists'],['links','weight'],
+ ].sort());
  for(const row of headers.rows)expect(row).toMatchObject({subjects:1,source:1,author:1,operation:1});
  const edges=await owner.run(tx=>tx.query("SELECT e.discriminator FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='links'"));expect(edges.rows).toEqual([{discriminator:'one'}]);
  }finally{await owner.close();}

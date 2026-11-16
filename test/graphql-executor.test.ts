@@ -337,7 +337,8 @@ describe('the GraphQL executor', () => {
       query: `{ allDemoFile(context: ${context}, where: { path: { _contains: "bulk-" } }, first: 50) { edges { node { path demoContainsOf(first: 1) { edges { cursor } } } } } }`,
     });
     expect((answer.body as MessageBody).errors).toBeUndefined();
-    expect(((answer.body as MessageBody).data!['allDemoFile'] as { edges: unknown[] }).edges).toHaveLength(50);
+    const data = (answer.body as MessageBody).data as Record<string, unknown>;
+    expect((data['allDemoFile'] as { edges: unknown[] }).edges).toHaveLength(50);
     expect(counted.statements()).toBeLessThan(12);
   }, 60_000);
 

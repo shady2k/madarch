@@ -352,12 +352,19 @@ describe('one defect in the manifest is one problem', () => {
     if (!base.includes(old)) throw new Error(`the starter manifest holds no ${JSON.stringify(old)}`);
     if (old.startsWith('    ')) {
       const declaration = { ...parseYaml(base).kinds['code.entry-point'], group: old.startsWith('    group:') ? 'code.structure' : 'code.schema', id: 'fixture.entry-point', 'key-edges': [], 'derives-from': [] };
-      const row = `  fixture.entry-point:
-${stringify(declaration, { lineWidth: 0 }).trimEnd().split('\n').map(line => `    ${line}`).join('\n')}
-`;
-      if (!row.includes(old)) throw new Error(`the isolated fixture holds no ${JSON.stringify(old)}`);
-      return `${base}
-${row.replace(old, written)}`;
+      const [field, previous] = Object.entries(parseYaml(old.trim()))[0]!;
+      const replacement = parseYaml(written.trim())[field];
+      function replaceField(value: Record<string, unknown>): boolean {
+        if (Object.hasOwn(value, field) && JSON.stringify(value[field]) === JSON.stringify(previous)) {
+          value[field] = replacement;
+          return true;
+        }
+        return Object.values(value).some(child => child !== null && typeof child === 'object' && replaceField(child as Record<string, unknown>));
+      }
+      if (!replaceField(declaration)) throw new Error(`the isolated fixture holds no ${JSON.stringify(old)}`);
+      const fixture = parseYaml(base);
+      fixture.kinds['fixture.entry-point'] = declaration;
+      return stringify(fixture, { lineWidth: 0 });
     }
     return base.replace(old, written);
   }

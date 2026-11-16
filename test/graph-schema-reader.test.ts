@@ -1,24 +1,11 @@
 import { prepareStore } from '../src/adapters/prepare-store.js';
-/**
- * A schema migration and a page's read (madarch-8bdc.2.9). A page reads in one `REPEATABLE READ` transaction, which
- * holds `AccessShare` on every table it reads until it commits; `DROP INDEX` takes `AccessExclusive` on the table. The
- * one graph's schema runs no DDL on a store whose stamp stands, but when a migration does run its dictionary key
- * indexes were compared with a quoted spelling `pg_get_indexdef` never writes, so every dictionary's key index was
- * dropped and made again. A migration that drops an index that stands holds one dictionary table while it waits for
- * the next, and a page that holds the next and then reads the first deadlocks with it — PostgreSQL killed one of them
- * (CI run 42905848312, `deadlock detected`).
- *
- * The case forces that interleaving with two connections and an explicit lock order: the reader holds the language
- * dictionary, the migration's `DROP INDEX` on the path dictionary holds that one and waits for the language table, and
- * the reader then asks for the path table. A key index a migration finds standing must be left alone, so the migration
- * answers while the reader still holds the language table and no deadlock can form.
- */
+/** A reader and a forced schema migration must not deadlock on standing typed key storage. */
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from '../src/graph/contract.js';
-const dictionaryTables = { language: generatedTableName('reader_language', 'dictionary'), path: generatedTableName('reader_path', 'dictionary') };
-const dictionaryContract: GraphContract = { ...EMPTY_CONTRACT, dictionary: [
-  { name: 'reader_language', fields: [{ name: 'name', type: 'text' }], key: ['name'] },
-  { name: 'reader_path', fields: [{ name: 'text', type: 'text' }], key: ['text'] },
+import { EMPTY_CONTRACT, assertionValueTableName, type GraphContract } from '../src/graph/contract.js';
+const dictionaryTables = { language: assertionValueTableName('reader_language', 'vertex', 'name'), path: assertionValueTableName('reader_path', 'vertex', 'text') };
+const dictionaryContract: GraphContract = { ...EMPTY_CONTRACT, vertex: [
+  { name: 'reader_language', table: 'reader_language', capability: 'reader-fixture', fields: [{ name: 'name', type: 'text' }], key: ['name'] },
+  { name: 'reader_path', table: 'reader_path', capability: 'reader-fixture', fields: [{ name: 'text', type: 'text' }], key: ['text'] },
 ] };
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -26,7 +13,7 @@ describe('a page reads while a fill migrates its schema', () => {
   test('a migration leaves a standing key index alone, so a reader and it cannot deadlock', async () => {
     const owner = await createTestDatabaseOwner();
     try {
-      // The store a page has already read: its schema and every dictionary's key index stand.
+      // The store a page has already read: its typed key storage and primary indexes stand.
       await prepareStore(owner, { contract: dictionaryContract });
 
       await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
@@ -35,7 +22,8 @@ describe('a page reads while a fill migrates its schema', () => {
       let letTheReaderCheck!: () => void;
       const readerMayCheck = new Promise<void>((resolve) => { letTheReaderCheck = resolve; });
       let theReaderHoldsTheLanguage!: () => void;
-      const theReaderHoldsTheLanguageTable = new Promise<void>((resolve) => { theReaderHoldsTheLanguage = resolve; });
+      let readerSetupFailed!: (error: unknown) => void;
+      const theReaderHoldsTheLanguageTable = new Promise<void>((resolve, reject) => { theReaderHoldsTheLanguage = resolve; readerSetupFailed = reject; });
       let blocked = false;
       let sawTheMigrationFinish = false;
       let readerError: Error | undefined;
@@ -62,6 +50,7 @@ describe('a page reads while a fill migrates its schema', () => {
         await tx.query(`LOCK TABLE ${dictionaryTables.path} IN ACCESS SHARE MODE`);
       }).catch((error: unknown) => {
         readerError = error instanceof Error ? error : new Error(String(error));
+        readerSetupFailed(readerError);
         return undefined;
       });
 

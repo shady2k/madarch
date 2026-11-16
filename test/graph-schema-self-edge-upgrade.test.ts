@@ -52,10 +52,13 @@ test('upgrades a populated catalogue without resetting authored history and pres
         kind: 'manifest.kind', key: { name: 'term' }, values: { declaration: savedDeclaration },
         producer: 'manifest', producerVersion: '1',
       }], removals: [] }, 1, { binding, author: 'manifest@1', words: 'Keep this declaration' });
-      await tx.query('ALTER TABLE edge ADD CONSTRAINT edge_check CHECK (from_node <> to_node)');
-      await tx.query("UPDATE madarch_meta.schema_stamp SET stamp = $1 WHERE name = 'one-graph'", [oldStamp]);
       await refreshDisputeSelection(tx, before);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    });
+    // Emulate the old build only after the populated write and its deferred triggers commit.
+    await first.transaction('write', async tx => {
+      await tx.query('ALTER TABLE edge ADD CONSTRAINT edge_check CHECK (from_node <> to_node)');
+      await tx.query("UPDATE madarch_meta.schema_stamp SET stamp = $1 WHERE name = 'one-graph'", [oldStamp]);
     });
     original = await first.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], { contract: before }));
   } finally { await first.close(); }

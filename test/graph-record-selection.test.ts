@@ -21,9 +21,9 @@ function executor(values: readonly { property: string; value: unknown; operation
       valid_from: value.validFrom ?? '2026-11-14T00:00:00.000Z', valid_to: null,
       recorded_at: value.recordedAt ?? '2026-11-14T00:00:00.000Z', recorded_sequence: String(index + 1),
     }));
-    else if (sql.includes('transaction_timestamp()')) rows = [{ now }];
-    else if (sql.includes('FROM node n')) rows = [{ id: 1, uid: 'subject', key: { name: 'fixture' } }, ...(values.some(value => value.subjectId === 2) ? [{ id: 2, uid: 'other', key: { name: 'other' } }] : [])];
-    else if (sql.includes('FROM edge n')) rows = [{ id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role' }];
+    else if (sql === 'SELECT transaction_timestamp() AS now') rows = [{ now }];
+    else if (sql.includes('FROM node n')) rows = [{ id: 1, uid: 'subject', key: { name: 'fixture' }, read_at: now }, ...(values.some(value => value.subjectId === 2) ? [{ id: 2, uid: 'other', key: { name: 'other' }, read_at: now }] : [])];
+    else if (sql.includes('FROM edge n')) rows = [{ id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
     else throw new Error(`Unexpected query: ${sql}`);
     return { rows: rows as Row[] };
   } };

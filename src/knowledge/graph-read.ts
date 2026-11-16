@@ -11,9 +11,6 @@ import { entityAddress } from './addresses.js';
 import { readEvidenceStates, type EvidenceState } from '../graph/evidence-read.js';
 import { evidenceSupportRoles } from '../graph/evidence-support.js';
 import { readPublishedManifest } from '../graph/manifest-publication.js';
-import { graphContractOf } from '../fill/stages/plugin-contract.js';
-import { withManifestContract } from '../graph/manifest-contract.js';
-import { withAssertionContract } from '../graph/system-contract.js';
 
 export interface SourceSpan {
   path: string;
@@ -337,9 +334,21 @@ export class GraphReader {
       }
     }
     const evidenceRows = records.some(record => record.assertions.some(assertion => assertion.evidence.length > 0)) ? await tx.query<{ assertion_uid: string; target_uid: string; locator: string; key: Record<string, unknown> }>(`SELECT a.uid::text AS assertion_uid,t.uid::text AS target_uid,e.discriminator AS locator,t.key FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node WHERE k.name='system.assertion-evidence' AND a.uid=ANY($1::uuid[]) ORDER BY a.uid,t.uid,e.discriminator`, [records.flatMap(record => record.assertions.map(assertion => assertion.id))]) : { rows: [] };
+    const evidenceContract = this.contract;
+    if (evidenceRows.rows.length > 0 && evidenceContract === undefined) throw new Error(`${import.meta.path}:341: evidence reads require the explicit graph contract`);
     const manifest = evidenceRows.rows.length === 0 ? undefined : await readPublishedManifest(tx);
-    if (evidenceRows.rows.length > 0 && manifest === undefined) throw new Error(`${import.meta.path}:340: evidence reads require the published contract`);
-    const evidenceContract = manifest === undefined ? undefined : withAssertionContract(withManifestContract(graphContractOf(manifest)));
+    const supportRoles = evidenceSupportRoles(manifest?.semanticBindings);
+    if (evidenceRows.rows.length > 0 && supportRoles === undefined) {
+      // Without role metadata no product relation can safely be classified as unrelated support.
+      const productEdges = evidenceContract!.edge.filter(edge => !edge.name.startsWith('system.')).map(edge => edge.name);
+      if (productEdges.length > 0) {
+        const links = await tx.query(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id
+          JOIN node target ON target.id=e.from_node OR target.id=e.to_node
+          WHERE target.uid=ANY($1::uuid[]) AND k.name=ANY($2::text[]) LIMIT 1`,
+        [[...new Set(evidenceRows.rows.map(row => row.target_uid))], productEdges]);
+        if (links.rows.length > 0) throw new Error(`${import.meta.path}:353: evidence has product relations but no declared evidence-support role metadata`);
+      }
+    }
     const at = await this.validAt();
     const evidenceRequests = evidenceRows.rows.map(evidence => {
       const assertion = records.flatMap(record => record.assertions).find(row => row.id === evidence.assertion_uid);
@@ -347,7 +356,7 @@ export class GraphReader {
       const attachment = JSON.parse(evidence.locator) as { locator: Record<string, unknown> | null };
       return { targetUid: evidence.target_uid, locator: attachment.locator, assertion };
     });
-    const evaluated = evidenceContract === undefined ? [] : await readEvidenceStates(tx, evidenceContract, evidenceRequests, { validAt: at, recordedAt: at, contexts: [1] }, evidenceSupportRoles(manifest?.semanticBindings));
+    const evaluated = evidenceContract === undefined ? [] : await readEvidenceStates(tx, evidenceContract, evidenceRequests, { validAt: at, recordedAt: at, contexts: [1] }, supportRoles);
     const states = new Map(evidenceRows.rows.map((evidence, index) => [`${evidence.assertion_uid}:${evidence.target_uid}:${evidence.locator}`, evaluated[index]!]));
     return records.map(row=>{
       const properties:Record<string,unknown>={...row.key,...row.values};
