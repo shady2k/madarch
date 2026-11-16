@@ -1,5 +1,3 @@
-/** Transaction-local canonical existence projection shared by writer and generated SQL. */
-export const DISPUTE_EXISTENCE_SETTING='madarch.dispute_selection';
 /** Bitemporal source selection and semantic resolution pins (decision 0039, items 25–27). */
 import { createHash } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
