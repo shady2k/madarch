@@ -64,10 +64,10 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
         ${subjectJoin} LEFT JOIN LATERAL (${values}) value_row ON TRUE
         LEFT JOIN LATERAL (
-          SELECT max(target.uid::text) FILTER (WHERE k.name='system.assertion-source') AS source,
-                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-author') AS author,
-                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-unit') AS unit,
-                 max(target.uid::text) FILTER (WHERE k.name='system.assertion-operation') AS operation_uid,
+          SELECT (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-source')) AS scalar(value)) AS source,
+                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-author')) AS scalar(value)) AS author,
+                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-unit')) AS scalar(value)) AS unit,
+                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-operation')) AS scalar(value)) AS operation_uid,
                  coalesce(array_agg(target.uid::text ORDER BY target.uid) FILTER (WHERE k.name='system.assertion-evidence'),ARRAY[]::text[]) AS evidence
           FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node
           WHERE lineage.from_node=a.assertion_id

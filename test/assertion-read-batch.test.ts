@@ -38,6 +38,13 @@ test('assertion property batch preserves native typed values and subject filteri
     [['enabled',true],['enabled',true],['amount','9223372036854775807'],['amount',9007199254740991]],
     [],
    ]);
+   const duplicate=await tx.query<{id:number}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+    SELECT gen_random_uuid(),e.entity_id,e.from_node,e.to_node,'duplicate-lineage',e.context_id
+    FROM edge e JOIN entity k ON k.id=e.entity_id
+    WHERE k.name='system.assertion-source' AND e.from_node=(SELECT n.id FROM node n WHERE n.uid=$1::uuid)
+    RETURNING id`,[rows[0]!.id]);
+   expect(duplicate.rows).toHaveLength(1);
+   await expect(loadAssertions(tx,'vertex','typed',['amount'],[Number(identities.rows[0]!.id)])).rejects.toThrow('more than one row');
   });
  }finally{await owner.close();}
 },30000);
