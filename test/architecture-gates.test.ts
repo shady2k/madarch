@@ -287,7 +287,11 @@ describe('gate 1: the engine holds no product data', () => {
   test('transaction modes require the canonical mode type and owner-backed forwarding', () => {
     const home=fixture({
       ...catalogue('demo.kind','fields:\n  - name: snapshot\n    type: text\n'),
-      'src/sql-driver.ts': "export type SqlTransactionKind='snapshot'|'write';",
+      'src/sql-driver.ts': [
+        "export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;",
+        'export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];',
+        "export const arbitrary = 'snapshot';",
+      ].join('\n'),
       'src/reader.ts': [
         "import type {DatabaseOwner} from './adapters/database-owner.js';",
         "type Owner=Pick<DatabaseOwner,'transaction'>;",
@@ -296,7 +300,7 @@ describe('gate 1: the engine holds no product data', () => {
         "const arbitrary='snapshot';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3],['src/sql-driver.ts',1]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3],['src/sql-driver.ts',3]]);
   });
 
   test('logical state selectors require the exact system template projection', () => {
@@ -448,6 +452,17 @@ describe('gate 1: the engine holds no product data', () => {
       });
       expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
     }
+  });
+
+  test('system declarations do not make their words manifest format vocabulary', () => {
+    const home = fixture({
+      ...catalogue('question', 'id: practice.question\n'),
+      'src/product/manifest/system-catalogue.ts': "export const declarations = [['question', 'Question']];\n",
+      'src/a.ts': "export const literal = 'question';\n",
+    });
+    expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([
+      ['src/a.ts', 'question'],
+    ]);
   });
 
   test('an import from catalog/ is refused: the engine reads the product\'s own files', async () => {

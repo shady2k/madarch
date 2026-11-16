@@ -5,8 +5,9 @@
  * `madarch/kinds/<group>/<subgroup>/<kind>.yaml` declares each kind,
  * including where its entities come from
  * (the graph, or Markdown files in the product repository) and the template
- * that shows them. The engine holds no kind of its own: nothing here names a
- * kind, a folder or a template, and a product without the file has no pages.
+ * that shows them. A product may explicitly extend a protected engine system
+ * kind. This reader admits extensions; installation and durable contract-version
+ * activation belong to the graph bootstrap.
  *
  * ```yaml
  * kinds:
@@ -58,6 +59,7 @@ import { FIELD_TYPES, fieldTypeOf, type FieldType, type KeyEdgeContract, type Ed
 import { byCodePoint } from '../../model/order.js';
 import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
 import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
+import { systemKindPresentation } from './system-catalogue.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/catalog.yaml';
@@ -1702,11 +1704,15 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const raw = value as Record<string, unknown>;
     let decl = raw;
     const inherited = raw['extends'];
-    const base = inherited === undefined ? undefined : SYSTEM_CONTRACT.vertex.find((kind) => inherited === `system:${kind.name}` && kind.name === name);
-    if (inherited !== undefined) {
+    const base = SYSTEM_CONTRACT.vertex.find((kind) => kind.name === name);
+    if (base !== undefined) {
+      if (inherited !== `system:${name}`) {
+        problem(inherited === undefined ? [] : ['extends'], `the system kind cannot be replaced: declare "extends: system:${name}" to add fields`);
+        continue;
+      }
       const start = findings.length;
-      if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned kind as its declaration'); continue; }
-      for (const field of ['key', 'capability'] as const) if (raw[field] !== undefined) problem([field], `a system extension cannot replace its inherited ${field}`);
+      const metadata = new Set(['extends', 'fields', 'source', 'title', 'labels', 'description', 'group', 'origin', 'purpose', 'audience', 'facts', 'attributes', 'details', 'relations', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'member', 'import-folder', 'import-file', ...CATALOG_ONLY_FIELDS]);
+      for (const key of Object.keys(raw)) if (!metadata.has(key)) problem([key], `"${key}" cannot replace an inherited system contract`);
       if (raw['source'] !== undefined && raw['source'] !== 'graph') problem(['source'], 'a system extension has source graph');
       const additions = raw['fields'];
       if (additions !== undefined && !Array.isArray(additions)) problem(['fields'], 'a system extension adds a list of nullable fields');
@@ -1717,7 +1723,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       }
       if (findings.length !== start) continue;
       const { extends: _inherited, ...overlay } = raw;
-      decl = { source: 'graph', ...overlay };
+      decl = { ...systemKindPresentation(name), source: 'graph', ...overlay };
+    } else if (inherited !== undefined) {
+      problem(['extends'], 'a system extension names the same protected kind as its declaration');
+      continue;
     }
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`);
@@ -1751,6 +1760,11 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none' && decl['source'] === undefined && decl['fields'] === undefined && decl['key'] === undefined && decl['key-edges'] === undefined) continue;
     if (policy === 'none') {
+      if (base !== undefined) {
+        if (raw['fields'] !== undefined) catalogProblem(['fields'], 'a system extension with template-policy none cannot add graph fields before activation');
+        for (const field of ['source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (raw[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+        continue;
+      }
       if (decl['source'] !== undefined && decl['source'] !== 'graph') catalogProblem(['source'], 'a kind with template-policy none may declare only source graph');
       for (const field of ['folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
     }
@@ -2481,6 +2495,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (field.binding?.kind !== 'plugin') continue;
       const binding = field.binding;
       const line = field.line ?? kind.line;
+      if (kind.systemBase !== undefined) {
+        findings.push({ file, line, message: `kind "${name}": field "${field.name}" cannot bind a plugin yet: system extensions require UID-aware plugin transport before plugin writes can be admitted` });
+        continue;
+      }
       const plugin = plugins.get(binding.plugin);
       if (plugin === undefined) {
         findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to ${binding.plugin}@${binding.major}.${binding.field}, and the manifest declares no plugin "${binding.plugin}"` });
@@ -2507,7 +2525,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       else held.fields.push(field);
     }
     if (byPlugin.size === 0) continue;
-    // A kind a plugin fills has a key: the unique index of its table is built from the key's columns.
+    // A kind a plugin fills has a key: the unique index uses its natural-key columns.
     for (const [id, entry] of byPlugin) {
       if (kind.key === undefined || kind.key.length === 0) {
         findings.push({ file, line: kind.line, message: `kind "${name}": the plugin "${id}" fills it, and the manifest declares no "key": a table is unique by its kind's natural key` });

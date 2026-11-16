@@ -50,8 +50,21 @@ test('extensions reject mismatched bases, natural keys, inherited fields and req
   }
 });
 
-test('reserved names alone do not authorize system storage', () => {
+test('reserved names without explicit inheritance fail at admission', () => {
   const ordinary = read('    source: graph\n');
-  expect(ordinary.kinds.get('person')?.systemBase).toBeUndefined();
-  expect(() => withSystemContract(graphContractOf(ordinary))).toThrow('storage or producer person');
+  expect(ordinary.kinds.has('person')).toBe(false);
+  expect(ordinary.findings).toContainEqual(expect.objectContaining({ file: '/tmp/overlay/madarch/catalog.yaml', line: 2, message: expect.stringContaining('extends: system:person') }));
+});
+
+test('every inherited identity and constraint control is refused at its declaration', () => {
+  for (const control of ['key', 'key-edges', 'identity', 'uid', 'evidence', 'checks', 'indexes', 'capability']) {
+    const manifest = read(`    extends: system:person
+    ${control}: {}
+`);
+    expect(manifest.kinds.has('person')).toBe(false);
+    expect(manifest.findings).toContainEqual(expect.objectContaining({
+      file: '/tmp/overlay/madarch/catalog.yaml', line: 4,
+      message: expect.stringContaining(`"${control}" cannot replace an inherited system contract`),
+    }));
+  }
 });

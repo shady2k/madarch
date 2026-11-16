@@ -61,3 +61,25 @@ This branch is merged onto the decision 0039 typed-assertion snapshot after the 
 Current evidence applicability reads immutable retained targets and declared support roles without rewriting historical citations. The wire and SDK use typed evidence targets. Real source conformance keeps native blob reads and explicit key-edge roles; its fixture uses `code.file-repository` because that is the role declared by those plugin contracts, not the unrelated `repository` role of the separate snapshot-reader fixture. Glossary declarations use their JSON contract as one source and retain usages as well as native usage edges.
 
 Validation on the integration tree: `bun run check` passes, with the same 560 active inherited architecture findings and zero I/O-span findings (`/tmp/integrate-merge3-check5.log`). Seven protocol, access, reconciliation, producer-fact and current-evidence suites pass: 75 tests, zero failures (`/tmp/integrate-merge3-accept-tests.log`), including actual disk, git, imports, database-schema, glossary and quarantine source readers. Reader refusal localization tests pass: 10 tests. Earlier malformed fixtures and schema-render drift were corrected; the final run above supersedes those runs. This is integration validation, not proposal or stage acceptance. The document-gate baseline-history limitation recorded in madarch-64o5.74 still applies.
+
+### Exact integration conflict inventory
+
+- `plugins/test-quarantine/main.ts`: retained native immutable blob citations, ported explicit source reconciliation.
+- `src/fill/plugin-turns.ts`: kept snapshot unit orchestration and blob-backed reads, added authenticated own-fact access.
+- `src/graph/contract.ts`: added typed removal evidence, kept snapshot contract structure.
+- `src/graph/plugin-turns.ts`: kept immutable assertion replay and parent-key references; removed obsolete implicit sweep.
+- `src/graph/records.ts`: added generic current-evidence applicability over typed assertions.
+- `src/graph/write.ts`: threaded removal evidence through native immediate retractions; discarded incoming legacy writer duplication.
+- `src/plugin-sdk.ts`: immediate explicit operations, generic bounded parent scope and no deletion on incomplete source.
+- `src/plugin/conformance.ts`: real source extraction and native blob reads, field-contract evidence checks.
+- `src/plugin/fill-access.ts`: retained selected-field/output restrictions and added bounded own facts.
+- `src/plugin/host.ts`: kept immediate checked writes and current rights checks, added scoped reconciliation protocol.
+- `src/plugin/protocol.ts`: typed evidence and operations remain native; added own facts and explicit parent scope.
+- `src/problems/index.ts`: localized applicability findings with native target/locator shape.
+- `test/db-schema-reads.test.ts`: supplied immediate reconciliation context.
+- `test/fixtures/plugin-deaf/main.ts`: kept native plugin protocol fixture.
+- `test/plugin-fill-access.test.ts`: kept snapshot replay and added selection restrictions; completed units use native published state.
+- `test/plugin-host.test.ts`: kept immediate native operations and adapted reconciliation assertions.
+- `test/plugin-output-partitions.test.ts`: retained ordinary partition isolation.
+- `test/plugin-result-chunks.test.ts`: retained refusal of retired chunk surfaces.
+- `test/test-quarantine-plugin.test.ts`: retained typed immutable evidence and current graph fixture.

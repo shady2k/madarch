@@ -1,3 +1,4 @@
+extends: system:operation
 id: practice.operation
 purpose: history
 audience: [product-lead, analyst, developer]
