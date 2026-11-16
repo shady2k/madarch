@@ -25,12 +25,16 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
     if (selector.subjectIds !== undefined) { parameters.push(selector.subjectIds); predicates.push(`n.id=ANY($${parameters.length}::bigint[])`); }
     const identities = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string }>((sort === 'vertex'
       ? 'SELECT n.id,n.uid::text,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE '
-      : "SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator FROM edge n JOIN entity k ON k.id=n.entity_id WHERE ") + predicates.join(' AND '), parameters);
-    const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)));
+      : `SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator FROM graph_effective_edges(${Number(selector.contexts?.[0]??1)}${selector.validAt===undefined?'':`,'${new Date(selector.validAt).toISOString()}'::timestamptz,'${new Date(selector.recordedAt??selector.validAt).toISOString()}'::timestamptz`}) n JOIN entity k ON k.id=n.entity_id WHERE `) + predicates.join(' AND '), parameters);
     const clock = await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now');
     const now = new Date(clock.rows[0]!.now).toISOString();
     const temporal = { validAt: selector.validAt ?? now, recordedAt: selector.recordedAt ?? now, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) };
-    const slots = new Map(selectAssertionSlots(assertions, temporal));
+    const mapped=sort==='vertex'&&!kind.startsWith('system.')&&!kind.startsWith('manifest.')&&(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)),mapped?{context:temporal.contexts[0]!,validAt:temporal.validAt,recordedAt:temporal.recordedAt}:undefined);
+    const canonicalIds=mapped?new Set((await tx.query<{id:number}>(`SELECT id FROM node WHERE id=ANY($1::bigint[]) AND graph_merge_target(id,$2::bigint,$3::timestamptz,$4::timestamptz)=id`,[identities.rows.map(row=>row.id),temporal.contexts[0],temporal.validAt,temporal.recordedAt])).rows.map(row=>Number(row.id))):null;
+    const keyFields=selector.contract?.vertex.find(vertex=>vertex.name===kind)?.key??[];
+    const visibleAssertions=assertions.filter(row=>sort!=='vertex'||!keyFields.includes(row.property)||row.originalSubjectId===row.subjectId);
+    const slots = new Map(selectAssertionSlots(visibleAssertions, temporal));
     const resolvedIds = new Set<string>();
     if (disputable) {
       const disputes = await listDisputeSlots(tx, withAssertionContract(selector.contract!), temporal);
@@ -43,7 +47,8 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
     }
     const selected = new Set([...slots.values()].flatMap(s => s.selected === null ? [] : [s.selected.id]));
     return identities.rows.flatMap(row => {
-      const own = assertions.filter(a => a.subjectId === Number(row.id));
+      if(canonicalIds!==null&&!canonicalIds.has(Number(row.id)))return [];
+      const own = visibleAssertions.filter(a => a.subjectId === Number(row.id));
       const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));
       const existence = [...slots.values()].filter(slot => slot.candidates.some(candidate => candidate.property === '$exists' && own.some(assertion => assertion.id === candidate.id)));
       const decided = existence.flatMap(slot => slot.candidates.filter(candidate => resolvedIds.has(candidate.id)));

@@ -16,6 +16,13 @@ import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates } from './evidence-read.js';
 import { withSpan } from '../obs/trace.js';
 
+async function mergedAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],ids:readonly number[]|undefined,selectors:Selectors):Promise<StoredAssertion[]> {
+ return await withSpan('graph.dispute.merged-assertions',{},async()=>{
+ const merged=(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+ const targets=ids===undefined?undefined:merged&&sort==='vertex'?(await tx.query<{id:number}>(`SELECT DISTINCT graph_merge_target(id,$2::bigint,$3::timestamptz,$4::timestamptz) AS id FROM unnest($1::bigint[]) subject(id)`,[ids,selectors.contexts[0],selectors.validAt,selectors.recordedAt])).rows.map(row=>Number(row.id)):ids;
+ return await loadAssertions(tx,sort,kind,properties,targets,merged&&sort==='vertex'?{context:selectors.contexts[0]!,validAt:selectors.validAt,recordedAt:selectors.recordedAt}:undefined);
+ });
+}
 type Selectors = Parameters<typeof selectAssertions>[1];
 export interface DisputeView {
   readonly id:string; readonly state:'OPEN'|'RESOLVED'; readonly candidates:readonly string[];
@@ -128,7 +135,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
  const slots=new Map<string,StoredAssertion[]>();
  for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort]){
   const changed=affectedSlots.filter(slot=>slot.sort===sort&&slot.kind===kind.name&&isDisputableProperty(sort,kind.name,slot.property));if(changed.length===0)continue;
-  const rows=await loadAssertions(tx,sort,kind.name,[...new Set(changed.map(slot=>slot.property))],[...new Set(changed.map(slot=>slot.subjectId))]);
+  const rows=await mergedAssertions(tx,sort,kind.name,[...new Set(changed.map(slot=>slot.property))],[...new Set(changed.map(slot=>slot.subjectId))],selectors);
   for(const row of rows){const key=JSON.stringify([sort,subject(row),row.property,row.language]);slots.set(key,[...(slots.get(key)??[]),row]);}
  }
  if(slots.size===0)return;
@@ -170,7 +177,7 @@ export async function resolveDispute(tx:SqlExecutor,declared:GraphContract,bindi
  const location=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,coalesce(subject.id,edge_subject.id) AS subject_id,a.property,a.language FROM assertion a JOIN node header ON header.id=a.assertion_id LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE header.uid=$1::uuid`,[anchor])).rows[0];
  if(!location)throw new Error(`${import.meta.path}:172: TARGET_MISSING question subject`);
  const sort=location.sort;const kindRow={kind:location.kind};
- const rows=(await loadAssertions(tx,sort,location.kind,[location.property],[Number(location.subject_id)])).filter(row=>row.language===location.language);
+ const rows=(await mergedAssertions(tx,sort,location.kind,[location.property],[Number(location.subject_id)],selectors)).filter(row=>row.language===location.language);
  const anchorRow=rows[0];if(!anchorRow)throw new Error(`${import.meta.path}:172: TARGET_MISSING question subject`);
  requireProducerBinding(tx,contract,binding,capability.context,sort,kindRow.kind,anchorRow.property==='$exists'?[]:[anchorRow.property],undefined,undefined,'resolve');
  await requireAssertionScope(tx,contract,capability,{sort,subjectId:String(anchorRow.subjectId)},capability.context);
@@ -222,10 +229,11 @@ export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,sel
    group.properties.add(anchor.property);group.subjects.add(Number(anchor.subject_id));group.slots.push(anchor);
   }
   for(const group of groups.values()){
-   const all=await loadAssertions(tx,group.sort,group.kind,[...group.properties],[...group.subjects]);
+   const all=await mergedAssertions(tx,group.sort,group.kind,[...group.properties],[...group.subjects],selectors);
    for(const anchor of group.slots){
-    const rows=all.filter(row=>row.subjectId===Number(anchor.subject_id)&&row.property===anchor.property&&row.language===anchor.language);const dispute=await readDispute(tx,contract,rows,selectors);
-    if(dispute)result.push({sort:group.sort,kind:group.kind,subjectId:Number(anchor.subject_id),property:anchor.property,language:anchor.language,rows,dispute});
+    const target=(await tx.query<{id:number}>(`SELECT graph_merge_target($1::bigint,$2::bigint,$3::timestamptz,$4::timestamptz) AS id`,[anchor.subject_id,selectors.contexts[0],selectors.validAt,selectors.recordedAt])).rows[0]!.id;
+    const rows=all.filter(row=>row.subjectId===Number(target)&&row.property===anchor.property&&row.language===anchor.language);const dispute=await readDispute(tx,contract,rows,selectors);
+    if(dispute)result.push({sort:group.sort,kind:group.kind,subjectId:Number(target),property:anchor.property,language:anchor.language,rows,dispute});
    }
   }
   return result;
