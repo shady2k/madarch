@@ -1,7 +1,7 @@
 /** Generated typed assertion storage, decision 0039 items 10 and 25. */
 import type { OuterTransaction } from '../database-owner.js';
 import { withSpan } from '../../obs/trace.js';
-import { assertionValueTableName, type FieldContract, type GraphContract } from '../../graph/contract.js';
+import { endpointKindNames, assertionValueTableName, type FieldContract, type GraphContract } from '../../graph/contract.js';
 import { validateValueContracts } from '../../graph/value-validation.js';
 import { DISPUTE_EXISTENCE_SETTING } from '../../graph/assertion-selection.js';
 import { isDisputableProperty, withAssertionContract } from '../../graph/system-contract.js';
@@ -126,7 +126,9 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
     const relationChecks: string[] = [];
     for (const kind of contract.edge.filter(kind => kind.capability !== 'system')) {
       const edgeKind = literal(kind.name);
-      const vertexKinds = [...new Set([...kind.from,...kind.to])];
+      const from = endpointKindNames(kind.from, contract.vertex);
+      const to = endpointKindNames(kind.to, contract.vertex);
+      const vertexKinds = [...new Set([...from, ...to])];
       const active = `WITH active_edges AS MATERIALIZED (
         SELECT ctx.id AS context_id,e.id,e.from_node,e.to_node FROM context ctx
         CROSS JOIN LATERAL graph_edge_active_ids(${edgeKind},ctx.id) active(id)
@@ -138,9 +140,9 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
       )`;
       const failures = [`WHEN EXISTS(
         SELECT 1 FROM active_edges e
-        WHERE NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${kind.from.map(literal).join(',')}]::text[]))
-          OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[]))) THEN 1`];
-      for (const [direction, ends, bound] of [['from',kind.from,kind.cardinality.to],['to',kind.to,kind.cardinality.from]] as const) {
+        WHERE NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
+          OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[]))) THEN 1`];
+      for (const [direction, ends, bound] of [['from',from,kind.cardinality.to],['to',to,kind.cardinality.from]] as const) {
         if (bound === 'many') continue;
         failures.push(`WHEN EXISTS(
           SELECT 1 FROM active_vertices n LEFT JOIN active_edges e ON e.context_id=n.context_id AND e.${direction}_node=n.id

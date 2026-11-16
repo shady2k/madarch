@@ -86,7 +86,7 @@ test('adding one kind to the full starter publishes only its own field, relation
     // The aggregate catalogue changes, but all prior individual declarations and endpoint pairs remain identical.
     expect(after.vertices.filter(one => original.has(identity(one)) && one.kind !== 'manifest.catalogue'))
       .toEqual(before.vertices.filter(one => one.kind !== 'manifest.catalogue'));
-    expect(after.edges.filter(one => one.from.key['name'] !== 'fixture.growth')).toEqual(before.edges);
+    expect(after.edges.filter(one => one.from.key['name'] !== 'fixture.growth')).toEqual([...before.edges]);
     expect(after.edges.filter(one => one.from.key['name'] === 'fixture.growth')).toMatchObject([
       { kind: MANIFEST_RELATION_EDGE, from: { key: { name: 'fixture.growth' } }, to: { key: { name: 'code.file' } }, discriminator: 'mentions' },
     ]);

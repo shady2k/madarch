@@ -2280,8 +2280,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (onParentDelete !== undefined && onParentDelete !== 'restrict' && onParentDelete !== 'cascade') { findings.push({ file, line: at(['edges', index, 'on-parent-delete']), message: '"on-parent-delete" is restrict or cascade' }); return; }
       if (edges.has(body['name']) || kinds.has(body['name'])) { findings.push({ file, line, message: `edge "${body['name']}": kind names are unique` }); return; }
       for (const direction of ['from', 'to'] as const) {
-        for (const [endpoint, name] of (body[direction] as string[]).entries()) {
-          if (!kinds.has(name) && !protectedGraphKinds.has(name)) { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
+        const ends = body[direction] as string[];
+        if (ends.includes('any') && ends.length !== 1) { findings.push({ file, line: at(['edges', index, direction, ends.indexOf('any')]), message: `edge "${body['name']}": any stands alone in the ${direction} endpoint list (0039 item 1)` }); return; }
+        for (const [endpoint, name] of ends.entries()) {
+          if (name !== 'any' && !kinds.has(name) && !protectedGraphKinds.has(name)) { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
         }
       }
       const fieldTypes = new Set([...FIELD_TYPES, ...Object.keys(valueTypes)]);
