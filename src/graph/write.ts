@@ -203,17 +203,24 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
   ? 'JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge subject ON subject.id=attachment.subject_edge_id'
   : 'JOIN assertion_edge_subject attachment ON attachment.assertion_id=a.assertion_id';
  const subjectId=input.sort==='vertex'?'subject.to_node':'attachment.edge_id';
- const current=(await executor.query<{id:string;uid:string;operation:string;value:unknown}>(`SELECT a.assertion_id::text AS id,n.uid::text AS uid,a.operation,v.value
+ const current=(await executor.query<{id:string;uid:string;operation:string;value:unknown;unchangedScope:boolean}>(`WITH stream AS (
+  SELECT a.assertion_id::text AS id,n.uid::text AS uid,a.operation,v.value,a.valid_from,a.valid_to,a.recorded_sequence
   FROM assertion a JOIN node n ON n.id=a.assertion_id ${association}
   JOIN edge source ON source.from_node=a.assertion_id JOIN entity source_kind ON source_kind.id=source.entity_id AND source_kind.name='system.assertion-source'
   JOIN node producer ON producer.id=source.to_node
   LEFT JOIN "${assertionValueTableName(input.kind,input.sort,input.property)}" v ON v.assertion_id=a.assertion_id
   WHERE ${subjectId}=$1::bigint AND a.property=$2 AND a.language IS NOT DISTINCT FROM $3::text AND a.context_id=$4 AND producer.uid=$5::uuid
-   AND a.valid_from<=coalesce($6::timestamptz,clock_timestamp()) AND (a.valid_to IS NULL OR a.valid_to>coalesce($6::timestamptz,clock_timestamp()))
-  ORDER BY a.recorded_sequence DESC LIMIT 1`,[input.subjectId,input.property,input.language??null,context,binding.sourceUid,input.validFrom??null])).rows[0];
+ ), current AS (
+  SELECT * FROM stream WHERE valid_from<=coalesce($6::timestamptz,statement_timestamp())
+   AND (valid_to IS NULL OR valid_to>coalesce($6::timestamptz,statement_timestamp())) ORDER BY recorded_sequence DESC LIMIT 1
+ ) SELECT current.*,(current.valid_to IS NOT DISTINCT FROM $7::timestamptz AND NOT EXISTS (
+  SELECT 1 FROM stream later WHERE later.recorded_sequence>current.recorded_sequence
+   AND ($7::timestamptz IS NULL OR later.valid_from<$7::timestamptz)
+   AND (later.valid_to IS NULL OR later.valid_to>coalesce($6::timestamptz,statement_timestamp()))
+ )) AS "unchangedScope" FROM current`,[input.subjectId,input.property,input.language??null,context,binding.sourceUid,input.validFrom??null,input.validTo??null])).rows[0];
  const priorValue=field.type==='timestamp'&&current?.value!==null&&current?.value!==undefined?new Date(String(current.value)).toISOString():current?.value;
  const nextValue=field.type==='timestamp'&&input.value!==null&&input.value!==undefined?new Date(String(input.value)).toISOString():input.value;
- const repeat=input.operation==='assert'&&current?.operation==='assert'&&sameValue(priorValue,nextValue);
+ const repeat=input.operation==='assert'&&current?.operation==='assert'&&current.unchangedScope&&sameValue(priorValue,nextValue);
  const uid=repeat?current.uid:newUid();
  const made=repeat?{nodeId:current.id}:await identity(executor,'system.assertion',uid,{},binding.productUid,context);
  if(!repeat){
