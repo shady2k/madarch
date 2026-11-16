@@ -4,6 +4,7 @@
  * closes the answers on a press elsewhere; beside it stand the live run, madarch's own docs and the reader's controls.
  */
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import type { LiveRun } from '../components/run-indicator.js';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -12,6 +13,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { FrameToolbar } = await import('../frame.js');
+
 const { setWikiLanguage } = await import('../i18n.js');
 
 beforeAll(async () => { await setWikiLanguage('en'); });
@@ -44,7 +46,7 @@ beforeEach(() => {
   }) as unknown as typeof fetch;
 });
 
-async function render(products: readonly { name: string; folder: string; own?: true }[] = [], current = 'shop', base = ''): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
+async function render(products: readonly { name: string; folder: string; own?: true }[] = [], current = 'shop', base = '', run: LiveRun = { live: false, run: null, own: false }): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -58,7 +60,7 @@ async function render(products: readonly { name: string; folder: string; own?: t
       busy: false,
       menu: null,
       open: (address: string) => { opened.push(address); },
-      run: { live: false, run: null },
+      run,
       products,
       currentProduct: current,
       onLanguage: () => undefined,
@@ -185,4 +187,23 @@ test('the product menu lists the served products, the one in front marked, and o
   } finally {
     await page.close();
   }
+});
+
+test('the bar carries one fill control: the run while it goes, the press otherwise', async () => {
+  const idle = await render();
+  try {
+    expect(idle.container.querySelectorAll('[data-testid="fill-entry"]')).toHaveLength(1);
+    expect(idle.container.querySelectorAll('[data-testid="run-indicator"]')).toHaveLength(0);
+  } finally { await idle.close(); }
+  const live = await render([], 'shop', '', { live: true, own: false, run: { runId: 'fill-1', phase: 'running', publishedUnits: 0, units: [{}, {}] } as never });
+  try {
+    // The regression the owner named: two fill controls stand on the bar while a run goes.
+    expect(live.container.querySelectorAll('[data-testid="fill-entry"]')).toHaveLength(0);
+    expect(live.container.querySelectorAll('[data-testid="run-indicator"]')).toHaveLength(1);
+    expect(live.container.querySelectorAll('[data-testid="fill-entry"], [data-testid="run-indicator"]')).toHaveLength(1);
+  } finally { await live.close(); }
+  const own = await render([], 'shop', '', { live: false, run: null, own: true });
+  try {
+    expect(own.container.querySelectorAll('[data-testid="fill-entry"], [data-testid="run-indicator"]')).toHaveLength(0);
+  } finally { await own.close(); }
 });

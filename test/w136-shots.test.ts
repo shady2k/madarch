@@ -90,21 +90,48 @@ run('the restored items', () => {
     page.on('pageerror', (error) => failures.push(String(error)));
     page.on('console', (message) => { if (message.type() === 'error') failures.push(message.text()); });
     const settle = async (ms = 1200): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, ms)); };
+    // Every screen is read as its DOM measures it: the body's words, one fill control, no failure and no publication
+    // note — the numbers stand in the test's output beside the picture (madarch-64o5.136, round 4).
     const shot = async (name: string): Promise<void> => {
       for (const dark of [false, true]) {
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }]);
         for (const width of [1440, 390]) {
           await page.setViewport({ width, height: width === 390 ? 844 : 1000, deviceScaleFactor: 1 });
           await settle(400);
+          const measured = await page.evaluate(() => {
+            const main = document.querySelector('main');
+            const text = (main?.textContent ?? '').replace(/\s+/gu, ' ').trim();
+            return {
+              main: text.length,
+              head: text.slice(0, 90),
+              fillEntry: document.querySelectorAll('[data-testid="fill-entry"]').length,
+              indicator: document.querySelectorAll('[data-testid="run-indicator"]').length,
+              loading: document.querySelectorAll('[data-testid="page-loading"]').length,
+              error: document.querySelectorAll('[data-testid="wiki-error"]').length,
+              publication: document.querySelectorAll('[data-publication]').length,
+              live: /Filling|Заполняется|Filled:|Заполнено:/.test(text),
+              overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            };
+          });
+          console.log(`MEASURE ${name} ${String(width)} ${dark ? 'dark' : 'light'} ${JSON.stringify(measured)}`);
           await page.screenshot({ path: join(OUT, `${name}-${String(width)}-${dark ? 'dark' : 'light'}.png`), fullPage: false });
         }
       }
     };
     const open = async (path: string): Promise<void> => {
-      // The app keeps a change stream open, so `networkidle0` never comes: the page's own frame is the readiness.
+      // The app keeps a change stream open, so `networkidle0` never comes: the page's own frame is the readiness, and
+      // then the page's sections — a slow read shows its shapes until the answer stands (madarch-64o5.136).
       await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="wiki-app"], [data-testid="wiki-error"], [data-publication]', { timeout: 60_000 }).catch(() => null);
-      await settle(1500);
+      for (let at = 0; at < 30; at += 1) {
+        const ready = await page.evaluate(() => {
+          const main = document.querySelector('main');
+          return document.querySelector('[data-testid="page-loading"]') === null && ((main?.textContent ?? '').trim().length > 0 || document.querySelector('[data-testid="frame-rebuilding"]') !== null);
+        });
+        if (ready) break;
+        await settle(1000);
+      }
+      await settle(800);
       const role = await page.$('[data-testid="role-first"]');
       if (role !== null) { await page.click('[data-testid="role-first-continue"]'); await settle(800); }
     };
@@ -121,7 +148,16 @@ run('the restored items', () => {
       // The home: the live fill line while a fill runs, then the incomplete card after a later commit.
       await fetch(`${base}products/alpha/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.file'], pluginsOnly: true }) }).catch(() => undefined);
       await open('products/alpha/');
-      await settle(300);
+      // The home's sections stand as soon as their answer comes; a slow read under a running fill shows its shapes, and
+      // the picture waits for the sections themselves (madarch-64o5.136).
+      for (let at = 0; at < 30; at += 1) {
+        const ready = await page.evaluate(() => {
+          const text = document.querySelector('main')?.textContent ?? '';
+          return text.includes('Where this product stands') && /Filling|Заполняется|Filled:|Заполнено:/.test(text);
+        });
+        if (ready) break;
+        await settle(1000);
+      }
       await shot('home-live');
       for (let at = 0; at < 120; at += 1) {
         const status = (await (await fetch(`${base}products/alpha/api/status`)).json()) as { fill: { state: string } };

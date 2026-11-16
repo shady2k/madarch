@@ -458,6 +458,41 @@ test('the sidebar\'s «Ждёт вас» count is the problems listing\'s open t
   }
 });
 
+test('a page whose answer is on its way shows its shapes, and the home stands while a fill runs', async () => {
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const pending: ((value: Response) => void)[] = [];
+  globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    if (!path.endsWith('/graphql')) {
+      // A fill runs: the top bar shows its state, and the frame's one fill control is the indicator.
+      const command = path.includes('/api/status') ? { fill: { state: 'running', runPhase: 'running', runId: 'fill-1' }, filled: true }
+        : path.includes('/api/settings') ? { role: readerRole, asked: true, roles: ['analyst', 'everything'] }
+          : path.includes('/api/problems') ? { open: 1, closed: 0, dismissed: 0, sections: {} }
+            : path.includes('/api/fill-runs') ? { run: { runId: 'fill-1', phase: 'running', publishedUnits: 0, units: [{}, {}], groups: [], events: [], order: [], selected: [] } } : {};
+      return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+    if (body.query.includes('bootstrap')) return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})));
+    if (body.query.includes('products')) return new Response(JSON.stringify({ data: { products: { current: 'shop', products: [] } } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return await new Promise<Response>((resolve) => { pending.push(resolve); });
+  }) as typeof fetch;
+  const page = await render();
+  try {
+    expect(pending).toHaveLength(1);
+    // The frame and the bar stand; the body holds the page's shapes, never a blank page while a fill runs.
+    expect(page.container.querySelector('[data-testid="page-loading"]')).not.toBeNull();
+    expect((page.container.querySelector('[data-testid="wiki-main"]')?.children.length ?? 0)).toBeGreaterThan(0);
+    expect(page.container.querySelectorAll('[data-testid="fill-entry"], [data-testid="run-indicator"]')).toHaveLength(1);
+    expect(page.container.querySelectorAll('[data-testid="run-indicator"]')).toHaveLength(1);
+    await act(async () => { pending[0]?.(new Response(JSON.stringify(answerFor('query page', {})))); });
+    await settle();
+    expect(page.container.querySelector('h1')?.textContent).toBe('A kind');
+    expect(page.container.textContent).toContain('one');
+  } finally {
+    await page.close();
+  }
+});
+
 for (const obsoleteError of [false, true]) {
   test(`a superseded page ${obsoleteError ? 'error' : 'answer'} cannot replace the current page`, async () => {
     window.history.pushState({}, '', `/e/catalogue/${ID}`);

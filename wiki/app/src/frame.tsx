@@ -30,8 +30,7 @@ import { Input } from './components/ui/input.js';
 import { SearchContainer, SearchResults } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
-import { RunIndicator, type LiveRun } from './components/run-indicator.js';
-import { FillEntry } from './components/fill-entry.js';
+import { FillControl, type LiveRun } from './components/run-indicator.js';
 import { PageHeader, PageTitle, Paragraph, TextLink } from './components/ui/typography.js';
 import { CATALOGUE_KIND, EVERY_ROLE } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage, type OpenPage } from './address.js';
@@ -484,8 +483,7 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, ru
       {menu}
       <SearchBox base={base} open={open} />
       <ShellActions>
-        <FillEntry open={open} />
-        <RunIndicator live={run.live} run={run.run} open={open} />
+        <FillControl run={run} open={open} />
         <ProductMenu base={base} products={products} current={currentProduct} />
         <HelpLink products={products} current={currentProduct} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">

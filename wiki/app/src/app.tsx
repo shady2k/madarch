@@ -520,7 +520,7 @@ export function App(): ReactElement {
                   <Stack className={connection.offline ? 'opacity-60 transition-opacity' : 'transition-opacity'} data-testid="page-content" data-stale={connection.offline ? 'true' : 'false'}>
                     {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
                     {page}
-                    {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                    {loaded === null ? (page === null && failure === null ? <PageLoading /> : null) : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
                   </Stack>
                 </main>
               </ShellDocument>
@@ -529,6 +529,20 @@ export function App(): ReactElement {
         </ShellMain>
       </Stack>
     </TooltipProvider>
+  );
+}
+
+/**
+ * A template page whose answer is on its way: the shapes its sections will take stand in the body, never a blank page while
+ * a fill or a slow read holds the answer (madarch-64o5.136). The frame has already answered by this point.
+ */
+function PageLoading(): ReactElement {
+  return (
+    <PageSection data-testid="page-loading">
+      <Skeleton className="h-9 w-72" />
+      <Skeleton className="h-5 w-full" />
+      <Skeleton className="h-5 w-4/5" />
+    </PageSection>
   );
 }
 

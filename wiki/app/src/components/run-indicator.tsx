@@ -9,11 +9,13 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { readFillRun, readFillStatus, useChangeStream, useCommandRead, type FillRunDetail, type FillStatusAnswer } from './command.js';
 import { RUNS_PAGE } from '../address.js';
+import { FillEntry } from './fill-entry.js';
 
-/** The fill the frame sees: the run while one is live, and null when none is. */
+/** The fill the frame sees: the run while one is live, and null when none is; an own wiki offers no fill at all. */
 export interface LiveRun {
   readonly live: boolean;
   readonly run: FillRunDetail | null;
+  readonly own: boolean;
 }
 
 /** The live run, read once for the whole frame: the top bar's indicator and the sidebar's pending counts. */
@@ -33,7 +35,7 @@ export function useLiveRun(base: string): LiveRun {
     const timer = setInterval(() => { status.reload(); detail.reload(); }, 1000);
     return () => { clearInterval(timer); };
   }, [live, status.reload, detail.reload]);
-  return { live, run: live ? detail.data?.run ?? null : null };
+  return { live, run: live ? detail.data?.run ?? null : null, own: status.data?.own === true };
 }
 
 /** What the fill kind the run has left: the units of each kind it is still to write, for the sidebar's own counts. */
@@ -61,4 +63,16 @@ export function RunIndicator({ live, run, open }: { readonly live: boolean; read
       {words}
     </Button>
   );
+}
+
+
+/**
+ * The top bar's one fill control (madarch-64o5.131, kept by madarch-64o5.136): the run's own state while a run goes,
+ * «Заполнить…» otherwise, and nothing on madarch's own wiki. Never two controls: a fill that is running is shown by the
+ * indicator that replaces the press, not beside it.
+ */
+export function FillControl({ run, open }: { readonly run: LiveRun; readonly open: (path: string) => void }): ReactElement | null {
+  if (run.own) return null;
+  if (!run.live) return <FillEntry open={open} />;
+  return <RunIndicator live run={run.run} open={open} />;
 }
