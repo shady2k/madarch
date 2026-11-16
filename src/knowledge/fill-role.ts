@@ -10,9 +10,9 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
-import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
-import { withSpanSync, withSpan } from '../obs/trace.js';
-import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
+import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
+import { readFillEnd, writeFillEnd } from '../fill/orchestrator-store.js';
 import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
 import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
@@ -227,6 +227,9 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       productFolder,
       storeFolder: held.storeFolder,
       runId: data.runId,
+      // The claimed job is the run's own lock: the fill heartbeats it, and the run is recoverable when this
+      // process ends without settling it (decision 0039, item 12).
+      claim: { queue: FILL_RUN_QUEUE, job },
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
@@ -238,17 +241,9 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       ...(data.targets === undefined ? {} : { targets: data.targets }),
     });
     state.running = run;
-    // A person's pause or stop is written to the store by the api role and taken here, on the run's own state machine.
-    const done = run.done;
-    let finished = false;
-    void done.then(() => { finished = true; }, () => { finished = true; });
-    while (!finished) {
-      await Bun.sleep(250);
-      if (finished) break;
-      const action = await readRunControl(owner, data.runId).catch(() => null);
-      if (action !== null) await run.control(action).catch(() => undefined);
-    }
-    const result = await done;
+    // A person's pause or stop is the run's own state, written by the api role through the run's machine: the fill
+    // reads it before every step it takes (decision 0039, item 12), so nothing is polled here.
+    const result = await run.done;
     await run.close();
     run = undefined;
     state.running = undefined;

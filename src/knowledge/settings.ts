@@ -10,6 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { withSpanSync } from '../obs/trace.js';
 import { madarchHome, type DraftEnv } from '../product/home.js';
+import { DEFAULT_RAW_DAYS } from '../obs/retention.js';
 import { EVERY_ROLE } from '../product/manifest/kinds.js';
 
 const SETTINGS_FILE = 'settings.json';
@@ -33,14 +34,22 @@ export interface Settings {
 
 export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
 
-/** How many run traces the store keeps (`traceRuns` in settings.json, 20 unless a whole number 1–1000 names one). */
-export function traceKeepOf(env: DraftEnv): number {
-  try {
-    const held = readRaw(settingsPath(env))['traceRuns'];
-    return typeof held === 'number' && Number.isInteger(held) && held >= 1 && held <= 1000 ? held : 20;
-  } catch {
-    return 20;
-  }
+/**
+ * What this machine keeps of the raw telemetry — the spans, the logs and the agent journal (decision 0039, item
+ * 33): `traceRetentionDays` (three days when it is left out, «Пусть у нас очень подробные логи там хранятся 3
+ * дня»), `traceRetentionBytes` (an explicit machine setting; no byte bound when it names none) and `traceRuns`
+ * (twenty). The oldest records go first, whichever bound is reached first.
+ */
+export function rawRetentionOf(env: DraftEnv): { readonly days: number; readonly bytes: number | null; readonly runs: number } {
+  let raw: Record<string, unknown> = {};
+  try { raw = readRaw(settingsPath(env)); } catch { raw = {}; }
+  const days = typeof raw['traceRetentionDays'] === 'number' && Number.isInteger(raw['traceRetentionDays']) && raw['traceRetentionDays'] >= 0
+    ? raw['traceRetentionDays'] : DEFAULT_RAW_DAYS;
+  const bytes = typeof raw['traceRetentionBytes'] === 'number' && Number.isInteger(raw['traceRetentionBytes']) && raw['traceRetentionBytes'] > 0
+    ? raw['traceRetentionBytes'] : null;
+  const runs = typeof raw['traceRuns'] === 'number' && Number.isInteger(raw['traceRuns']) && raw['traceRuns'] >= 1 && raw['traceRuns'] <= 1000
+    ? raw['traceRuns'] : 20;
+  return { days, bytes, runs };
 }
 
 function readRaw(file: string): Record<string, unknown> {

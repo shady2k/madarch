@@ -20,13 +20,6 @@ const SCHEMA: readonly string[] = [
     updated_at bigint NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS fill_run_product ON fill_run (product, created_at)',
-  `CREATE TABLE IF NOT EXISTS fill_run_lease (
-    run_id text PRIMARY KEY,
-    owner_token text NOT NULL,
-    owner_pid integer NOT NULL,
-    heartbeat_at bigint NOT NULL,
-    expires_at bigint NOT NULL
-  )`,
   `CREATE TABLE IF NOT EXISTS fill_unit (
     unit_id text PRIMARY KEY,
     product text NOT NULL,
@@ -42,23 +35,11 @@ const SCHEMA: readonly string[] = [
     run_id text NOT NULL,
     state text NOT NULL,
     inputs_digest text NOT NULL,
-    fence integer NOT NULL,
     context jsonb NOT NULL,
     published_at bigint,
     stale_at bigint,
     updated_at bigint NOT NULL,
     PRIMARY KEY (unit_id, generation)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_lease (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    attempt integer NOT NULL,
-    fence integer NOT NULL,
-    holder text NOT NULL,
-    issued_at bigint NOT NULL,
-    expires_at bigint NOT NULL,
-    revoked_at bigint,
-    PRIMARY KEY (unit_id, generation, attempt)
   )`,
   `CREATE TABLE IF NOT EXISTS fill_transition (
     seq bigserial PRIMARY KEY,
@@ -69,7 +50,6 @@ const SCHEMA: readonly string[] = [
     from_state text NOT NULL,
     to_state text NOT NULL,
     event text NOT NULL,
-    fence integer,
     at bigint NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS fill_transition_subject ON fill_transition (subject_kind, subject_id)',
@@ -78,10 +58,21 @@ const SCHEMA: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)',
 ];
 
-/** The foreign keys the fill's own rows must satisfy: a generation belongs to a unit and a run, and a lease to a generation. */
+/**
+ * The tables this schema no longer holds (decision 0039, item 12): a run's
+ * attempts and a unit's lock are the queue's, so the lease rows and the fencing
+ * columns they carried are gone. A store made before them drops them here, whole:
+ * their rows stated nothing the queue does not state better, and a store keeps
+ * only the tables its schema names.
+ */
+const REMOVED: readonly string[] = [
+  'DROP TABLE IF EXISTS fill_unit_lease',
+  'DROP TABLE IF EXISTS fill_run_lease',
+];
+
+/** The foreign keys the fill's own rows must satisfy: a generation belongs to a unit. */
 const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
   { table: 'fill_unit_generation', name: 'fill_unit_generation_unit_fk', columns: 'unit_id', ref: 'fill_unit', refColumns: 'unit_id' },
-  { table: 'fill_unit_lease', name: 'fill_unit_lease_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
 ];
 
 /** The statement that adds one foreign key where it does not stand yet; `NOT VALID` keeps an older store's rows while new ones are checked. */
@@ -93,9 +84,14 @@ export const fillStateSchema = {
   async prepare(owner: DatabaseOwner): Promise<void> {
     await createSchemaOnce(owner, {
       name: 'fill-state',
-      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
+      parts: [...REMOVED, ...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
       tables: FILL_STATE_TABLES,
-      create: async (executor) => await withSpan('schema.prepare', { 'db.system': 'postgres', 'schema.statements': SCHEMA.length + FOREIGN_KEYS.length, 'db.sql.bytes': [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)].reduce((bytes, sql) => bytes + Buffer.byteLength(sql), 0) }, async () => {
+      create: async (executor) => await withSpan('schema.prepare', {
+        'db.system': 'postgres',
+        'schema.statements': REMOVED.length + SCHEMA.length + FOREIGN_KEYS.length,
+        'db.sql.bytes': [...REMOVED, ...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)].reduce((bytes, sql) => bytes + Buffer.byteLength(sql), 0),
+      }, async () => {
+        for (const statement of REMOVED) await executor.query(statement);
         for (const statement of SCHEMA) await executor.query(statement);
         for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
       }),

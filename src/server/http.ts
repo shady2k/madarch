@@ -35,7 +35,7 @@ import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun, withSpanSyn
 import { watchRequest } from './watchdog.js';
 import { requestStage } from './stage.js';
 import { log as logEvent } from '../obs/log.js';
-import { traceKeepOf } from '../knowledge/settings.js';
+import { rawRetentionOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
 import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -318,7 +318,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // The server's own trace: one span per request and the spans of the work a request asks for, kept beside
   // the state the server itself holds. A server told of no folder keeps none.
   const obsFolder = options.dataFolder ?? options.knowledgeRoot;
-  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, keep: traceKeepOf(process.env) });
+  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, retention: rawRetentionOf(process.env) });
   let sources: SourceStores | undefined;
   try {
     if (options.dataFolder !== undefined) await requestHistoryPreparation(options.dataFolder);

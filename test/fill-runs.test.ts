@@ -41,7 +41,7 @@ test('named run keeps generations after replacement and derives real facts, grou
   await advanceRun(owner, { runId: 'history', event: { type: 'plan', at: 1001, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'history', event: { type: 'start', at: 1002, stages: 2 } });
   for (const [unitId, stageUnitId, scopeKey] of [['terms-unit', 'terms:doc.term', 'doc.term'], ['remaining-unit', 'remaining', 'code.file']]) {
-    await createUnit(owner, { unitId: unitId!, product: 'shop', runId: 'history', stageId: 'fixture-stage', scopeKey: scopeKey!, inputsDigest: 'fixture', retries: 0, at: 1003 });
+    await createUnit(owner, { unitId: unitId!, product: 'shop', runId: 'history', stageId: 'fixture-stage', scopeKey: scopeKey!, inputsDigest: 'fixture', at: 1003 });
     await recordUnitPlan(owner, { unitId: unitId!, generation: 1, runId: 'history', stageId: 'fixture-stage', stageUnitId: stageUnitId!, scope: scopeKey!, stagePosition: 0, planPosition: 0, at: 1003 });
   }
   await owner.transaction('write', async (tx) => {
@@ -52,7 +52,7 @@ test('named run keeps generations after replacement and derives real facts, grou
   expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, phase: 'running', final: false, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published', phase: 'done' }] });
   // A subsequent generation owns the unit's current pointer. History still reads this run's generation.
   await owner.transaction('write', async (tx) => {
-    await tx.query("INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at) SELECT unit_id, 2, 'newer', 'planned', inputs_digest, fence, context, NULL, NULL, 3000 FROM fill_unit_generation WHERE unit_id = 'terms-unit' AND generation = 1");
+    await tx.query("INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at) SELECT unit_id, 2, 'newer', 'planned', inputs_digest, context, NULL, NULL, 3000 FROM fill_unit_generation WHERE unit_id = 'terms-unit' AND generation = 1");
     await tx.query("UPDATE fill_unit SET generation = 2 WHERE unit_id = 'terms-unit'");
   });
   expect((await readRunUnitHistory(owner, 'history')).map((unit) => unit.unitId)).toContain('terms-unit');
@@ -68,8 +68,8 @@ test('a stale historical scoped control cannot pause or stop a newer run', async
   for (const action of ['pause', 'stop'] as const) {
     expect(await product.controlFillRun('old-finished', action)).toMatchObject({ ok: false, status: 409, message: expect.stringMatching(/product\.ts:\d+:/) });
   }
-  const rows = await owner.transaction('snapshot', async (tx) => tx.query("SELECT run_id FROM fill_control"));
-  expect(rows.rows).toEqual([]);
+  // A control press on an ended run writes nothing: the run's own state is the whole control (decision 0039, item 12).
+  expect((await readRun(owner, 'old-finished'))?.state).toBe('failed');
   const foreignProduct = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(foreignProduct, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'not-shop' }) });
   expect(await foreignProduct.controlFillRun('history', 'stop')).toMatchObject({ ok: false, status: 404 });
@@ -92,7 +92,7 @@ test('paused Stop after worker exit uses canonical cancellation without loading 
   await createRun(owner, { runId: 'paused-run', product: 'shop', at: 7000, selection: { selected: ['doc.term'], order: ['doc.term'], groups: [{ kind: 'doc.term', group: null, plugin: 'fixture', stageUnitId: 'fixture-stage' }] } });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'plan', at: 7001, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'start', at: 7002, stages: 1 } });
-  await createUnit(owner, { unitId: 'paused-unfinished', product: 'shop', runId: 'paused-run', stageId: 'fixture-stage', scopeKey: 'fixture', inputsDigest: 'fixture', retries: 0, at: 7003 });
+  await createUnit(owner, { unitId: 'paused-unfinished', product: 'shop', runId: 'paused-run', stageId: 'fixture-stage', scopeKey: 'fixture', inputsDigest: 'fixture', at: 7003 });
   await recordUnitPlan(owner, { runId: 'paused-run', unitId: 'paused-unfinished', generation: 1, stageId: 'fixture-stage', stageUnitId: 'fixture-stage', scope: 'fixture', stagePosition: 0, planPosition: 0, at: 7003 });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'pause', at: 7004 } });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'drain', at: 7005, evidence: { runnable: 1, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });

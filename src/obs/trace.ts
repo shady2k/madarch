@@ -17,29 +17,14 @@
  * again when it ends.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { DEFAULT_RAW_DAYS, sweepRawTelemetry, type RawRetention } from './retention.js';
 import { join } from 'node:path';
 import { ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, type Attributes, type AttributeValue, type Span } from '@opentelemetry/api';
 import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 /** What a span may record about itself: counts, sizes, names and paths, never a value or a text it moved. */
 export type SpanAttributes = Readonly<Record<string, AttributeValue>>;
-
-/** Deletes every trace older than the newest `keep` runs, and the log beside each. */
-function trimTraces(folder: string, keep: number): void {
-  withSpanSync('trace.trim', { 'file.path': folder, 'trace.keep': keep }, (span) => {
-  let names: string[];
-  try { names = readdirSync(folder); span.setAttribute('file.entries', names.length); } catch { return; }
-  const files = names
-    .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
-    .map((name) => ({ name, at: (() => { try { return statSync(join(folder, name)).mtimeMs; } catch { return 0; } })() }))
-    .sort((left, right) => right.at - left.at || (left.name < right.name ? 1 : left.name > right.name ? -1 : 0));
-  for (const held of files.slice(Math.max(1, keep))) {
-    rmSync(join(folder, held.name), { force: true });
-    rmSync(join(folder, held.name.replace(/\.jsonl$/u, '.log.jsonl')), { force: true });
-  }
-  });
-}
 
 /** One trace of one run: its file, its log beside it, and its buffer of lines not yet written. */
 /** One reading of the process's memory, at a moment of the run's own clock (`performance.now()`). */
@@ -259,7 +244,7 @@ function traceFileName(runId: string): string {
 }
 
 /** Opens one run's trace: its file starts empty and its lines are buffered. */
-export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean; readonly keep?: number }): TraceRun {
+export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean; readonly retention?: Partial<RawRetention> }): TraceRun {
   enabled = process.env['MADARCH_TRACE'] !== 'off';
   const folder = join(options.store, 'traces');
   withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
@@ -268,8 +253,11 @@ export function openTrace(options: { readonly store: string; readonly runId: str
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
   withSpanSync('fs.write', { 'file.path': file, 'file.bytes': 0 }, () => writeFileSync(file, '', 'utf8'));
   withSpanSync('fs.write', { 'file.path': logFile, 'file.bytes': 0 }, () => writeFileSync(logFile, '', 'utf8'));
-  // Retention: the last N runs stand, the older files go (decision 0034's trace is evidence, not an archive).
-  trimTraces(folder, options.keep ?? 20);
+  // Retention (decision 0039, item 33): the machine's age, byte and run bounds, the oldest records first — the
+  // raw streams are evidence of a run, not an archive, and the durable results are the graph's.
+  try {
+    sweepRawTelemetry(options.store, { days: options.retention?.days ?? DEFAULT_RAW_DAYS, bytes: options.retention?.bytes ?? null, runs: options.retention?.runs ?? 20 });
+  } catch { /* the raw record is evidence, not the work: a retention that cannot run fails no fill */ }
   const run: TraceRun = {
     runId: options.runId, store: options.store, file, logFile, startedAt: Date.now(), console: options.console === true,
     buffer: [], lines: 0, closed: !enabled, samples: [],
@@ -376,16 +364,16 @@ export function annotateSpan(attributes: SpanAttributes): void {
 
 /** The trace files a store holds, newest first. */
 export function traceFiles(store: string): { file: string; runId: string; modifiedAt: number }[] {
-  return withSpanSync('trace.files', { 'file.path': store }, (span) => {
-  const folder = join(store, 'traces');
-  let names: string[];
-  try { names = readdirSync(folder); span.setAttribute('file.entries', names.length); } catch { return []; }
-  return names
-    .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
-    .map((name) => {
-      const file = join(folder, name);
-      return { file, runId: name.slice(0, -'.jsonl'.length), modifiedAt: (() => { try { return statSync(file).mtimeMs; } catch { return 0; } })() };
-    })
-    .sort((left, right) => right.modifiedAt - left.modifiedAt || (left.runId < right.runId ? 1 : left.runId > right.runId ? -1 : 0));
+  return withSpanSync('trace.files', { 'file.path': store }, () => {
+    const folder = join(store, 'traces');
+    let names: string[];
+    try { names = withSpanSync('fs.readdir', { 'file.path': folder }, (held) => { const found = readdirSync(folder); held.setAttribute('file.entries', found.length); return found; }); } catch { return []; }
+    return names
+      .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
+      .map((name) => {
+        const file = join(folder, name);
+        return { file, runId: name.slice(0, -'.jsonl'.length), modifiedAt: withSpanSync('fs.stat', { 'file.path': file }, () => { try { return statSync(file).mtimeMs; } catch { return 0; } }) };
+      })
+      .sort((left, right) => right.modifiedAt - left.modifiedAt || (left.runId < right.runId ? 1 : left.runId > right.runId ? -1 : 0));
   });
 }

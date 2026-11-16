@@ -91,6 +91,12 @@ export interface KnowledgeFillOptions {
   readonly storeFolder: string;
   /** The run's id; the caller names it, so a second press of one moment is one run. */
   readonly runId: string;
+  /**
+   * The run's own job, when the caller claimed one: the fill-run job whose claim is the run's lock (decision 0039,
+   * item 12). `madarch --role fill` claims it before starting the run and settles it after; a run a person's own
+   * process drives claims none.
+   */
+  readonly claim?: import('../fill/orchestrator.js').RunClaim;
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
@@ -263,6 +269,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           database: owner,
           ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }),
           runId: options.runId,
+          ...(options.claim === undefined ? {} : { claim: options.claim }),
           home: options.storeFolder,
           workers: options.workers ?? 16,
           ...(options.language === undefined ? {} : { language: options.language }),
