@@ -24,6 +24,7 @@ const lineageKinds=['system.dispute-anchor','system.dispute-question-resolution'
 type Lineage = { origin:string; uid:string; id:number; kind:string };
 /** One snapshot's recorded question fields and lineage, shared by every requested slot. */
 async function disputeSnapshot(tx:SqlExecutor,selectors:Selectors,requests:readonly AssertionReadRequest[]=[]) {
+ return await withSpan('graph.dispute.snapshot',{},async()=>{
  const lineage=(await tx.query<Lineage>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) ORDER BY target.uid::text COLLATE "C"`,[lineageKinds])).rows;
  const batches=await loadAssertionsBatch(tx,[...requests,{sort:'vertex',kind:'system.dispute-question',properties:questionProperties},...lineageKinds.map(kind=>({sort:'edge' as const,kind,properties:['$exists'],subjectIds:lineage.filter(link=>link.kind===kind).map(link=>Number(link.id))}))],selectors);
  const questions=new Map<string,Record<string,unknown>>();
@@ -43,10 +44,11 @@ async function disputeSnapshot(tx:SqlExecutor,selectors:Selectors,requests:reado
   return null;
  };
  return {batches:batches.slice(0,requests.length),read};
+ });
 }
 /** Read persisted judgement at the requested bitemporal snapshot. */
-export async function readDispute(tx:SqlExecutor,_contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors):Promise<DisputeView|null>{
- return (await disputeSnapshot(tx,selectors)).read(rows);
+export async function readDispute(tx:SqlExecutor,_contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors,snapshot?:Awaited<ReturnType<typeof disputeSnapshot>>):Promise<DisputeView|null>{
+ return (snapshot??await disputeSnapshot(tx,selectors)).read(rows);
 }
 export interface DisputeSlot {
  readonly sort:'vertex'|'edge'; readonly kind:string; readonly subjectId:number; readonly property:string; readonly language:string|null;
@@ -74,7 +76,7 @@ export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,sel
   for(const [index,group] of requested.entries()){
    const all=snapshot.batches[index]!;
    for(const anchor of group.slots){
-    const rows=all.filter(row=>row.subjectId===Number(anchor.subject_id)&&row.property===anchor.property&&row.language===anchor.language);const dispute=snapshot.read(rows);
+    const rows=all.filter(row=>row.subjectId===Number(anchor.subject_id)&&row.property===anchor.property&&row.language===anchor.language);const dispute=await readDispute(tx,contract,rows,selectors,snapshot);
     if(dispute)result.push({sort:group.sort,kind:group.kind,subjectId:Number(anchor.subject_id),property:anchor.property,language:anchor.language,rows,dispute});
    }
   }
