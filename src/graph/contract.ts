@@ -75,7 +75,16 @@ export interface VertexContract {
   readonly indexes?: readonly { readonly name: string; readonly columns: readonly string[] }[];
 }
 
+/** Semantic direction follows child to owner, dependent to prerequisite, implementation to abstraction, or reference to target. */
+export interface EdgeSemantics {
+  readonly role: 'containment' | 'dependency' | 'implementation' | 'reference';
+  readonly direction: 'in' | 'out';
+}
+
 export interface EdgeContract {
+  /** Required on catalogue declarations; engine-internal edges are not development relations. */
+  readonly role?: EdgeSemantics['role'];
+  readonly direction?: EdgeSemantics['direction'];
   readonly contractUid?: string;
   readonly cardinality: EdgeCardinality;
   readonly labels: EdgeWords;

@@ -24,27 +24,34 @@ export function developmentTools(contract: GraphContract): McpToolDefinition[] {
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000, default: 100 })),
     lang: Type.Optional(Type.String({ minLength: 1 })),
   };
-  const relations = Type.Array(Type.Object({
-    kind: enumeration(contract.edge.map(edge => edge.name)),
-    direction: Type.Union([Type.Literal('in'), Type.Literal('out')]),
-  }, { additionalProperties: false }), { minItems: 1, uniqueItems: true });
+  const relations = (name: string) => Type.Array(Type.Union(developmentRelations(contract, name).map(relation => Type.Object({kind: Type.Literal(relation.kind), direction: Type.Literal(relation.direction)}, {additionalProperties: false}))), {minItems: 1, uniqueItems: true});
   return names.map(name => ({
     name,
     description: name === 'search'
       ? 'Search effective names and synonyms. Homonyms remain separate with kind labels and assertion lineage.'
-      : `${name}: traverse explicit catalogue relations from an entity UID. For dependencies use the dependency direction; for dependants and impact use its inverse. For owner select ownership/containment directions toward owners. Results group by kind, retain edge and entity lineage, and report depth/count cuts. No name-based ownership is inferred.`,
+      : `${name}: traverse catalogue-declared roles from an entity UID. Owner follows containment and implementation toward owners; impact follows containment and implementation toward owners and dependencies toward dependants. Dependencies and dependants follow dependency roles. Optional relations narrow those defaults. Results group by kind, retain lineage and report depth/count cuts.`,
     inputSchema: { ...Type.Object(name === 'search' ? {
       ...common, text: Type.String({ minLength: 1 }),
       kinds: Type.Optional(Type.Array(enumeration(contract.vertex.map(kind => kind.name)), { minItems: 1, uniqueItems: true })),
     } : {
-      ...common, entity: Type.String({ minLength: 36, maxLength: 36 }), relations,
+      ...common, entity: Type.String({ minLength: 36, maxLength: 36 }), relations: Type.Optional(relations(name)),
       depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 32, default: name === 'impact' || name === 'owner' ? 8 : 1 })),
     }, { additionalProperties: false }) },
   }));
 }
 
+/** Role and orientation are catalogue data, never inferred from edge or kind names. */
+export function developmentRelations(contract: GraphContract, name: string): { kind: string; direction: 'in' | 'out' }[] {
+  return contract.edge.flatMap(edge => {
+    if (edge.direction === undefined) return [];
+    if ((name === 'owner' || name === 'impact') && (edge.role === 'containment' || edge.role === 'implementation')) return [{ kind: edge.name, direction: edge.direction }];
+    if (name !== 'owner' && edge.role === 'dependency') return [{ kind: edge.name, direction: name === 'dependencies' ? edge.direction : edge.direction === 'in' ? 'out' : 'in' }];
+    return [];
+  });
+}
+
 function refusal(code: string, path: string, expected: string, actual: unknown): UnitToolAnswer {
-  return { isError: true, answer: { error: { code, path, expected, actual, retryable: false, message: `${import.meta.path}:50: ${path}: expected ${expected}` } } };
+  return { isError: true, answer: { error: { code, path, expected, actual, retryable: false, message: `${import.meta.path}:54: ${path}: expected ${expected}` } } };
 }
 
 /** One caller-owned snapshot covers the contract, traversal, values and lineage (0039.25,30). */
@@ -132,7 +139,8 @@ export async function readDevelopmentTool(tx: OuterTransaction, manifest: KindsM
       const root = (await loadKind(kind)).find(row => row.uid === uid);
       if (root === undefined) return refusal('TARGET_MISSING', '/entity', 'active declared entity UID', uid);
       subject = await describe(kind, root);
-      const relations = [...args.relations!].sort((a,b) => byCodePoint(a.kind,b.kind) || byCodePoint(a.direction,b.direction));
+      const defaults = developmentRelations(contract, name);
+      const relations = [...(args.relations ?? defaults)].sort((a,b) => byCodePoint(a.kind,b.kind) || byCodePoint(a.direction,b.direction));
       const edges = new Map<string, AssertionRecord[]>();
       for (const relation of relations) {
         const edge = contract.edge.find(edge => edge.name === relation.kind)!;

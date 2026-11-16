@@ -25,7 +25,7 @@ Kind: command
 Place: madarch mcp --product ./example-product, tools/list and tools/call
 1. Read tools/list to obtain the installed contractVersion and allowed edge/kind selectors.
 2. Call search with a name or synonym. Read each separate hit's kind label and assertion lineage.
-3. Call a traversal tool with an entity UID and catalogue edge directions. For owner, select relations toward folders, modules, components and domains. For impact and dependants, select reverse dependency directions.
+3. Call impact or owner with an entity UID; no edge selector is required. The catalogue supplies containment and implementation toward owners and dependency toward prerequisites. Impact reverses dependencies. Optional relations narrow the declared defaults.
 4. Read kind groups, traversed edges, assertion sources and recorded times. Check cut.depth and cut.count before treating the result as complete.
 
 ## Blocking questions
@@ -38,9 +38,26 @@ None.
 - Items 25 and 30: the existing readKindAssertions selects effective values; this tool adds no truth-selection rule.
 - Item 22: the read path is traced.
 - Limits introduced here: default 100 entities, maximum 1000; depth default 1 for dependencies/dependants and 8 for owner/impact, maximum 32. Limits bound returned entities; the current reader still materialises selected kinds/relations before traversal.
-- Owner returns kind groups and path edges rather than pretending there is exactly one component or domain. Callers supply semantic relation selectors. The same engine performs all four traversals.
+- Owner returns kind groups and path edges rather than pretending there is exactly one component or domain. The same engine performs all four traversals.
+- Follow-up 147b: each of the 168 catalogue edge kinds declares role (containment, dependency, implementation or reference) and direction (out follows physical from-to; in reverses it). The manifest check refuses missing or unknown declarations. Graph contract generation preserves the metadata and its revision changes with it.
+- Owner follows forward containment and implementation; impact follows those and reverse dependencies; dependencies and dependants follow dependency roles in forward and reverse directions. Reference edges are excluded. Explicit selectors can only narrow defaults.
+- Tree branch reconciliation: retain all 149 snapshot edges, use the tree branch semantic declarations, add its 19 absent edge kinds and relation labels. Four tree endpoint names were updated to the catalogue IDs c4.software-system, org.organization, dtcg.token-group and dcat.catalog. The tree omitted cardinality on new edges; they explicitly declare zero-to-many at both ends here, imposing no unsupported uniqueness or required-parent constraint.
+- The implementation role is needed to reach modules, components and domains without falsely calling implementation containment. code.module-folder points from module to folder; its declared semantic direction is in. Accountability (ownedBy) remains a reference, not structural ownership.
+- Tests that open the scripted database explicitly name a 15-second bound; a two-file run exposed the actual five-second Bun default. Result/depth bounds are unchanged.
 
 ## Acceptance evidence
+### Follow-up 147b
+- Wiki application check, tests and production build passed: 124 tests, 587 assertions. Build reports the existing large-chunk advisory.
+- Updated 14 legacy manifest fixture files to explicitly declare their semantic metadata. Selected schema, diagram, parent-edge and problem-task suite passed: 40 tests, 0 failures. A wider fixture run reported 47 passed and 11 failed; residual failures include wildcard-any endpoints, absent cardinality and plugin units that did not complete. A starter publication case separately timed out at its existing 60-second bound. Full-stage suite is not claimed green.
+- Read-only review identified a symmetric dependency fixture weakness. Added an asymmetric dependent and confirmed a direction-reversal mutant is detected.
+- Focused development and parser suites: 25 passed, 0 failed, 182 assertions. Covers omitted edge selectors through MCP, mixed containment/implementation paths, an asymmetric dependent, excluded reference targets, cycles, bounds, narrowing, mandatory metadata and contract revision propagation.
+- Manual bounded mutation: failing to reverse dependency direction makes the asymmetric dependant test fail. Restored before final checks.
+- Catalogue check passes: 501 catalogue kinds, starter everything 117, none remains empty.
+- Static gates run independently: architecture (874 listed, no new violations), UI (0), workflows and quarantine passed.
+- Full check still stops only at the snapshot test/graphql-executor.test.ts:340 type error, which is untouched.
+- A selected legacy suite exposed pre-existing wildcard-any endpoint and missing-cardinality fixture premises, plus plugin-fill-access cases with no completed units. These are not hidden or described as passing.
+
+### Initial handoff (before 147b)
 - Final focused run: 7 passed, 0 failed, 119 assertions. Fixture writes use the checked scripted graph writer. Seven tests cover all five tools, synonym homonyms, lineage, cycles, depth/count cuts, malformed inputs, revision mismatch, missing targets, retracted edges and MCP dispatch.
 - Bounded manual mutation sample: disabling synonym matching and suppressing search count-cut disclosure each caused the search test to fail. Both mutations were restored.
 - Wiki check and tests: 124 passed, 0 failed, 587 assertions.

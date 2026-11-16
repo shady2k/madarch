@@ -1078,6 +1078,158 @@ catalog:
     uses: {"labels": {"en": {"out": "uses", "in": "used by"}, "ru": {"out": "использует", "in": "используется"}}}
     usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "tool of"}, "ru": {"out": "использует инструмент", "in": "инструмент для"}}}
     verifies: {"labels": {"en": {"out": "verifies", "in": "verified by"}, "ru": {"out": "верифицирует", "in": "верифицировано"}}}
+    domain.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    software-system.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    c4.component.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    code.service.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    code.module.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    code.directory.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    organization.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    token-group.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    data-catalog.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    epic.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    feature.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    stage.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    task.contains:
+      labels:
+        en:
+          out: contains
+          in: part of
+        ru:
+          out: содержит
+          in: входит в
+    idea.evolved-into:
+      labels:
+        en:
+          out: evolved into
+          in: grew out of
+        ru:
+          out: переросла в
+          in: выросла из
+    architecture.serves-domain:
+      labels:
+        en:
+          out: serves domain
+          in: served by
+        ru:
+          out: обслуживает домен
+          in: обслуживается
+    container.contains-component:
+      labels:
+        en:
+          out: contains component
+          in: component of
+        ru:
+          out: содержит компонент
+          in: компонент контейнера
+    component.implemented-by:
+      labels:
+        en:
+          out: implemented by
+          in: implements component
+        ru:
+          out: реализован модулем
+          in: реализует компонент
+    term.in-domain:
+      labels:
+        en:
+          out: in subject field
+          in: defines concepts
+        ru:
+          out: в предметной области
+          in: определяет понятия
+    product.uses-repository:
+      labels:
+        en:
+          out: uses repository
+          in: used by product
+        ru:
+          out: использует репозиторий
+          in: используется продуктом
 edges:
 - name: code.contains
   from:
@@ -1102,6 +1254,8 @@ edges:
     to:
       min: 0
       max: null
+  role: containment
+  direction: in
 - name: code.as-is
   from:
   - code.repository
@@ -1122,6 +1276,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: code.history
   from:
   - code.repository
@@ -1145,8 +1301,10 @@ edges:
   fields:
   - name: walk
     type: integer
-    producers: [git]
-
+    producers:
+    - git
+  role: reference
+  direction: out
 - name: code.parent
   from:
   - code.commit
@@ -1170,8 +1328,10 @@ edges:
   fields:
   - name: position
     type: integer
-    producers: [git]
-
+    producers:
+    - git
+  role: reference
+  direction: out
 - name: code.touched
   from:
   - code.commit
@@ -1192,6 +1352,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: code.imports
   from:
   - code.file
@@ -1214,6 +1376,8 @@ edges:
     to:
       min: 0
       max: null
+  role: dependency
+  direction: out
 - name: code.imports-package
   from:
   - code.file
@@ -1236,6 +1400,8 @@ edges:
     to:
       min: 0
       max: null
+  role: dependency
+  direction: out
 - name: code.authored
   from:
   - code.author
@@ -1256,6 +1422,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: code.renamed-from
   from:
   - code.file
@@ -1278,6 +1446,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: quarantines
   from:
   - code.test-quarantine
@@ -1298,6 +1468,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: fixedBy
   from:
   - code.test-quarantine
@@ -1318,6 +1490,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: code.has-column
   from:
   - code.table
@@ -1338,6 +1512,8 @@ edges:
     to:
       min: 0
       max: null
+  role: containment
+  direction: in
 - name: code.has-index
   from:
   - code.table
@@ -1358,6 +1534,8 @@ edges:
     to:
       min: 0
       max: null
+  role: containment
+  direction: in
 - name: code.foreign-key
   from:
   - code.column
@@ -1401,6 +1579,8 @@ edges:
     to:
       min: 0
       max: null
+  role: dependency
+  direction: out
 - name: code.declared-in
   from:
   - code.table
@@ -1421,6 +1601,8 @@ edges:
     to:
       min: 0
       max: null
+  role: containment
+  direction: out
 - name: domain.covers
   from:
   - domain
@@ -1440,6 +1622,8 @@ edges:
     to:
       min: 0
       max: null
+  role: implementation
+  direction: in
 - name: domain.covers-folder
   from:
   - domain
@@ -1459,6 +1643,8 @@ edges:
     to:
       min: 0
       max: null
+  role: implementation
+  direction: in
 - name: domain.uses-term
   from:
   - domain
@@ -1478,6 +1664,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: module.depends-on
   from:
   - code.module
@@ -1497,6 +1685,8 @@ edges:
     to:
       min: 0
       max: null
+  role: dependency
+  direction: out
 - name: mentions
   from:
   - accounting
@@ -1766,6 +1956,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: linksTo
   from:
   - accounting
@@ -2035,6 +2227,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: grounds
   from:
   - accounting
@@ -2304,6 +2498,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: flowsTo
   from:
   - process-step
@@ -2331,6 +2527,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: package.dependsOn
   from:
   - code.manifest
@@ -2372,6 +2570,8 @@ edges:
     to:
       min: 0
       max: null
+  role: dependency
+  direction: out
 - name: ownedBy
   from:
   - accounting
@@ -2650,6 +2850,8 @@ edges:
     to:
       min: 0
       max: null
+  role: reference
+  direction: out
 - name: suppression-by
   from:
   - suppression
@@ -2669,6 +2871,8 @@ edges:
     ru:
       out: Автор поправки
       in: Указано в
+  role: reference
+  direction: out
 - name: code.compose-service-file
   from:
   - code.compose-service
@@ -2690,6 +2894,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.compose-service-depends-on
   from:
   - code.compose-service
@@ -2710,6 +2916,8 @@ edges:
       out: Сервис compose
       in: Указано в
   capability: operations
+  role: dependency
+  direction: out
 - name: code.dockerfile-file
   from:
   - code.dockerfile
@@ -2731,6 +2939,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.make-target-file
   from:
   - code.make-target
@@ -2752,6 +2962,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.ci-workflow-repository
   from:
   - code.ci-workflow
@@ -2773,6 +2985,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.ci-job-workflow
   from:
   - code.ci-job
@@ -2794,6 +3008,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.process-service
   from:
   - code.process
@@ -2815,6 +3031,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.port-service
   from:
   - code.port
@@ -2836,6 +3054,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: process-step-process
   from:
   - process-step
@@ -2856,6 +3076,8 @@ edges:
       out: Бизнес-процесс
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: process-step-performer
   from:
   - process-step
@@ -2875,6 +3097,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: process-step-performed-by
   from:
   - process-step
@@ -2894,6 +3118,8 @@ edges:
     ru:
       out: Сервис
       in: Указано в
+  role: implementation
+  direction: in
 - name: business-process-owner
   from:
   - business-process
@@ -2913,6 +3139,8 @@ edges:
     ru:
       out: Владелец
       in: Указано в
+  role: reference
+  direction: out
 - name: code.test-case-file
   from:
   - code.test-case
@@ -2933,6 +3161,8 @@ edges:
       out: Файл
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.test-quarantine-repository
   from:
   - code.test-quarantine
@@ -2954,6 +3184,8 @@ edges:
       in: содержит
   capability: test-quarantine
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.test-quarantine-test
   from:
   - code.test-quarantine
@@ -2974,6 +3206,8 @@ edges:
       out: Тест
       in: Указано в
   capability: test-quarantine
+  role: reference
+  direction: out
 - name: code.test-quarantine-task
   from:
   - code.test-quarantine
@@ -2994,6 +3228,8 @@ edges:
       out: Задача исправления
       in: Указано в
   capability: test-quarantine
+  role: reference
+  direction: out
 - name: code.test-quarantine-since
   from:
   - code.test-quarantine
@@ -3014,6 +3250,8 @@ edges:
       out: Коммит введения карантина
       in: Указано в
   capability: test-quarantine
+  role: reference
+  direction: out
 - name: code.test-quarantine-latest-result
   from:
   - code.test-quarantine
@@ -3034,6 +3272,8 @@ edges:
       out: Последний результат CI карантина
       in: Указано в
   capability: test-quarantine
+  role: reference
+  direction: out
 - name: test-result-test
   from:
   - test-result
@@ -3054,6 +3294,8 @@ edges:
       out: Тест
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: logical-data-model-domain
   from:
   - logical-data-model
@@ -3073,6 +3315,8 @@ edges:
     ru:
       out: Домен
       in: Указано в
+  role: reference
+  direction: out
 - name: data-job-run-job
   from:
   - data-job-run
@@ -3093,6 +3337,8 @@ edges:
       out: Задача обработки данных
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.column-table
   from:
   - code.column
@@ -3114,6 +3360,8 @@ edges:
       in: содержит элементы
   capability: db-schema
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.table-database
   from:
   - code.table
@@ -3135,6 +3383,8 @@ edges:
       in: содержит таблицы
   capability: db-schema
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.database-repository
   from:
   - code.database
@@ -3156,6 +3406,8 @@ edges:
       in: содержит
   capability: db-schema
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.database-service
   from:
   - code.database
@@ -3175,6 +3427,8 @@ edges:
     ru:
       out: Сервис
       in: Указано в
+  role: reference
+  direction: out
 - name: code.migration-repository
   from:
   - code.migration
@@ -3195,6 +3449,8 @@ edges:
       out: Репозиторий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.index-table
   from:
   - code.index
@@ -3216,6 +3472,8 @@ edges:
       in: содержит элементы
   capability: db-schema
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.index-columns
   from:
   - code.index
@@ -3236,6 +3494,8 @@ edges:
       out: Столбцы
       in: Указано в
   capability: db-schema
+  role: dependency
+  direction: out
 - name: doc.decision-decided-by
   from:
   - doc.decision
@@ -3255,6 +3515,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: responsibility-responsible
   from:
   - responsibility
@@ -3274,6 +3536,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: responsibility-executor
   from:
   - responsibility
@@ -3293,6 +3557,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: link-type-from-kinds
   from:
   - link-type
@@ -3312,6 +3578,8 @@ edges:
     ru:
       out: связанный объект
       in: Указано в
+  role: reference
+  direction: out
 - name: link-type-to-kinds
   from:
   - link-type
@@ -3331,6 +3599,8 @@ edges:
     ru:
       out: связанный объект
       in: Указано в
+  role: reference
+  direction: out
 - name: workflow-stages
   from:
   - workflow
@@ -3351,6 +3621,8 @@ edges:
       out: Этап
       in: Указано в
   on-parent-delete: cascade
+  role: containment
+  direction: in
 - name: comment-author
   from:
   - comment
@@ -3370,6 +3642,8 @@ edges:
     ru:
       out: Автор
       in: Указано в
+  role: reference
+  direction: out
 - name: value-set-entry-set
   from:
   - value-set-entry
@@ -3390,6 +3664,8 @@ edges:
       out: значение справочника
       in: содержит значение
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: doc.use-case-primary-actor
   from:
   - doc.use-case
@@ -3409,6 +3685,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: use-case-step-use-case
   from:
   - use-case-step
@@ -3429,6 +3707,8 @@ edges:
       out: Сценарий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: use-case-step-actor
   from:
   - use-case-step
@@ -3448,6 +3728,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: use-case-step-system-action
   from:
   - use-case-step
@@ -3467,6 +3749,8 @@ edges:
     ru:
       out: Операция API
       in: Указано в
+  role: implementation
+  direction: in
 - name: use-case-step-extension-of
   from:
   - use-case-step
@@ -3486,6 +3770,8 @@ edges:
     ru:
       out: Шаг сценария использования
       in: Указано в
+  role: reference
+  direction: out
 - name: code.symbol-repository
   from:
   - code.symbol
@@ -3505,6 +3791,8 @@ edges:
     ru:
       out: в репозитории
       in: содержит
+  role: containment
+  direction: out
 - name: code.symbol-file
   from:
   - code.symbol
@@ -3525,6 +3813,8 @@ edges:
       out: Файл
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.field-symbol
   from:
   - code.field
@@ -3545,6 +3835,8 @@ edges:
       out: Символ
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.gitlink-repository
   from:
   - code.gitlink
@@ -3566,6 +3858,8 @@ edges:
       in: содержит
   capability: disk
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.gitlink-other-repository
   from:
   - code.gitlink
@@ -3586,6 +3880,8 @@ edges:
       out: ссылается на репозиторий
       in: подключён ссылкой
   capability: disk
+  role: dependency
+  direction: out
 - name: code.entry-point-file
   from:
   - code.entry-point
@@ -3606,6 +3902,8 @@ edges:
       out: Файл
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.entry-point-symbol
   from:
   - code.entry-point
@@ -3626,6 +3924,8 @@ edges:
       out: Символ
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.module-folder
   from:
   - code.module
@@ -3645,6 +3945,8 @@ edges:
     ru:
       out: Папка
       in: Указано в
+  role: implementation
+  direction: in
 - name: code.directory-repository
   from:
   - code.directory
@@ -3666,6 +3968,8 @@ edges:
       in: содержит
   capability: disk
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.service-repository
   from:
   - code.service
@@ -3685,6 +3989,8 @@ edges:
     ru:
       out: в репозитории
       in: содержит
+  role: containment
+  direction: out
 - name: code.service-frameworks
   from:
   - code.service
@@ -3704,6 +4010,8 @@ edges:
     ru:
       out: Фреймворки
       in: Указано в
+  role: dependency
+  direction: out
 - name: code.file-repository
   from:
   - code.file
@@ -3725,6 +4033,8 @@ edges:
       in: содержит
   capability: disk
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.file-directory
   from:
   - code.file
@@ -3745,6 +4055,8 @@ edges:
       out: в каталоге
       in: содержит файлы
   capability: disk
+  role: containment
+  direction: out
 - name: code.file-added-in
   from:
   - code.file
@@ -3765,6 +4077,8 @@ edges:
       out: добавлен в
       in: добавил файлы
   capability: git
+  role: reference
+  direction: out
 - name: code.file-removed-in
   from:
   - code.file
@@ -3785,6 +4099,8 @@ edges:
       out: удалён в
       in: удалил файлы
   capability: git
+  role: reference
+  direction: out
 - name: code.channel-broker
   from:
   - code.channel
@@ -3804,6 +4120,8 @@ edges:
     ru:
       out: Брокер сообщений
       in: Указано в
+  role: containment
+  direction: out
 - name: code.route-service
   from:
   - code.route
@@ -3824,6 +4142,8 @@ edges:
       out: Сервис
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.route-handler
   from:
   - code.route
@@ -3843,6 +4163,8 @@ edges:
     ru:
       out: Обработчик
       in: Указано в
+  role: implementation
+  direction: in
 - name: code.route-middleware
   from:
   - code.route
@@ -3862,6 +4184,8 @@ edges:
     ru:
       out: Промежуточные обработчики
       in: Указано в
+  role: dependency
+  direction: out
 - name: code.operation-contract
   from:
   - code.operation
@@ -3882,6 +4206,8 @@ edges:
       out: Контракт
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.message-contract
   from:
   - code.message
@@ -3902,6 +4228,8 @@ edges:
       out: Контракт
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.message-channel
   from:
   - code.message
@@ -3921,6 +4249,8 @@ edges:
     ru:
       out: Канал
       in: Указано в
+  role: reference
+  direction: out
 - name: code.contract-repository
   from:
   - code.contract
@@ -3941,6 +4271,8 @@ edges:
       out: в репозитории
       in: содержит
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.input-symbol
   from:
   - code.input
@@ -3961,6 +4293,8 @@ edges:
       out: Символ
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.debt-repository
   from:
   - code.debt
@@ -3981,6 +4315,8 @@ edges:
       out: Репозиторий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.cycle-members
   from:
   - code.cycle
@@ -4001,6 +4337,8 @@ edges:
     ru:
       out: Файл
       in: Указано в
+  role: reference
+  direction: out
 - name: code.sql-sink-repository
   from:
   - code.sql-sink
@@ -4021,6 +4359,8 @@ edges:
       out: Репозиторий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.sql-build-repository
   from:
   - code.sql-build
@@ -4041,6 +4381,8 @@ edges:
       out: Репозиторий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.metrics-endpoint-service
   from:
   - code.metrics-endpoint
@@ -4062,6 +4404,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.health-endpoint-service
   from:
   - code.health-endpoint
@@ -4083,6 +4427,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: job-run-job
   from:
   - job-run
@@ -4103,6 +4449,8 @@ edges:
       out: Задача по расписанию
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.manifest-repository
   from:
   - code.manifest
@@ -4124,6 +4472,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.lockfile-repository
   from:
   - code.lockfile
@@ -4145,6 +4495,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.lockfile-packages
   from:
   - code.lockfile
@@ -4165,6 +4517,8 @@ edges:
       out: Пакеты
       in: Указано в
   capability: operations
+  role: dependency
+  direction: out
 - name: code.logger-service
   from:
   - code.logger
@@ -4186,6 +4540,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.logger-file
   from:
   - code.logger
@@ -4207,6 +4563,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.metric-service
   from:
   - code.metric
@@ -4228,6 +4586,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.env-var-service
   from:
   - code.env-var
@@ -4249,6 +4609,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.env-definition-variable
   from:
   - code.env-definition
@@ -4270,6 +4632,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.snapshot-repository
   from:
   - code.snapshot
@@ -4291,6 +4655,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.snapshot-commit
   from:
   - code.snapshot
@@ -4312,6 +4678,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: reference
+  direction: out
 - name: review-finding-place
   from:
   - review-finding
@@ -4331,6 +4699,8 @@ edges:
     ru:
       out: Место
       in: Указано в
+  role: reference
+  direction: out
 - name: merge-merged-by
   from:
   - merge
@@ -4350,6 +4720,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: merge-commit
   from:
   - merge
@@ -4369,6 +4741,8 @@ edges:
     ru:
       out: Коммит
       in: Указано в
+  role: reference
+  direction: out
 - name: constitution-product
   from:
   - constitution
@@ -4389,6 +4763,8 @@ edges:
       out: Продукт
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: work-span-who
   from:
   - work-span
@@ -4408,6 +4784,8 @@ edges:
     ru:
       out: Кто выполнил
       in: Указано в
+  role: reference
+  direction: out
 - name: handoff-from
   from:
   - handoff
@@ -4427,6 +4805,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: handoff-to
   from:
   - handoff
@@ -4446,6 +4826,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: question-asked-by
   from:
   - question
@@ -4465,6 +4847,8 @@ edges:
     ru:
       out: Человек
       in: Указано в
+  role: reference
+  direction: out
 - name: question-resolved-by
   from:
   - question
@@ -4484,6 +4868,8 @@ edges:
     ru:
       out: Учтено на страницах
       in: Указано в
+  role: reference
+  direction: out
 - name: document-repository
   from:
   - document
@@ -4504,6 +4890,8 @@ edges:
       out: в репозитории
       in: содержит
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: document-commit
   from:
   - document
@@ -4523,6 +4911,8 @@ edges:
     ru:
       out: основан на коммите
       in: обосновывает
+  role: reference
+  direction: out
 - name: guide-audience
   from:
   - guide
@@ -4542,6 +4932,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: guide-document
   from:
   - guide
@@ -4561,6 +4953,8 @@ edges:
     ru:
       out: Документ
       in: Указано в
+  role: reference
+  direction: out
 - name: code.document-section-document
   from:
   - code.document-section
@@ -4582,6 +4976,8 @@ edges:
       in: Указано в
   capability: operations
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: code.newcomer-command-repository
   from:
   - code.newcomer-command
@@ -4602,6 +4998,8 @@ edges:
       out: Репозиторий
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: correction-by
   from:
   - correction
@@ -4621,6 +5019,8 @@ edges:
     ru:
       out: Автор поправки
       in: Указано в
+  role: reference
+  direction: out
 - name: correction-resolved-by
   from:
   - correction
@@ -4640,6 +5040,8 @@ edges:
     ru:
       out: Учтено на страницах
       in: Указано в
+  role: reference
+  direction: out
 - name: class-diagram-module
   from:
   - class-diagram
@@ -4659,6 +5061,8 @@ edges:
     ru:
       out: Модуль
       in: Указано в
+  role: reference
+  direction: out
 - name: class-diagram-domain
   from:
   - class-diagram
@@ -4678,6 +5082,8 @@ edges:
     ru:
       out: Домен
       in: Указано в
+  role: reference
+  direction: out
 - name: scenario-step-scenario
   from:
   - scenario-step
@@ -4698,6 +5104,8 @@ edges:
       out: Сценарий выполнения
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: scenario-step-from-role
   from:
   - scenario-step
@@ -4717,6 +5125,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: scenario-step-from-service
   from:
   - scenario-step
@@ -4736,6 +5146,8 @@ edges:
     ru:
       out: Сервис
       in: Указано в
+  role: reference
+  direction: out
 - name: scenario-step-to-role
   from:
   - scenario-step
@@ -4755,6 +5167,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: scenario-step-to-service
   from:
   - scenario-step
@@ -4774,6 +5188,8 @@ edges:
     ru:
       out: Сервис
       in: Указано в
+  role: reference
+  direction: out
 - name: state-machine-subject
   from:
   - state-machine
@@ -4793,6 +5209,8 @@ edges:
     ru:
       out: Тема
       in: Указано в
+  role: reference
+  direction: out
 - name: state-machine-lifecycle-of
   from:
   - state-machine
@@ -4812,6 +5230,8 @@ edges:
     ru:
       out: связанный объект
       in: Указано в
+  role: reference
+  direction: out
 - name: process-event-process
   from:
   - process-event
@@ -4832,6 +5252,8 @@ edges:
       out: Бизнес-процесс
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: process-gateway-process
   from:
   - process-gateway
@@ -4852,6 +5274,8 @@ edges:
       out: Бизнес-процесс
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: activity-subject
   from:
   - activity
@@ -4871,6 +5295,8 @@ edges:
     ru:
       out: Тема
       in: Указано в
+  role: reference
+  direction: out
 - name: activity-node-activity
   from:
   - activity-node
@@ -4891,6 +5317,8 @@ edges:
       out: Активность
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: state-belongs-to-machine
   from:
   - state
@@ -4911,6 +5339,8 @@ edges:
       out: Конечный автомат
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: transition-machine
   from:
   - transition
@@ -4931,6 +5361,8 @@ edges:
       out: Конечный автомат
       in: Указано в
   on-parent-delete: restrict
+  role: containment
+  direction: out
 - name: transition-from
   from:
   - transition
@@ -4951,6 +5383,8 @@ edges:
       out: Состояние
       in: Указано в
   on-parent-delete: restrict
+  role: reference
+  direction: out
 - name: transition-to
   from:
   - transition
@@ -4971,6 +5405,8 @@ edges:
       out: Состояние
       in: Указано в
   on-parent-delete: restrict
+  role: reference
+  direction: out
 - name: transition-event
   from:
   - transition
@@ -4990,6 +5426,8 @@ edges:
     ru:
       out: Событие
       in: Указано в
+  role: reference
+  direction: out
 - name: product-audience
   from:
   - product
@@ -5009,6 +5447,8 @@ edges:
     ru:
       out: Роль
       in: Указано в
+  role: reference
+  direction: out
 - name: question-side-question
   from:
   - question-side
@@ -5029,6 +5469,8 @@ edges:
       out: принадлежит вопросу
       in: имеет позицию
   on-parent-delete: cascade
+  role: containment
+  direction: out
 - name: question-about
   from:
   - question
@@ -5172,6 +5614,8 @@ edges:
     ru:
       out: спрашивает о
       in: обсуждается в вопросе
+  role: reference
+  direction: out
 - name: correction-about
   from:
   - correction
@@ -5315,28 +5759,452 @@ edges:
     ru:
       out: исправляет
       in: исправляется
-
+  role: reference
+  direction: out
 - name: task-problem
-  from: [task]
-  to: [system.problem]
+  from:
+  - task
+  to:
+  - system.problem
   cardinality:
-    from: { min: 0, max: 1 }
-    to: { min: 0, max: null }
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
   labels:
-    en: { out: tracks problem, in: tracked by task }
-    ru: { out: решает проблему, in: решается задачей }
-
+    en:
+      out: tracks problem
+      in: tracked by task
+    ru:
+      out: решает проблему
+      in: решается задачей
+  role: reference
+  direction: out
 - name: code.blob-about
-  from: [code.blob]
-  to: [code.file, code.repository]
+  from:
+  - code.blob
+  to:
+  - code.file
+  - code.repository
   capability: disk
   cardinality:
-    from: { min: 0, max: null }
-    to: { min: 0, max: null }
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
   labels:
-    en: { out: captures, in: captured by }
-    ru: { out: фиксирует, in: зафиксировано в }
-
+    en:
+      out: captures
+      in: captured by
+    ru:
+      out: фиксирует
+      in: зафиксировано в
+  role: reference
+  direction: out
+- name: domain.contains
+  role: containment
+  direction: in
+  from:
+  - domain
+  to:
+  - domain
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: software-system.contains
+  role: containment
+  direction: in
+  from:
+  - c4.software-system
+  to:
+  - c4.software-system
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: c4.component.contains
+  role: containment
+  direction: in
+  from:
+  - c4.component
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.service.contains
+  role: containment
+  direction: in
+  from:
+  - code.service
+  to:
+  - code.service
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.module.contains
+  role: containment
+  direction: in
+  from:
+  - code.module
+  to:
+  - code.module
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.directory.contains
+  role: containment
+  direction: in
+  from:
+  - code.directory
+  to:
+  - code.directory
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: organization.contains
+  role: containment
+  direction: in
+  from:
+  - org.organization
+  to:
+  - org.organization
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: token-group.contains
+  role: containment
+  direction: in
+  from:
+  - dtcg.token-group
+  to:
+  - dtcg.token-group
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: data-catalog.contains
+  role: containment
+  direction: in
+  from:
+  - dcat.catalog
+  to:
+  - dcat.catalog
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: epic.contains
+  role: containment
+  direction: in
+  from:
+  - epic
+  to:
+  - epic
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: feature.contains
+  role: containment
+  direction: in
+  from:
+  - feature
+  to:
+  - feature
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: stage.contains
+  role: containment
+  direction: in
+  from:
+  - stage
+  to:
+  - stage
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: task.contains
+  role: containment
+  direction: in
+  from:
+  - task
+  to:
+  - task
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: idea.evolved-into
+  role: reference
+  direction: out
+  from:
+  - idea
+  to:
+  - idea
+  labels:
+    en:
+      out: evolved into
+      in: grew out of
+    ru:
+      out: переросла в
+      in: выросла из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: architecture.serves-domain
+  role: implementation
+  direction: out
+  from:
+  - c4.software-system
+  - c4.component
+  to:
+  - domain
+  labels:
+    en:
+      out: serves domain
+      in: served by
+    ru:
+      out: обслуживает домен
+      in: обслуживается
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: container.contains-component
+  role: containment
+  direction: in
+  from:
+  - code.service
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains component
+      in: component of
+    ru:
+      out: содержит компонент
+      in: компонент контейнера
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: component.implemented-by
+  role: implementation
+  direction: in
+  from:
+  - c4.component
+  to:
+  - code.module
+  labels:
+    en:
+      out: implemented by
+      in: implements component
+    ru:
+      out: реализован модулем
+      in: реализует компонент
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: term.in-domain
+  role: containment
+  direction: out
+  from:
+  - doc.term
+  to:
+  - domain
+  labels:
+    en:
+      out: in subject field
+      in: defines concepts
+    ru:
+      out: в предметной области
+      in: определяет понятия
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: product.uses-repository
+  role: dependency
+  direction: out
+  from:
+  - product
+  to:
+  - code.repository
+  labels:
+    en:
+      out: uses repository
+      in: used by product
+    ru:
+      out: использует репозиторий
+      in: используется продуктом
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
 semantic-bindings:
   document:
     kind: document

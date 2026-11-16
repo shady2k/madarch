@@ -140,6 +140,8 @@ kinds:
     - name
 edges:
 - name: demo.contains
+  role: containment
+  direction: in
   from:
   - demo.repository
   to:
@@ -165,6 +167,8 @@ edges:
       min: 0
       max: null
 - name: demo.touched
+  role: reference
+  direction: out
   from:
   - demo.commit
   to:
@@ -227,6 +231,8 @@ edges:
       min: 0
       max: null
 - name: demo.authored
+  role: reference
+  direction: out
   from:
   - demo.author
   to:
@@ -246,6 +252,8 @@ edges:
       min: 0
       max: null
 - name: mentions
+  role: reference
+  direction: out
   from:
   - demo.repository
   - demo.file
@@ -273,6 +281,8 @@ edges:
       min: 0
       max: null
 - name: demo.file-repository
+  role: containment
+  direction: out
   from:
   - demo.file
   to:

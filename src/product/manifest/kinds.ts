@@ -245,6 +245,8 @@ export interface PluginDecl {
 
 /** One edge kind the manifest declares: its ends, its repeat rule and its typed attributes. */
 export interface EdgeDecl {
+  readonly role: import('../../graph/contract.js').EdgeSemantics['role'];
+  readonly direction: 'in' | 'out';
   readonly contractUid?: string;
   readonly onParentDelete?: 'restrict' | 'cascade';
   readonly cardinality: EdgeCardinality;
@@ -2243,10 +2245,18 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
         return;
       }
-      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels', 'cardinality', 'contract-uid', 'on-parent-delete'].includes(key));
-      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields, capability, labels and cardinality` }); return; }
+      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels', 'cardinality', 'contract-uid', 'on-parent-delete', 'role', 'direction'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields, capability, labels, cardinality, role and direction` }); return; }
       // Every edge kind declares the words it reads as at both ends in each interface language (owner's decision,
       // 2026-11-15): relation words are product data, and no renderer derives them from the key.
+      const role = body['role'];
+      const direction = body['direction'];
+      if (role !== 'containment' && role !== 'dependency' && role !== 'implementation' && role !== 'reference') {
+        findings.push({ file, line: at(['edges', index, 'role']), message: `edge "${body['name']}": role must be containment, dependency, implementation or reference` }); return;
+      }
+      if (direction !== 'in' && direction !== 'out') {
+        findings.push({ file, line: at(['edges', index, 'direction']), message: `edge "${body['name']}": direction must be in or out, toward the owner, prerequisite, abstraction or referenced target` }); return;
+      }
       const labels: Record<string, { out: string; in: string }> = {};
       const rawLabels = body['labels'];
       if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
@@ -2310,7 +2320,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (repeats && discriminator === undefined) { findings.push({ file, line: at(['edges', index]), message: 'an edge kind that repeats names the field that tells its repeats apart (discriminator)' }); return; }
       if (!repeats && discriminator !== undefined) { findings.push({ file, line: at(['edges', index, 'discriminator']), message: 'an edge kind that does not repeat has no discriminator' }); return; }
       const capability = typeof body['capability'] === 'string' ? body['capability'] : undefined;
-      edges.set(body['name'], { ...(isUuid(contractUid) ? { contractUid } : {}), ...(onParentDelete === undefined ? {} : { onParentDelete }), cardinality: cardinality as unknown as EdgeCardinality, name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, labels: labels as unknown as EdgeWords, ...(capability === undefined ? {} : { capability }), line });
+      edges.set(body['name'], { role, direction, ...(isUuid(contractUid) ? { contractUid } : {}), ...(onParentDelete === undefined ? {} : { onParentDelete }), cardinality: cardinality as unknown as EdgeCardinality, name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, labels: labels as unknown as EdgeWords, ...(capability === undefined ? {} : { capability }), line });
     });
   }
   // 0039 item 28: parent identity declarations are required relations and form a DAG.

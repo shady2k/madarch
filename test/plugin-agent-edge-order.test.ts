@@ -129,8 +129,8 @@ kinds:
       - { name: id, type: text, binding: "probe-summary@1.id" }
       - { name: title, type: text, binding: "probe-summary@1.title" }
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
-  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.contains, role: containment, direction: in, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.as-is, role: reference, direction: out, from: [code.repository], to: [code.commit], capability: git }
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
 `;
@@ -171,7 +171,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],
     });
     // Every edge declares the words it reads as at each end, in both interface languages (catalogue R7).
-    manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill', labels: { en: { out: 'links', in: 'linked from' }, ru: { out: 'ссылается на', in: 'упомянут' } } }]);
+    manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', role: 'reference', direction: 'out', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill', labels: { en: { out: 'links', in: 'linked from' }, ru: { out: 'ссылается на', in: 'упомянут' } } }]);
     manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: ['code.file'], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
     writeFolderManifest(f.product, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;

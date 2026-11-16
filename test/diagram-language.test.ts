@@ -49,6 +49,8 @@ kinds:
     key: []
 edges:
   - name: sample.powers
+    role: reference
+    direction: out
     from: [sample]
     to: [sample]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }

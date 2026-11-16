@@ -55,7 +55,7 @@ return {end:{state:'complete'}};
       'Fixture.fact': { source: 'graph', 'derives-from': ['Fixture.file'], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) },
       'Fixture.file': { source: 'graph', key: ['path'], fields: [{ name: 'path', type: 'text', producers: ['support'] }] },
       'Fixture.snapshot': { source: 'graph', key: ['digest'], fields: ['digest', 'content'].map(name => ({ name, type: 'text', producers: ['support'] })), evidence: immutable },
-    }, edges: [{ name: edge.kind, from: ['Fixture.snapshot'], to: ['Fixture.file'], cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }, labels: edge.labels }], plugins: [{ id: 'support', version: 1, path: 'plugins/support', inputs: [], outputs: ['Fixture.file', 'Fixture.fact'], closure: ['plugins/support/plugin.json', 'plugins/support/contract.json', 'plugins/support/main.js', 'plugins/support/scenario.js'] }] }));
+    }, edges: [{ name: edge.kind, role: 'reference', direction: 'out', from: ['Fixture.snapshot'], to: ['Fixture.file'], cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }, labels: edge.labels }], plugins: [{ id: 'support', version: 1, path: 'plugins/support', inputs: [], outputs: ['Fixture.file', 'Fixture.fact'], closure: ['plugins/support/plugin.json', 'plugins/support/contract.json', 'plugins/support/main.js', 'plugins/support/scenario.js'] }] }));
     const run = async (id: string, content: string) => {
       writeFileSync(join(plugin, 'scenario.js'), `export const content=${JSON.stringify(content)};`);
       const closure = closureOf(plugin).hash;

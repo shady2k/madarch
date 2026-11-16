@@ -6,7 +6,7 @@ import { PluginContractDeclaration, PluginEntityRef } from '../src/plugin/protoc
 
 const labels = { en: { out: 'belongs to', in: 'contains' }, ru: { out: 'принадлежит', in: 'содержит' } };
 function declaration() {
-  return { kinds: { parent: { source: 'graph', fields: [{ name: 'name', type: 'text', producers: ['disk'] }], key: ['name'] }, child: { source: 'graph', fields: [{ name: 'path', type: 'text', producers: ['disk'] }], key: ['path'], 'key-edges': [{ role: 'parent', edge: 'belongs', side: 'from' }] } }, edges: [{ name: 'belongs', from: ['child'], to: ['parent'], cardinality: { from: { min: 1, max: 1 }, to: { min: 0, max: null } }, 'on-parent-delete': 'restrict', labels }] };
+  return { kinds: { parent: { source: 'graph', fields: [{ name: 'name', type: 'text', producers: ['disk'] }], key: ['name'] }, child: { source: 'graph', fields: [{ name: 'path', type: 'text', producers: ['disk'] }], key: ['path'], 'key-edges': [{ role: 'parent', edge: 'belongs', side: 'from' }] } }, edges: [{ name: 'belongs', role: 'containment', direction: 'out', from: ['child'], to: ['parent'], cardinality: { from: { min: 1, max: 1 }, to: { min: 0, max: null } }, 'on-parent-delete': 'restrict', labels }] };
 }
 function parse(root: unknown) { return parseKinds({ root, at: () => 7 }, '/product/madarch/catalog.yaml', '/product'); }
 
@@ -36,7 +36,7 @@ test('0039 item 28: deletion policy and required cardinality are mandatory', () 
 test('0039 item 28: key-edge DAG rejects a parent cycle', () => {
   const root = declaration();
   Object.assign(root.kinds.parent, { 'key-edges': [{ role: 'child', edge: 'reverse', side: 'from' }] });
-  root.edges.push({ name: 'reverse', from: ['parent'], to: ['child'], cardinality: { from: { min: 1, max: 1 }, to: { min: 0, max: null } }, 'on-parent-delete': 'restrict', labels });
+  root.edges.push({ name: 'reverse', role: 'containment', direction: 'out', from: ['parent'], to: ['child'], cardinality: { from: { min: 1, max: 1 }, to: { min: 0, max: null } }, 'on-parent-delete': 'restrict', labels });
   expect(parse(root).findings.some((finding) => finding.message.includes('key-edge cycle'))).toBe(true);
 });
 

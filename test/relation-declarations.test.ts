@@ -67,6 +67,8 @@ function manifest(edgeLabels: string | null): string {
     '    key: []',
     'edges:',
     '  - name: sample.covers',
+    '    role: reference',
+    '    direction: out',
     '    from: [item]',
     '    to: [item]',
     ...(edgeLabels === null ? [] : [edgeLabels]),

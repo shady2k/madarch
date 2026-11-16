@@ -39,6 +39,8 @@ catalog:
     contains: null
 edges:
 - name: demo.contains
+  role: containment
+  direction: in
   from:
   - demo.repository
   to:
@@ -64,6 +66,8 @@ edges:
       min: 0
       max: null
 - name: demo.touched
+  role: reference
+  direction: out
   from:
   - demo.file
   to:
@@ -96,6 +100,8 @@ edges:
       min: 0
       max: null
 - name: demo.related
+  role: reference
+  direction: out
   from:
   - demo.file
   to:
@@ -115,6 +121,8 @@ edges:
       min: 0
       max: null
 - name: mentions
+  role: reference
+  direction: out
   from:
   - demo.file
   - demo.repository
@@ -138,6 +146,8 @@ edges:
       min: 0
       max: null
 - name: demo.sized
+  role: reference
+  direction: out
   from:
   - demo.repository
   to:
@@ -162,6 +172,8 @@ edges:
       min: 0
       max: null
 - name: demo.file-repository
+  role: containment
+  direction: out
   from:
   - demo.file
   to:
@@ -182,6 +194,8 @@ edges:
       in: файлы
   on-parent-delete: restrict
 - name: demo.file-primary
+  role: reference
+  direction: out
   from:
   - demo.file
   to:
@@ -201,6 +215,8 @@ edges:
       out: primary
       in: primary файлы
 - name: demo.file-preferred
+  role: reference
+  direction: out
   from:
   - demo.file
   to:

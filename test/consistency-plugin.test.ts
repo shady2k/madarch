@@ -105,8 +105,8 @@ kinds:
       - { name: title, type: text, binding: "plugin-consistency@1.title" }
     key: [id, title]
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
-  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.contains, role: containment, direction: in, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.as-is, role: reference, direction: out, from: [code.repository], to: [code.commit], capability: git }
 plugins:
   - { id: plugin-consistency, version: 1, path: plugins/plugin-consistency, inputs: [code.file], outputs: [probe.finding, probe.opinion, probe.keyed], closure: [plugins/plugin-consistency/contract.json, plugins/plugin-consistency/main.ts, plugins/plugin-consistency/plugin.json] }
 problems:
@@ -128,7 +128,7 @@ problems:
     // The fixture writes this record itself: its fields are a person's authored write, not a plugin's.
     fields: [{ name: 'path', type: 'text', producers: ['person'] }],
   });
-  declared.addIn(['edges'], {name:'probe.referrer-repository',from:['probe.referrer'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}});
+  declared.addIn(['edges'], {name:'probe.referrer-repository',role:'containment',direction:'out',from:['probe.referrer'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}});
   const descriptions: Record<string, { en: string; ru: string }> = {
     'probe.finding': { en: 'A consistency finding emitted by the fixture plugin.', ru: 'Находка проверки согласованности тестового плагина.' },
     'probe.opinion': { en: 'An opinion with two fields requiring evidence.', ru: 'Утверждение с двумя полями, требующими основания.' },

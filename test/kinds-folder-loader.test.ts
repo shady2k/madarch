@@ -227,3 +227,33 @@ test('alias expansion failure identifies the alias that exceeds the limit', () =
   if (!read.present) throw new Error('manifest must be read');
   expect(read.manifest.findings.find((one) => one.message.includes('Excessive alias count'))).toMatchObject({ file: '/alias-limit/madarch/kinds/code/structure/item.yaml', line: 102 });
 });
+
+test('0039.7,30: every catalogue edge requires an explicit semantic role and direction', () => {
+  const edge = {name:'opaque', from:['sample'], to:['sample'], repeats:false, role:'containment', direction:'in', cardinality:{from:{min:0,max:null},to:{min:0,max:null}}, labels:{en:{out:'links',in:'linked by'},ru:{out:'связь',in:'связь'}}};
+  const parse = (value: unknown) => {
+    const result = readKindsFrom(source({'madarch/catalog.yaml':yaml.stringify({groups:{example:{en:'Example',ru:'Пример'},'example.things':{en:'Things',ru:'Вещи',parent:'example'}},edges:[value]}), 'madarch/kinds/example/things/sample.yaml':'source: graph\nlabels: {en: {one: Sample, many: Samples}, ru: {one: Пример, many: Примеры}}\n'}), '/semantic-product');
+    if (!result.present) throw new Error('manifest absent');
+    return result.manifest;
+  };
+  const valid = parse(edge);
+  expect(valid.findings).toEqual([]);
+  expect(valid.edges?.get('opaque')?.role).toBe('containment');
+  expect(valid.edges?.get('opaque')?.direction).toBe('in');
+  for (const role of [undefined,'unknown']) {
+    const invalid = parse({...edge,role});
+    expect(invalid.findings.some(finding=>finding.message.includes('role must be'))).toBe(true);
+    expect(invalid.findings.every(finding=>finding.file.startsWith('/semantic-product/') && finding.line > 0)).toBe(true);
+  }
+  for (const direction of [undefined,'sideways']) expect(parse({...edge,direction}).findings.some(finding=>finding.message.includes('direction must be'))).toBe(true);
+});
+
+test('0039.7: manifest semantic direction survives graph contract generation and revision', async () => {
+ const { manifestContractOf } = await import('../src/fill/stages/plugin-contract.js');
+ const { graphContractVersion } = await import('../src/graph/contract.js');
+ const edge = {name:'opaque',role:'dependency',direction:'in',from:['sample'],to:['sample'],cardinality:{from:{min:0,max:null},to:{min:0,max:null}},labels:{en:{out:'uses',in:'used by'},ru:{out:'связь',in:'связь'}}};
+ const result=readKindsFrom(source({'madarch/catalog.yaml':yaml.stringify({groups:{example:{en:'Example',ru:'Пример'},'example.things':{en:'Things',ru:'Вещи',parent:'example'}},edges:[edge]}),'madarch/kinds/example/things/sample.yaml':'source: graph\nlabels: {en: {one: Sample, many: Samples}, ru: {one: Пример, many: Примеры}}\n'}),'/semantic-contract');
+ if(!result.present) throw new Error('manifest absent');
+ const contract=manifestContractOf(result.manifest);
+ expect(contract.edge[0]).toMatchObject({role:'dependency',direction:'in'});
+ expect(graphContractVersion(contract)).not.toBe(graphContractVersion({...contract,edge:contract.edge.map(edge=>({...edge,direction:'out'}))}));
+});

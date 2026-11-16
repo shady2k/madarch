@@ -111,8 +111,8 @@ kinds:
       - { name: id, type: text, binding: "probe-summary@1.id" }
       - { name: title, type: text, binding: "probe-summary@1.title" }
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
-  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.contains, role: containment, direction: in, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.as-is, role: reference, direction: out, from: [code.repository], to: [code.commit], capability: git }
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
 `;

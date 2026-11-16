@@ -174,6 +174,8 @@ kinds:
     title: path
 edges:
   - name: links-to
+    role: reference
+    direction: out
     from: [demo.repository]
     to: [demo.file]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
@@ -193,6 +195,8 @@ kinds:
     title: name
 edges:
   - name: demo.contains
+    role: containment
+    direction: in
     from: [demo.repository]
     to: [demo.absent]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }

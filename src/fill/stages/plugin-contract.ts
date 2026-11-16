@@ -63,6 +63,8 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
       ...(edge.contractUid === undefined ? {} : { contractUid: edge.contractUid }), name: edge.name,
       table: generatedTableName(edge.name, 'edge'),
       cardinality: edge.cardinality,
+      role: edge.role,
+      direction: edge.direction,
       labels: edge.labels,
       from: edge.from,
       to: edge.to,

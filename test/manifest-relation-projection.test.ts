@@ -12,6 +12,8 @@ test('relation projections retain field-qualified declarations without inventing
     mkdirSync(join(folder, 'madarch'));
     writeFolderManifest(folder, `edges:
   - name: mentions
+    role: reference
+    direction: out
     from: [any]
     to: [any]
     repeats: false

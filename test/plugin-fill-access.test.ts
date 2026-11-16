@@ -127,7 +127,7 @@ async function snapshotFixture() {
   const manifest = parseKinds({root:{kinds:{
     'code.repository':{source:'graph',key:['name'],fields:[{name:'name',type:'text',producers:['fixture']}]},
     'code.file':{source:'graph',key:['path'],'key-edges':[{role:'repository',edge:'belongs',side:'from'}],fields:[{name:'path',type:'text',producers:['fixture']},{name:'content',type:'text',producers:['fixture']},{name:'language',type:'text',producers:['fixture']}]},
-  },edges:[{name:'belongs',from:['code.file'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}}]},at:()=>1},'/fixture/catalog.yaml','/fixture');
+  },edges:[{name:'belongs',role:'containment',direction:'out',from:['code.file'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}}]},at:()=>1},'/fixture/catalog.yaml','/fixture');
   expect(manifest.findings).toEqual([]);
   const contract = withManifestContract(graphContractOf(manifest));
   const owner = await createTestDatabaseOwner({graphContract:contract});
