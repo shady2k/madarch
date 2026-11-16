@@ -490,6 +490,13 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         held.add(canonicalEntity(vertex));
         answered.set(vertex.kind, held);
       }
+      for (const vertex of checked.unit.vertices) {
+        for (const role of wiring.contract.vertex.find(kind => kind.name === vertex.kind)?.keyEdges ?? []) {
+          const parent = vertex.keyEdges?.[role.role];
+          if (parent === undefined) continue;
+          answeredEdges.add(edgeIdentity(role.edge, role.direction === 'from' ? vertex : parent, role.direction === 'from' ? parent : vertex, ''));
+        }
+      }
       for (const edge of checked.unit.edges) answeredEdges.add(edgeIdentity(edge.kind, edge.from, edge.to, edge.discriminator ?? ''));
       committedEntries += checked.unit.vertices.length + checked.unit.edges.length;
       return written;

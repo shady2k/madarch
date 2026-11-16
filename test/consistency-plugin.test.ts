@@ -1,7 +1,6 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { useFixturePlugins, useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The consistency plugin's engine side (madarch-stm0.7.1): a whole-graph plugin is planned in its own stage only after
  * every plugin turn published, reads the writer's records through the host one bounded page at a time, and answers one
@@ -13,7 +12,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, prepareTestStore, type TestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
 import { parseDocument } from 'yaml';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -241,12 +240,12 @@ afterAll(async () => {
 describe('a declared fixture plugin reads consistency records through the host', () => {
   test('a consistent fill states no finding', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    await prepareTestStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareTestStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope_key','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
+    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
     // The check declares its finding output and uses the ordinary plugin stage.
     expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
     expect(run.units.some((unit) => unit.stageId === 'plugin-turns' && unit.unitId.startsWith('plugin-turns/disk:'))).toBe(true);
@@ -264,12 +263,12 @@ describe('a declared fixture plugin reads consistency records through the host',
       vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
       removals: [],
     }, 1); });
-    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    await prepareTestStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareTestStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope_key','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
+    expect(run.state, JSON.stringify({run,outcomes:await readProducerOutcomes(owner,{}),diagnostics:await owner.transaction('snapshot',async tx=>readKindAssertions(tx,'vertex','system.unit',['reason','last_progress','scope','state'], { contract: fixtureReadContract() }).then(rows=>rows.map(row=>row.values)))})).toBe('succeeded');
     const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
     expect(found.map((one) => one.target.split(':')[1]).sort()).toEqual(['first', 'second']);
     expect(new Set(found.map((one) => one.target)).size).toBe(2);

@@ -16,6 +16,8 @@ import { commitFacts, fileFacts, listFiles, repositoryFacts } from '../src/graph
 import { assertionValueTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { runFill } from '../src/fill/run.js';
+import { readRunUnits } from '../src/graph/fill-state.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
 import { seedRepositoryPlugins, useFixturePlugins } from './enabled-plugins-fixture.js';
 import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
@@ -55,7 +57,7 @@ async function fillRepository(folder = repository, name = 'fixture') {
   if (folder !== repository && !existsSync(fixture)) makeProduct(fixture, folder, name);
   const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: async contract => { await prepareTestStore(owner!, { contract }); } });
   if (!result.ok) throw new Error(`fill refused: ${result.reason}`);
-  if (result.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify(result)}`);
+  if (result.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify({result,units:await readRunUnits(owner,result.runId),progress:await readProgress(owner,result.runId,{limit:10000})})}`);
   return result;
 }
 
@@ -136,6 +138,8 @@ describe('the two passes over one fixture', () => {
     expect(roots).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository',
       'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(first.units.every(unit => unit.stageId === 'plugin-turns')).toBe(true);
+    const directoryEdges = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM graph_edge_active_ids('code.directory-repository',1)`));
+    expect(directoryEdges.rows[0]?.n).toBe(2);
     const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM assertion`));
     const second = await fillRepository();
     expect([...new Set(second.reused.map(id => id.split('#')[0]))].sort()).toEqual(roots);
