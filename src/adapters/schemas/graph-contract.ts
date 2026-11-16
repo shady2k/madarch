@@ -124,32 +124,41 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
       $$`);
     }
     const relationChecks: string[] = [];
-    for (const kind of contract.edge.filter(kind => kind.capability !== 'system')) {
-      const edgeKind = literal(kind.name);
-      const vertexKinds = [...new Set([...kind.from,...kind.to])];
-      const active = `WITH active_edges AS MATERIALIZED (
-        SELECT ctx.id AS context_id,e.id,e.from_node,e.to_node FROM context ctx
-        CROSS JOIN LATERAL graph_edge_active_ids(${edgeKind},ctx.id) active(id)
+    const relationKinds = contract.edge.filter(kind => kind.capability !== 'system');
+    if (relationKinds.length > 0) {
+      const vertexKinds = [...new Set(relationKinds.flatMap(kind => [...kind.from, ...kind.to]))];
+      const failures: string[] = [];
+      const refusals: string[] = [];
+      for (const [index, kind] of relationKinds.entries()) {
+        const edgeKind = literal(kind.name);
+        const endpointCode = index * 2 + 1;
+        const cardinalityCode = endpointCode + 1;
+        failures.push(`WHEN EXISTS(
+          SELECT 1 FROM active_edges e WHERE e.kind=${edgeKind} AND (
+            NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${kind.from.map(literal).join(',')}]::text[]))
+            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
+        for (const [direction, ends, bound] of [['from',kind.from,kind.cardinality.to],['to',kind.to,kind.cardinality.from]] as const) {
+          if (bound === 'many') continue;
+          failures.push(`WHEN EXISTS(
+            SELECT 1 FROM active_vertices n LEFT JOIN active_edges e
+              ON e.context_id=n.context_id AND e.${direction}_node=n.id AND e.kind=${edgeKind}
+            WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
+            GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
+        }
+        refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
+          IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
+      }
+      relationChecks.push(`WITH active_edges AS MATERIALIZED (
+        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.from_node,e.to_node FROM context ctx
+        CROSS JOIN (VALUES ${relationKinds.map(kind => `(${literal(kind.name)})`).join(',')}) k(name)
+        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id) active(id)
         JOIN edge e ON e.id=active.id
       ), active_vertices AS MATERIALIZED (
         SELECT ctx.id AS context_id,k.name AS kind,active.id FROM context ctx
         CROSS JOIN (VALUES ${vertexKinds.map(name => `(${literal(name)})`).join(',')}) k(name)
         CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id) active(id)
-      )`;
-      const failures = [`WHEN EXISTS(
-        SELECT 1 FROM active_edges e
-        WHERE NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${kind.from.map(literal).join(',')}]::text[]))
-          OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[]))) THEN 1`];
-      for (const [direction, ends, bound] of [['from',kind.from,kind.cardinality.to],['to',kind.to,kind.cardinality.from]] as const) {
-        if (bound === 'many') continue;
-        failures.push(`WHEN EXISTS(
-          SELECT 1 FROM active_vertices n LEFT JOIN active_edges e ON e.context_id=n.context_id AND e.${direction}_node=n.id
-          WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
-          GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN 2`);
-      }
-      relationChecks.push(`${active} SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
-        IF violation=1 THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
-        IF violation=2 THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
+      ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
+      ${refusals.join('\n')}`);
     }
     await tx.query(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -199,36 +208,39 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         `CREATE CONSTRAINT TRIGGER typed_value AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_value_check()`);
     }
 
-    const keyChecks = contract.vertex.filter(kind => kind.key.length > 0).map(kind => {
-      const fields: readonly FieldContract[] = kind.key.map(name => kind.fields.find(field => field.name === name)!);
-      return `WHEN ${literal(kind.name)} THEN
-        ${fields.map(field => {
-          const table = assertionValueTableName(kind.name,'vertex',field.name);
-          const projected = field.type === 'json' ? `identity_key->${literal(field.name)}` : `(identity_key->>${literal(field.name)})::${sqlType(field)}`;
-          const subjectAssertions = `WITH subject_assertions AS MATERIALIZED (
-            SELECT s.assertion_id FROM edge attachment JOIN assertion_vertex_subject s ON s.subject_edge_id=attachment.id
-            WHERE attachment.to_node=subject_id)`;
-          return `IF NOT (identity_key ? ${literal(field.name)}) OR NOT EXISTS(
-            ${subjectAssertions}
-            SELECT 1 FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
-            JOIN "${table}" v ON v.assertion_id=a.assertion_id
-            WHERE a.property=${literal(field.name)} AND a.operation='assert')
-            OR EXISTS(${subjectAssertions}
-            SELECT 1 FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
-            LEFT JOIN "${table}" v ON v.assertion_id=a.assertion_id
-            WHERE a.property=${literal(field.name)}
-              AND (a.operation<>'assert' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM ${projected}))
-          THEN RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,${literal(field.name)}; END IF;`;
-        }).join('\n')}`;
-    });
+    const keyFields = contract.vertex.flatMap(kind => kind.key.map(name => {
+      const field = kind.fields.find(field => field.name === name)!;
+      return `(${literal(kind.name)},${literal(name)},${literal(assertionValueTableName(kind.name,'vertex',name))},${literal(sqlType(field))})`;
+    }));
+    // Contract metadata is separate from the one validation plan (0039.2,28).
+    await tx.query(`CREATE OR REPLACE FUNCTION graph_key_fields(kind text)
+      RETURNS TABLE(property text,value_table text,value_type text) LANGUAGE sql AS $$
+      SELECT property,value_table,value_type FROM (VALUES ${keyFields.length === 0 ? "(NULL::text,NULL::text,NULL::text,NULL::text)" : keyFields.join(',')})
+        fields(kind_name,property,value_table,value_type) WHERE kind_name=kind
+      $$`);
     await tx.query(`CREATE OR REPLACE FUNCTION graph_key_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE subject_id bigint; subject_kind text; identity_key jsonb; BEGIN
+      DECLARE subject_id bigint; subject_kind text; identity_key jsonb; field record; valid boolean; projected text; BEGIN
         IF TG_TABLE_NAME='node' THEN subject_id:=NEW.id;
         ELSE SELECT attachment.to_node INTO subject_id FROM assertion_vertex_subject s
           JOIN edge attachment ON attachment.id=s.subject_edge_id WHERE s.assertion_id=NEW.assertion_id; END IF;
         IF subject_id IS NULL THEN RETURN NULL; END IF;
         SELECT k.name,n.key INTO subject_kind,identity_key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=subject_id;
-        CASE subject_kind ${keyChecks.join('\n')} ELSE NULL; END CASE;
+        FOR field IN SELECT * FROM graph_key_fields(subject_kind) LOOP
+          IF NOT (identity_key ? field.property) THEN
+            RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,field.property;
+          END IF;
+          projected := CASE WHEN field.value_type='jsonb' THEN '$2->$3' ELSE format('($2->>$3)::%s',field.value_type) END;
+          EXECUTE format('WITH subject_assertions AS MATERIALIZED (
+            SELECT s.assertion_id FROM edge attachment JOIN assertion_vertex_subject s ON s.subject_edge_id=attachment.id
+            WHERE attachment.to_node=$1)
+            SELECT count(v.assertion_id)>0 AND NOT coalesce(bool_or(a.operation<>''assert'' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM %s),false)
+            FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
+            LEFT JOIN %I v ON v.assertion_id=a.assertion_id WHERE a.property=$3',projected,field.value_table)
+            INTO valid USING subject_id,identity_key,field.property;
+          IF NOT valid THEN
+            RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,field.property;
+          END IF;
+        END LOOP;
         RETURN NULL;
       END $$`);
     const keyTables = contract.vertex.flatMap(kind => kind.key.map(name => assertionValueTableName(kind.name,'vertex',name)));
