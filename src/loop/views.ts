@@ -128,7 +128,7 @@ const isPage = (page: IndexedPage): boolean => page.file === PRODUCT_PATH || pag
 const placeOfWiki = (page: string | null, file: string, line: number | null): ProblemLink => {
   if (page !== null) return { label: page, href: entityAddress(page), key: page };
   // A file of a repository is a place in that repository's source; a product file has no repository in the query.
-  const code = /^repos\/([^/]+)\/(.+)$/.exec(file);
+  const code = file.match(/^repos\/([^/]+)\/(.+)$/);
   const href = code === null || code[2] === undefined
     ? sourceAddress(null, file, line ?? undefined)
     : sourceAddress(code[1] ?? null, code[2], line ?? undefined);

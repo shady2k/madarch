@@ -12,6 +12,7 @@
  * document kind whose entities only the agent writes — is no part of this
  * contract, and no table stands for it.
  */
+import { cataloguePageTemplate } from '../../knowledge/page-template-kind.js';
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
@@ -48,6 +49,10 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
+  // A product's page templates are entities (the owner's decision of 2026-11-15): the catalogue declares the kind they are
+  // held as, so a product whose manifest names none still has its table, and its pages read what its templates say.
+  const templates = cataloguePageTemplate();
+  if (!vertex.some((one) => one.name === templates.name)) vertex.push(templates.vertex);
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
 }
 

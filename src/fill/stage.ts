@@ -23,6 +23,7 @@ import type { AcpMcpServer } from './acp.js';
 import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 import type { ProducerOutcomeDraft } from './producer-outcomes.js';
 
+
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
 
@@ -138,66 +139,37 @@ export interface StageGraphReader {
 }
 
 
-/** One node a stage's draft writes to the graph: its key, kind, label and properties. */
-interface StaticNodeDraft {
-  readonly key: string;
-  readonly kind: string;
-  readonly label: string;
-  readonly properties: Readonly<Record<string, unknown>>;
-}
-
-/** One end of a static edge: a node named by the key the publication resolves. */
-type StaticEnd = { readonly key: string } | { readonly id: string };
-
-/** One edge a stage's draft writes; both ends are named by a key the publication resolves. */
-interface StaticEdgeDraft {
-  readonly relation: string;
-  readonly from: StaticEnd;
-  readonly to: StaticEnd;
-  readonly properties?: Readonly<Record<string, unknown>>;
-  readonly discriminator?: string;
-  readonly position?: { readonly start: number; readonly end: number };
-}
 /**
- * One write a unit's draft holds; every write cites what it stands on, and every
- * write carries the fact it writes in its `value` — the schema's own fact
- * (`facts.ts`), so the store a published set lands in publishes exactly what the
- * unit wrote and never has to guess a kind. An edge's ends are the fact's own
- * (`CallEdgeValue.from`, `ConsumesEdgeValue.variable`), named once: a link beside
- * a second pair of ends could state an edge whose ends nothing publishes.
+ * One write a unit's answer holds, through the one writer (decision 0039, item
+ * 13): every write cites what it stands on, and the graph drafts carry the fact
+ * the writer applies — a plugin's vertex with its claims, an edge, or the removal
+ * of one the producer no longer holds. A `producer-outcome` is what the producer
+ * answered of its kind, recorded on the generation; a `journal` names the unit's
+ * author and, under the debug setting, its requests. Neither is a graph row of its
+ * own.
  */
-export type StageDraftWrite =
-  | { kind: 'plugin-partition'; evidence: string; value: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly writes: readonly StageDraftWrite[] } | { readonly partitions: readonly { readonly runId: string; readonly unitId: string; readonly generation: number }[] } }
-  | { kind: 'plugin-aggregate'; evidence: string; value: { readonly partitions: readonly { readonly runId: string; readonly unitId: string; readonly generation: number }[] } }
+export type StageWrite =
   | { kind: 'producer-outcome'; evidence: string; value: ProducerOutcomeDraft }
-  | { kind: 'fact'; evidence: string; value: unknown }
-  | { kind: 'entity'; evidence: string; value: unknown }
-  | { kind: 'link'; evidence: string; value: unknown }
-  | { kind: 'question'; evidence: string; value: unknown }
-  /** One graph node a static stage's draft writes (decision 0033): applied by the publication's own transaction. */
-  | { kind: 'node'; evidence: string; value: StaticNodeDraft }
-  /** One graph edge a static stage's draft writes; both ends name nodes by their key. */
-  | { kind: 'edge'; evidence: string; value: StaticEdgeDraft }
-  /** One vertex and its claims a plugin's answer publishes (decision 0035, items 6 and 7): the graph's writer applies it. */
   | { kind: 'vertex'; evidence: string; value: VertexDraft }
   | { kind: 'edge'; evidence: string; value: EdgeDraft }
-  | { kind: 'journal'; evidence: string; value: { readonly author: string; readonly reads?: readonly { readonly method: string; readonly size: number }[] } }
   /** One entity the producer no longer holds: its claims are withdrawn and it leaves the reads. */
   | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft }
   /** One edge the producer no longer holds: its ends by kind and key, and its discriminator. */
-  | { kind: 'edge-removal'; evidence: string; value: EdgeRemovalDraft };
+  | { kind: 'edge-removal'; evidence: string; value: EdgeRemovalDraft }
+  /** The unit's own entry: its author, and the requests it made (under the debug setting). */
+  | { kind: 'journal'; evidence: string; value: { readonly author: string; readonly reads?: readonly { readonly method: string; readonly size: number }[] } };
 
-/** The draft set a unit's writes collect into while it runs. */
-export interface StageDraftSet {
-  writes: readonly StageDraftWrite[];
+/** The writes a unit's answer collects while it runs. */
+export interface StageWriteSet {
+  writes: readonly StageWrite[];
 }
 
-/** The draft writes a unit makes: private until the stage is published. */
-export interface StageDraftWriter {
-  /** Records one write into the unit's draft set. */
-  write(entry: StageDraftWrite): void;
+/** The writes a unit makes: collected while the stage runs, applied through the one writer when it answers. */
+export interface StageWriteSink {
+  /** Records one write into the unit's answer. */
+  write(entry: StageWrite): void;
   /** The writes recorded so far, in the order they were made. */
-  writes(): StageDraftSet;
+  writes(): StageWriteSet;
 }
 
 /** How a stage reports its progress while a unit runs. */
@@ -293,8 +265,8 @@ export interface StageContext {
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
   graph: StageGraphReader;
-  /** Private draft writes, visible to other units only as draft. */
-  draft: StageDraftWriter;
+  /** The unit's writes: applied through the one writer when the stage answers. */
+  writes: StageWriteSink;
   /** Progress the run's view shows. */
   progress: StageProgress;
   /** Cancelled when the run or the unit is cancelled. */
@@ -311,16 +283,11 @@ export interface StageContext {
   readonly sealedChildren?: readonly StageSealedChild[];
 }
 
-/** How `execute` ends: a draft to publish, a split into children, or a block. */
+/** How `execute` ends: the writes it answered, a split into children, or a block. */
 export type StageExecutionResult =
-  | { outcome: 'draft' }
+  | { outcome: 'writes' }
   | { outcome: 'split'; children: readonly StageUnitScope[] }
   | { outcome: 'blocked'; reason: string };
-
-/** How `validate` judges a draft: whole, or the errors that refuse it. */
-type StageValidation =
-  | { ok: true }
-  | { ok: false; errors: readonly string[] };
 
 /** The shape of a stage id: a word, the same shape a product's configuration may name. */
 export const STAGE_ID_PATTERN = /^[A-Za-z][A-Za-z0-9._-]*$/;
@@ -371,8 +338,6 @@ export interface FillStage {
   cacheVersions?(): Readonly<Record<string, string>>;
   /** Names the stage's units from the graph, without running anything. */
   plan(graph: StageGraphReader): Promise<StagePlan> | StagePlan;
-  /** Runs one unit and returns its outcome; the draft writes went through the context. */
+  /** Runs one unit and answers its outcome; its writes went through the context. */
   execute(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> | StageExecutionResult;
-  /** Judges a unit's draft before publication. */
-  validate(draft: StageDraftSet, graph: StageGraphReader): Promise<StageValidation> | StageValidation;
 }

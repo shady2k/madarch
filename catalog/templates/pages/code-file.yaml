@@ -62,6 +62,37 @@ sections:
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
         - { label: { en: Repository, ru: Репозиторий }, path: repository }
         - { label: { en: Folder, ru: Папка }, path: directory }
+  - id: languages
+    component: table
+    title: { en: Language opinions, ru: Мнения о языке }
+    query: |
+      languageOpinions {
+        value
+        producer
+        version
+        lang
+        statedAt
+      }
+    params:
+      path: .
+      emptyText: { en: No producer states a language for this file, ru: Ни один источник не называет язык этого файла }
+      columns:
+        - { label: { en: Language, ru: Язык }, path: value }
+        - { label: { en: Stated by, ru: Назвал }, path: producer }
+        - { label: { en: Version, ru: Версия }, path: version }
+        - { label: { en: Stated, ru: Заявлено }, path: statedAt, format: date }
+  - id: filetext
+    after: facts
+    component: file-text
+    title: { en: Text, ru: Текст }
+    query: |
+      id
+      repository
+      path
+    params:
+      repositoryPath: repository
+      pathPath: path
+      chunk: 400
   - id: latest
     component: facts
     on: root
@@ -75,7 +106,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate
@@ -116,7 +147,7 @@ sections:
           node {
             id
             kind
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               subject
               commitDate
               codeAuthoredOf(first: 1) {
@@ -143,6 +174,8 @@ sections:
     query: |
       cochange(id: $id, edge: "code.touched", first: 20) {
         count
+        total
+        share
         node { id kind label }
       }
     params:
@@ -151,6 +184,8 @@ sections:
       columns:
         - { label: { en: File, ru: Файл }, path: node.label }
         - { label: { en: Commits together, ru: Общих коммитов }, path: count, format: number }
+        - { label: { en: Total commits, ru: Всего коммитов }, path: total, format: number }
+        - { label: { en: Share (%), ru: Доля (%) }, path: share, format: percent }
   - id: outgoing
     replace: true
     component: relations
@@ -195,7 +230,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate

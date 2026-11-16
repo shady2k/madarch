@@ -1,3 +1,4 @@
+import { withSpan, withSpanSync } from '../obs/trace.js';
 /**
  * madarch's own wiki (decision 0031). madarch holds no product content: its
  * documentation is the madarch product repository, a product like any other.
@@ -53,7 +54,7 @@ export function installOwnWiki(options: OwnWikiOptions = {}): OwnWikiInstall {
   const home = madarchHome(env);
   let staging: string;
   try {
-    mkdirSync(home, { recursive: true });
+    withSpanSync('fs.mkdir', { 'file.path': home }, () => mkdirSync(home, { recursive: true }));
     staging = mkdtempSync(join(home, '.own-wiki-'));
   } catch (error) {
     return { ok: false, folder, message: `madarch's own wiki cannot be installed: the madarch home ${home} cannot be used: ${(error as Error).message}` };
@@ -66,21 +67,21 @@ export function installOwnWiki(options: OwnWikiOptions = {}): OwnWikiInstall {
     from = join(staging, 'own-wiki.bundle');
     try {
       // readFileSync reaches the binary's embedded files; copyFileSync does not.
-      writeFileSync(from, readFileSync(embedded.bundle));
+      withSpanSync('fs.copy', { 'file.from': embedded.bundle, 'file.to': from }, (span) => { const body = readFileSync(embedded.bundle); span.setAttribute('file.bytes', body.length); writeFileSync(from, body); });
     } catch (error) {
-      rmSync(staging, { recursive: true, force: true });
+      withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
       return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: the embedded copy ${embedded.bundle} could not be read: ${(error as Error).message}` };
     }
   }
   const clone = runGit(staging, ['clone', '--quiet', '--branch', OWN_WIKI_BRANCH, from, staged]);
   if (!clone.ok) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: git clone of ${from} failed: ${clone.output}${embedded === undefined ? '; this madarch carries no copy of it, so the first start needs the network (or a release binary)' : ''}` };
   }
   const origin = runGit(staged, ['remote', 'set-url', 'origin', repository]);
   const read = readProduct(staged);
   if (!origin.ok || !read.ok) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     if (!origin.ok) return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: setting origin to ${repository} failed: ${origin.output}` };
     const why = read.ok ? '' : `${read.file}:${read.line}: ${read.message}`;
     return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: ${from} is no product: ${why}` };
@@ -88,10 +89,10 @@ export function installOwnWiki(options: OwnWikiOptions = {}): OwnWikiInstall {
   try {
     renameSync(staged, folder);
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     return { ok: false, folder, message: `madarch's own wiki cannot be installed: ${staged} could not be moved to ${folder}: ${(error as Error).message}` };
   }
-  rmSync(staging, { recursive: true, force: true });
+  withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
   return { ok: true, folder, installed: true };
 }
 
@@ -107,15 +108,18 @@ function checkFolder(folder: string): string | undefined {
   return read.ok ? undefined : `madarch's own wiki cannot be served: ${read.file}:${read.line}: ${read.message}`;
 }
 
-function git(folder: string, args: string[], timeoutMs: number): Promise<{ ok: boolean; output: string }> {
-  return new Promise((resolve) => {
+async function git(folder: string, args: string[], timeoutMs: number): Promise<{ ok: boolean; output: string }> {
+  return await withSpan('process.run', { 'process.command': 'git', 'process.args': args, 'process.cwd': folder }, async (span) => await new Promise<{ ok: boolean; output: string }>((resolve) => {
     // The variables that point git at another repository are not passed on: the refresh answers for the wiki's folder alone.
     const env: Record<string, string | undefined> = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
     for (const name of GIT_LEAKS) delete env[name];
     execFile('git', args, { cwd: folder, timeout: timeoutMs, encoding: 'utf8', env }, (error, stdout, stderr) => {
+      span.setAttribute('process.stdout.bytes', Buffer.byteLength(stdout));
+      span.setAttribute('process.stderr.bytes', Buffer.byteLength(stderr));
+      span.setAttribute('process.exit_code', error === null ? 0 : (typeof error.code === 'number' ? error.code : -1));
       resolve({ ok: error === null, output: `${stderr}${stdout}`.trim() });
     });
-  });
+  }));
 }
 
 /**

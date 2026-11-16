@@ -8,7 +8,7 @@
  * The server validates template diagnostics with this module; the app composes each page with it, so
  * a page's shape has one implementation.
  */
-import { typeNameOf } from '../graphql/names.js';
+import { kindTypeNameOf } from '../graphql/names.js';
 import { byCodePoint } from '../model/order.js';
 import { EVERY_ROLE, sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
 import type { TemplateFinding } from './validate.js';
@@ -165,7 +165,7 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
   if (subjectSections.length > 0 && address.id === undefined) {
     return { ...empty, findings: [...findings, { file: 'templates', line: 1, path: '', message: `the page's sections read its entity, and the address names none (${subjectSections.map((one) => one.id).join(', ')})` }] };
   }
-  const typeName = address.kind === undefined ? undefined : address.kind === CATALOGUE_KIND ? 'CatalogueEntity' : typeNameOf(address.kind);
+  const typeName = address.kind === undefined ? undefined : address.kind === CATALOGUE_KIND ? 'CatalogueEntity' : kindTypeNameOf(address.kind);
   const declarations = new Map<string, string>();
   const values: Record<string, unknown> = {};
   const parts: string[] = [];
@@ -204,8 +204,9 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
         continue;
       }
       // A table's own filter and order (madarch-64o5.128): the page supplies them and the server does the work, so the
-      // operation declares them as JSON and no row is filtered here.
-      if (section.id !== '' && (used === `${section.id}_where` || used === `${section.id}_orderBy`)) {
+      // operation declares them as JSON and no row is filtered here. A template that declares one of its own names its
+      // type (a relation's order is `[RelatedOrder!]`), and that declaration stands (madarch-u3vw.16).
+      if (section.id !== '' && (used === `${section.id}_where` || used === `${section.id}_orderBy`) && resolved.resolved.variables[used] === undefined) {
         declarations.set(used, 'JSON');
         continue;
       }

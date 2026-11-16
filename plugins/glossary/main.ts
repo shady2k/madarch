@@ -196,8 +196,8 @@ const DEFAULT_PATTERN = '**/glossary*.md';
 const CONTENT_READ_CONCURRENCY = 8;
 
 /**
- * The unit's answer: every term of every document the pattern names. The documents are the graph's file vertices and
- * their content is what the files producer stored by blob — the plugin asks the host and never opens a folder.
+ * The unit's answer: every term of every document the pattern names. The documents are the graph's file vertices, and
+ * their text is asked of the host by the blob id the graph holds — the plugin opens no folder and holds no environment.
  */
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const inputs = (unit.inputs ?? {}) as GlossaryInputs;
@@ -210,7 +210,17 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     while (nextFile < files.length) {
       const index = nextFile++;
       const file = files[index]!;
-      contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content');
+      // The text is the blob the graph names, read through the host (decision 0037): the plugin holds no environment, and
+      // the host routes the read to the core plugin that owns git (decision 0038).
+      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob');
+      if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
+      try {
+        const read = await context.read({ repository: String(file.key['repository'] ?? ''), blob });
+        contents[index] = read.binary ? undefined : read.text;
+      } catch {
+        // A read the host cannot answer leaves this document out: the others' terms stand.
+        contents[index] = undefined;
+      }
     }
   }));
   const sources: { repository: string; path: string; text: string }[] = [];

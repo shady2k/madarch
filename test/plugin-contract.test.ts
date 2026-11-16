@@ -7,6 +7,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { cataloguePageTemplate } from '../src/knowledge/page-template-kind.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { declaredKindReads, manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 
@@ -86,7 +87,8 @@ plugins:
     const read = parseKinds(MANIFEST, 'madarch/catalog.yaml', folder);
     expect(read.findings).toEqual([]);
     const contract = manifestContractOf(read);
-    expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term']);
+    // The manifest's kinds, and the page-template kind every product's store holds (2026-11-15).
+    expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term', cataloguePageTemplate().name]);
     // A3 of the 2026-11-10 amendment: no field is authoritative, so every bound field — a plugin's and the agent's
     // own included — is a column of the kind's opinion table; the key is the vertex's, never a column.
     expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
@@ -121,7 +123,7 @@ plugins:
     const noKey = MANIFEST.replace('    key: [name]\n', '');
     const folder = product(noKey, CONTRACT);
     const read = parseKinds(noKey, 'madarch/catalog.yaml', folder);
-    expect(manifestContractOf(read).vertex.map((kind) => [kind.name, kind.key])).toEqual([['doc.term', []]]);
+    expect(manifestContractOf(read).vertex.map((kind) => [kind.name, kind.key])).toEqual([['doc.term', []], [cataloguePageTemplate().name, ['name']]]);
     expect(declaredKindReads(read).get('doc.term')?.key).toEqual([]);
     // Storage follows the kind declaration; producer availability is checked before fill acceptance.
     const noPlugin = MANIFEST.replace("  - { id: g, version: 1, path: plugins/g, inputs: [doc.term], outputs: [doc.term], closure: [plugins/g/contract.json] }\n", '');

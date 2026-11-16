@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { AcpConnection, AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
@@ -10,13 +9,21 @@ import type { PluginUnitResult } from '../src/plugin/protocol.js';
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
 const graph = {
   files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }, { kind: 'file', key: { repository: 'repo', path: 'private/b.md' } }],
-  value: async () => 'first\nsecond',
+  // The graph names each file's blob; the text is asked of the host by that blob (decision 0037).
+  value: async (_kind: string, key: Readonly<Record<string, string | number>>, field: string) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+};
+/** The one blob read the host answers: a file's text, by blob id and line range. */
+const readFile = async (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }): Promise<string> => {
+  const lines = ['first', 'second'];
+  if (request.blob !== 'blob-docs/a.md') throw new Error(`no text for ${request.blob}`);
+  const from = (request.from ?? 1) - 1;
+  return lines.slice(from, request.limit === undefined ? undefined : from + request.limit).join('\n');
 };
 const result: PluginUnitResult = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
 function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs']) {
   const state = { closed: 0, frozen: 0, thawed: 0 };
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
-    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, ...extra,
+    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, readFile, ...extra,
     connect: async (spec, options) => {
       expect(spec.env).toEqual({ SECRET: 'must not pass' });
       expect(options.env).toEqual(extra.environment);
@@ -114,20 +121,20 @@ describe('plugin agent graph bridge', () => {
     await expect(bridge.run('unit', {})).rejects.toThrow('declares');
   });
 
-  test('writes only granted host roots and never follows a symlink', async () => {
-    const folder = mkdtempSync(join(tmpdir(), 'agent-write-'));
-    const outside = mkdtempSync(join(tmpdir(), 'agent-outside-'));
-    mkdirSync(join(folder, 'docs'));
-    symlinkSync(outside, join(folder, 'docs', 'escape'));
-    try {
-      const { bridge } = setup(async (options) => {
-        await expect(options.files!.writeTextFile!({ sessionId: 'session', path: '/repo/private/a.md', content: 'x' })).rejects.toThrow('denied');
-        await expect(options.files!.writeTextFile!({ sessionId: 'session', path: '/repo/docs/escape/a.md', content: 'x' })).rejects.toThrow('unsafe');
-        await options.files!.writeTextFile!({ sessionId: 'session', path: '/repo/docs/new.md', content: 'ok' });
-        return result;
-      }, { repositories: { repo: folder } }, ['repo/docs']);
-      await bridge.run('unit', {});
-    } finally { rmSync(folder, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+  test('the agent gets no workspace and no write handler: an empty folder, its file read and nothing else', async () => {
+    // Owner's rule (2026-11-15; decision 0038): the agent runs with no workspace, writes nothing and runs no shell. Its
+    // one file read is a blob the graph names; a path that is no graph file, a write and a terminal ask are refused.
+    let seen: ConnectAcpOptions | undefined;
+    const { bridge } = setup(async (options) => {
+      seen = options;
+      expect(options.files!.writeTextFile).toBeUndefined();
+      await expect(options.files!.readTextFile!({ sessionId: 'session', path: '/etc/hostname' })).rejects.toThrow('denied');
+      return result;
+    });
+    await bridge.run('unit', {});
+    const workspace = seen!.cwd;
+    expect(workspace!.startsWith(tmpdir())).toBe(true);
+    expect(existsSync(workspace!)).toBe(false);
   });
 
   test('propagates pause, resume and cancellation to a held agent turn', async () => {

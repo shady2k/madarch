@@ -10,7 +10,7 @@ import { validateProductManifests, publishValidatedManifests } from '../src/grap
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readProductTemplates } from '../src/graph/product-templates.js';
+import { readTemplatesOf } from './page-templates-fixture.js';
 import { diagramGraphOf } from '../src/render/diagram.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -55,9 +55,10 @@ test('a catalogue with 80 related kinds reads translated labels and renders with
     });
     const ids = await owner.run((tx) => tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'manifest.kind' AND n.key->>'name' = $1", [names[0]]));
     const id = ids.rows[0]!.uid;
-    const templates = readProductTemplates(folder);
     const read = async () => await owner!.transaction('snapshot', async (tx) => {
-      const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', templates);
+      // The templates are the graph's entities, read in the page's own snapshot (the owner's decision of 2026-11-15).
+      const held = await readTemplatesOf(tx, manifest);
+      const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', held.templates, held.files, held.bodies, held.findings);
       const hood = await context.diagramNeighbourhood(id, 1, 'ru');
       if (hood === undefined) throw new Error(`${folder}: missing catalogue root ${id}`);
       return hood;
@@ -71,7 +72,10 @@ test('a catalogue with 80 related kinds reads translated labels and renders with
     const graph = diagramGraphOf(warm, 1, 12);
     expect(graph.nodes).toHaveLength(2);
     expect(graph.folded).toBe(79);
-    const expanded = await owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', templates).diagramNeighbourhood(id, 1, 'ru', 100));
+    const expanded = await owner.transaction('snapshot', async (tx) => {
+      const held = await readTemplatesOf(tx, manifest);
+      return await new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', held.templates, held.files, held.bodies, held.findings).diagramNeighbourhood(id, 1, 'ru', 100);
+    });
     expect(expanded!.groups[0]!.nodes).toHaveLength(79);
     expect(diagramGraphOf(expanded!, 1, 100).nodes).toHaveLength(80);
     const database = await owner.run((tx) => tx.query<{ name: string }>('SELECT current_database() AS name'));

@@ -14,13 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { ConfirmationPanel } from './ui/confirmation-panel.js';
 import { InlineCode } from './ui/inline-content.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
-import { DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, ListItem, Paragraph, PlainList, SmallTitle, Stack, Text } from './ui/typography.js';
+import { DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SmallTitle, Stack, Text } from './ui/typography.js';
 import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { ChoiceMenu } from './ui/choice-menu.js';
 import {
   chooseAgent, chooseModelRole, isOffline, peekGraphVerdicts, readAgentChoices, readAgents, graphVerdictRows, readProductSettings, readReaderSettings,
-  rewritePages, runGraphVerdicts, saveGraphVerdictBudgets, saveProductSettings, saveReaderRole, startFresh,
+  rewritePages, runGraphVerdicts, saveGraphVerdictBudgets, saveProductSettings, saveReaderRole, saveReaderIsolation, startFresh,
   useChangeStream, useCommandRead,
   type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type GraphVerdictsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole, type ResetPlanAnswer,
 } from './command.js';
@@ -409,6 +409,12 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
     setError(null);
     saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); context.onRole?.(role); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
+  const saveIsolation = (unconfined: boolean): void => {
+    if (connection.offline) return;
+    setWorking('isolation');
+    setError(null);
+    saveReaderIsolation(base, unconfined).then(() => { setWorking(null); reader.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
   const capValue = Number(cap ?? data?.tokenCap ?? 0);
   const capValid = Number.isSafeInteger(capValue) && capValue > 0;
   const namedAgents = Object.entries(data?.agentNames ?? {});
@@ -513,6 +519,27 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
       <BoundsSection base={base} settings={data} disabled={connection.offline || working !== null} busy={data.busy} reload={settings.reload} />
 
       <PlacesSection settings={data} />
+
+      <Section id="isolation" title={t('settings.isolation.title')} intro={t('settings.isolation.intro')}>
+        {reader.data === null ? <Paragraph className="m-0 text-muted">{t('knowledge.loading')}</Paragraph> : (
+          <Stack className="grid gap-2" data-testid="settings-isolation">
+            {reader.data.pluginIsolation.capable ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-capable">{t('settings.isolation.capable')}</Paragraph> : (
+              <Paragraph className="m-0 text-small" data-testid="settings-isolation-reason">{t('settings.isolation.unavailable', { reason: reader.data.pluginIsolation.reason })}</Paragraph>
+            )}
+            {reader.data.pluginIsolation.capable ? null : (
+              <>
+                {reader.data.pluginsUnconfined === true ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-allowed">{t('settings.isolation.allowed')}</Paragraph> : null}
+                {reader.data.pluginsUnconfined === false ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-denied">{t('settings.isolation.denied')}</Paragraph> : null}
+                <InlineGroup>
+                  {reader.data.pluginsUnconfined === true ? null : <Button variant="default" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(true)} data-testid="settings-isolation-allow">{t('settings.isolation.allow')}</Button>}
+                  {reader.data.pluginsUnconfined === false ? null : <Button variant="outline" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(false)} data-testid="settings-isolation-deny">{t('settings.isolation.deny')}</Button>}
+                </InlineGroup>
+              </>
+            )}
+          </Stack>
+        )}
+        {reader.error === null ? null : <Paragraph className="mb-0 mt-2 text-small" role="alert">{reader.error}</Paragraph>}
+      </Section>
 
       <Section id="reader" title={t('settings.reader.title')} intro={t('settings.reader.intro')}>
         {reader.data === null ? <Paragraph className="m-0 text-muted">{t('knowledge.loading')}</Paragraph> : (

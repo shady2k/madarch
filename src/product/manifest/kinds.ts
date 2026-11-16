@@ -33,6 +33,7 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
+import { withSpanSync } from '../../obs/trace.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
@@ -374,6 +375,17 @@ export interface KindDecl {
    * This kind holds the product's value sets, and the roles below name its fields: `name`, `label-en`, `label-ru`,
    * and optionally `description` and `order`. The engine finds the kind by this declaration, never by its name.
    */
+  /**
+   * This kind holds the product's page templates (the owner's decision of 2026-11-15): the `name` role names the
+   * template's name and the `body` role its text; `path`, when declared, names the file it was read from.
+   */
+  readonly pageTemplate?: Readonly<Record<string, string>>;
+  /**
+   * This kind holds a repository's files, and these roles name what a read of one needs (decision 0037): `repository`
+   * and `path` find the entity, and `blob` names the bytes git serves. The engine finds the kind by this declaration,
+   * never by its name.
+   */
+  readonly fileText?: Readonly<Record<string, string>>;
   readonly referenceSet?: Readonly<Record<string, string>>;
   /**
    * This kind holds the entries of the product's value sets, with roles `set`, `value`, `label-en`, `label-ru`, and
@@ -642,7 +654,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 export const KIND_FIELDS: readonly string[] = [
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude', 'page-template', 'file-text',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -1775,7 +1787,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const parseBinding = (raw: unknown, path: (string | number)[]): FieldBinding | undefined | null => {
       if (raw === undefined) return undefined;
       if (typeof raw === 'string') {
-        const parsed = BINDING_PATTERN.exec(raw);
+        const parsed = raw.match(BINDING_PATTERN);
         if (parsed === null) { problem(path, `"binding" is "<plugin>@<major>.<field>" (a plugin id, the major version the manifest binds, and a field the plugin declares), and is ${JSON.stringify(raw)}`); return null; }
         return { kind: 'plugin', plugin: parsed[1]!, major: parsed[2]!, field: parsed[3]! };
       }
@@ -1836,7 +1848,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
-    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
+    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry' | 'page-template' | 'file-text', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
       const raw = decl[field];
       if (raw === undefined) return undefined;
       if (!isRecord(raw)) { problem([field], `"${field}" maps a role to the kind's field that holds it`); return undefined; }
@@ -1853,6 +1865,14 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (new Set(Object.values(roles)).size !== Object.values(roles).length) problem([field], `"${field}" gives one role per field`);
       return findings.length === before ? roles : undefined;
     };
+    /**
+     * The kind whose entities are the product's page templates (decision 0036, section 6; the owner's decision of
+     * 2026-11-15): its `name` and `body` roles name the template's name and its text, and `path` names the file it came
+     * from when the kind declares it. The engine finds the kind by this declaration, never by its name.
+     */
+    const pageTemplate = valueSetRoles('page-template', ['name', 'body']);
+    // The roles a file's entity names its repository, path and blob by: the engine reads no file by a name of its own.
+    const fileText = valueSetRoles('file-text', ['repository', 'path', 'blob']);
     const valueSet = valueSetRoles('reference-set', ['name', 'label-en', 'label-ru']);
     const valueSetEntry = valueSetRoles('reference-set-entry', ['set', 'value', 'label-en', 'label-ru']);
     if (valueSet !== undefined && Array.isArray(key) && !key.includes(valueSet['name']!)) problem(['reference-set'], '"reference-set" names a "name" role that is one of the kind\'s key fields');
@@ -1956,6 +1976,8 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
       ...(findingsKind === true ? { findings: true } : {}),
+      ...(pageTemplate === undefined ? {} : { pageTemplate }),
+      ...(fileText === undefined ? {} : { fileText }),
       ...(valueSet === undefined ? {} : { referenceSet: valueSet }),
       ...(valueSetEntry === undefined ? {} : { referenceSetEntry: valueSetEntry }),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
@@ -2239,10 +2261,18 @@ export function setKindsLanguage(productFolder: string, language: string): strin
       const root = realpathSync(productFolder);
       if (!real.startsWith(`${root}/`) && !real.startsWith(`${root}\\`)) return `${file}: the manifest is a link to ${real}, outside the product ${productFolder}, so the language is not written into it`;
     }
-    const document = parseDocument(readFileSync(file, 'utf8'));
+    const document = parseDocument(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const result = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(result));
+      return result;
+    }));
     if (document.errors.length > 0) return `${file}: the manifest cannot be read, so the language is not written into it: ${document.errors[0]!.message.split('\n')[0]}`;
     document.set('language', language);
-    writeFileSync(file, document.toString(), 'utf8');
+    withSpanSync('fs.write', { 'file.path': file }, (span) => {
+      const data = document.toString();
+      span.setAttribute('file.bytes', Buffer.byteLength(data));
+      return writeFileSync(file, data, 'utf8');
+    });
     return undefined;
   } catch (error) {
     return `${file}: the language could not be written: ${(error as Error).message}`;
@@ -2250,6 +2280,25 @@ export function setKindsLanguage(productFolder: string, language: string): strin
 }
 
 /** The first single-file Markdown kind is home; graph-backed products use the declared `product` kind. */
+/**
+ * The kind whose entities are the product's page templates, found by its own `page-template:` declaration (the owner's
+ * decision of 2026-11-15): the engine holds no kind name of its own, and a product that declares none draws no page
+ * template of its own.
+ */
+export function pageTemplateKind(manifest: KindsManifest): KindDecl | undefined {
+  for (const decl of [...manifest.kinds.values()].sort((left, right) => byCodePoint(left.name, right.name))) if (decl.pageTemplate !== undefined) return decl;
+  return undefined;
+}
+
+/**
+ * The kind whose entities are a repository's files, found by its own `file-text:` declaration (decision 0037): the
+ * engine holds no kind name of its own, so a file's text is found by the roles the product declares.
+ */
+export function fileTextKind(manifest: KindsManifest): KindDecl | undefined {
+  for (const decl of [...manifest.kinds.values()].sort((left, right) => byCodePoint(left.name, right.name))) if (decl.fileText !== undefined) return decl;
+  return undefined;
+}
+
 export function homeKind(manifest: KindsManifest): KindDecl | undefined {
   for (const decl of manifest.kinds.values()) if (decl.source === 'markdown' && decl.file !== undefined) return decl;
   const product = manifest.kinds.get('product');

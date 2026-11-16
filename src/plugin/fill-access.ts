@@ -4,6 +4,11 @@ import type { ValidatedUnit } from './results.js';
 
 export type DeclaredRead = string | { readonly kind: string; readonly version: 'earlier'; readonly producer: string };
 
+/**
+ * What one invocation may read and write, from its declarations alone. A declared read of an earlier version names
+ * the producer whose answer the plugin wants, and is answered from that generation's own publication — the graph's
+ * journal holds what it wrote — so a later pass of the graph does not change what this one read.
+ */
 export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   readonly location: string;
   readonly plugin: string;

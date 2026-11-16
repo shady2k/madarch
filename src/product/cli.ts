@@ -10,6 +10,7 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { MANIFESTS_GUIDE } from './guides.js';
@@ -648,7 +649,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
-        const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
+        const child = withSpanSync('process.run', { 'process.command': command, 'process.args': childArgs }, () => Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } }));
         // A role that will not leave — one inside a store's start, say — is killed rather than waited for: the child's
         // output is this process's own, so a descendant of it holding that open would keep a stop from ever ending.
         const stop = (): void => {
@@ -786,9 +787,10 @@ function productHomeOf(named: string | undefined): string {
     const { initLife } = await import('./lifecycle.js');
     const language = await initLanguage(parsed);
     const cwd = resolve(parsed.words[0] ?? process.cwd());
-    try { await mkdir(cwd, { recursive: true }); }
+    try { await withSpan('fs.mkdir', { 'file.path': cwd }, async () => await mkdir(cwd, { recursive: true })); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
     const template = await templateChoice(parsed, language);
+    await isolationChoice(parsed, language, productHomeOf(home));
     const result = initLife({ cwd, home, template, language });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
@@ -873,7 +875,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // A store's cluster stands under its data directory, and the product's store may not stand yet (the host
   // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
-  await mkdir(dirname(databasePath), { recursive: true });
+  await withSpan('fs.mkdir', { 'file.path': dirname(databasePath) }, async () => await mkdir(dirname(databasePath), { recursive: true }));
   const { readPinnedGraphContract } = await import('./preparation-contract.js');
   const workers = parsed.workers ?? 16;
   await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
@@ -1138,6 +1140,43 @@ async function askLanguage(): Promise<CommandLanguage> {
   }
 }
 
+/**
+ * The isolation answer this machine remembers, asked once in a terminal when the sandbox cannot work here. The answer
+ * belongs to the products home this run serves, so `--home` places it beside that home rather than in the account's own
+ * settings (madarch-64o5.86).
+ */
+async function isolationChoice(parsed: Parsed, language: CommandLanguage, home: string): Promise<void> {
+  if (parsed.json === true || !(process.stdin.isTTY && process.stdout.isTTY)) return;
+  const { readPluginsUnconfined, writePluginsUnconfined } = await import('../knowledge/settings.js');
+  // The settings file of a products home stands in the madarch home that holds it.
+  const env = { ...process.env, MADARCH_HOME: dirname(home) };
+  if (readPluginsUnconfined(env) !== undefined) return;
+  const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
+  const probe = await probePluginSandbox({ env });
+  if (probe.state === 'confined') return;
+  const words = initWords(language);
+  console.log(words.isolationQuestion(probe.reason));
+  const answer = await askIsolation(language);
+  try { writePluginsUnconfined(env, answer); }
+  catch (error) { console.error(`the isolation answer could not be remembered: ${(error as Error).message}`); }
+}
+
+/** What one answer names: yes is 1 or a word for it, everything else is no. */
+export function isolationFromAnswer(answer: string): boolean {
+  const said = answer.trim().toLowerCase();
+  return said === '1' || said.startsWith('y') || said.startsWith('д') || said.startsWith('да');
+}
+
+/** The one question a terminal asks about isolation; no means do not fill, and is the default. */
+async function askIsolation(language: CommandLanguage): Promise<boolean> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return isolationFromAnswer(await prompt.question(initWords(language).isolationChoice));
+  } finally {
+    prompt.close();
+  }
+}
+
 /** Every line `init` prints, in the language the person chose. */
 function initWords(language: CommandLanguage): {
   created: (name: string, where: string) => string;
@@ -1151,6 +1190,8 @@ function initWords(language: CommandLanguage): {
   browserFailed: (why: string) => string;
   askTemplate: string;
   chooseTemplate: string;
+  isolationQuestion: (reason: string) => string;
+  isolationChoice: string;
 } {
   if (language === 'ru') {
     return {
@@ -1165,6 +1206,8 @@ function initWords(language: CommandLanguage): {
       browserFailed: (why) => `Браузер не открылся: ${why}`,
       askTemplate: 'С какого шаблона начать продукт?',
       chooseTemplate: `Выберите 1-${String(STARTER_TEMPLATES.length)} (1): `,
+      isolationQuestion: (reason) => `На этой машине плагины нельзя изолировать: ${reason}. Запускать их без изоляции (они смогут читать и писать то же, что и вы)?`,
+      isolationChoice: '1. Да 2. Нет (2): ',
     };
   }
   return {
@@ -1179,6 +1222,8 @@ function initWords(language: CommandLanguage): {
     browserFailed: (why) => `The browser was not opened: ${why}`,
     askTemplate: 'Which template should the product start from?',
     chooseTemplate: `Choose 1-${String(STARTER_TEMPLATES.length)} (1): `,
+    isolationQuestion: (reason) => `Plugins cannot be isolated on this machine: ${reason}. Run them without isolation (they can read and write what you can)?`,
+    isolationChoice: '1. Yes 2. No (2): ',
   };
 }
 
@@ -1345,7 +1390,11 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
     try {
       let plan: ResetPlan;
       if (asServer !== undefined) {
-        const answer = await fetch(asServer);
+        const answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': asServer }, async (span) => {
+          const result = await fetch(asServer);
+          span.setAttribute('http.status', result.status);
+          return result;
+        });
         if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
         plan = await answer.json() as ResetPlan;
       } else {
@@ -1362,7 +1411,11 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
         }
       }
       if (asServer !== undefined) {
-        const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
+        const done = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': asServer }, async (span) => {
+          const result = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
+          span.setAttribute('http.status', result.status);
+          return result;
+        });
         if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
       } else {
         const done = await product!.reset(plan);

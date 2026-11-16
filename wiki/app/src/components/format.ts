@@ -5,6 +5,7 @@ const BYTE_UNITS = ['B', 'kB', 'MB', 'GB', 'TB'];
 
 export function formatValue(value: unknown, format: string, language: string): string {
   if (value === null || value === undefined) return '';
+  if (format === 'percent' && typeof value === 'number') return new Intl.NumberFormat(language, { style: 'percent', maximumFractionDigits: 1 }).format(value / 100);
   if (format === 'number' && typeof value === 'number') return new Intl.NumberFormat(language).format(value);
   if (format === 'number' && typeof value === 'string' && /^-?\d+(?:\.\d+)?$/u.test(value)) return new Intl.NumberFormat(language).format(Number(value));
   if (format === 'bytes' && (typeof value === 'number' || typeof value === 'string')) {

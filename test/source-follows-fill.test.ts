@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -19,6 +19,10 @@ import { activateTestProduct, retainTestStorePreparationOwner } from './prepared
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { startFileTextServer } from './file-text-server.js';
+
+/** The host hands the plugin the git tool it resolved; a test that serves reads does the same. */
+process.env['MADARCH_TOOL_GIT'] = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -28,12 +32,16 @@ let home = '';
 let folder = '';
 let repository = '';
 let closeOwner: (() => Promise<void>) | undefined;
+let files: Awaited<ReturnType<typeof startFileTextServer>> | undefined;
+let readOwner: DatabaseOwner | undefined;
 
 /** The commit a repository stands at now. */
 const headOf = (): string => git(repository, 'rev-parse', 'HEAD');
+/** The blob of one file at the repository's head. */
+const blobOf = (path: string): string => git(repository, 'rev-parse', `HEAD:${path}`);
 
-/** One `source` opinion, as the fill's source-text producer states it. */
-async function publishSource(path: string, text: string, commit: string): Promise<void> {
+/** One file's blob, as a fill states it: the text of a file is read by the blob the graph names (decision 0037). */
+async function publishBlob(path: string, blob: string): Promise<void> {
   const read = readKinds(folder);
   if (!read.present) throw new Error('the fixture manifest is absent');
   const contract = graphContractOf(read.manifest);
@@ -41,9 +49,9 @@ async function publishSource(path: string, text: string, commit: string): Promis
   try {
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'source', key: { repository: 'code', path } }, 1, journal);
-      await publishOpinion(tx, contract, { kind: 'source', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
-        values: { source_text: text, commit } }, 1, journal);
+      const node = await ensureVertex(tx, contract, { kind: 'code.file', key: { repository: 'code', path } }, 1, journal);
+      await publishOpinion(tx, contract, { kind: 'code.file', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
+        values: { blob } }, 1, journal);
       await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }
@@ -67,16 +75,22 @@ beforeAll(async () => {
   closeOwner = await retainTestStorePreparationOwner();
   await fillInProcess(folder, home);
   await activateTestProduct(folder, home);
+  // The api role waits on the store's read queue: the fill role answers it, and this test serves that side itself.
+  const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
+  files = await startFileTextServer(reader);
+  readOwner = reader;
 }, 180_000);
 
 afterAll(async () => {
+  await files?.stop();
+  await readOwner?.close();
   await closeOwner?.();
   if (work !== '') rmSync(work, { recursive: true, force: true });
 });
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
   const first = headOf();
-  await publishSource('src/a.ts', 'export const a = 1;\n', first);
+  await publishBlob('src/a.ts', blobOf('src/a.ts'));
   const api = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home) });
   try {
     const before = await api.source('code', 'src/a.ts');
@@ -87,7 +101,7 @@ test('a source read reports the commit of a fill another process published, with
     git(repository, 'commit', '-qm', 'second');
     const second = headOf();
     await fillInProcess(folder, home);
-    await publishSource('src/a.ts', 'export const a = 2;\n', second);
+    await publishBlob('src/a.ts', blobOf('src/a.ts'));
     // The text is read from the store; the commit and the kinds must be the store's too, without a status poll between.
     expect(await api.source('code', 'src/a.ts')).toEqual({ text: 'export const a = 2;\n', commit: second });
   } finally { await api.close(); }

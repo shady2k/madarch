@@ -1,3 +1,4 @@
+import { withSpan } from '../../obs/trace.js';
 /** Preparation of the orchestrator's tables, constraints and plan migration. */
 import type { DatabaseOwner } from '../database-owner.js';
 import { createSchemaOnce } from '../schema-stamp.js';
@@ -12,13 +13,6 @@ const FILL_END_TABLE = `CREATE TABLE IF NOT EXISTS fill_end (
   )`;
 
 const SCHEMA: readonly string[] = [
-  // A person's pause or stop of a run whose fill process is another one (madarch-8bdc.9): the process that runs the fill
-  // reads this row and takes the action on the run it owns.
-  `CREATE TABLE IF NOT EXISTS fill_control (
-    run_id text PRIMARY KEY,
-    action text NOT NULL,
-    at bigint NOT NULL
-  )`,
   FILL_END_TABLE,
   `CREATE TABLE IF NOT EXISTS fill_run_configuration (
     run_id text PRIMARY KEY,
@@ -79,26 +73,6 @@ const SCHEMA: readonly string[] = [
     PRIMARY KEY (unit_id, generation, query_digest)
   )`,
   'CREATE INDEX IF NOT EXISTS fill_unit_read_sequence ON fill_unit_read (unit_id, generation, read_seq)',
-  `CREATE TABLE IF NOT EXISTS fill_unit_draft (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    digest text NOT NULL,
-    writes jsonb NOT NULL,
-    recorded_at bigint NOT NULL,
-    retracted_at bigint,
-    PRIMARY KEY (unit_id, generation)
-  )`,
-  // A draft set's writes, in parts of `DRAFT_PART_WRITES` (madarch-tzte.21.11): one jsonb value of a
-  // repository-wide unit's whole set — 34 MB for the modules stage over the madarch tree — took the
-  // embedded store's memory up by about 490 MB for good, where the same bytes in parts took it up by
-  // nothing measurable.
-  `CREATE TABLE IF NOT EXISTS fill_unit_draft_part (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    part integer NOT NULL,
-    writes jsonb NOT NULL,
-    PRIMARY KEY (unit_id, generation, part)
-  )`,
   `CREATE TABLE IF NOT EXISTS fill_unit_split (
     parent_unit_id text NOT NULL,
     parent_generation integer NOT NULL,
@@ -125,19 +99,28 @@ const SCHEMA: readonly string[] = [
  */
 const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXISTS cache_versions jsonb';
 
+/**
+ * The tables this schema no longer holds (decision 0039, items 12 and 13): a
+ * unit's writes go through the one writer while it runs, so there is no draft set
+ * to keep, and a person's pause or stop is the run's own state, so there is no
+ * control row to read. A store made before them drops them here, whole.
+ */
+const REMOVED: readonly string[] = [
+  'DROP TABLE IF EXISTS fill_unit_draft_part',
+  'DROP TABLE IF EXISTS fill_unit_draft',
+  'DROP TABLE IF EXISTS fill_control',
+];
+
 /** The foreign keys the orchestrator's rows must satisfy: a run's stages, events and ends belong to the run, and every unit row to its generation. */
 const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
   { table: 'fill_run_configuration', name: 'fill_run_configuration_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_run_stage', name: 'fill_run_stage_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_event', name: 'fill_event_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_event', name: 'fill_event_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_control', name: 'fill_control_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_end', name: 'fill_end_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_unit_plan', name: 'fill_unit_plan_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
   { table: 'fill_unit_plan', name: 'fill_unit_plan_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
   { table: 'fill_unit_read', name: 'fill_unit_read_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_draft', name: 'fill_unit_draft_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_draft_part', name: 'fill_unit_draft_part_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
   { table: 'fill_unit_split', name: 'fill_unit_split_parent_fk', columns: 'parent_unit_id, parent_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
   { table: 'fill_unit_split', name: 'fill_unit_split_child_fk', columns: 'child_unit_id, child_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
   { table: 'fill_publication', name: 'fill_publication_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
@@ -152,12 +135,15 @@ export const orchestratorSchema = {
   async prepare(owner: DatabaseOwner): Promise<void> {
     await createSchemaOnce(owner, {
       name: 'orchestrator',
-      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql), CACHE_VERSIONS_COLUMN],
+      parts: [...REMOVED, ...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql), CACHE_VERSIONS_COLUMN],
       tables: ORCHESTRATOR_TABLES,
       create: async (executor) => {
-        for (const statement of SCHEMA) await executor.query(statement);
-        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
-        await executor.query(CACHE_VERSIONS_COLUMN);
+        await withSpan('orchestrator.schema', { 'db.system': 'postgres', 'db.statements': REMOVED.length + SCHEMA.length + FOREIGN_KEYS.length + 1 }, async () => {
+          for (const statement of REMOVED) await executor.query(statement);
+          for (const statement of SCHEMA) await executor.query(statement);
+          for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
+          await executor.query(CACHE_VERSIONS_COLUMN);
+        });
       },
     });
   },

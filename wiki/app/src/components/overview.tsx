@@ -21,11 +21,10 @@ import {
 import { fetchFillPlan, fetchFillRuns, fetchFillStatus } from '../client.js';
 import { durationWords, momentWords } from './format.js';
 import { latestEventWords } from './run.js';
+import { useLiveRun } from './run-indicator.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
-/** The states of a run that is still going; a run in one of them is the fill the home follows. */
-const LIVE = ['queued', 'running', 'paused'];
 
 /** Where the reader's dismissal of a failed run is kept: this tab, until the reader closes it. */
 const DISMISS_KEY = 'madarch-fill-dismissed';
@@ -42,11 +41,15 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
   const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => fetchFillStatus(context.base, signal));
   useChangeStream(context.base, () => { problems.reload(); runs.reload(); status.reload(); });
   const last: FillRunDetail | undefined = runs.data?.runs[0];
-  const live = last !== undefined && LIVE.includes(last.phase);
+  // The live run is the frame's own read of it (`useLiveRun`): the top bar's indicator and this card share one entry, so
+  // the same run is measured once and both places say the same count in the same words (madarch-64o5.136).
+  const frameRun = useLiveRun(context.base);
+  const live = frameRun.live;
+  const running: FillRunDetail | undefined = live ? frameRun.run ?? last : undefined;
   // The kind and plugin words of the last thing a running fill did, as its own run page writes them: the plan names the
   // plugins, and the frame's navigation names the kinds.
-  const orderKey = (last?.order ?? last?.selected ?? []).join(',');
-  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => fetchFillPlan(context.base, last?.order ?? last?.selected ?? [], false, signal), live && orderKey !== '');
+  const orderKey = (running?.order ?? last?.order ?? last?.selected ?? []).join(',');
+  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => fetchFillPlan(context.base, running?.order ?? last?.order ?? last?.selected ?? [], false, signal), live && orderKey !== '');
   const labelOf = (kind: string): string | undefined => context.navigation?.kinds.find((one) => one.kind === kind)?.many;
   const pluginName = (name: string): string | undefined => {
     const labels = plan.data?.plan.plugins?.find((plugin) => plugin.name === name)?.labels;
@@ -58,7 +61,7 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
   const notKnown = t('overview.notKnown');
   const problemsText = problems.error !== null || problems.data === null ? notKnown : t('overview.problems', { count: problems.data.open });
   const fillState: 'known' | 'none' | 'unknown' = runs.error !== null || runs.data === null ? 'unknown' : last === undefined ? 'none' : 'known';
-  const lastWords = live && last !== undefined ? latestEventWords(last, labelOf, pluginName, t) : undefined;
+  const lastWords = running === undefined ? undefined : latestEventWords(running, labelOf, pluginName, t);
   const failed = last !== undefined && last.phase === 'failed';
   const incomplete = status.data?.filled === true && status.data.incomplete === true && !live && !failed;
   return (
@@ -79,9 +82,9 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
                 </TextLink>
               )}
             </InlineGroup>
-            {!live || last === undefined ? null : (
+            {running === undefined ? null : (
               <Stack data-testid="overview-fill-running">
-                <Paragraph data-testid="overview-fill-counts">{t('knowledge.fillRun.active', { done: last.publishedUnits, total: last.units.length })}</Paragraph>
+                <Paragraph data-testid="overview-fill-counts">{running?.phase === 'paused' ? t('navigation.runPaused', { done: running.publishedUnits, total: running.units.length }) : t('navigation.runGoing', { done: running?.publishedUnits ?? 0, total: running?.units.length ?? 0 })}</Paragraph>
                 {lastWords === undefined ? null : <Paragraph data-testid="overview-fill-last">{lastWords}</Paragraph>}
               </Stack>
             )}

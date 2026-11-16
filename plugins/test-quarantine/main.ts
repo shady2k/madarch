@@ -2,6 +2,17 @@ import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 
 import { quarantinedTests } from './parser.js';
 
 /** Source bytes come only from host graph reads; this plugin opens no repository or tracker. */
+
+/**
+ * One file's text, by the blob id the graph names: the host routes the read to the core plugin that owns git (decision
+ * 0037, decision 0038). Absent when the graph names no blob or the blob is no text.
+ */
+async function textOf(context: ExtractContext, key: Readonly<Record<string, string | number | import('madarch-plugin-sdk').EntityRef>>): Promise<string | undefined> {
+  const blob = await context.graph.value<string | null>('code.file', key, 'blob');
+  if (typeof blob !== 'string' || blob === '') return undefined;
+  const read = await context.read({ repository: String(key['repository'] ?? ''), blob });
+  return read.binary ? undefined : read.text;
+}
 export async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const files = await context.graph.files('**/*.test.*');
   const vertices: VertexResult[] = [];
@@ -9,8 +20,8 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
   const problems: string[] = [];
   const reports: { repository: string; entry: Record<string, unknown> }[] = [];
   for (const report of await context.graph.files('**/quarantine-results.json')) {
-    const content = await context.graph.value<string | null>(report.kind, report.key, 'content');
-    if (typeof content !== 'string') continue;
+    const content = await textOf(context, report.key);
+    if (content === undefined) continue;
     try {
       const parsed: unknown = JSON.parse(content);
       if (parsed === null || typeof parsed !== 'object' || !Array.isArray((parsed as { cases?: unknown }).cases)) throw new Error('expected {cases: [...]}');
@@ -26,8 +37,8 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
     const repository = String(file.key['repository'] ?? '');
     const path = String(file.key['path'] ?? '');
     if (!/\.test\.[cm]?[jt]sx?$/.test(path)) continue;
-    const source = await context.graph.value<string | null>(file.kind, file.key, 'content');
-    if (typeof source !== 'string') continue;
+    const source = await textOf(context, file.key);
+    if (source === undefined) continue;
     try {
       for (const test of quarantinedTests(source, path)) {
         const key = { repository, path, name: test.name };

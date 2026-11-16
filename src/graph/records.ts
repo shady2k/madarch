@@ -77,7 +77,7 @@ function opinionsOfJson(value: unknown, carried: readonly string[]): HeldOpinion
     const saidBy = String(held['said_by'] ?? '');
     const at = saidBy.lastIndexOf('@');
     const values: Record<string, unknown> = {};
-    for (const field of [...carried, 'lang', 'mode', 'blob', 'bytes', 'form', 'lines', 'content', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
+    for (const field of [...carried, 'lang', 'mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
     return {
       id: String(held['id'] ?? ''),
       saidBy,
@@ -118,7 +118,7 @@ const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN entity en2 ON en2.id = e.enti
 const FILE_OPINIONS = `LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
       'mode', o."mode", 'language', o."language", 'languages', o."languages",
-      'blob', o."blob", 'bytes', o."bytes"::text, 'form', o."form", 'lines', o."lines"::text, 'content', o."content") ORDER BY o."id") AS opinions
+      'blob', o."blob", 'bytes', o."bytes"::text, 'form', o."form", 'lines', o."lines"::text) ORDER BY o."id") AS opinions
     FROM ${GIT_TABLES.file} o
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) fo ON true`;
 
@@ -186,10 +186,16 @@ async function repositoryIdOf(tx: OuterTransaction, repository: string): Promise
 
 /** The id of one repository, in one statement. */
 async function readRepositoryId(tx: OuterTransaction, repository: string): Promise<string> {
-  const found = await tx.query<{ node_id: string }>(
-    `SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`,
-    [repository],
-  );
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ node_id: string }>(
+      sql,
+      [repository],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const row = found.rows[0];
   if (row === undefined) throw new RecordGap(`the store holds no repository ${JSON.stringify(repository)}: the fill of this step has not run for it (src/graph/records.ts)`);
   return row.node_id;
@@ -198,14 +204,20 @@ async function readRepositoryId(tx: OuterTransaction, repository: string): Promi
 
 /** The files one page of a repository holds, paged in SQL before any opinion is loaded. */
 async function filePage(tx: OuterTransaction, repository: string, where: string, extra: readonly unknown[], after: string | null, limit: number, projection?: 'map'): Promise<Record<string, unknown>[]> {
-  const found = await tx.query<Record<string, unknown>>(
-    `SELECT (n.key->>'path') AS path, fo.opinions FROM (
-       SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-       WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} AND ${where}
-         AND ($2::text IS NULL OR (n.key->>'path') > $2) ORDER BY (n.key->>'path') LIMIT $3::bigint) p
-     JOIN node n ON n.id = p.id ${projection === 'map' ? MAP_FILE_OPINIONS : FILE_OPINIONS} ORDER BY (n.key->>'path')`,
-    [repository, after, String(limit + 1), ...extra],
-  );
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT (n.key->>'path') AS path, fo.opinions FROM (
+         SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+         WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} AND ${where}
+           AND ($2::text IS NULL OR (n.key->>'path') > $2) ORDER BY (n.key->>'path') LIMIT $3::bigint) p
+       JOIN node n ON n.id = p.id ${projection === 'map' ? MAP_FILE_OPINIONS : FILE_OPINIONS} ORDER BY (n.key->>'path')`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<Record<string, unknown>>(
+      sql,
+      [repository, after, String(limit + 1), ...extra],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   return found.rows;
 }
 
@@ -301,21 +313,6 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
   }));
 }
 
-/** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
-/** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
-export async function storedFileTexts(owner: DatabaseOwner, repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
-  const answer = new Map<string, string | null>();
-  if (paths.length === 0) return answer;
-  return await withSpan('records.fileContents', { 'records.repository': repository, 'records.paths': paths.length }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(
-      `${FILE_SELECT} WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = ANY($2::text[])
-       AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE}`, [repository, [...paths]],
-    );
-    for (const row of found.rows) answer.set(String(row['path']), fieldRead(opinionsOfJson(row['opinions'], ['content']), 'content', asText).value);
-    return answer;
-  }));
-}
-
 /** The product source needs the whole path inventory, but not file content, languages or opinion evidence. */
 export async function productFileIndex(owner: DatabaseOwner, repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
   return await withSpan('records.productFileIndex', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
@@ -366,23 +363,35 @@ export async function commitFacts(owner: DatabaseOwner, repository: string, hash
 
 /** The commit's own facts in one statement each, in the transaction the caller holds. */
 async function readCommitFacts(tx: OuterTransaction, _repository: string, hash: string): Promise<CommitRecord | null> {
-  const found = await tx.query<{ commit: string; opinions: unknown; author_name: string; author_email: string }>(
-    `SELECT (c.key->>'hash') AS commit, ${COMMIT_OPINIONS('c')} AS opinions, coalesce(sn.key->>'name', '') AS author_name, coalesce(sn.key->>'email', '') AS author_email
-     FROM node c JOIN entity en ON en.id = c.entity_id AND en.name = '${GIT_KINDS.commit}'
-     LEFT JOIN edge e ON e.to_node = c.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
-     LEFT JOIN node sn ON sn.id = e.from_node
-     WHERE c.key @> jsonb_build_object('hash', $1::text)`,
-    [hash],
-  );
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT (c.key->>'hash') AS commit, ${COMMIT_OPINIONS('c')} AS opinions, coalesce(sn.key->>'name', '') AS author_name, coalesce(sn.key->>'email', '') AS author_email
+       FROM node c JOIN entity en ON en.id = c.entity_id AND en.name = '${GIT_KINDS.commit}'
+       LEFT JOIN edge e ON e.to_node = c.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
+       LEFT JOIN node sn ON sn.id = e.from_node
+       WHERE c.key @> jsonb_build_object('hash', $1::text)`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ commit: string; opinions: unknown; author_name: string; author_email: string }>(
+      sql,
+      [hash],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const row = found.rows[0];
   if (row === undefined) return null;
   const opinions = opinionsOfJson(row.opinions, []);
-  const parents = await tx.query<{ hash: string }>(
-    `SELECT (pn.key->>'hash') AS hash FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
-     JOIN ${GIT_TABLES.parent_position} o ON o."edge_id" = e.id AND o."state" = 'open' AND o."context_id" = 1
-     JOIN node pn ON pn.id = e.to_node WHERE e.from_node = (SELECT id FROM node WHERE key @> jsonb_build_object('hash', $1::text) AND entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.commit}')) ORDER BY o.position`,
-    [hash],
-  );
+  const parents = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT (pn.key->>'hash') AS hash FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
+       JOIN ${GIT_TABLES.parent_position} o ON o."edge_id" = e.id AND o."state" = 'open' AND o."context_id" = 1
+       JOIN node pn ON pn.id = e.to_node WHERE e.from_node = (SELECT id FROM node WHERE key @> jsonb_build_object('hash', $1::text) AND entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.commit}')) ORDER BY o.position`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ hash: string }>(
+      sql,
+      [hash],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const [authorDate, authorOffset] = [clockOf(opinions, 'author_date', 'author_offset_min'), fieldRead(opinions, 'author_offset_min', asNumber).value ?? 0];
   const [commitDate, commitOffset] = [clockOf(opinions, 'commit_date', 'commit_offset_min'), fieldRead(opinions, 'commit_offset_min', asNumber).value ?? 0];
   return {
@@ -434,35 +443,45 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string, 
 /** The facts of one repository, read in statements of its own; the page shares the result through `repositoryFacts`. */
 async function readRepositoryFacts(tx: OuterTransaction, repository: string, declared?: ReadonlySet<string>): Promise<RepositoryFacts | null> {
   // The declared contract decides: a product that declares no repository kind is answered before the table is named.
-  if (declared === undefined && (await tx.query<{ id: string }>("SELECT id FROM entity WHERE name = $1 LIMIT 1", [GIT_KINDS.repository])).rows.length === 0) return null;
+  if (declared === undefined && (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = "SELECT id FROM entity WHERE name = $1 LIMIT 1";
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ id: string }>(sql, [GIT_KINDS.repository]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  })).rows.length === 0) return null;
   // One statement for the repository row and everything a page states about it: its opinions, its as-is commit and its
   // counts (the CI page budget counts statements, not only rows). A successful inventory header also proves an
   // empty tree, but only for a producer whose repository opinion names this repository in its evidence.
-  const found = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; has_tree: boolean; files: string; commits: string; directories: string }>(
-
-    `SELECT n.id::text AS node_id,
-       (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch", 'history_shallow', o."history_shallow") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
-       (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS as_is,
-       (EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.from_node = n.id AND e.context_id = 1)
-        OR EXISTS (
-          SELECT 1 FROM fill_unit u
-          JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation AND g.state = 'published'
-          JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-          JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
-          CROSS JOIN LATERAL jsonb_array_elements(d.writes) w
-          JOIN ${GIT_TABLES.repository} o ON o.node_id = n.id AND o.state = 'open' AND o.context_id = 1
-            AND split_part(o.said_by, '@', 1) = w->'value'->>'plugin'
-          WHERE u.stage_id = 'plugin-turns' AND w->>'kind' = 'producer-outcome'
-            AND w->'value'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
-            AND w->'value'->>'outcome' IN ('completed', 'unchanged', 'empty')
-            AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.evidence) place WHERE place->>'repository' = $1::text)
-        )) AS has_tree,
-       (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->>'repository') = $1::text) AS files,
-       (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = n.id AND e.context_id = 1) AS commits,
-       (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->>'repository') = $1::text) AS directories
-     FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`,
-    [repository],
-  );
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT n.id::text AS node_id,
+         (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch", 'history_shallow', o."history_shallow") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
+         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS as_is,
+         (EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.from_node = n.id AND e.context_id = 1)
+          OR EXISTS (
+            SELECT 1 FROM fill_unit u
+            JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation AND g.state = 'published'
+            JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+            JOIN ${GIT_TABLES.repository} o ON o.node_id = n.id AND o.state = 'open' AND o.context_id = 1
+              AND split_part(o.said_by, '@', 1) = g.context->'unitOutcome'->>'plugin'
+            WHERE u.stage_id = 'plugin-turns'
+              AND g.context->'unitOutcome'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
+              AND g.context->'unitOutcome'->>'outcome' IN ('completed', 'unchanged', 'empty')
+              AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.evidence) place WHERE place->>'repository' = $1::text)
+          )) AS has_tree,
+         (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->>'repository') = $1::text) AS files,
+         (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = n.id AND e.context_id = 1) AS commits,
+         (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->>'repository') = $1::text) AS directories
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; has_tree: boolean; files: string; commits: string; directories: string }>(
+  
+      sql,
+      [repository],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const row = found.rows[0];
   if (row === undefined) return null;
   const opinions = opinionsOfJson(row['opinions'], []);

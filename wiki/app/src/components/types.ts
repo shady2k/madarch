@@ -8,6 +8,14 @@ import type { ComposedSection } from '../../../../src/page-contract/index.js';
 import type { Navigation } from '../client.js';
 import type { OpenPage } from '../address.js';
 
+/** This machine's plugin isolation as the frame read it: what the start probe found, and what the person chose. */
+export interface MachineSettings {
+  readonly pluginIsolation: { readonly capable: boolean; readonly reason: string } | null;
+  readonly pluginsUnconfined: boolean | null;
+  /** Reads the settings again, after a page saved a choice. */
+  readonly reload: () => void;
+}
+
 export interface SectionContext {
   readonly section: ComposedSection;
   readonly data: unknown;
@@ -28,6 +36,8 @@ export interface SectionContext {
   readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind instead. */
   readonly pageName: string | null;
+  /** This machine's plugin isolation, read once by the frame; the page that offers the choice reads it here. */
+  readonly machine?: MachineSettings;
   /** Kinds a unit publication just changed: a row that shows one wears a short highlight. */
   readonly changedKinds?: ReadonlySet<string>;
 }

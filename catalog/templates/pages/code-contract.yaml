@@ -1,0 +1,49 @@
+template: code-contract
+extends: entity
+records:
+- code.contract
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    repository
+    path
+    contested
+  params:
+    rows:
+    - label:
+        en: Repository
+        ru: Репозиторий
+      path: repository
+    - label:
+        en: Path
+        ru: Путь
+      path: path
+- id: source
+  after: facts
+  component: source
+  title:
+    en: Source
+    ru: Исходный текст
+  query: |
+    repository
+    path
+  params:
+    path: .
+- id: operations
+  component: text
+  title:
+    en: Operations
+    ru: Операции
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

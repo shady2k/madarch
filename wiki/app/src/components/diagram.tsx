@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { valueAt } from '../../../../src/page-contract/index.js';
+import { withSpan } from '../trace.js';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Button } from './ui/button.js';
 import { InlineGroup } from './ui/typography.js';
@@ -70,7 +71,11 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     const stop = new AbortController();
     const timer = setTimeout(() => { stop.abort(); }, 15000);
     try {
-      const answer = await fetch(key, { signal: stop.signal });
+      const answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': key }, async (span) => {
+        const held = await fetch(key, { signal: stop.signal });
+        span.setAttribute('http.status', held.status);
+        return held;
+      });
       if (!answer.ok) {
         // The server's own words stay data: the place and the cause it names are what a reader can act on, and the
         // sentence around them is the interface's (madarch-64o5.134).

@@ -5,6 +5,7 @@
 import type { Bootstrap } from '../../../src/page-contract/index.js';
 import { reportOffline, reportOnline } from './connection.js';
 import { CommandError, offlineWords, type FillPlanView, type FillRunDetail, type FillStatusAnswer } from './components/command.js';
+import { withSpan } from './trace.js';
 
 /** One kind of the product's navigation: its names in the reader's language, its group and what the graph holds. */
 export interface NavigationKind {
@@ -117,7 +118,7 @@ async function publicationOf(response: Response): Promise<PublicationState | und
 
 /** The base path the app is served under: a products home serves each product's wiki below `/products/<name>`. */
 export function basePathOf(pathname: string): string {
-  const match = /^(\/products\/[^/]+)(?:\/|$)/u.exec(pathname);
+  const match = pathname.match(/^(\/products\/[^/]+)(?:\/|$)/u);
   return match?.[1] ?? '';
 }
 
@@ -125,12 +126,16 @@ export function basePathOf(pathname: string): string {
 export async function postQuery<T>(base: string, query: string, variables: Record<string, unknown>, signal?: AbortSignal): Promise<GraphqlAnswer<T>> {
   let response: Response;
   try {
-    response = await fetch(`${base}/graphql`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ query, variables }),
-      credentials: 'same-origin',
-      ...(signal === undefined ? {} : { signal }),
+    response = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': `${base}/graphql` }, async (span) => {
+      const answer = await fetch(`${base}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ query, variables }),
+        credentials: 'same-origin',
+        ...(signal === undefined ? {} : { signal }),
+      });
+      span.setAttribute('http.status', answer.status);
+      return answer;
     });
   } catch {
     reportOffline();

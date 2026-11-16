@@ -38,7 +38,6 @@ const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
   'src/plugin/product-files.ts': ['text', 'readText'],
   'src/plugin/product-source.ts': ['text'],
   'src/plugin/repository-snapshot.ts': ['read', 'readText'],
-  'src/plugin/stored-text.ts': ['content', 'contentsOf', 'contentAt'],
   'src/knowledge/product-files.ts': ['text', 'readText'],
   'src/knowledge/product-source.ts': ['text'],
   'src/knowledge/graph-read.ts': ['content', 'contentsOf', 'contentAt'],
@@ -46,7 +45,6 @@ const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
   'src/knowledge/index/grounds.ts': ['text'],
 };
 const TEXT_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
-  'src/plugin/stored-text.ts': ['content', 'contentsOf', 'contentAt', 'fileContent', 'fileContents', 'fileTextAt', 'pluginFileContent', 'pluginFileText', 'storedFileText'],
   'src/graph/records.ts': ['fileContent', 'fileContents', 'fileTextAt', 'storedFileText'],
   'src/graph/plugin-turns.ts': ['pluginFileContent'],
   'src/knowledge/product-files.ts': ['workingTreeFiles', 'snapshotFiles'],

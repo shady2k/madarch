@@ -25,9 +25,9 @@ const LOCATING_HELPERS = new Set(['throwSite', 'raise', 'here']);
 function throwSite(): string {
   const frames = (new Error().stack ?? '').split('\n').slice(1);
   for (const frame of frames) {
-    const located = /\(?([^\s()]+):(\d+):(\d+)\)?\s*$/.exec(frame.trim());
+    const located = frame.trim().match(/\(?([^\s()]+):(\d+):(\d+)\)?\s*$/);
     if (located === null) continue;
-    const name = /^\s*at\s+([^\s(]+)/.exec(frame)?.[1] ?? '';
+    const name = frame.match(/^\s*at\s+([^\s(]+)/)?.[1] ?? '';
     if (LOCATING_HELPERS.has(name)) continue;
     return `${located[1]}:${located[2]}:${located[3]}`;
   }

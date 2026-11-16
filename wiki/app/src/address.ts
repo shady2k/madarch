@@ -68,6 +68,15 @@ export function runAddress(runId: string): string {
 /** A press that walks to an address: in the tab in front, or in a tab of its own (a control, command or middle press). */
 export type OpenPage = (address: string, options?: { readonly newTab?: boolean }) => void;
 
+/** A source location, drawn by the source template at the dedicated source address. */
+export function sourceAddress(repository: string | undefined, path: string, line?: number): string {
+  const query = new URLSearchParams();
+  if (repository !== undefined) query.set('repo', repository);
+  query.set('path', path);
+  if (line !== undefined) query.set('line', String(line));
+  return `/src?${query.toString()}${line === undefined ? '' : `#L${String(line)}`}`;
+}
+
 /** One of the frame's own sections. */
 export type FramePage = keyof typeof FRAME_PAGES;
 
@@ -104,12 +113,13 @@ export function parseAddress(pathname: string, search: string, base: string): Ap
   const lang = query.get('lang') ?? undefined;
   const role = query.get('role') ?? undefined;
   const shared = { params, ...(lang === undefined ? {} : { lang }), ...(role === undefined ? {} : { role }) };
+  if (path === '/src') return { page: { ...shared, template: 'source' }, home: false, unknown: false, frame: null };
   if (path === '' || path === '/') return { page: { ...shared, home: true }, home: true, unknown: false, frame: null };
-  const entity = /^\/e\/([^/]+)\/([^/]+)\/?$/u.exec(path);
+  const entity = path.match(/^\/e\/([^/]+)\/([^/]+)\/?$/u);
   if (entity !== null) return { page: { ...shared, kind: decode(entity[1]!), id: decode(entity[2]!) }, home: false, unknown: false, frame: null };
   // The old fill address opens the catalogue's selection mode: the separate fill list page is gone.
   if (path === '/p/fill') return { page: { ...shared, template: 'catalogue', params: { ...params, select: '1' } }, home: false, unknown: false, frame: null };
-  const template = /^\/p\/([^/]+)\/?$/u.exec(path);
+  const template = path.match(/^\/p\/([^/]+)\/?$/u);
   if (template !== null) {
     const name = decode(template[1]!);
     // A search is shared as `?q=`, and the search template names its words `text`: a link in the other spelling searches

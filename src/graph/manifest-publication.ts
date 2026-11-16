@@ -1,4 +1,5 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
+import { withSpan } from '../obs/trace.js';
 import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -8,7 +9,7 @@ import { MANIFEST_CONTRACT, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from '
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
+import { KINDS_FILE, pageTemplateKind, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
@@ -19,6 +20,8 @@ import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
 import { homeKind } from '../product/manifest/kinds.js';
+import { templateFiles } from './product-templates.js';
+import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -27,6 +30,8 @@ export interface ValidatedManifests {
   readonly edges: readonly EdgeDraft[];
   /** The starter value sets, written as their own entities beside the catalogue's declarations. */
   readonly starterValues: readonly VertexDraft[];
+  /** The product's page templates, read from `templates/` at start and published as entities of the kind its manifest declares. */
+  readonly templates: readonly { readonly name: string; readonly body: string; readonly path: string }[];
   readonly templatePaths: readonly string[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
@@ -67,9 +72,10 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
-  // Templates are the product's `templates/` files, served as the bootstrap's PageTemplate list (section 6), not
-  // declarations this publication interprets: the Liquid compiler and its `template` kind are deleted with the page layer.
-  const templatePaths: string[] = [];
+  // The product's page templates (decision 0036, section 6; the owner's decision of 2026-11-15): read from the checkout at
+  // start, published as entities of the kind the manifest declares for them, and read from the graph from then on.
+  const templates = templateFiles(folder);
+  const templatePaths: string[] = templates.map((file) => file.path);
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
   if (findings.length > 0) return { ok: false, findings, templatePaths };
@@ -172,7 +178,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       }
     }
   }
-  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templatePaths } };
+  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templates, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -198,19 +204,31 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
   return await owner.transaction('write', async (tx) => {
     const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
-    const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
+    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ kind: string; key: Record<string, string> }>(sql, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const wanted = new Set(validated.vertices.map((one) => identity(one.kind, one.key)));
     const removals: VertexRemovalDraft[] = held.rows.filter((one) => !wanted.has(identity(one.kind, one.key))).map((one) => ({ kind: one.kind, key: one.key, producer: 'manifest' }));
     // Compare every value and its grounds, so identical refreshes publish no new opinions.
-    const published = await tx.query<{ kind: string; key: Record<string, string>; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.vertex.map((kind) => {
-      const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
-      const values = `jsonb_build_object(${columns.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
-      return `SELECT '${kind.name}' AS kind, n.key, ${values} AS values, p.evidence
-        FROM (SELECT DISTINCT ON (p.node_id) p.* FROM "${kind.table}" p
-          WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-          ORDER BY p.node_id, p.id DESC) p
-        JOIN node n ON n.id = p.node_id AND n.context_id = 1 AND NOT n.removed`;
-    }).join(' UNION ALL '));
+    const published = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = MANIFEST_CONTRACT.vertex.map((kind) => {
+          const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
+          const values = `jsonb_build_object(${columns.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
+          return `SELECT '${kind.name}' AS kind, n.key, ${values} AS values, p.evidence
+            FROM (SELECT DISTINCT ON (p.node_id) p.* FROM "${kind.table}" p
+              WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
+              ORDER BY p.node_id, p.id DESC) p
+            JOIN node n ON n.id = p.node_id AND n.context_id = 1 AND NOT n.removed`;
+        }).join(' UNION ALL ');
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ kind: string; key: Record<string, string>; values: unknown; evidence: unknown }>(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const current = new Map(published.rows.map((one) => [identity(one.kind, one.key), one]));
     const vertices = validated.vertices.filter((one) => {
       const held = current.get(identity(one.kind, one.key));
@@ -220,15 +238,21 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     });
     const edgeIdentity = (one: Pick<EdgeDraft, 'kind' | 'from' | 'to' | 'discriminator'>): string =>
       JSON.stringify([one.kind, one.from.key, one.to.key, one.discriminator ?? '']);
-    const publishedEdges = await tx.query<{ kind: string; from_key: Record<string, string>; to_key: Record<string, string>; discriminator: string; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.edge.map((kind) => {
-      const values = `jsonb_build_object(${kind.fields.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
-      return `SELECT '${kind.name}' AS kind, fn.key AS from_key, tn.key AS to_key, e.discriminator, ${values} AS values, p.evidence
-        FROM (SELECT DISTINCT ON (p.edge_id) p.* FROM "${kind.table}" p
-          WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-          ORDER BY p.edge_id, p.id DESC) p
-        JOIN edge e ON e.id = p.edge_id AND e.context_id = 1
-        JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node`;
-    }).join(' UNION ALL '));
+    const publishedEdges = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = MANIFEST_CONTRACT.edge.map((kind) => {
+          const values = `jsonb_build_object(${kind.fields.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
+          return `SELECT '${kind.name}' AS kind, fn.key AS from_key, tn.key AS to_key, e.discriminator, ${values} AS values, p.evidence
+            FROM (SELECT DISTINCT ON (p.edge_id) p.* FROM "${kind.table}" p
+              WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
+              ORDER BY p.edge_id, p.id DESC) p
+            JOIN edge e ON e.id = p.edge_id AND e.context_id = 1
+            JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node`;
+        }).join(' UNION ALL ');
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ kind: string; from_key: Record<string, string>; to_key: Record<string, string>; discriminator: string; values: unknown; evidence: unknown }>(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const edgeDrafts = new Map(validated.edges.map((one) => [edgeIdentity(one), one]));
     const currentEdges = new Map(publishedEdges.rows.map((one) => {
       const draft = { kind: one.kind, from: { kind: 'manifest.kind', key: one.from_key }, to: { kind: 'manifest.kind', key: one.to_key }, discriminator: one.discriminator };
@@ -246,6 +270,39 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
+    // The product's page templates are entities of the kind its manifest declares for them (the owner's decision of
+    // 2026-11-15): published at start, re-published when the product repository changes, and closed when one leaves.
+    // The product's own kind wins; a product whose manifest names none publishes its templates as the catalogue's kind.
+    const templateKind = pageTemplateKind(validated.manifest);
+    const catalogue = cataloguePageTemplate();
+    const kindName = templateKind?.name ?? catalogue.name;
+    const nameRole = templateKind?.pageTemplate?.['name'] ?? catalogue.nameField;
+    const bodyRole = templateKind?.pageTemplate?.['body'] ?? catalogue.bodyField;
+    const pathRole = templateKind?.pageTemplate?.['path'] ?? catalogue.pathField;
+    {
+      const head = headCommitOf(validated.folder);
+      const at = (path: string): { repository: string; path: string; lineStart: number; lineEnd: number; commit?: string }[] =>
+        [{ repository: validated.folder, path, lineStart: 1, lineEnd: 1, ...(head === undefined ? {} : { commit: head.commit }) }];
+      const drafts: VertexDraft[] = validated.templates.map((template) => ({
+        kind: kindName,
+        key: { [nameRole]: template.name },
+        values: { [bodyRole]: template.body, ...(pathRole === undefined ? {} : { [pathRole]: template.path }) },
+        evidence: at(template.path), producer: 'manifest', producerVersion: '1',
+      }));
+      const wanted = new Set(drafts.map((draft) => String(draft.key[nameRole] ?? '')));
+      const standing = await tx.query<{ key: Record<string, string> }>(
+        `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1 AND NOT n.removed`, [kindName],
+      );
+      const removals: VertexRemovalDraft[] = standing.rows.filter((row) => !wanted.has(String(row.key[nameRole] ?? ''))).map((row) => {
+        const key = Object.fromEntries(Object.entries(row.key).filter(([field, value]) => (templateKind?.key ?? [nameRole]).includes(field) && typeof value === 'string'));
+        return { kind: kindName, key, producer: 'manifest' };
+      });
+      // A contract that names no template kind still writes them: the catalogue's declaration is the one every product has.
+      const contract = valueContract.vertex.some((vertex) => vertex.name === kindName)
+        ? valueContract
+        : { ...valueContract, vertex: [...valueContract.vertex, catalogue.vertex] };
+      written += await publishGraphDrafts(tx, contract, { vertices: drafts, edges: [], removals }, 1, { author: 'manifest' });
+    }
     return written;
   });
 }
@@ -254,7 +311,13 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
 /** The complete validated metadata, never a read of the checkout or a fallback to it. */
 export async function readPublishedManifest(tx: SqlExecutor): Promise<KindsManifest | undefined> {
   const table = MANIFEST_CONTRACT.vertex.find((one) => one.name === 'manifest.catalogue')!.table;
-  const rows = await tx.query<{ declaration: unknown }>(`SELECT p.declaration FROM "${table}" p JOIN node n ON n.id = p.node_id WHERE n.key->>'name' = 'product' AND NOT n.removed AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest' ORDER BY p.id DESC LIMIT 1`);
+  const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT p.declaration FROM "${table}" p JOIN node n ON n.id = p.node_id WHERE n.key->>'name' = 'product' AND NOT n.removed AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest' ORDER BY p.id DESC LIMIT 1`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ declaration: unknown }>(sql);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const value = rows.rows[0]?.declaration;
   return value === undefined ? undefined : decode(value) as KindsManifest;
 }

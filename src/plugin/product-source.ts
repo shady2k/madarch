@@ -8,7 +8,6 @@
  * of each file this read asked for. A file the index holds but this read did not fetch is refused by name instead of
  * answering absent: a reader that forgot a file is a defect, never a smaller result.
  */
-import { contentsOf } from './stored-text.js';
 import type { GraphReader } from '../knowledge/graph-read.js';
 import type { ProductFileSource } from './product-files.js';
 import { KINDS_FILE, KINDS_FOLDER } from '../product/manifest/kinds.js';
@@ -21,6 +20,12 @@ interface IndexedFile {
   readonly form: 'text' | 'binary' | null;
 }
 
+/**
+ * How the text of one file is read: by the blob id the graph names, through the host's queue (decision 0037) — the same
+ * read a file's page makes, async and bounded, and never a stored copy (the owner's decision of 2026-11-15).
+ */
+export type ProductFileText = (path: string) => Promise<string | null>;
+
 /** The files of one product repository at one graph revision, and the text this read fetched of them. */
 export class StoredProductFiles implements ProductFileSource {
   private readonly index: Map<string, IndexedFile>;
@@ -28,10 +33,10 @@ export class StoredProductFiles implements ProductFileSource {
   private readonly held: Map<string, string | null>;
 
   private constructor(
-    private readonly reader: GraphReader,
     private readonly repository: string,
     /** The product folder, for naming a file this read forgot in its own full path. */
     private readonly folder: string,
+    private readonly readText: ProductFileText,
     index: readonly { path: string; bytes: number | null; form: 'text' | 'binary' | null }[],
     held: Map<string, string | null> = new Map(),
   ) {
@@ -40,22 +45,23 @@ export class StoredProductFiles implements ProductFileSource {
   }
 
   /** The product repository's whole file index as one graph revision holds it; a store with no such repository answers none. */
-  static async load(reader: GraphReader, repository: string, folder: string): Promise<StoredProductFiles> {
+  static async load(reader: GraphReader, repository: string, folder: string, readText: ProductFileText): Promise<StoredProductFiles> {
     const rows = await reader.productFileIndex(repository);
     // A symlink is a blob whose bytes are its target, never the file it names: no read follows one (the working tree's
     // readers skipped links too), so the index is the files the tree holds and no link entry.
-    return new StoredProductFiles(reader, repository, folder, rows.filter((file) => file.mode !== '120000'));
+    return new StoredProductFiles(repository, folder, readText, rows.filter((file) => file.mode !== '120000'));
   }
 
   /**
    * The same index read through another reader: a page's own transaction, so a file fetched while a page is drawn is
-   * read in that page's transaction and not in a nested one. The index is the revision's; the text is this read's.
+   * read in that page's transaction and not in a nested one. The index is the revision's; the text is this read's, and it
+   * comes by blob through the host's queue, which no transaction of the page holds.
    */
-  withReader(reader: GraphReader): StoredProductFiles {
+  withReader(_reader: GraphReader): StoredProductFiles {
     const rows = [...this.index].map(([path, file]) => ({ path, bytes: file.bytes, form: file.form }));
     // The text already fetched is the revision's own and stays valid across transactions; only a new fetch must run in
     // the transaction of the page that asks for it.
-    return new StoredProductFiles(reader, this.repository, this.folder, rows, this.held);
+    return new StoredProductFiles(this.repository, this.folder, this.readText, rows, this.held);
   }
 
   /** Fetches the text of the named paths, once each; a path the tree does not hold is held as none. */
@@ -71,9 +77,8 @@ export class StoredProductFiles implements ProductFileSource {
       fetch.push(path);
     }
     if (fetch.length === 0) return;
-    // The paths as a text[] parameter, the way the storage layer binds every array.
-    const contents = await contentsOf(this.reader, this.repository, fetch);
-    for (const path of fetch) this.held.set(path, contents.get(path) ?? null);
+    // Each file's text is the blob the graph names, read through the host's queue: the same read a file's page makes.
+    for (const path of fetch) this.held.set(path, await this.readText(path));
   }
 
   /** Fetches the text of every file below a folder; an absent folder fetches nothing. */

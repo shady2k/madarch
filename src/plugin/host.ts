@@ -13,18 +13,19 @@
  * extracted with its cause, never dropped silently, and every iteration and
  * every decision of the host leaves a span and a log line.
  */
-import { mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { snapshotTools, type TrustedTool } from './tools.js';
 import { snapshotFilesystemInputs } from './filesystem-inputs.js';
 import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
-import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { ClosureRefusal, closureOf, interpreterPinProblem, PLUGIN_MANIFEST_FILE, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
+import { capabilityProblem, declarationOf, environmentOf, type PluginEnvironment } from './capabilities.js';
+import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, PluginReadResult, PluginFileReadAsk, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginReadRequest, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -32,6 +33,9 @@ import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isR
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/host.ts';
+
+/** How long one blob read may take: a repository on the machine answers in milliseconds, and a hang must not hold a page. */
+const READ_DEADLINE_MS = 20_000;
 
 /**
  * The bounds of one plugin run, each with a default a caller may lower: the
@@ -112,7 +116,12 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
  */
 export interface GraphAnswerer {
+  /**
+   * The file vertices whose path matches the pattern. Given a snapshot, the answer is the producer generation's own
+   * — the graph's journal holds what it published — and the graph as it stands otherwise.
+   */
   files(pattern: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
+  /** One declared field of one vertex, from the producer generation's own answer when a snapshot is named. */
   value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<unknown>;
   /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
   unresolved?(query: PluginGraphPageRequest): Promise<{ readonly references: readonly PluginGraphUnresolvedReference[]; readonly next?: string }>;
@@ -219,9 +228,17 @@ export interface PluginHostOptions {
   readonly releaseHashes?: readonly string[];
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
   readonly platform?: string;
   /** `journal.debug`: where the host records every request the plugin makes, refused and abandoned ones included. */
   readonly requests?: RequestLog;
+  /**
+   * The one reader of outside file bytes, when the caller has one (decision 0037, decision 0038): a fill role answers a
+   * plugin's `file.read` and an agent's file read through it; left out, the host opens the git core plugin in the product's
+   * folder, which is what a page's fill does.
+   */
+  readonly readBlob?: (ask: { readonly repository: string; readonly blob: string; readonly from?: number; readonly to?: number }) => Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean }>;
 }
 
 /** One open plugin: its declaration, the way to run units, and the controls a run needs. */
@@ -233,6 +250,8 @@ export interface PluginSession {
   readonly unitsAtOnce: number;
   readonly workFolder: string;
   planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan>;
+  /** One blob read, by the repository the sandbox binds and the blob id the graph holds (decision 0037). */
+  readBlob(request: PluginReadRequest): Promise<PluginReadResult>;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
   agentReports(): ReadonlyMap<string, PluginAgentReport>;
   /** The plugin's standard error, kept as a bounded log in the session's work folder; its file is written when it is asked. */
@@ -275,6 +294,10 @@ export class PluginHost {
   private readonly limits: HostLimits;
   private readonly settings: HostSettings;
   private sandbox: SandboxProcess | undefined;
+  /** The plugin's own manifest, read with the closure: its tier, capabilities, tools and agent part. */
+  private closureManifest: Closure['manifest'] | undefined;
+  /** The environment the plugin's manifest declares and the host grants (decision 0038): nothing until a manifest names it. */
+  private environment: PluginEnvironment = environmentOf({ tier: 'ordinary', capabilities: [] });
   private agentBridge: PluginAgentBridge | undefined;
   private agentPart: Closure['manifest']['agent'];
   private agentPrompt: string | undefined;
@@ -323,11 +346,27 @@ export class PluginHost {
     if (pin !== undefined) throw pin;
     const trust = closureTrustProblem(closure, this.options.trust, join(closure.folder, 'plugin.json'), this.options.releaseHashes);
     if (trust !== undefined) throw trust;
-    // The rights are the contract's, read before the process starts: the sandbox binds a repository only for a plugin
-    // whose contract declared the filesystem right (decision 0035, item 9).
+    // The environment is the manifest's declaration (owner's decision, 2026-11-15; decision 0038): a core plugin is the
+    // one gate to one outside source and the host mounts exactly that; an ordinary plugin holds no environment at all.
+    const declaration = declarationOf(closure.manifest);
+    const declarationProblem = capabilityProblem(declaration, closure.manifest.name);
+    const manifestFile = join(closure.folder, PLUGIN_MANIFEST_FILE);
+    if (declarationProblem !== undefined) throw new ClosureRefusal('plugin-capabilities', `${manifestFile}:1: ${declarationProblem}`, manifestFile);
+    this.closureManifest = closure.manifest;
+    this.environment = environmentOf(declaration);
     this.agentPart = closure.manifest.agent;
+    if (this.agentPart !== undefined && !this.environment.agents) {
+      throw new ClosureRefusal('plugin-capabilities', `${manifestFile}:1: the plugin "${closure.manifest.name}" declares an agent part and declares no "agents" capability: an agent is outside access, and the host runs one only for a plugin that declares it`, manifestFile);
+    }
+    if (!this.environment.repository && (closure.manifest.tools ?? []).length > 0) {
+      throw new ClosureRefusal('plugin-capabilities', `${manifestFile}:1: the ${this.environment.tier} plugin "${closure.manifest.name}" names the tool ${JSON.stringify(closure.manifest.tools![0]!.name)}: a tool runs in a core plugin's environment, and no other plugin has one`, manifestFile);
+    }
+    // The rights are the contract's, read before the process starts: the protocol's own (the graph, the network profile).
     this.contractRights = pluginRightsOf(closure);
     this.contractReads = pluginReadsOf(closure);
+    if (this.contractRights?.filesystem === true && !this.environment.repository) {
+      throw new ClosureRefusal('plugin-capabilities', `${manifestFile}:1: the plugin "${closure.manifest.name}" declares the filesystem right in its contract and declares no source in its manifest: its tier "${this.environment.tier}" grants no environment, so the contract's right is the one a plugin of the other tier holds`, manifestFile);
+    }
     const snapshot = await withSpan('plugin.snapshot', { 'madarch.plugin.hash': closure.hash }, async () => {
       const copy = await snapshotClosure(closure, this.options.workRoot);
       log.info('plugin closure copied', { folder: copy.folder, hash: copy.hash });
@@ -341,9 +380,9 @@ export class PluginHost {
       catch (error) { throw new ClosureRefusal('agent-prompt', `${WHERE}:1: cannot read agent prompt ${join(snapshot.folder, prompt)}: ${(error as Error).message}`, join(this.options.pluginFolder, 'plugin.json')); }
     }
     const platform = this.options.platform ?? `${process.platform}-${process.arch}`;
-    // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
-    // the files producer alone reads the source tree (decision 0035, item 9).
-    const readsRepository = this.contractRights?.filesystem === true;
+    // Only a core plugin that owns git's store or the working tree sees a repository: the glossary reads the graph, and
+    // the two gates to the repository and the tree read the source (decision 0035, item 9; decision 0038).
+    const readsRepository = this.environment.repository;
     const tools = snapshotTools(closure.manifest.tools, this.options.tools ?? {}, workFolder, this.options.env ?? process.env);
     if ((this.options.filesystemInputs?.length ?? 0) > 0 && !readsRepository) throw new ClosureRefusal('plugin-filesystem', `${WHERE}:1: filesystem inputs require the declared filesystem right`, WHERE);
     const spec: SandboxSpec = {
@@ -351,11 +390,15 @@ export class PluginHost {
       tools,
       filesystemInputs: withSpanSync('plugin.filesystem-inputs', { 'madarch.plugin.hash': closure.hash }, () => snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot)),
       ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
+      // An ordinary plugin holds no environment: its sandbox root is empty, and the host's file system is not there for
+      // it (decision 0038). A core plugin is trusted and reads its one source.
+      emptyRoot: !this.environment.repository,
       workFolder,
       runtime: process.execPath,
       entry: closure.manifest.entry,
       limits: { memoryBytes: limits.memoryBytes, cpuQuotaMicros: limits.cpuQuotaMicros, cpuPeriodMicros: limits.cpuPeriodMicros, pids: limits.pids },
       ...(this.options.cgroupParent === undefined ? {} : { cgroupParent: this.options.cgroupParent }),
+      ...(this.options.unconfined === true ? { unconfined: true } : {}),
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
       platform,
     };
@@ -397,6 +440,7 @@ ${text === '' ? '(empty)' : text}` };
       unitsAtOnce,
       workFolder,
       planOutput: async (unit, cursor) => await this.planOutput(unit, cursor),
+      readBlob: async (request) => await this.readBlob(request),
       runUnit: async (unit) => await this.runUnit(unit),
       agentReports: () => new Map(this.reports),
       stderr: () => this.sandbox?.stderr() ?? { file: '', totalBytes: 0, truncated: false },
@@ -463,8 +507,13 @@ ${text === '' ? '(empty)' : text}` };
         void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
+      if (value.method === 'file.read') {
+        const slot = log?.begin(value.method);
+        void this.answerFileRead(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
+        return;
+      }
       const slot = log?.begin(String(value.method));
-      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files, graph.value, graph.unresolved, graph.removedEnds and graph.unevidenced`));
+      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files, graph.value, graph.unresolved, graph.removedEnds, graph.unevidenced and file.read`));
       log?.settle(slot, 'refused', 0, 'method-not-found');
       return;
     }
@@ -527,6 +576,84 @@ ${text === '' ? '(empty)' : text}` };
       waiter.reject({ code: value.error.data?.cause ?? 'plugin-error', message: value.error.message });
       return;
     }
+  }
+
+  /**
+   * One file read a plugin asks of the host (owner's decision, 2026-11-15; decision 0038): an ordinary plugin holds no
+   * environment, so the text it reads is asked for here and routed to the core plugin that owns git's object store —
+   * the same read the page and the agent make (decision 0037). A plugin that declares no "repository" capability is
+   * refused, naming the plugin and the access.
+   */
+  private async answerFileRead(id: number | string, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
+    const name = this.declared?.name ?? this.closureManifest?.name ?? 'unknown';
+    if (!this.accessesRepository()) {
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the plugin ${JSON.stringify(name)} declares neither the "repository" capability nor a tier that grants one, so it asks the host for no file text: declare "repository" in its capabilities, and the host routes the read to the plugin that owns git`, { cause: 'read-denied' }));
+      return { outcome: 'refused', size: 0, cause: 'read-denied' };
+    }
+    if (!Value.Check(PluginFileReadAsk, params)) {
+      const first = [...Value.Errors(PluginFileReadAsk, params)][0];
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: file.read takes { repository, blob, from?, to? }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'read-invalid' }));
+      return { outcome: 'refused', size: 0, cause: 'read-invalid' };
+    }
+    try {
+      // Its own environment reads git directly; an ordinary plugin's read is routed to the core plugin that owns it. The
+      // read is bounded in bytes, so a range past the bound is asked again from where it continued: the plugin's answer
+      // is the whole range it asked for, and no part of it is dropped (the owner's review of madarch-u3vw.16).
+      let text = '';
+      let lines = 0;
+      let bytes = 0;
+      let binary = false;
+      let from = params.from;
+      let fromColumn: number | undefined;
+      for (let step = 0; ; step += 1) {
+        if (step >= 1_000) throw new Error(`${WHERE}:1: the read of blob ${JSON.stringify(params.blob)} of ${JSON.stringify(params.repository)} for the plugin ${JSON.stringify(name)} did not reach its end in 1000 bounded reads`);
+        const read = await this.readBlobThroughCore({ repository: params.repository, blob: params.blob, ...(from === undefined ? {} : { from }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(params.to === undefined ? {} : { to: params.to }) });
+        text += read.text;
+        lines = read.lines;
+        bytes = read.bytes;
+        binary = read.binary;
+        const next = read.next ?? null;
+        if (read.complete !== false || next === null) break;
+        from = next.line;
+        fromColumn = next.column === 1 ? undefined : next.column;
+      }
+      this.write(successText(id, { text, lines, bytes, binary }));
+      return { outcome: 'answered', size: text.length };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the read of blob ${JSON.stringify(params.blob)} of ${JSON.stringify(params.repository)} for the plugin ${JSON.stringify(name)} failed: ${message}`, { cause: 'read-failed' }));
+      return { outcome: 'failed', size: 0, cause: 'read-failed' };
+    }
+  }
+
+  /**
+   * One blob, through the one gate that owns git's object store (decision 0038): the caller's own reader when it gave
+   * one (a fill's host), else the git core plugin opened over the product's `repos/` — the same read a page and an agent
+   * make (decision 0037). There is no second path to the bytes.
+   */
+  private async readBlobThroughCore(ask: { readonly repository: string; readonly blob: string; readonly from?: number; readonly fromColumn?: number; readonly to?: number }): Promise<PluginReadResult & { readonly complete?: boolean; readonly next?: { readonly line: number; readonly column: number } | null }> {
+    if (this.options.readBlob !== undefined) return await this.options.readBlob(ask);
+    const { readBlobThroughPlugin } = await import('./file-reads.js');
+    // A connected repository lies under the product's repos/; the product's own repository is the product's folder.
+    const connected = join(this.options.repository, 'repos', ask.repository);
+    const root = existsSync(connected) || ask.repository !== basename(resolve(this.options.repository)) ? connected : this.options.repository;
+    return await readBlobThroughPlugin({
+      product: this.options.repository,
+      plugin: join('plugins', 'git'),
+      repository: ask.repository,
+      root,
+      blob: ask.blob,
+      ...(ask.from === undefined ? {} : { from: ask.from }),
+      ...(ask.fromColumn === undefined ? {} : { fromColumn: ask.fromColumn }),
+      ...(ask.to === undefined ? {} : { to: ask.to }),
+    });
+  }
+
+  /** Whether the plugin's declaration lets it ask for outside data at all: a source it owns, or one it asks the host for. */
+  private accessesRepository(): boolean {
+    if (this.environment.repository) return true;
+    const declaration = declarationOf(this.closureManifest ?? {});
+    return declaration.capabilities.includes('git');
   }
 
   /**
@@ -668,6 +795,21 @@ ${text === '' ? '(empty)' : text}` };
       this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {
         this.reports.set(report.unitId, report);
         this.options.agent?.onSession?.(report);
+      }, readFile: async (request) => {
+        // The agent's file reads go through the one blob read (decision 0037, decision 0038): the blob the graph names,
+        // and the gate that owns git's store — never a working copy.
+        const read = await this.readBlobThroughCore({
+          repository: request.repository,
+          blob: request.blob,
+          ...(request.from === undefined ? {} : { from: request.from }),
+          ...(request.limit === undefined ? {} : { to: request.from === undefined ? request.limit : request.from + request.limit - 1 }),
+        });
+        // A text cut at the read's byte bound says so, and where it continues: nothing an agent reads is dropped in
+        // silence (the owner's review of madarch-u3vw.16).
+        const next = read.next ?? null;
+        return read.complete === false && next !== null
+          ? `${read.text}\n[the read was cut at its byte bound; it continues at line ${String(next.line)}, column ${String(next.column)}]`
+          : read.text;
       } }, this.options.graph, declared.outputs);
     }
     this.write(successText(id, { protocol: PROTOCOL_VERSION, units: 1 }));
@@ -834,6 +976,35 @@ ${text === '' ? '(empty)' : text}` };
       if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unitId) throw new Error('fragmented result names the wrong unit');
       return decoded;
     } catch (error) { throw { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` }; }
+  }
+
+  /**
+   * One blob read the host asks of the plugin (decision 0037): the plugin reads its own repository copy with its own
+   * code, and the host bounds the wait. A plugin that declared no read answers by name.
+   */
+  private async readBlob(request: PluginReadRequest): Promise<PluginReadResult> {
+    if (!this.environment.repository) {
+      throw { code: 'read-unsupported', message: `${WHERE}:1: the plugin ${JSON.stringify(this.declared?.name ?? 'unknown')} declares the tier "${this.environment.tier}" and no source, and a blob is read by a core plugin that owns the repository: declare "repository" as the one capability of a core plugin` };
+    }
+    if (this.declared?.read !== true) throw { code: 'read-unsupported', message: `${WHERE}:1: the plugin ${this.declared?.name ?? 'unknown'} declares no read, and a blob is read through the plugin that holds the repository` };
+    if (this.failure !== undefined) throw this.failure.cause;
+    if (this.sandbox === undefined) throw { code: 'plugin-exited', message: `${WHERE}:1: the plugin's process is gone, so it cannot read a blob` };
+    const id = `read-${String(this.nextId++)}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject({ code: 'read-timeout', message: `${WHERE}:1: the plugin answered no read of ${request.blob} within ${String(READ_DEADLINE_MS)} ms` }), READ_DEADLINE_MS);
+    });
+    const response = new Promise<unknown>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
+    this.write(requestText(id, 'read', { ...request }));
+    try {
+      const value = await Promise.race([response, deadline]);
+      const [error] = Value.Errors(PluginReadResult, value);
+      if (error !== undefined) throw { code: 'malformed-read', message: `${WHERE}:1: a read answers text, lines, bytes and binary: ${error.message}` };
+      return value as PluginReadResult;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      this.pending.delete(id);
+    }
   }
 
   private async planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan> {

@@ -136,7 +136,7 @@ export function readTemplate(text: string, options: { readonly name: string; rea
       const queryNode = childOf(sectionNode, 'query');
       // The command components (`fill`, `run`) and the page's own chrome (`tabs`, `search`, and a header whose title the
       // template states) read no graph data: their sections answer the page without a query.
-      const queryFree = ['tabs', 'search', 'run', 'header', 'kinds', 'catalogue', 'prepare', 'runs', 'first-run', 'problem-actions', 'settings-form', 'sources', 'product-overview', 'repositories', 'logs'].includes(component);
+      const queryFree = ['tabs', 'search', 'run', 'header', 'source-page', 'kinds', 'catalogue', 'prepare', 'runs', 'first-run', 'problem-actions', 'settings-form', 'sources', 'product-overview', 'repositories', 'logs'].includes(component);
       if ((isScalar(queryNode) ? String(queryNode.value).trim() : '') === '' && !queryFree) {
         findings.push({ file, line: lineOfText(text, sectionNode), path: `sections.${id === '' ? String(at) : id}`, message: `the section "${id}" draws the ${component} component and states no query: a section's data is the graph's answer to its query` });
       }

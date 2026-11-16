@@ -10,6 +10,7 @@
  * The binary is static, so no unpacking step can lie between the check and
  * the first byte executed: the file that was hashed is the file that runs.
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { createHash } from 'node:crypto';
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -50,13 +51,21 @@ const BINARY_NAME = 'bwrap';
 /** The sha256 of a file as the file states it, or null when it is not there. */
 function digestOf(file: string): string | null {
   if (!existsSync(file)) return null;
-  return createHash('sha256').update(readFileSync(file)).digest('hex');
+  return createHash('sha256').update(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+    const result = readFileSync(file);
+    span.setAttribute('file.bytes', Buffer.byteLength(result));
+    return result;
+  })).digest('hex');
 }
 
 /** Whether the folder holds exactly the build the marker names, with the binary's bytes unchanged. */
 function installedBuild(folder: string, build: BwrapBuild): boolean {
   try {
-    const marker = JSON.parse(readFileSync(join(folder, 'install.json'), 'utf8')) as Partial<InstallMarker>;
+    const marker = JSON.parse(withSpanSync('fs.read', { 'file.path': join(folder, 'install.json') }, (span) => {
+      const result = readFileSync(join(folder, 'install.json'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(result));
+      return result;
+    })) as Partial<InstallMarker>;
     if (marker.version !== BWRAP_VERSION || marker.platform !== build.platform || marker.target !== build.target || marker.sha256 !== build.sha256) return false;
   } catch {
     return false;
@@ -67,9 +76,9 @@ function installedBuild(folder: string, build: BwrapBuild): boolean {
 /** Downloads the binary into a `.part` and renames it whole once its sha256 is the pinned one. */
 async function downloadBuild(options: { build: BwrapBuild; url: string; folder: string; progress: (line: string) => void }): Promise<string> {
   const { build, url, folder } = options;
-  mkdirSync(folder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   const part = join(folder, `${BINARY_NAME}-${build.target}.part`);
-  let held = existsSync(part) ? statSync(part).size : 0;
+  let held = existsSync(part) ? withSpanSync('fs.stat', { 'file.path': part }, () => statSync(part)).size : 0;
   let last: Error | undefined;
   for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt += 1) {
     try {
@@ -77,12 +86,16 @@ async function downloadBuild(options: { build: BwrapBuild; url: string; folder: 
       else options.progress(`madarch: downloading bubblewrap ${BWRAP_VERSION} for ${build.target}: ${String(build.bytes)} bytes into ${folder}`);
       let answer: Response;
       try {
-        answer = await fetch(url, held > 0 ? { headers: { Range: `bytes=${String(held)}-` } } : {});
+        answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': url }, async (span) => {
+          const result = await fetch(url, held > 0 ? { headers: { Range: `bytes=${String(held)}-` } } : {});
+          span.setAttribute('http.status', result.status);
+          return result;
+        });
       } catch (error) {
         throw new TransientDownload(`${(error as Error).message} (${part} holds ${String(held)} bytes)`);
       }
       if (answer.status === 416) {
-        rmSync(part, { force: true });
+        withSpanSync('fs.remove', { 'file.path': part }, () => rmSync(part, { force: true }));
         throw new Error(`${part} holds more than the release's binary (${String(held)} bytes against ${String(build.bytes)}): it was removed, and the next run downloads it again`);
       }
       if (!answer.ok || answer.body === null) {
@@ -92,31 +105,36 @@ async function downloadBuild(options: { build: BwrapBuild; url: string; folder: 
       }
       if (held > 0 && answer.status !== 206) {
         held = 0;
-        rmSync(part, { force: true });
+        withSpanSync('fs.remove', { 'file.path': part }, () => rmSync(part, { force: true }));
       }
-      const out = createWriteStream(part, { flags: held > 0 ? 'a' : 'w' });
-      let written = held;
-      try {
-        for await (const chunk of answer.body) {
-          const bytes = chunk as Uint8Array;
-          if (!out.write(bytes)) await new Promise<void>((done) => out.once('drain', () => { done(); }));
-          written += bytes.length;
+      const body = answer.body;
+      const written = await withSpan('fs.write', { 'file.path': part }, async (span) => {
+        const out = createWriteStream(part, { flags: held > 0 ? 'a' : 'w' });
+        let written = held;
+        try {
+          for await (const chunk of body) {
+            const bytes = chunk as Uint8Array;
+            if (!out.write(bytes)) await new Promise<void>((done) => out.once('drain', () => { done(); }));
+            written += bytes.length;
+          }
+        } catch (error) {
+          out.destroy();
+          throw new TransientDownload(`the download ended before the binary was whole: ${(error as Error).message} (${part} holds ${String(written)} bytes)`);
         }
-      } catch (error) {
-        out.destroy();
-        throw new TransientDownload(`the download ended before the binary was whole: ${(error as Error).message} (${part} holds ${String(written)} bytes)`);
-      }
-      await new Promise<void>((resolve, reject) => { out.end((error?: Error | null) => { if (error === null || error === undefined) resolve(); else reject(error); }); });
+        await new Promise<void>((resolve, reject) => { out.end((error?: Error | null) => { if (error === null || error === undefined) resolve(); else reject(error); }); });
+        span.setAttribute('file.bytes', written - held);
+        return written;
+      });
       const digest = digestOf(part);
       if (digest !== build.sha256) {
-        rmSync(part, { force: true });
+        withSpanSync('fs.remove', { 'file.path': part }, () => rmSync(part, { force: true }));
         throw new Error(`${WHERE}:1: the bubblewrap ${BWRAP_VERSION} binary downloaded from ${url} hashes to ${digest ?? 'nothing'}, and src/plugin/bwrap-builds.ts pins ${build.sha256}: the download is not the build madarch trusts, and it was removed`);
       }
       options.progress(`madarch: bubblewrap ${BWRAP_VERSION}: ${String(written)} bytes (100%), sha256 ${build.sha256}`);
       return part;
     } catch (error) {
       last = error as Error;
-      held = existsSync(part) ? statSync(part).size : 0;
+      held = existsSync(part) ? withSpanSync('fs.stat', { 'file.path': part }, () => statSync(part)).size : 0;
       // A refused address, a wrong hash and an over-long part file are answers, not accidents: only a connection's
       // own trouble is tried again.
       if (!(last instanceof TransientDownload) || attempt > RETRY_DELAYS_MS.length) break;
@@ -152,14 +170,18 @@ export async function ensureBwrapInstalled(options: BwrapInstallOptions = {}): P
   const folder = bwrapInstallFolder(options.env ?? process.env);
   const binary = join(folder, BINARY_NAME);
   if (installedBuild(folder, build)) return { binary, folder, build };
-  rmSync(folder, { recursive: true, force: true });
-  mkdirSync(folder, { recursive: true });
+  withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true }));
+  withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   const part = await downloadBuild({ build, url: (options.binaryUrl ?? bwrapBinaryUrl)(build), folder: bwrapDownloadFolder(options.env ?? process.env), progress: options.progress ?? (() => undefined) });
   chmodSync(part, 0o755);
   const staged = join(dirname(part), `${BINARY_NAME}-${build.target}.ready`);
   renameSync(part, staged);
   renameSync(staged, binary);
-  writeFileSync(join(folder, 'install.json'), `${JSON.stringify({ version: BWRAP_VERSION, platform: build.platform, target: build.target, sha256: build.sha256 }, null, 2)}\n`);
+  withSpanSync('fs.write', { 'file.path': join(folder, 'install.json') }, (span) => {
+    const data = `${JSON.stringify({ version: BWRAP_VERSION, platform: build.platform, target: build.target, sha256: build.sha256 }, null, 2)}\n`;
+    span.setAttribute('file.bytes', Buffer.byteLength(data));
+    return writeFileSync(join(folder, 'install.json'), data);
+  });
   return { binary, folder, build };
 }
 

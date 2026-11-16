@@ -841,16 +841,6 @@
   },
   {
     "rule": "extraction-boundary",
-    "file": "src/graph/authored.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
     "file": "src/graph/product-templates.ts",
     "symbol": "node:fs"
   },
@@ -888,11 +878,6 @@
     "rule": "extraction-boundary",
     "file": "src/knowledge/graph-verdict-store.ts",
     "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/knowledge/product.ts",
-    "symbol": "exec()"
   },
   {
     "rule": "extraction-boundary",
@@ -941,18 +926,8 @@
   },
   {
     "rule": "extraction-boundary",
-    "file": "src/loop/views.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
     "file": "src/mcp/cli.ts",
     "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/model/raise.ts",
-    "symbol": "exec()"
   },
   {
     "rule": "extraction-boundary",
@@ -987,11 +962,6 @@
   {
     "rule": "extraction-boundary",
     "file": "src/product-wiki/release-assets.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/product-wiki/release-assets.ts",
     "symbol": "node:fs"
   },
   {
@@ -1013,11 +983,6 @@
     "rule": "extraction-boundary",
     "file": "src/product/demo.ts",
     "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/product/entity-cli.ts",
-    "symbol": "exec()"
   },
   {
     "rule": "extraction-boundary",
@@ -1068,11 +1033,6 @@
     "rule": "extraction-boundary",
     "file": "src/product/manifest.ts",
     "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "exec()"
   },
   {
     "rule": "extraction-boundary",
@@ -1152,11 +1112,6 @@
   {
     "rule": "extraction-boundary",
     "file": "src/server/http.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/server/http.ts",
     "symbol": "node:fs"
   },
   {
@@ -1178,16 +1133,6 @@
     "rule": "extraction-boundary",
     "file": "src/writer/journal.ts",
     "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "wiki/app/src/address.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "wiki/app/src/client.ts",
-    "symbol": "exec()"
   },
   {
     "rule": "i18n-text",
@@ -1358,1351 +1303,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "title: Typography"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/agent-usage.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/authored-import.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "connect()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/pg-boss-queue.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/pg-boss-queue.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "connect()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "listen()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "mkdir()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "rename()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-cluster.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "createWriteStream()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/postgres-install.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/prepare-store.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/queue-definition.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/queue-definition.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schema-stamp.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/agent-usage.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/graph.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/history.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/schemas/queue.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/sql-history.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/adapters/store-readiness.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-install.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-install.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-install.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-install.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-install.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp-probe.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp.ts",
-    "symbol": "connect()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp.ts",
-    "symbol": "request()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/acp.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/orchestrator-store.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/orchestrator.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/plugin-turns.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/plugin-turns.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/prime-runtime.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/fill/state-store.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/authored.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/authored.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/consistency.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/graphql-execute.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/manifest-publication.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/one-graph.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/plugin-turns.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/producer-outcomes.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/read-worker.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/records.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/start-entity.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/graph/write.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/agents.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/agents.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/agents.ts",
-    "symbol": "rm()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/catalog-files.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/catalog-files.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/changed-pages.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/changed-pages.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/fill-role.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/fill-run.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/fill-run.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/graph-verdict-store.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/graph-verdict-store.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/graph-verdict-store.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "mkdir()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "rename()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "rm()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "writeFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/product.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/reset.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/reset.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/seed.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/seed.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/settings.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/settings.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/settings.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/knowledge/settings.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/loop/problem-files.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/loop/problem-files.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/loop/views.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/model/raise.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace-report.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/agent.ts",
-    "symbol": "connect()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/agent.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/agent.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bundled-files.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "createWriteStream()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/bwrap-install.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/cgroup.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/cgroup.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/cgroup.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/cli.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/closure.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/dependency-files.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/dependency-files.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/elf-runtime.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/elf-runtime.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/filesystem-inputs.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/filesystem-inputs.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/filesystem-inputs.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/filesystem-inputs.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/host.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/host.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/product-files.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/product-files.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/repository-input.ts",
-    "symbol": "execFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/repository-input.ts",
-    "symbol": "rm()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "execFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox-darwin.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox-darwin.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox-darwin.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/sandbox.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/snapshot.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/system-git.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/system-git.ts",
-    "symbol": "execFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/system-git.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/tools.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/tools.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/plugin/tools.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/app.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/app.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/app.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/app.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/manifestless.ts",
-    "symbol": "stat()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/release-assets.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/release-assets.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product-wiki/serve.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/cli.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/cli.ts",
-    "symbol": "mkdir()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/cli.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon-fills.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon-fills.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "listen()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/daemon.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/demo.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/demo.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/demo.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/draft.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/draft.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/draft.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/draft.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/entity-cli.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-runtime.ts",
-    "symbol": "readFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-stages.ts",
-    "symbol": "execFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-stages.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-updates.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-updates.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-updates.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-updates.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/fill-wizard.ts",
-    "symbol": "readFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/git.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/list.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/list.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/manifest.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/own-wiki.ts",
-    "symbol": "execFile()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/own-wiki.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/own-wiki.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/own-wiki.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/own-wiki.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/store-preparation.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/store-preparation.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/store-preparation.ts",
-    "symbol": "request()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/store-preparation.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/upgrade.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/upgrade.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/upgrade.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/upgrade.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/windows-daemon-stop.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/windows-daemon-stop.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/product/windows-daemon-stop.ts",
-    "symbol": "spawnSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/archify-vendor.ts",
-    "symbol": "mkdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/archify-vendor.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/archify-vendor.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/archify-vendor.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/diagram.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/diagram.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/diagram.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/diagram.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/render/read-worker.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/http.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/http.ts",
-    "symbol": "spawn()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/http.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/sources.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/sources.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/sources.ts",
-    "symbol": "rename()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/sources.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/sources.ts",
-    "symbol": "writeFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/wiki-app.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/server/wiki-app.ts",
-    "symbol": "statSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/writer/journal.ts",
-    "symbol": "readFileSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/writer/journal.ts",
-    "symbol": "readdirSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/address.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/app.tsx",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/client.ts",
-    "symbol": "exec()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/client.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/components/command.ts",
-    "symbol": "fetch()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/components/command.ts",
-    "symbol": "query()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "wiki/app/src/components/diagram.tsx",
-    "symbol": "fetch()"
   },
   {
     "rule": "no-kind-names",
@@ -2922,27 +1522,7 @@
   {
     "rule": "no-product-data",
     "file": "src/fill/stage.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3007,17 +1587,7 @@
   {
     "rule": "no-product-data",
     "file": "src/graph/graph-writes.ts",
-    "symbol": "blob"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graph-writes.ts",
     "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3032,32 +1602,12 @@
   {
     "rule": "no-product-data",
     "file": "src/graph/graphql-read.ts",
-    "symbol": "blob"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "body"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "content"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
     "symbol": "entity"
   },
   {
     "rule": "no-product-data",
     "file": "src/graph/graphql-read.ts",
     "symbol": "removed_at"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3117,11 +1667,6 @@
   {
     "rule": "no-product-data",
     "file": "src/graph/read-worker.ts",
-    "symbol": "body"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/read-worker.ts",
     "symbol": "snapshot"
   },
   {
@@ -3147,11 +1692,6 @@
   {
     "rule": "no-product-data",
     "file": "src/graph/records.ts",
-    "symbol": "blob"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
     "symbol": "bytes"
   },
   {
@@ -3173,11 +1713,6 @@
     "rule": "no-product-data",
     "file": "src/graph/records.ts",
     "symbol": "commit_offset_min"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "content"
   },
   {
     "rule": "no-product-data",
@@ -3232,17 +1767,7 @@
   {
     "rule": "no-product-data",
     "file": "src/graph/write.ts",
-    "symbol": "repository"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/write.ts",
     "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graphql/schema.ts",
-    "symbol": "body"
   },
   {
     "rule": "no-product-data",
@@ -3258,11 +1783,6 @@
     "rule": "no-product-data",
     "file": "src/graphql/schema.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graphql/schema.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3283,11 +1803,6 @@
     "rule": "no-product-data",
     "file": "src/knowledge/anchors.ts",
     "symbol": "anchors"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/anchors.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3348,11 +1863,6 @@
     "rule": "no-product-data",
     "file": "src/knowledge/graph-read.ts",
     "symbol": "merge"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3517,11 +2027,6 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/import-authored.ts",
-    "symbol": "body"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/import-authored.ts",
     "symbol": "front"
   },
   {
@@ -3536,18 +2041,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/knowledge/index/index.ts",
-    "symbol": "repository"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/knowledge/index/queries.ts",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "body"
   },
   {
     "rule": "no-product-data",
@@ -3597,17 +2092,7 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/product.ts",
-    "symbol": "repository"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/product.ts",
     "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/product.ts",
-    "symbol": "source_text"
   },
   {
     "rule": "no-product-data",
@@ -3638,11 +2123,6 @@
     "rule": "no-product-data",
     "file": "src/knowledge/sources.ts",
     "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/sources.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3718,11 +2198,6 @@
     "rule": "no-product-data",
     "file": "src/loop/graph.ts",
     "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3827,11 +2302,6 @@
   {
     "rule": "no-product-data",
     "file": "src/page-contract/schema.ts",
-    "symbol": "repository"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
     "symbol": "subject"
   },
   {
@@ -3852,17 +2322,7 @@
   {
     "rule": "no-product-data",
     "file": "src/plugin/agent.ts",
-    "symbol": "content"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/agent.ts",
     "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/agent.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -3886,18 +2346,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/plugin/product-files.ts",
-    "symbol": "blob"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/plugin/repository-input.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "blob"
   },
   {
     "rule": "no-product-data",
@@ -4008,11 +2458,6 @@
     "rule": "no-product-data",
     "file": "src/problems/index.ts",
     "symbol": "bug"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -4281,18 +2726,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/source.tsx",
-    "symbol": "repository"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/table.tsx",
     "symbol": "columns"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/table.tsx",
-    "symbol": "repository"
   },
   {
     "rule": "no-product-data",
@@ -4307,27 +2742,12 @@
   {
     "rule": "no-product-data",
     "file": "wiki/app/src/components/ui/button.tsx",
-    "symbol": "content"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/button.tsx",
     "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/shell.tsx",
-    "symbol": "content"
   },
   {
     "rule": "no-product-data",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "approval"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "content"
   },
   {
     "rule": "no-product-data",
@@ -4783,11 +3203,6 @@
     "rule": "no-regex",
     "file": "src/obs/trace.ts",
     "symbol": "/[^A-Za-z0-9._-]/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/obs/trace.ts",
-    "symbol": "/\\.jsonl$/"
   },
   {
     "rule": "no-regex",
@@ -5392,11 +3807,6 @@
   {
     "rule": "one-table-source",
     "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_run_lease"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
     "symbol": "fill_transition"
   },
   {
@@ -5408,11 +3818,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/fill-state.ts",
     "symbol": "fill_unit_generation"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_unit_lease"
   },
   {
     "rule": "one-table-source",
@@ -5433,11 +3838,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/history.ts",
     "symbol": "source_registry"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_control"
   },
   {
     "rule": "one-table-source",
@@ -5463,16 +3863,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/orchestrator.ts",
     "symbol": "fill_run_stage"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_draft"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_draft_part"
   },
   {
     "rule": "one-table-source",

@@ -18,8 +18,10 @@ import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
 import { TableSection } from './components/table.js';
 import { BarsSection } from './components/bars.js';
+import { TreemapSection } from './components/treemap.js';
 import { DiagramSection } from './components/diagram.js';
-import { SourceSection } from './components/source.js';
+import { SourceSection, SourcePageSection } from './components/source.js';
+import { FileTextSection } from './components/file-text.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
 import { RunSection } from './components/run.js';
@@ -36,7 +38,7 @@ import { SourcesSection } from './components/sources.js';
 import { ProductOverviewSection } from './components/overview.js';
 import { RepositoriesSection } from './components/repositories.js';
 import { SettingsSection } from './components/settings.js';
-import type { SectionContext } from './components/types.js';
+import type { MachineSettings, SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
 import type { OpenPage } from './address.js';
 
@@ -53,6 +55,11 @@ export interface PageRuntime {
   readonly navigation: Navigation | null;
   /** Applies a role the reader chose on this page and keeps it for the frame. */
   readonly onRole?: (role: string) => void;
+  /**
+   * This machine's plugin isolation, as the frame read it once (`/api/settings`): the pages that offer the choice read
+   * it here, so no page asks the machine's settings for itself.
+   */
+  readonly machine?: MachineSettings;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
   /** The reader's role: a section its template does not open for that role stands collapsed under its title. */
@@ -95,6 +102,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       product: runtime.product,
       navigation: runtime.navigation,
       ...(runtime.onRole === undefined ? {} : { onRole: runtime.onRole }),
+      ...(runtime.machine === undefined ? {} : { machine: runtime.machine }),
       pageName: runtime.pageName,
       ...(runtime.changedKinds === undefined ? {} : { changedKinds: runtime.changedKinds }),
     };
@@ -150,8 +158,11 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'relations': return <RelationsSection context={context} />;
     case 'table': return <TableSection context={context} />;
     case 'bars': return <BarsSection context={context} />;
+    case 'treemap': return <TreemapSection context={context} />;
     case 'diagram': return <DiagramSection context={context} />;
     case 'source': return <SourceSection context={context} />;
+    case 'source-page': return <SourcePageSection context={context} />;
+    case 'file-text': return <FileTextSection context={context} />;
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
     case 'kinds': return <KindsSection context={context} />;

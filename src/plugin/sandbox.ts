@@ -13,6 +13,7 @@
  * what to enable (docs/system/plugin-sandbox.md), whatever the plugin's
  * origin. `MADARCH_PLUGIN_SANDBOX=off` explicitly selects a plain child instead.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -56,10 +57,18 @@ export interface SandboxSpec {
   readonly limits: CgroupLimits;
   /** Variables the plugin is given; nothing of the host's environment reaches it beside these. */
   readonly environment?: Readonly<Record<string, string>>;
+  /**
+   * Whether the sandbox's root is an empty filesystem with only the binds above (owner's decision, 2026-11-15; decision
+   * 0038): an ordinary plugin holds no environment, so the host's own root is not there for it to read. A core plugin is
+   * shipped with madarch and reads its one source, so its root stays the host's, read-only.
+   */
+  readonly emptyRoot?: boolean;
   /** The platform key, this machine's unless a test names another. */
   readonly platform?: string;
   /** The cgroup madarch's own cgroup stands under: `MADARCH_PLUGIN_CGROUP`, else the process's own. */
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run without isolation; the host says so once. */
+  readonly unconfined?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -141,6 +150,9 @@ function bindable(folder: string): boolean {
 export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: string; readonly seccompFile: string; readonly syncFd: number; readonly seccompFd: number; readonly rootUid: number | undefined; readonly runtime?: RuntimeSandbox }): string[] {
   const runtime = options.runtime ?? runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
   const args: string[] = ['--unshare-all', '--clearenv', '--die-with-parent', '--new-session'];
+  // An ordinary plugin gets no host file system at all: its root is a fresh tmpfs, and only the runtime, its closure and
+  // its work folder are bound into it (decision 0038). A core plugin reads its one source and keeps the host's root.
+  if (spec.emptyRoot === true) args.push('--tmpfs', '/');
   if (options.rootUid === 0) args.push('--uid', String(SANDBOX_UID), '--gid', String(SANDBOX_UID));
   args.push('--ro-bind', spec.runtime, '/runtime/bun');
   for (const folder of runtime.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);
@@ -182,6 +194,11 @@ export function sandboxInputPath(name: string, folder: string, env: Readonly<Rec
   return env['MADARCH_PLUGIN_SANDBOX'] === 'off' || platform.startsWith('darwin') ? folder : `/inputs/${name}`;
 }
 
+/** The path the sandbox's one repository is bound at, as a plugin names it in a read (decision 0037). */
+export function sandboxRepositoryPath(folder: string, env: Readonly<Record<string, string | undefined>> = process.env, platform = process.platform): string {
+  return env['MADARCH_PLUGIN_SANDBOX'] === 'off' || platform.startsWith('darwin') ? folder : '/repo';
+}
+
 /** Whether this process has already warned about explicitly unconfined plugins. */
 let warnedUnconfined = false;
 
@@ -198,7 +215,8 @@ export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProc
   if (mode !== undefined && mode !== 'off') {
     throw new Error(`${fileURLToPath(import.meta.url)}:170: MADARCH_PLUGIN_SANDBOX=${JSON.stringify(mode)} is refused: accepted forms are unset (sandbox on) or off`);
   }
-  if (mode === 'off') return startUnconfined(spec);
+  if (mode === 'off') return startUnconfined(spec, 'the operator chose to run without confinement');
+  if (spec.unconfined === true) return startUnconfined(spec, 'this machine and its person chose to run plugins without isolation');
   const platform = spec.platform ?? sandboxPlatform();
   const problem = await sandboxSetupProblem({ platform, cgroupParent: spec.cgroupParent, ...(spec.env === undefined ? {} : { env: spec.env }) });
   if (problem !== undefined) {
@@ -209,12 +227,12 @@ export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProc
 }
 
 /** A plain child with the same protocol, closure and runtime, but no isolation or resource bounds. */
-async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
+async function startUnconfined(spec: SandboxSpec, why: string): Promise<SandboxProcess> {
   if (!warnedUnconfined) {
-    process.stderr.write('Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.\n');
+    process.stderr.write(`Plugins run unconfined because ${why}; they can read and write everything the user can.\n`);
     warnedUnconfined = true;
   }
-  mkdirSync(spec.workFolder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': spec.workFolder }, () => mkdirSync(spec.workFolder, { recursive: true }));
   const stderrFile = join(spec.workFolder, 'stderr.log');
   const stderr = { bytes: 0, kept: Buffer.alloc(0), truncated: false };
   const hostEnv = spec.env ?? process.env;
@@ -224,9 +242,9 @@ async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
     if (value !== undefined) env[name] = value;
   }
   for (const tool of spec.tools ?? []) env[`MADARCH_TOOL_${tool.name.replaceAll('-', '_').toUpperCase()}`] = tool.executable;
-  const child = spawn(spec.runtime, pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)), {
+  const child = withSpanSync('process.run', { 'process.command': spec.runtime, 'process.args': [...pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry))], 'process.cwd': spec.closureFolder }, () => spawn(spec.runtime, pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)), {
     cwd: spec.closureFolder, env, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  }));
   await new Promise<void>((resolve, reject) => {
     child.once('spawn', resolve);
     child.once('error', (error) => reject(new Error(`${fileURLToPath(import.meta.url)}:202: plugin runtime ${spec.runtime} could not start ${join(spec.closureFolder, spec.entry)}: ${error.message}`)));
@@ -264,7 +282,11 @@ async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
     kill: () => signal('SIGKILL'),
     counters: () => ({ memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 }),
     stderr: () => {
-      writeFileSync(stderrFile, stderr.kept);
+      withSpanSync('fs.write', { 'file.path': stderrFile }, (span) => {
+        const data = stderr.kept;
+        span.setAttribute('file.bytes', Buffer.byteLength(data));
+        return writeFileSync(stderrFile, data);
+      });
       return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
     },
     exited,
@@ -299,9 +321,13 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   const runtime = runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
   if (runtime.refusal !== undefined) throw new Error(`${WHERE}:1: ${runtime.refusal}`);
   for (const problem of runtime.problems) log.warn(`the sandbox could not resolve a runtime dependency: ${problem}`, { runtime: spec.runtime });
-  mkdirSync(spec.workFolder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': spec.workFolder }, () => mkdirSync(spec.workFolder, { recursive: true }));
   const seccompFile = join(spec.workFolder, 'seccomp.bpf');
-  writeFileSync(seccompFile, seccompFilter(platform));
+  withSpanSync('fs.write', { 'file.path': seccompFile }, (span) => {
+    const data = seccompFilter(platform);
+    span.setAttribute('file.bytes', Buffer.byteLength(data));
+    return writeFileSync(seccompFile, data);
+  });
   log.info('sandbox filter installed', { platform, refused: refusedCallNames(platform).join(',') });
   const parent = spec.cgroupParent ?? cgroupParent(spec.env ?? process.env);
   const group = PluginCgroup.create(parent, cgroupName(), spec.limits);
@@ -313,17 +339,21 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
     // namespace's init and for the sync wait — and a fork inherits the cgroup of its parent, so moving only the spawned
     // process afterwards would leave the plugin's actual work outside the bounds. The shell writes its own pid, which
     // is the process bubblewrap becomes, and then execs: every descendant stands in the cgroup from its first byte.
-    child = spawn('/bin/sh', ['-c', 'echo $$ > "$1" || exit 97; shift; exec "$@"', 'sh', join(group.folder, 'cgroup.procs'), bwrap.binary, ...bwrapArguments(spec, { bwrap: bwrap.binary, seccompFile, syncFd: 3, seccompFd: 4, rootUid: typeof process.getuid === 'function' ? process.getuid() : undefined, runtime })], {
+    child = withSpanSync('process.run', { 'process.command': '/bin/sh', 'process.args': [...['-c', 'echo $$ > "$1" || exit 97; shift; exec "$@"', 'sh', join(group.folder, 'cgroup.procs'), bwrap.binary, ...bwrapArguments(spec, { bwrap: bwrap.binary, seccompFile, syncFd: 3, seccompFd: 4, rootUid: typeof process.getuid === 'function' ? process.getuid() : undefined, runtime })]] }, () => spawn('/bin/sh', ['-c', 'echo $$ > "$1" || exit 97; shift; exec "$@"', 'sh', join(group.folder, 'cgroup.procs'), bwrap.binary, ...bwrapArguments(spec, { bwrap: bwrap.binary, seccompFile, syncFd: 3, seccompFd: 4, rootUid: typeof process.getuid === 'function' ? process.getuid() : undefined, runtime })], {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-    });
+    }));
   } catch (error) {
     group.remove();
     throw new Error(`${WHERE}:1: the sandbox supervisor ${bwrap.binary} could not be started: ${(error as Error).message}`);
   }
   const sync = child.stdio[3] as import('node:stream').Writable;
   const filter = child.stdio[4] as import('node:stream').Writable;
-  const seccompBytes = readFileSync(seccompFile);
+  const seccompBytes = withSpanSync('fs.read', { 'file.path': seccompFile }, (span) => {
+    const result = readFileSync(seccompFile);
+    span.setAttribute('file.bytes', Buffer.byteLength(result));
+    return result;
+  });
   filter.end(seccompBytes);
   child.stderr!.on('data', (chunk: Buffer) => {
     stderr.bytes += chunk.length;
@@ -368,7 +398,11 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
     kill: () => { group.kill(); child.kill('SIGKILL'); },
     counters: () => (group.exists() ? group.counters() : (finalCounters ?? { memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 })),
     stderr: () => {
-      writeFileSync(stderrFile, stderr.kept);
+      withSpanSync('fs.write', { 'file.path': stderrFile }, (span) => {
+        const data = stderr.kept;
+        span.setAttribute('file.bytes', Buffer.byteLength(data));
+        return writeFileSync(stderrFile, data);
+      });
       return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
     },
     exited,

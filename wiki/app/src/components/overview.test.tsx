@@ -42,6 +42,9 @@ function answers(runs: readonly Record<string, unknown>[], status: Record<string
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/problems')) return new Response(JSON.stringify({ open: 1, closed: 0, dismissed: 0, sections: {} }), { status: 200 });
+    // The frame's own live read (madarch-64o5.136): the bar and the card share it.
+    if (url.includes('/api/status')) return new Response(JSON.stringify(status), { status: 200 });
+    if (url.includes('/api/fill-runs')) return new Response(JSON.stringify({ run: runs[0] ?? null }), { status: 200 });
     // The three state reads come through the one read API (madarch-64o5.136 restore).
     if (url.includes('/graphql')) {
       const operation = typeof init?.body === 'string' ? (JSON.parse(init.body) as { query?: string }).query ?? '' : '';
@@ -146,6 +149,9 @@ test('a running fill states how far it is and the last thing it did, in the word
   const page = await render();
   try {
     expect(page.text).toContain('Filling · 1 of 2');
+    // The bar and the card say one sentence from one key: the frame's own words for a running fill.
+    expect(i18n.t('navigation.runGoing', { done: 1, total: 2 })).toContain('1 of 2');
+    expect(page.host.querySelector('[data-testid="overview-fill-counts"]')?.textContent).toBe(i18n.t('navigation.runGoing', { done: 1, total: 2 }));
     expect(page.text).toContain('Filled: Files · Disk');
   } finally { await page.close(); }
 });

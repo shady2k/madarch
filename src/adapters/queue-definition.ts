@@ -1,4 +1,5 @@
 /** Shared queue names, settings and database mapping. No schema preparation. */
+import { withSpan } from '../obs/trace.js';
 import type { Db } from 'pg-boss';
 import type { DatabaseOwner } from './database-owner.js';
 import type { QueueDeclaration } from '../fill/queue.js';
@@ -13,12 +14,17 @@ export const QUEUE_SCHEMA_STAMP = sha256Hex(new TextEncoder().encode(QUEUE_SCHEM
 export function ownerDatabase(owner: DatabaseOwner): Db {
   return {
     executeSql: async (text: string, values?: unknown[]) => {
-      if (values !== undefined && values.length > 0) {
-        const { rows } = await owner.run((executor) => executor.query(text, values));
+      return await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(text) }, async (span) => {
+        if (values !== undefined && values.length > 0) {
+          const { rows } = await owner.run((executor) => executor.query(text, values));
+          span.setAttribute('db.rows', rows.length);
+          return { rows };
+        }
+        const results = await owner.exec(text);
+        const rows = results.flatMap((result) => result.rows);
+        span.setAttribute('db.rows', rows.length);
         return { rows };
-      }
-      const results = await owner.exec(text);
-      return { rows: results.flatMap((result) => result.rows) };
+      });
     },
   };
 }

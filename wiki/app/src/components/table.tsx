@@ -135,6 +135,19 @@ export function TableSection({ context }: { readonly context: SectionContext }):
       if (format === 'commit' && isCommit(value)) {
         return <CommitLine commit={value as CommitNode} base={context.base} open={context.open} language={language} withDate={false} withAuthor={false} />;
       }
+      if (format === 'links') {
+        const linked = edgesOf(value);
+        const more = nextOf(value);
+        return <>
+          {linked.map((edge, at2) => {
+            const target = (edge['node'] ?? edge) as Record<string, unknown>;
+            const address = entityHref(target);
+            const label = String(target['label'] ?? '');
+            return <TextLink key={String(target['id'] ?? at2)} href={address === undefined ? undefined : context.base + address} {...(address === undefined ? {} : follow(context.open, context.base + address))}>{label}{at2 + 1 < linked.length ? ', ' : ''}</TextLink>;
+          })}
+          {more.hasNext ? <Paragraph>{t('knowledge.tableMoreRelations', { shown: linked.length, total: totalOf(value) })}</Paragraph> : null}
+        </>;
+      }
       if (format === 'repository') {
         const url = typeof value === 'string' ? value : '';
         return url === '' ? t('knowledge.productRepository') : hostOf(url);
@@ -160,6 +173,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
   const before = sizes.slice(0, page).reduce((sum, size) => sum + (size ?? 0), 0);
   // The connection's own paging state decides: a page before this one or a next page makes a pager.
   const paged = canPage && (page > 0 || next.hasNext);
+
   return (
     <>
       {canFilter ? (
@@ -214,7 +228,11 @@ export function TableSection({ context }: { readonly context: SectionContext }):
             })}</TableRow>
           </TableHeader>
           <TableBody>
-            {body.map((cells, index) => <TableRow key={String(index)}>{cells.map((cell, at2) => <TableCell key={String(at2)}>{cell}</TableCell>)}</TableRow>)}
+            {body.map((cells, index) => {
+              const anchor = at(rows[index], section.params['rowAnchorPath']);
+              const id = typeof anchor === 'string' ? `${String(section.params['rowAnchorPrefix'] ?? '')}${anchor}` : undefined;
+              return <TableRow key={String(index)} id={id}>{cells.map((cell, at2) => <TableCell key={String(at2)}>{cell}</TableCell>)}</TableRow>;
+            })}
           </TableBody>
         </Table>
       )}

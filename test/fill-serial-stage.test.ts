@@ -8,7 +8,7 @@ test('a stage that publishes in plan order refuses concurrent configuration rath
     id: 'ordered', version: 1, maxConcurrency: 1,
     consumes: { required: [], optional: [] }, produces: [], configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, concurrency: 1, config: {} },
-    plan: () => ({ units: [] }), execute: () => ({ outcome: 'draft' }), validate: () => ({ ok: true }),
+    plan: () => ({ units: [] }), execute: () => ({ outcome: 'writes' }),
   });
   expect(deriveStageGraph(registry).ok).toBe(true);
   const read = deriveStageGraph(registry, { ok: true, file: '/product/madarch/fill.yaml', stages: { ordered: { concurrency: 2 } }, lines: { ordered: 4 } });

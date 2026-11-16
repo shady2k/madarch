@@ -94,7 +94,8 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 107 subgroups, 526 kinds (83 with a page of their own or a member\'s row)');
+    // 527 kinds and 84 with a page of their own: the page-template kind the decision of 2026-11-15 added to the catalogue.
+    expect(done.out).toContain('catalog: 28 areas, 107 subgroups, 527 kinds (84 with a page of their own or a member\'s row)');
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 

@@ -74,7 +74,8 @@ describe('the tables and the dictionaries', () => {
     for (const table of RECORD_TABLES) expect(columns.some((column) => column.startsWith(`${table}.`))).toBe(true);
     expect(columns.filter((column) => /^(valid_|recorded_)/u.test(column.split('.')[1] ?? ''))).toEqual([]);
     // Repository facts are ordinary opinion columns, not mechanism dictionaries.
-    expect(columns).toContain(`${GIT_TABLES.file}.content`);
+    // Decision 0037: a file's text is not a column of the graph; the blob id is, and the text is read by it.
+    expect(columns).not.toContain(`${GIT_TABLES.file}.content`);
     expect(columns).toContain(`${GIT_TABLES.file}.blob`);
     expect(columns).toContain(`${GIT_TABLES.file}.language`);
     expect(columns).toContain(`${GIT_TABLES.commit}.algorithm`);

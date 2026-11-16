@@ -109,9 +109,15 @@ test('tracked optional graph arguments remain absent rather than becoming JSON n
 test('one reader indexes immutable snapshot files and fields once without sharing with another reader', async () => {
   const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:code.file', generation: 1 };
   let loads = 0;
-  const writes = [{ kind: 'vertex', value: { kind: 'code.file', key: { repository: 'repo', path: 'a.ts' }, values: { content: 'saved', language: 'typescript' } } }];
+  // The generation's published answer is the journal row that served it (decision 0039, item 11): the reader
+  // rebuilds the vertices of a kind from what the unit declared and the opinions it opened.
+  const change = {
+    vertices: [{ entity: 'code.file', uid: 'uid-a', node: '1', key: { repository: 'repo', path: 'a.ts' }, state: 'declared' }],
+    edges: [],
+    opinions: [{ id: '1', entity: 'code.file', node: 'uid-a', state: 'opened', fields: ['content', 'language'], lang: null, said_by: 'base@1.0.0', values: { content: 'saved', language: 'typescript' } }],
+  };
   const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (sql: string) => {
-    if (sql.includes('FROM fill_unit_draft d')) { loads++; return { rows: [{ unit_id: snapshot.unitId, generation: 1, writes }] }; }
+    if (sql.includes('FROM operation o')) { loads++; return { rows: [{ change }] }; }
     return { rows: [] };
   } }) };
   const wiring = { owner, manifest: {}, contract: {} } as unknown as Parameters<typeof pluginGraphAnswerer>[0];
@@ -139,12 +145,11 @@ test('verified inherited generation freezes original run identity without clonin
   const queries: string[] = [];
   const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (query: string) => {
     queries.push(query);
-    if (queries.length > 1) return { rows: [] };
-    return { rows: [{ run_id: 'original-run', unit_id: 'plugin-turns/base:Source', generation: 3, writes: [{ kind: 'producer-outcome', value: { outcome: 'unchanged' } }] }] };
+    return { rows: [{ run_id: 'original-run', unit_id: 'plugin-turns/base:Source', generation: 3, context: { unitOutcome: { outcome: 'unchanged' } } }] };
   } }) };
   expect(await successfulPluginSnapshot(owner as never, 'new-run', 'base:Source')).toEqual({ runId: 'original-run', unitId: 'plugin-turns/base:Source', generation: 3 });
-  expect(queries).toHaveLength(2);
+  expect(queries).toHaveLength(1);
   expect(queries[0]).toContain("e.kind = 'unit-inherited'");
   expect(queries[0]).toContain('e.generation = g.generation');
-  expect(queries[1]).toContain('FROM fill_unit_draft_part');
+  expect(queries[0]).toContain('FROM fill_unit_generation');
 });
