@@ -22,9 +22,9 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
   const preparing = (owner: DatabaseOwner): DatabaseOwner => ({
     location: owner.location, ready: owner.ready, allowConcurrentSnapshots: owner.allowConcurrentSnapshots, hasVector: owner.hasVector,
     transaction: (kind, work, options) => owner.transaction(kind, work, { signal: options?.signal === undefined ? signal : AbortSignal.any([signal, options.signal]) }),
-    // pg-boss sends its own transaction batches. Fence admission without changing their transaction boundaries.
-    run: (work) => { signal.throwIfAborted(); return owner.run(work); },
-    exec: (text) => { signal.throwIfAborted(); return owner.exec(text); },
+    // pg-boss owns its transaction batches; only normal transactions borrow cancellation.
+    run: owner.run.bind(owner),
+    exec: owner.exec.bind(owner),
     close: owner.close.bind(owner),
   });
   const owners = new Map<string, DatabaseOwner>();
