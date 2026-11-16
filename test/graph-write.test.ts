@@ -38,7 +38,13 @@ test('0039.26: an unauthenticated producer cannot write even with a supplied pro
 
 test('0039.25: key fields remain identity; values are typed per-property assertions with graph source lineage', async () => {
   await fixture(async owner => {
-    await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [term('a')], removals: [] }); });
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      const query=tx.query.bind(tx);const calls:string[]=[];
+      tx.query=async (sql,values)=>{calls.push(sql);return await query(sql,values);};
+      await publishGraphDrafts(tx, graph, { vertices: [term('a')], removals: [] });
+      expect(calls.filter(sql=>sql.startsWith('SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope'))).toHaveLength(0);
+    });
     const rows = await owner.run(tx => loadAssertions(tx, 'vertex', 'fixture.term', ['definition']));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ source: TEST_SOURCE_UID, property: 'definition', value: 'one', operation: 'assert' });

@@ -64,8 +64,8 @@ async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Pro
 }
 async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  const kindId=await entityId(executor,kind,'node');
- const made=await executor.query<{id:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[kindId,uid,JSON.stringify(key),scope,context]);
- const row=(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ const made=await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id,$6::text AS kind,key,identity_scope::text AS scope`,[kindId,uid,JSON.stringify(key),scope,context,kind]);
+ const row=made.rows[0]??(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
  if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
  publicationIdentities.get(executor)?.nodes.set(row.id,uid);publicationIdentities.get(executor)?.uids.set(uid,row.id);
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
@@ -187,13 +187,13 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  return await withSpan('graph.assertion.write',{'graph.kind':input.kind,'graph.property':input.property},async()=>{
  const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);permitted(binding,input.kind,input.property,input.operation==='retract');
  const kind=contract[input.sort].find(k=>k.name===input.kind);if(!kind)throw new Error(`${WHERE}:114: UNKNOWN_KIND ${input.kind}`);
- const subject=(await executor.query<{kind:string}>(`SELECT k.name AS kind FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
+ const subject=(await executor.query<{kind:string;uid:string;key:Record<string,unknown>}>(`SELECT k.name AS kind,s.uid::text AS uid,${input.sort==='vertex'? 's.key':"'{}'::jsonb AS key"} FROM ${input.sort==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint FOR UPDATE OF s`,[input.subjectId])).rows[0];
  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
  await requireAssertionScope(executor,contract,binding,{sort:input.sort,subjectId:input.subjectId},context);
  const field:FieldContract|undefined=input.property==='$exists'?{name:'$exists',type:'boolean' as const}:kind.fields.find(f=>f.name===input.property);
  if(!field)throw new Error(`${WHERE}:116: UNKNOWN_PROPERTY ${input.kind}.${input.property}`);
  if(input.sort==='vertex'&&'key' in kind&&kind.key.includes(input.property)){
-  const held=(await executor.query<{key:Record<string,unknown>}>(`SELECT key FROM node WHERE id=$1::bigint`,[input.subjectId])).rows[0]!;
+  const held=subject;
   if(input.operation!=='assert'||input.language!=null||!sameValue(held.key[input.property],input.value))throw new Error(`${WHERE}:165: IMMUTABLE_KEY ${input.kind}.${input.property}: identity changes require a new UID`);
  }
  if(input.operation==='assert'){validate(field,input.value);validateFieldValue(contract,field,input.value);}else if(input.value!==undefined)throw new Error(`${WHERE}:117: RETRACTION_VALUE`);
@@ -207,8 +207,9 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  const mentions=input.operation==='assert'?scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[];
  if(mentions.length>0)await refreshWriteSemantics(executor);
  for(const mention of mentions){const endpointNode=(await executor.query<{id:string;kind:string}>(`SELECT n.id::text AS id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[mention.uid])).rows[0];if(!endpointNode||!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[endpointNode.id,endpointNode.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);}
- const uid=newUid();const made=await identity(executor,'system.assertion',uid,{},binding.productUid,context);
- const parameters:unknown[]=[made.nodeId,input.property,input.language??null,context,input.validFrom??null,input.validTo??null,input.operation];
+ const uid=newUid();
+ const assertionKindId=await entityId(executor,'system.assertion','node');
+ const parameters:unknown[]=[uid,input.property,input.language??null,context,input.validFrom??null,input.validTo??null,input.operation];
  const parameter=(value:unknown,cast:string):string=>{parameters.push(value);return `$${parameters.length}${cast}`;};
  const structuralEdges:string[]=[];
  const appendStructuralEdge=async(kind:string,targetId:string,targetUid:string):Promise<string>=>{
@@ -219,7 +220,7 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  let subjectEdgeUid:string|undefined;
  if(input.sort==='vertex'){
   let subjectUid=publicationIdentities.get(executor)?.nodes.get(input.subjectId);
-  if(subjectUid===undefined)subjectUid=(await executor.query<{uid:string}>(`SELECT uid::text AS uid FROM node WHERE id=$1::bigint`,[input.subjectId])).rows[0]!.uid;
+  if(subjectUid===undefined)subjectUid=subject.uid;
   subjectEdgeUid=await appendStructuralEdge('system.assertion-subject',input.subjectId,subjectUid);
  }
  for(const [relation,lineageUid] of [['source',binding.sourceUid],['author',binding.principalUid],['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])])await appendStructuralEdge(`system.assertion-${relation}`,await uidNode(executor,lineageUid!),lineageUid!);
@@ -229,20 +230,24 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
  const valueWrite=input.operation==='assert'
   ? `INSERT INTO "${assertionValueTableName(input.kind,input.sort,input.property)}"(assertion_id,value) SELECT assertion_id,${parameter(field.type==='json'?JSON.stringify(input.value):input.value,field.type==='json'?'::jsonb':'')} FROM header`
   : 'SELECT assertion_id FROM header';
- await executor.query(`WITH header AS (
+ const identityKind=parameter(assertionKindId,'::bigint');const identityScope=parameter(binding.productUid,'::uuid');
+ const inserted=await executor.query<{assertion_id:string}>(`WITH identity AS (
+  INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES(${identityKind},$1::uuid,'{}'::jsonb,${identityScope},$4) RETURNING id
+ ), header AS (
   INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
-  VALUES($1::bigint,$2,$3,$4,coalesce($5::timestamptz,clock_timestamp()),$6::timestamptz,$7) RETURNING assertion_id
+  SELECT id,$2,$3,$4,coalesce($5::timestamptz,clock_timestamp()),$6::timestamptz,$7 FROM identity RETURNING assertion_id
  ), structural_edges AS (
   INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
   SELECT identities.uid,identities.kind,header.assertion_id,identities.target,'',$4 FROM header
   CROSS JOIN (VALUES ${structuralEdges.join(',')}) identities(uid,kind,target) RETURNING id,uid
  ), attachment AS (${attachment} RETURNING assertion_id)
- ${valueWrite}`,parameters);
+ , value_write AS (${valueWrite}${input.operation==='assert'?' RETURNING assertion_id':''}) SELECT assertion_id::text FROM header`,parameters);
+ const made={nodeId:inserted.rows[0]!.assertion_id};
  for(const [index,evidence] of (input.evidence??[]).entries()){
    const locator=evidence.locator??{};
    validateEvidenceLocator(locator);
    const attach=async()=>{const evidenceKind=contract.vertex.find(vertex=>vertex.name===evidence.target.kind);if(!evidenceKind?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);const endpointNode=await endpoint(executor,contract,evidence.target as EntityRefDraft,context);
-    if(evidenceKind.evidence.contentField){const row=(await executor.query<{value:string}>(`SELECT v.value FROM "${assertionValueTableName(evidenceKind.name,'vertex',evidenceKind.evidence.contentField)}" v JOIN assertion a ON a.assertion_id=v.assertion_id JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id WHERE attachment.to_node=$1::bigint ORDER BY a.recorded_sequence DESC LIMIT 1`,[endpointNode.id])).rows[0];
+    if(evidenceKind.evidence.contentField){const row=(await executor.query<{value:string}>(`WITH target AS MATERIALIZED (SELECT subject.assertion_id FROM edge attachment CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=attachment.id OFFSET 0) subject WHERE attachment.to_node=$1::bigint) SELECT v.value FROM target CROSS JOIN LATERAL (SELECT value FROM "${assertionValueTableName(evidenceKind.name,'vertex',evidenceKind.evidence.contentField)}" value_row WHERE value_row.assertion_id=target.assertion_id OFFSET 0) v JOIN assertion a ON a.assertion_id=target.assertion_id ORDER BY a.recorded_sequence DESC LIMIT 1`,[endpointNode.id])).rows[0];
      if(row&&row.value!==null){const points=[...row.value];const lines=row.value.split('\n');if((typeof locator.end==='number'&&locator.end>points.length)||(typeof locator.lineEnd==='number'&&locator.lineEnd>lines.length))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content`);if(typeof locator.digest==='string'&&createHash('sha256').update(row.value,'utf8').digest('hex')!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);}
     }
     await putEdge(executor,'system.assertion-evidence',made.nodeId,endpointNode.id,canonicalJson({index,relation:evidence.relation??'supports',locator}),context);};
@@ -266,6 +271,7 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  const inheritedIdentities=publicationIdentities.has(executor);if(!inheritedIdentities)publicationIdentities.set(executor,{entities:new Map(),nodes:new Map(),uids:new Map()});
  const inheritedEvidence=pendingEvidence.get(executor);const evidenceQueue=inheritedEvidence??[];if(!inheritedEvidence)pendingEvidence.set(executor,evidenceQueue);
  try{
+ if(!inheritedIdentities){const identities=publicationIdentities.get(executor)!;for(const row of (await executor.query<{id:string;name:string;sort:string}>('SELECT id::text AS id,name,sort FROM entity')).rows)identities.entities.set(row.sort+':'+row.name,row.id);}
  const pending=[...drafts.vertices];
  while(pending.length){let progressed=false;for(let i=0;i<pending.length;){const draft=pending[i]!;const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:145: UNKNOWN_KIND ${draft.kind}`);
  let ready=true;for(const parent of Object.values(draft.keyEdges??{})){const uid=await refUid(executor,contract,parent,context);if(!(await executor.query(`SELECT id FROM node WHERE uid=$1::uuid`,[uid])).rows.length)ready=false;}
