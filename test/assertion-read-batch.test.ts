@@ -86,3 +86,32 @@ test('unit replay filters source streams before newest selection and accepts sev
   });
  } finally {await owner.close();}
 });
+
+test('explicit recorded fences independently constrain base and branch selection',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
+ try {
+  let id=0;let branch=0;let baseCutoff='';let branchCutoff='';
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,graph);
+   await publishGraphDrafts(tx,graph,{vertices:[{kind:'typed',key:{name:'fenced'},values:{amount:1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'}],removals:[]});
+   const rows=await loadAssertions(tx,'vertex','typed',['amount']);
+   id=rows[0]!.subjectId;baseCutoff=rows[0]!.recordedSequence.toString();
+   await writeAssertion(tx,graph,{sort:'vertex',kind:'typed',subjectId:String(id),property:'amount',operation:'assert',value:2,validFrom:'2020-01-01T00:00:00Z'});
+  });
+  await owner.transaction('write',async tx=>{branch=Number(await pinContext(tx,'1','explicit-fences'));});
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,graph,undefined,branch);
+   await writeAssertion(tx,graph,{sort:'vertex',kind:'typed',subjectId:String(id),property:'amount',operation:'assert',value:3,validFrom:'2020-01-01T00:00:00Z'},branch);
+   const rows=await loadAssertions(tx,'vertex','typed',['amount'],[id],{contexts:[branch]});
+   branchCutoff=rows.find(row=>row.context===branch)!.recordedSequence.toString();
+   await writeAssertion(tx,graph,{sort:'vertex',kind:'typed',subjectId:String(id),property:'amount',operation:'assert',value:4,validFrom:'2020-01-01T00:00:00Z'},branch);
+  });
+  await owner.run(async tx=>{
+   const selected=async(contextRecordedThrough:Record<number,string|null>)=>(await loadAssertions(tx,'vertex','typed',['amount'],[id],{contexts:[branch],validAt:'2023-01-01T00:00:00Z',contextRecordedThrough})).filter(row=>row.selected).map(row=>row.value);
+   expect(await selected({})).toEqual([4]);
+   expect(await selected({1:baseCutoff,[branch]:branchCutoff})).toEqual([3]);
+   expect(await selected({1:baseCutoff,[branch]:'0'})).toEqual([1]);
+   expect(await selected({1:null,[branch]:'0'})).toEqual([2]);
+  });
+ } finally {await owner.close();}
+});
