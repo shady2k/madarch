@@ -17,11 +17,35 @@ function sqlType(field: FieldContract): string {
   }
 }
 
+/** Keep standing trigger definitions: replacing them locks out page readers. */
+async function installTrigger(tx: OuterTransaction, table: string, name: string, fn: string, type: number, deferred: boolean): Promise<void> {
+  return await withSpan('graph.schema.trigger', {}, async () => {
+    const held = await tx.query<{ matches: boolean }>(`SELECT
+      t.tgfoid = to_regproc($3) AND t.tgtype = $4 AND t.tgenabled = 'O'
+      AND t.tgdeferrable = $5 AND t.tginitdeferred = $5
+      AND (t.tgconstraint <> 0) = $5 AND t.tgnargs = 0 AND t.tgattr::text = ''
+      AND t.tgqual IS NULL AND t.tgoldtable IS NULL AND t.tgnewtable IS NULL AS matches
+      FROM pg_trigger t WHERE t.tgrelid = $1::regclass AND t.tgname = $2 AND NOT t.tgisinternal`,
+      [table, name, fn, type, deferred]);
+    if (held.rows[0]?.matches === true) return;
+    if (held.rows.length > 0) await tx.query(`DROP TRIGGER "${name}" ON "${table}"`);
+    await tx.query(deferred
+      ? `CREATE CONSTRAINT TRIGGER "${name}" AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${fn}()`
+      : `CREATE TRIGGER "${name}" BEFORE ${type === 27 ? 'UPDATE OR DELETE' : 'INSERT'} ON "${table}" FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  });
+}
+
 /** The generated storage contains values, not relations or identity strings. */
 export async function createContractTablesIn(tx: OuterTransaction, declared: GraphContract): Promise<void> {
   return await withSpan('graph.schema.contract', {}, async () => {
     const contract = withAssertionContract(declared);
     validateValueContracts(contract);
+    // A previous build forbade self relations; other edge checks remain untouched.
+    const legacy = await tx.query<{ definition: string }>(`SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint WHERE conrelid='edge'::regclass AND conname='edge_check' AND contype='c'`);
+    if (legacy.rows[0]?.definition === 'CHECK ((from_node <> to_node))') {
+      await tx.query('ALTER TABLE edge DROP CONSTRAINT edge_check');
+    }
     const checks: string[] = [];
     const names: string[] = [];
     for (const sort of ['vertex','edge'] as const) {
@@ -34,7 +58,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
           const table = assertionValueTableName(kind.name,sort,field.name);
           names.push(table);
           await tx.query(`CREATE TABLE IF NOT EXISTS "${table}" (assertion_id bigint PRIMARY KEY REFERENCES assertion(assertion_id), value ${sqlType(field)}${field.nullable === true ? '' : ' NOT NULL'})`);
-          await tx.query(`CREATE OR REPLACE TRIGGER immutable BEFORE UPDATE OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_immutable()`);
+          await installTrigger(tx, table, 'immutable', 'graph_immutable', 27, false);
           const literal = (value: string): string => "'" + value.split("'").join("''") + "'";
           checks.push(`WHEN subject_sort=${literal(sort)} AND subject_kind=${literal(kind.name)} AND h.property=${literal(field.name)} THEN ${literal(table)}`);
         }
@@ -136,9 +160,8 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
       PERFORM set_config('madarch.checked_graph_revision',revision,true);
       RETURN NULL; END $$`);
     for (const table of ['node','edge','assertion','context','assertion_vertex_subject','assertion_edge_subject',...names]) {
-      await tx.query(`CREATE OR REPLACE TRIGGER graph_relations_dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_relations_dirty()`);
-      await tx.query(`DROP TRIGGER IF EXISTS graph_relations ON "${table}"`);
-      await tx.query(`CREATE CONSTRAINT TRIGGER graph_relations AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_relations_check()`);
+      await installTrigger(tx, table, 'graph_relations_dirty', 'graph_relations_dirty', 7, false);
+      await installTrigger(tx, table, 'graph_relations', 'graph_relations_check', 5, true);
     }
 
     await tx.query(`CREATE OR REPLACE FUNCTION graph_value_check() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -166,8 +189,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         RETURN NULL;
       END $$`);
     for (const table of ['assertion',...names]) {
-      await tx.query(`DROP TRIGGER IF EXISTS typed_value ON "${table}"`);
-      await tx.query(`CREATE CONSTRAINT TRIGGER typed_value AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_value_check()`);
+      await installTrigger(tx, table, 'typed_value', 'graph_value_check', 5, true);
     }
 
     const keyChecks = contract.vertex.filter(kind => kind.key.length > 0).map(kind => {
@@ -199,8 +221,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
       END $$`);
     const keyTables = contract.vertex.flatMap(kind => kind.key.map(name => assertionValueTableName(kind.name,'vertex',name)));
     for (const table of ['node','assertion','assertion_vertex_subject',...keyTables]) {
-      await tx.query(`DROP TRIGGER IF EXISTS immutable_key ON "${table}"`);
-      await tx.query(`CREATE CONSTRAINT TRIGGER immutable_key AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_key_check()`);
+      await installTrigger(tx, table, 'immutable_key', 'graph_key_check', 5, true);
     }
   });
 }

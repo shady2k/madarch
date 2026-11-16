@@ -10,12 +10,36 @@ const dictionaryContract: GraphContract = { ...EMPTY_CONTRACT, vertex: [
 import { createTestDatabaseOwner } from './test-database.js';
 
 describe('a page reads while a fill migrates its schema', () => {
+  test('a forced migration repairs missing and changed typed storage guards', async () => {
+    const owner = await createTestDatabaseOwner();
+    try {
+      await prepareStore(owner, { contract: dictionaryContract });
+      await owner.exec(`DROP TRIGGER typed_value ON "${dictionaryTables.language}"`);
+      await owner.exec(`DROP TRIGGER immutable_key ON "${dictionaryTables.language}"`);
+      await owner.exec(`CREATE TRIGGER immutable_key AFTER INSERT ON "${dictionaryTables.language}" FOR EACH ROW EXECUTE FUNCTION graph_key_check()`);
+      await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
+      await prepareStore(owner, { contract: dictionaryContract });
+      const guards = await owner.run(tx => tx.query<{ name: string; deferred: boolean; initiallyDeferred: boolean; fn: string }>(
+        `SELECT t.tgname AS name, t.tgdeferrable AS deferred, t.tginitdeferred AS "initiallyDeferred", p.proname AS fn
+         FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+         WHERE t.tgrelid=$1::regclass AND t.tgname IN ('typed_value','immutable_key') ORDER BY t.tgname`,
+        [dictionaryTables.language],
+      ));
+      expect(guards.rows).toEqual([
+        { name: 'immutable_key', deferred: true, initiallyDeferred: true, fn: 'graph_key_check' },
+        { name: 'typed_value', deferred: true, initiallyDeferred: true, fn: 'graph_value_check' },
+      ]);
+    } finally { await owner.close(); }
+  });
   test('a migration leaves a standing key index alone, so a reader and it cannot deadlock', async () => {
     const owner = await createTestDatabaseOwner();
     try {
       // The store a page has already read: its typed key storage and primary indexes stand.
       await prepareStore(owner, { contract: dictionaryContract });
 
+      const standingTriggers = await owner.run(tx => tx.query<{ oid: string }>(
+        'SELECT oid::text FROM pg_trigger WHERE tgrelid = $1::regclass ORDER BY tgname', [dictionaryTables.language],
+      ));
       await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
 
       let migrationSettled = false;
@@ -65,6 +89,9 @@ describe('a page reads while a fill migrates its schema', () => {
       expect(migrationError?.message).toBeUndefined();
       expect(blocked, 'the migration waited for a table the page held, so it dropped a key index that stands').toBe(false);
       expect(sawTheMigrationFinish, 'the migration did not finish while the page held the language table').toBe(true);
+      expect((await owner.run(tx => tx.query<{ oid: string }>(
+        'SELECT oid::text FROM pg_trigger WHERE tgrelid = $1::regclass ORDER BY tgname', [dictionaryTables.language],
+      ))).rows).toEqual(standingTriggers.rows);
     } finally {
       await owner.close();
     }

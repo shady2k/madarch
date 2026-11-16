@@ -66,6 +66,9 @@ test('upgrades a populated catalogue without resetting authored history and pres
   const upgraded = await createDatabaseOwner({ store });
   try {
     expect(await prepareStore(upgraded, { contract })).toEqual({ reset: false });
+    expect((await upgraded.run(tx => tx.query(
+      "SELECT 1 FROM pg_constraint WHERE conrelid='edge'::regclass AND conname='edge_check'",
+    ))).rows).toEqual([]);
     expect(await upgraded.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], { contract }))).toEqual(original);
     const operations = await upgraded.run(tx => readKindAssertions(tx, 'vertex', 'system.operation', ['words'], { contract, subjectUids: [operationUid] }));
     expect(operations.map(row => row.values.words)).toEqual(['Keep this declaration']);
