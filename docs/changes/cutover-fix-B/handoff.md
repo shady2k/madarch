@@ -79,20 +79,7 @@ A no-behavior change owes a rationale, preserved contracts ("- capability/requir
 Checks it owes: static, test, mutation, review.
 Capability document: docs/system/capabilities/fill-orchestrator.md (exists on the target).
 
-  open-question: change/openQuestions — blocking questions are answered, or moved out of this change, before admission
   untracked-change: change/taskIds — a change names existing leaf tasks: file or split the task first
-  change-kind: change/kind — behavior needs at least one delta; no-behavior needs preserved references and a rationale and no deltas; supporting needs a rationale and nothing else
-  missing-observation: change/whereSeen — a change is seen where a person reaches it: give whereSeen a kind (screen, command, request, log or internal), the place, at least one step a person follows — and an internal change, the reason nothing a person reaches changes
-
-Add to docs/changes/cutover-fix-B/change.md, before "## Blocking questions", where a person sees the change:
-  ## Where it is seen
-
-  Kind: <screen | command | request | log | internal>
-  Place: <the screen, command, request or log a person reaches it at>
-  Mockup: <a screen only: an image, HTML file or docs/prototypes/ document in the tree>
-  Reason: <internal only: why nothing a person reaches changes>
-
-  1. <what the person does, and what they see>
 
 Guide: .shady2k/integration.md, "Document gate".
 ```
