@@ -19,6 +19,7 @@
  * machine's checkout and the real build by default, and tests exercise the
  * decision through the same two seams, running neither bun nor a registry.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -54,27 +55,34 @@ const DEFAULT_BUILD_COMMAND = 'bun install --frozen-lockfile && bun run build';
 
 /** Walks the app folder's own files (sources and lockfile), skipping what the build lays. */
 function sourceFiles(appFolder: string): string[] {
-  const files: string[] = [];
-  const walk = (folder: string): void => {
-    for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      if (NOT_SOURCES.has(entry.name)) continue;
-      const path = join(folder, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (entry.isFile()) files.push(path);
-    }
-  };
-  walk(appFolder);
-  return files;
+  return withSpanSync('app.files', { 'file.path': appFolder }, (span) => {
+    const files: string[] = [];
+    const walk = (folder: string): void => {
+      for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        if (NOT_SOURCES.has(entry.name)) continue;
+        const path = join(folder, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (entry.isFile()) files.push(path);
+      }
+    };
+    walk(appFolder);
+    span.setAttribute('app.files', files.length);
+    return files;
+  });
 }
 
 /** The hash naming the app's sources: every source file's relative path and content. */
 export function sourcesHash(appFolder: string): string {
-  const hash = createHash('sha256');
-  for (const path of sourceFiles(appFolder)) {
-    hash.update(JSON.stringify(path.slice(appFolder.length)));
-    hash.update(readFileSync(path));
-  }
-  return hash.digest('hex');
+  return withSpanSync('app.hash', { 'file.path': appFolder }, (span) => {
+    const hash = createHash('sha256');
+    const files = sourceFiles(appFolder);
+    span.setAttribute('app.files', files.length);
+    for (const path of files) {
+      hash.update(JSON.stringify(path.slice(appFolder.length)));
+      hash.update(readFileSync(path));
+    }
+    return hash.digest('hex');
+  });
 }
 
 /**
@@ -96,7 +104,11 @@ export function ensureBuilt(options: AppBuildOptions = {}, say: (line: string) =
   if (existsSync(join(dist, 'index.html'))) {
     // A dist from outside the command (no hash record) is trusted as built.
     if (!existsSync(stampPath)) return { ok: true, dist, appFolder, built: false };
-    const recorded = readFileSync(stampPath, 'utf8').trim();
+    const recorded = withSpanSync('fs.read', { 'file.path': stampPath }, (span) => {
+      const held = readFileSync(stampPath, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }).trim();
     let current: string;
     try {
       current = sourcesHash(appFolder);
@@ -110,7 +122,13 @@ export function ensureBuilt(options: AppBuildOptions = {}, say: (line: string) =
   } else {
     say(`building the wiki app in ${appFolder}: the dist ${JSON.stringify(dist)} does not hold index.html yet`);
   }
-  const build = spawnSync('sh', ['-c', buildCommand], { cwd: appFolder, encoding: 'utf8' });
+  const build = withSpanSync('process.run', { 'process.command': 'sh', 'process.args': ['-c', buildCommand], 'process.cwd': appFolder }, (span) => {
+    const answer = spawnSync('sh', ['-c', buildCommand], { cwd: appFolder, encoding: 'utf8' });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
+  });
   if (build.error !== undefined) {
     // The step could not be run at all — a missing shell, a folder that is
     // not there: the cause is named, never folded into `exit null`.
@@ -140,6 +158,6 @@ export function ensureBuilt(options: AppBuildOptions = {}, say: (line: string) =
     // dist, and without a record the next start trusts it as built.
     return { ok: true, dist, appFolder, built: true };
   }
-  writeFileSync(stampPath, sources);
+  withSpanSync('fs.write', { 'file.path': stampPath, 'file.bytes': Buffer.byteLength(sources) }, () => writeFileSync(stampPath, sources));
   return { ok: true, dist, appFolder, built: true };
 }

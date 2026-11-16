@@ -37,19 +37,24 @@ function parseModule(file: string, text: string, tsx: boolean): GateModule {
   const bytes = new TextEncoder().encode(text);
   // The gates walk a node's enclosing functions: every child names its parent once, here, so the walk is cheap.
   const root = tree as Record<string, unknown>;
-  const link = (node: Record<string, unknown>): void => {
-    for (const [key, entry] of Object.entries(node)) {
-      if (key === 'span' || key === 'ctxt' || key === 'parent') continue;
-      for (const child of Array.isArray(entry) ? entry : [entry]) {
-        if (child === null || typeof child !== 'object') continue;
-        const held = child as Record<string, unknown>;
-        if (typeof held['type'] !== 'string') continue;
-        held['parent'] = node;
-        link(held);
-      }
+  const link = (value: unknown, parent: Record<string, unknown> | undefined): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) link(item, parent);
+      return;
     }
+    if (value === null || typeof value !== 'object') return;
+    const node = value as Record<string, unknown>;
+    if (typeof node['type'] === 'string') {
+      // A syntax node knows the node that stands above it. A slot that holds nodes without being one
+      // (`{ spread, expression }`, the shape SWC wraps an argument in) hands the parent it was given
+      // on, so a node inside a call's arguments still names the function that encloses it.
+      if (parent !== undefined) node['parent'] = parent;
+      for (const [key, entry] of Object.entries(node)) if (key !== 'span' && key !== 'ctxt' && key !== 'parent') link(entry, node);
+      return;
+    }
+    for (const [key, entry] of Object.entries(node)) if (key !== 'span' && key !== 'ctxt' && key !== 'parent') link(entry, parent);
   };
-  link(root);
+  link(root, undefined);
   return {
     file,
     text,
@@ -526,7 +531,7 @@ export const IO_CALLEES: readonly string[] = [
   'execFile', 'execFileSync', 'spawn', 'spawnSync', 'exec', 'connect', 'listen', 'query', 'request',
 ];
 
-/** The functions that open a span; `withSpan` first, then its synchronous form and the trace API's own children. */
+/** The functions that open a span: the two forms of `withSpan`, and the trace API's own children. */
 const SPAN_CALLEES = new Set(['withSpan', 'withSpanSync', 'startSpan', 'startActiveSpan']);
 
 function calleeName(node: Node): string | undefined {

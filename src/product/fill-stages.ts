@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { sanitizeRepositoryUrl } from '../plugin/repository-input.js';
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
-import { withSpan } from '../obs/trace.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import type { FillStageConfigurationRead } from './manifest/fill-config.js';
 import { assertPluginTurnsEnabled, readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
@@ -82,6 +82,8 @@ export interface StagesFillOptions {
   readonly budget?: AgentRunBudget;
   /** The person's token cap for this run; a plan that runs an agent unit needs one, and the engine sets none itself. */
   readonly tokenCap?: number;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -196,7 +198,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present
-        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(options.unconfined === true ? { unconfined: true } : {}), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
@@ -309,7 +311,7 @@ function pinOf(id: string, form: 'code' | 'product', root: string, defaultBranch
   const commit = git(root, id, ['rev-parse', 'HEAD']);
   const branch = defaultBranch ?? branchOf(root, id);
   const shallowFile = resolve(root, git(root, id, ['rev-parse', '--git-path', 'shallow']));
-  const shallowBoundaries = existsSync(shallowFile) ? readFileSync(shallowFile, 'utf8').split('\n').filter(Boolean).sort(byCodePoint).join('\n') : '';
+  const shallowBoundaries = existsSync(shallowFile) ? withSpanSync('fs.read', { 'file.path': shallowFile }, (span) => { const answer = readFileSync(shallowFile, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; }).split('\n').filter(Boolean).sort(byCodePoint).join('\n') : '';
   const historyBoundaryHash = hashFillInput(shallowBoundaries);
   const url = sanitizeRepositoryUrl(gitQuietly(root, ['remote', 'get-url', 'origin']) ?? '');
   return { id, form, root, commit, url, historyBoundaryHash, ...(branch === undefined ? {} : { defaultBranch: branch }) };
@@ -497,7 +499,12 @@ function git(root: string, id: string, args: readonly string[]): string {
 /** One read-only Git answer, `undefined` where git failed or answered nothing. */
 function gitQuietly(root: string, args: readonly string[]): string | undefined {
   try {
-    const stdout = execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const stdout = withSpanSync('process.run', { 'process.command': 'git', 'process.args': ['-C', root, ...args], 'process.cwd': process.cwd() }, (span) => {
+      const stdout = execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      span.setAttribute('process.exit_code', 0);
+      span.setAttribute('process.stdout.bytes', Buffer.byteLength(stdout));
+      return stdout;
+    }).trim();
     return stdout === '' ? undefined : stdout;
   } catch {
     return undefined;

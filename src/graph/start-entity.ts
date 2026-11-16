@@ -4,6 +4,7 @@
  * value are the graph's, written by an agent or a person; the start copies no README or vision text into them.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { withSpan } from '../obs/trace.js';
 import { entityDraft, evidenceOf, writeContractOf } from './graph-writes.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
@@ -20,13 +21,16 @@ export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEn
     const { draft, vertex } = entityDraft(contract, entity, { producer: 'start', version: '1' }, evidenceOf(entity.evidence));
     // Older starts keyed the product by a heading (and older revisions by a revision identity). Withdraw only their
     // start opinions; another producer's opinion is not startup's to retire.
-    const held = await tx.query<{ key: Record<string, KeyValueDraft>; uid: string }>(
-      `SELECT DISTINCT n.key, n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id
+    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `SELECT DISTINCT n.key, n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id
        JOIN "${vertex.table}" p ON p.node_id = n.id
        WHERE e.name = $1 AND n.context_id = 1 AND NOT n.removed AND p.state = 'open'
-         AND split_part(p.said_by, '@', 1) = 'start' AND n.key <> $2::jsonb`,
-      [entity.kind, JSON.stringify(entity.key)],
-    );
+         AND split_part(p.said_by, '@', 1) = 'start' AND n.key <> $2::jsonb`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await tx.query<{ key: Record<string, KeyValueDraft>; uid: string }>(statementSql, [entity.kind, JSON.stringify(entity.key)]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
     const removals: VertexRemovalDraft[] = held.rows.map((one) => ({ kind: entity.kind, key: one.key, uid: one.uid, producer: 'start' }));
     await publishGraphDrafts(tx, contract, { vertices: [draft], removals }, 1, { author: 'start@1' });
   });

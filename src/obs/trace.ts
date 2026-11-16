@@ -247,12 +247,12 @@ function traceFileName(runId: string): string {
 export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean; readonly retention?: Partial<RawRetention> }): TraceRun {
   enabled = process.env['MADARCH_TRACE'] !== 'off';
   const folder = join(options.store, 'traces');
-  mkdirSync(folder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   const file = join(folder, traceFileName(options.runId));
   const logFile = join(folder, `${options.runId.replace(/[^A-Za-z0-9._-]/gu, '-')}.log.jsonl`);
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
-  writeFileSync(file, '', 'utf8');
-  writeFileSync(logFile, '', 'utf8');
+  withSpanSync('fs.write', { 'file.path': file, 'file.bytes': 0 }, () => writeFileSync(file, '', 'utf8'));
+  withSpanSync('fs.write', { 'file.path': logFile, 'file.bytes': 0 }, () => writeFileSync(logFile, '', 'utf8'));
   // Retention (decision 0039, item 33): the machine's age, byte and run bounds, the oldest records first — the
   // raw streams are evidence of a run, not an archive, and the durable results are the graph's.
   try {
@@ -351,14 +351,16 @@ export function annotateSpan(attributes: SpanAttributes): void {
 
 /** The trace files a store holds, newest first. */
 export function traceFiles(store: string): { file: string; runId: string; modifiedAt: number }[] {
-  const folder = join(store, 'traces');
-  let names: string[];
-  try { names = readdirSync(folder); } catch { return []; }
-  return names
-    .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
-    .map((name) => {
-      const file = join(folder, name);
-      return { file, runId: name.slice(0, -'.jsonl'.length), modifiedAt: (() => { try { return statSync(file).mtimeMs; } catch { return 0; } })() };
-    })
-    .sort((left, right) => right.modifiedAt - left.modifiedAt || (left.runId < right.runId ? 1 : left.runId > right.runId ? -1 : 0));
+  return withSpanSync('trace.files', { 'file.path': store }, () => {
+    const folder = join(store, 'traces');
+    let names: string[];
+    try { names = withSpanSync('fs.readdir', { 'file.path': folder }, (held) => { const found = readdirSync(folder); held.setAttribute('file.entries', found.length); return found; }); } catch { return []; }
+    return names
+      .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
+      .map((name) => {
+        const file = join(folder, name);
+        return { file, runId: name.slice(0, -'.jsonl'.length), modifiedAt: withSpanSync('fs.stat', { 'file.path': file }, () => { try { return statSync(file).mtimeMs; } catch { return 0; } }) };
+      })
+      .sort((left, right) => right.modifiedAt - left.modifiedAt || (left.runId < right.runId ? 1 : left.runId > right.runId ? -1 : 0));
+  });
 }

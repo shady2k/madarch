@@ -225,6 +225,8 @@ export interface PluginHostOptions {
   readonly releaseHashes?: readonly string[];
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
   readonly platform?: string;
   /** `journal.debug`: where the host records every request the plugin makes, refused and abandoned ones included. */
   readonly requests?: RequestLog;
@@ -360,6 +362,7 @@ export class PluginHost {
       entry: closure.manifest.entry,
       limits: { memoryBytes: limits.memoryBytes, cpuQuotaMicros: limits.cpuQuotaMicros, cpuPeriodMicros: limits.cpuPeriodMicros, pids: limits.pids },
       ...(this.options.cgroupParent === undefined ? {} : { cgroupParent: this.options.cgroupParent }),
+      ...(this.options.unconfined === true ? { unconfined: true } : {}),
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
       platform,
     };

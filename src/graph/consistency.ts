@@ -10,6 +10,7 @@
  * problem. The reads page by their own key (the row id, or the opinion id and field), so a caller with a cursor walks the
  * store without loading a whole kind.
  */
+import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { generatedTableName } from './contract.js';
@@ -93,7 +94,7 @@ function producerName(saidBy: string): string {
  */
 export async function unresolvedReferences(owner: DatabaseOwner, query: ConsistencyQuery = {}): Promise<ConsistencyPage<PluginGraphUnresolvedReference>> {
   const limit = pageSize(query);
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('consistency.references', { 'db.system': 'postgres', 'page.limit': limit }, async () => owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{
       row_id: string;
       referrer_id: string | null; referrer_kind: string | null; referrer_key: unknown; referrer_removed: boolean | null;
@@ -173,13 +174,13 @@ export async function unresolvedReferences(owner: DatabaseOwner, query: Consiste
       };
     });
     return { rows, ...(found.rows.length > limit ? { next: page[page.length - 1]!.row_id } : {}) };
-  });
+  }));
 }
 
 /** Every edge one of whose ends is removed, one page in code point order of the edge id. */
 export async function removedEdgeEnds(owner: DatabaseOwner, query: ConsistencyQuery = {}): Promise<ConsistencyPage<PluginGraphRemovedEnd>> {
   const limit = pageSize(query);
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('consistency.removed', { 'db.system': 'postgres', 'page.limit': limit }, async () => owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{
       row_id: string;
       edge_kind: string; discriminator: string;
@@ -215,7 +216,7 @@ export async function removedEdgeEnds(owner: DatabaseOwner, query: ConsistencyQu
       };
     });
     return { rows, ...(found.rows.length > limit ? { next: page[page.length - 1]!.row_id } : {}) };
-  });
+  }));
 }
 
 /** One unevidenced opinion and field, with the cursor components that tell it from the next. */
@@ -240,7 +241,7 @@ export async function unevidencedOpinions(owner: DatabaseOwner, declarations: re
     const colon = query.after.indexOf(':');
     return colon < 0 ? { id: query.after, field: '' } : { id: query.after.slice(0, colon), field: query.after.slice(colon + 1) };
   })();
-  return await owner.transaction('snapshot', async (tx) => {
+  return await withSpan('consistency.evidence', { 'db.system': 'postgres', 'page.limit': limit, 'consistency.declarations': declarations.length }, async () => owner.transaction('snapshot', async (tx) => {
     const out: { entity: PluginGraphAddress; field: string; producer: string; opinion: string; id: string }[] = [];
     for (const declaration of declarations) {
       const columns = declaration.fields.filter((field) => !declaration.key.includes(field));
@@ -279,5 +280,5 @@ export async function unevidencedOpinions(owner: DatabaseOwner, declarations: re
       rows: page.map(({ id: _id, ...row }) => row),
       ...(out.length > limit && last !== undefined ? { next: `${last.id}:${last.field}` } : {}),
     };
-  });
+  }));
 }

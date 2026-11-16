@@ -1,4 +1,5 @@
 /** Connect-only checks. Schema preparation belongs to the store-owning process. */
+import { withSpan } from '../obs/trace.js';
 import { createDatabaseOwner, StoreNotPreparedError, type DatabaseOwner } from './database-owner.js';
 
 /** Attach only when operational modules are prepared; no schema is created and SQL failures are not hidden. */
@@ -26,7 +27,13 @@ export async function openPreparedDatabaseOwner(store: string, modules: readonly
 /** Whether the owner has published a module's preparation stamp; database failures still throw. */
 export async function hasSchema(owner: Pick<DatabaseOwner, 'transaction'>, name: string, stamp?: string): Promise<boolean> {
   return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ stamp: string }>('SELECT stamp FROM madarch_meta.schema_stamp WHERE name = $1', [name]);
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT stamp FROM madarch_meta.schema_stamp WHERE name = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ stamp: string }>(sql, [name]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return found.rows[0] !== undefined && (stamp === undefined || found.rows[0].stamp === stamp);
   }).catch((error: unknown) => {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === '42P01') return false;

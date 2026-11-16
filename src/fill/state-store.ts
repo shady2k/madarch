@@ -48,6 +48,7 @@ import {
   unitMachine,
 } from './fsm.js';
 import { requireSchema } from '../adapters/store-readiness.js';
+import { withSpan } from '../obs/trace.js';
 import type {
   ChainContext,
   ChainEvent,
@@ -85,7 +86,7 @@ export class RunEndedError extends Error {
  * 0039, item 12) — so the state is the whole fence a planning write needs.
  */
 export async function assertRunWritableIn(executor: SqlExecutor, options: { readonly runId: string }): Promise<void> {
-  const { rows } = await executor.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+  const { rows } = await queryInSpan<{ state: string }>(executor, 'SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
   const run = rows[0];
   if (run === undefined || (FINAL_RUN_STATES as readonly string[]).includes(run.state)) throw new RunEndedError(options.runId);
 }
@@ -155,6 +156,19 @@ export type StoreStep<Record, State extends string> =
   | { readonly ok: false; readonly refusal: Refusal<State>; readonly record: Record };
 
 const json = (value: unknown): string => JSON.stringify(value);
+
+/**
+ * One statement of this store, inside its span: the owner's query with the statement's size and the rows it
+ * answered on the span, so every I/O path of the fill states what it read (decision 0039, item 22's spans).
+ */
+async function queryInSpan<Row extends Record<string, unknown> = Record<string, unknown>>(executor: SqlExecutor, sql: string, values: readonly unknown[] = []): Promise<{ rows: Row[] }> {
+  return await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(sql) }, async (span) => {
+    const result = await executor.query<Row>(sql, values);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
+}
+
 
 function parseJson<T>(value: unknown): T {
   if (typeof value === 'string') {
@@ -279,7 +293,7 @@ async function recordTransition(
   executor: SqlExecutor,
   entry: { subjectKind: 'chain' | 'run' | 'unit'; subjectId: string; generation: number | null; transitionId: string; from: string; to: string; event: string; at: number },
 ): Promise<void> {
-  await executor.query(
+  await queryInSpan(executor, 
     'INSERT INTO fill_transition (subject_kind, subject_id, generation, transition_id, from_state, to_state, event, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
     [entry.subjectKind, entry.subjectId, entry.generation, entry.transitionId, entry.from, entry.to, entry.event, entry.at],
   );
@@ -289,11 +303,11 @@ async function recordTransition(
 export async function openChain(database: FillStateDatabase, options: { readonly product: string; readonly at: number }): Promise<ChainRecord> {
   const at = here();
   return run(at, database, `openChain(${options.product})`, ['fill_chain'], async (executor) => {
-    await executor.query(
+    await queryInSpan(executor, 
       'INSERT INTO fill_chain (product, state, context, updated_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (product) DO NOTHING',
       [options.product, 'idle', json(newChainContext()), options.at],
     );
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [options.product]);
+    const { rows } = await queryInSpan<ChainRow>(executor, 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [options.product]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product} after opening it`);
     return chainRecord(row);
@@ -304,7 +318,7 @@ export async function openChain(database: FillStateDatabase, options: { readonly
 export async function readChain(database: FillStateDatabase, product: string): Promise<ChainRecord | null> {
   const at = here();
   return run(at, database, `readChain(${product})`, ['fill_chain'], async (executor) => {
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [product]);
+    const { rows } = await queryInSpan<ChainRow>(executor, 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [product]);
     return rows[0] === undefined ? null : chainRecord(rows[0]);
   }, 'snapshot');
 }
@@ -313,13 +327,13 @@ export async function readChain(database: FillStateDatabase, product: string): P
 export async function advanceChain(database: FillStateDatabase, options: { readonly product: string; readonly event: ChainEvent }): Promise<StoreStep<ChainRecord, ChainState>> {
   const at = here();
   return run(at, database, `advanceChain(${options.product}, ${options.event.type})`, ['fill_chain', 'fill_transition'], async (executor) => {
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1 FOR UPDATE', [options.product]);
+    const { rows } = await queryInSpan<ChainRow>(executor, 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1 FOR UPDATE', [options.product]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product}`);
     const current = chainRecord(row);
     const step = chainMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
-    await executor.query('UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1', [current.product, step.state, json(step.context), options.event.at]);
+    await queryInSpan(executor, 'UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1', [current.product, step.state, json(step.context), options.event.at]);
     await recordTransition(executor, { subjectKind: 'chain', subjectId: current.product, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
@@ -330,7 +344,7 @@ export async function createRun(database: FillStateDatabase, options: { readonly
   const at = here();
   const context = { ...newRunContext(options.owner ?? null), ...(options.selection === undefined ? {} : { selection: options.selection }) };
   return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
-    await executor.query(
+    await queryInSpan(executor, 
       'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
       [options.runId, options.product, 'created', json(context), options.at],
     );
@@ -351,12 +365,12 @@ export async function recordRunOwner(
 ): Promise<RunRecord> {
   const at = here();
   return await run(at, database, `recordRunOwner(${options.runId})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const { rows } = await queryInSpan<RunRow>(executor, 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
     const current = runRecord(row);
     const context = { ...current.context, owner: options.owner };
-    await executor.query('UPDATE fill_run SET context = $2::jsonb, updated_at = $3 WHERE run_id = $1', [options.runId, json(context), options.at]);
+    await queryInSpan(executor, 'UPDATE fill_run SET context = $2::jsonb, updated_at = $3 WHERE run_id = $1', [options.runId, json(context), options.at]);
     return { ...current, context, updatedAt: options.at };
   }, 'write');
 }
@@ -373,7 +387,7 @@ export async function recordRunOwner(
 export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
   const at = here();
   return await run(at, database, 'readStoreStamp', ['fill_publication', 'fill_run', 'node', 'edge', 'entity', 'operation'], async (executor) => {
-    const { rows } = await executor.query<{ stamp: string }>(
+    const { rows } = await queryInSpan<{ stamp: string }>(executor, 
       `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
               || ':' || (SELECT coalesce(max(seq)::text, '-') FROM operation)
               || ':' || (SELECT count(*)::text FROM fill_run WHERE state = 'succeeded')
@@ -392,7 +406,7 @@ export async function readStoreStamp(database: FillStateDatabase): Promise<strin
 export async function hasSuccessfulFill(database: FillStateDatabase): Promise<boolean> {
   const at = here();
   return await run(at, database, 'hasSuccessfulFill', ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<{ filled: boolean }>(
+    const { rows } = await queryInSpan<{ filled: boolean }>(executor, 
       "SELECT EXISTS (SELECT 1 FROM fill_run WHERE state = 'succeeded') AS filled",
     );
     return rows[0]?.filled === true;
@@ -406,7 +420,7 @@ export async function hasSuccessfulFill(database: FillStateDatabase): Promise<bo
 export async function readLiveRun(database: FillStateDatabase): Promise<RunRecord | null> {
   const at = here();
   return await run(at, database, 'readLiveRun', ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
+    const { rows } = await queryInSpan<RunRow>(executor, 
       `SELECT run_id, product, state, context, created_at, updated_at FROM fill_run
        WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling')
        ORDER BY created_at DESC, run_id DESC LIMIT 1`,
@@ -419,7 +433,7 @@ export async function readLiveRun(database: FillStateDatabase): Promise<RunRecor
 export async function readRun(database: FillStateDatabase, runId: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readRun(${runId})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1', [runId]);
+    const { rows } = await queryInSpan<RunRow>(executor, 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1', [runId]);
     return rows[0] === undefined ? null : runRecord(rows[0]);
   }, 'snapshot');
 }
@@ -434,7 +448,7 @@ export async function readRun(database: FillStateDatabase, runId: string): Promi
 export async function readLatestRun(database: FillStateDatabase, product: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readLatestRun(${product})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
+    const { rows } = await queryInSpan<RunRow>(executor, 
       'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC LIMIT 1',
       [product],
     );
@@ -446,7 +460,7 @@ export async function readLatestRun(database: FillStateDatabase, product: string
 export async function readRuns(database: FillStateDatabase, product: string): Promise<readonly RunRecord[]> {
   const at = here();
   return run(at, database, `readRuns(${product})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
+    const { rows } = await queryInSpan<RunRow>(executor, 
       'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC', [product],
     );
     return rows.map(runRecord);
@@ -457,7 +471,7 @@ export async function readRuns(database: FillStateDatabase, product: string): Pr
 export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent; readonly expectedState?: RunState }): Promise<StoreStep<RunRecord, RunState>> {
   const at = here();
   return run(at, database, `advanceRun(${options.runId}, ${options.event.type})`, ['fill_run', 'fill_transition'], async (executor) => {
-    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const { rows } = await queryInSpan<RunRow>(executor, 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
     const current = runRecord(row);
@@ -466,7 +480,7 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
     }
     const step = runMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
-    await executor.query('UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
+    await queryInSpan(executor, 'UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
     await recordTransition(executor, { subjectKind: 'run', subjectId: current.runId, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
@@ -507,13 +521,13 @@ export interface UnitCreateOptions {
 export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOptions): Promise<UnitRecord> {
     await assertRunWritableIn(executor, { runId: options.runId });
     const context = newUnitContext({ generation: 1 });
-    const inserted = await executor.query<UnitRow>(
+    const inserted = await queryInSpan<UnitRow>(executor, 
       'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
       [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
     );
     if (inserted.rows.length === 0) {
       // The identity already has a unit. Answer it as it stands: no generation opened, no journal entry.
-      const existing = await executor.query<UnitRow>(
+      const existing = await queryInSpan<UnitRow>(executor, 
         'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE product = $1 AND stage_id = $2 AND scope_key = $3 FOR UPDATE',
         [options.product, options.stageId, options.scopeKey],
       );
@@ -523,7 +537,7 @@ export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOpt
       if (snapshot === null) raise(`table fill_unit: unit ${row.unit_id} vanished between its insert and its read`);
       return snapshot.record;
     }
-    await executor.query(
+    await queryInSpan(executor, 
       'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
       [options.unitId, 1, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
@@ -548,13 +562,13 @@ interface UnitSnapshot { readonly unit: UnitRow; readonly generation: Generation
 
 /** Loads a unit and its current generation; null when the unit does not exist. */
 async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): Promise<UnitSnapshot | null> {
-  const units = await executor.query<UnitRow>(
+  const units = await queryInSpan<UnitRow>(executor, 
     `SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1${lock ? ' FOR UPDATE' : ''}`,
     [unitId],
   );
   const unit = units.rows[0];
   if (unit === undefined) return null;
-  const generations = await executor.query<GenerationRow>(
+  const generations = await queryInSpan<GenerationRow>(executor, 
     `SELECT unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
     [unitId, millis(unit.generation)],
   );
@@ -572,10 +586,10 @@ async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): P
 export async function readUnitGeneration(database: FillStateDatabase, unitId: string, generation: number): Promise<UnitRecord | null> {
   const at = here();
   return run(at, database, `readUnitGeneration(${unitId}/${generation})`, ['fill_unit', 'fill_unit_generation'], async (executor) => {
-    const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
+    const units = await queryInSpan<UnitRow>(executor, 'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
     const unit = units.rows[0];
     if (unit === undefined) return null;
-    const generations = await executor.query<GenerationRow>(
+    const generations = await queryInSpan<GenerationRow>(executor, 
       'SELECT unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
       [unitId, generation],
     );
@@ -608,7 +622,7 @@ async function readRunGenerations(database: FillStateDatabase, runId: string, cu
     // the orchestrator makes this read several times a pass, so a pass spent seconds reading what it
     // already knew. A unit's generation is the one its own row names, so the join answers the same
     // records as the per-row reads did.
-    const rows = await executor.query<UnitRow & GenerationRow>(
+    const rows = await queryInSpan<UnitRow & GenerationRow>(executor, 
       `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
               g.generation, g.run_id, g.state, g.inputs_digest, g.context,
               g.published_at, g.stale_at, g.updated_at
@@ -641,7 +655,7 @@ export async function readRunUnitHistory(database: FillStateDatabase, runId: str
 export async function readProductUnits(database: FillStateDatabase, options: { readonly product: string; readonly state: UnitState }): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readProductUnits(${options.product}/${options.state})`, ['fill_unit', 'fill_unit_generation'], async (executor) => {
-    const rows = await executor.query<UnitRow & GenerationRow>(
+    const rows = await queryInSpan<UnitRow & GenerationRow>(executor, 
       `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
               g.generation, g.run_id, g.state, g.inputs_digest, g.context,
               g.published_at, g.stale_at, g.updated_at
@@ -676,7 +690,7 @@ async function persistUnitStep(
   const generationNumber = millis(generation.generation);
   const publishedAt = step.state === 'published' ? at : maybeMillis(generation.published_at);
   const staleAt = step.state === 'stale' ? at : maybeMillis(generation.stale_at);
-  await executor.query(
+  await queryInSpan(executor, 
     'UPDATE fill_unit_generation SET state = $3, context = $4::jsonb, published_at = $5, stale_at = $6, updated_at = $7 WHERE unit_id = $1 AND generation = $2',
     [unit.unit_id, generationNumber, step.state, json(step.context), publishedAt, staleAt, at],
   );
@@ -698,7 +712,7 @@ export async function advanceUnitIn(executor: SqlExecutor, options: UnitAdvanceO
   // insert checks the generation's foreign key, and a step that locked the generation first would wait for the run an
   // event holds, and the event for the generation the step holds.
   if (event.type !== 'cancel') {
-    await executor.query(
+    await queryInSpan(executor, 
       `SELECT 1 FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id JOIN fill_unit u ON u.unit_id = g.unit_id AND u.generation = g.generation
        WHERE u.unit_id = $1 FOR SHARE OF r`,
       [options.unitId],
@@ -712,7 +726,7 @@ export async function advanceUnitIn(executor: SqlExecutor, options: UnitAdvanceO
   // so a step and a cancel that race answer alike whichever write lands first. The lock holds the control still for the
   // whole step: an intent that lands while a step is under way waits for it, and a step that comes after sees it.
   if (event.type !== 'cancel') {
-    const control = await executor.query<{ state: string }>(
+    const control = await queryInSpan<{ state: string }>(executor, 
       `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id
        WHERE g.unit_id = $1 AND g.generation = $2 FOR SHARE OF r`,
       [options.unitId, snapshot.record.generation],
@@ -815,11 +829,11 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
       raise(`table fill_unit_generation, row ${current.unitId}/${current.generation}: names replacement ${generation}, which is not the next generation`);
     }
     const context = newUnitContext({ generation });
-    await executor.query(
+    await queryInSpan(executor, 
       'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
       [options.unitId, generation, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
-    await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await queryInSpan(executor, 'UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
     await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.openGeneration, from: 'stale', to: 'planned', event: 'open-generation', at: options.at });
     return {
       ok: true,
@@ -865,11 +879,11 @@ export async function retryGeneration(database: FillStateDatabase, options: {
     }
     const generation = current.generation + 1;
     const context = newUnitContext({ generation });
-    await executor.query(
+    await queryInSpan(executor, 
       'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
       [options.unitId, generation, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
-    await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await queryInSpan(executor, 'UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
     await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.retryGeneration, from: current.state, to: 'planned', event: 'retry-generation', at: options.at });
     return {
       ok: true,

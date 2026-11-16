@@ -1,3 +1,4 @@
+import { withSpan } from '../../obs/trace.js';
 /** Preparation of the orchestrator's tables, constraints and plan migration. */
 import type { DatabaseOwner } from '../database-owner.js';
 import { createSchemaOnce } from '../schema-stamp.js';
@@ -137,10 +138,12 @@ export const orchestratorSchema = {
       parts: [...REMOVED, ...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql), CACHE_VERSIONS_COLUMN],
       tables: ORCHESTRATOR_TABLES,
       create: async (executor) => {
-        for (const statement of REMOVED) await executor.query(statement);
-        for (const statement of SCHEMA) await executor.query(statement);
-        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
-        await executor.query(CACHE_VERSIONS_COLUMN);
+        await withSpan('orchestrator.schema', { 'db.system': 'postgres', 'db.statements': REMOVED.length + SCHEMA.length + FOREIGN_KEYS.length + 1 }, async () => {
+          for (const statement of REMOVED) await executor.query(statement);
+          for (const statement of SCHEMA) await executor.query(statement);
+          for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
+          await executor.query(CACHE_VERSIONS_COLUMN);
+        });
       },
     });
   },

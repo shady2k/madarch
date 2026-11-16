@@ -13,6 +13,7 @@
  * the outcomes onto its exit codes (2 refused, 1 failed); the library only
  * reports them.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -177,7 +178,7 @@ function reserveDraftFolder(home: string, day: string): { folder: string; name: 
     const name = attempt === 1 ? `idea-${day}` : `idea-${day}-${attempt}`;
     const candidate = join(home, name);
     try {
-      mkdirSync(candidate);
+      withSpanSync('fs.mkdir', { 'file.path': candidate }, () => mkdirSync(candidate));
       return { folder: candidate, name };
     } catch (error) {
       if ((error as { code?: string }).code === 'EEXIST') continue;
@@ -189,7 +190,7 @@ function reserveDraftFolder(home: string, day: string): { folder: string; name: 
 /** Removes the folder this invocation itself reserved; the failure, when there is one, is the caller's to report. */
 function removeDraftFolder(folder: string): string | undefined {
   try {
-    rmSync(folder, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true }));
     return undefined;
   } catch (error) {
     return `the failed draft's folder ${folder} could not be removed: ${(error as Error).message}`;
@@ -290,12 +291,14 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
 
   const id = randomUUID();
   try {
-    for (const folderName of FOLDERS) mkdirSync(join(folder, folderName));
-    writeFileSync(join(folder, 'AGENTS.md'), CONSTITUTION);
-    writeFileSync(join(folder, 'CLAUDE.md'), '@AGENTS.md\n');
-    writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
-    writeFileSync(join(folder, '.gitignore'), 'repos/\n');
-    for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
+    withSpanSync('draft.skeleton', { 'file.path': folder, 'draft.folders': FOLDERS.length, 'draft.files': 4 + TRACKED_FOLDERS.length }, () => {
+      for (const folderName of FOLDERS) mkdirSync(join(folder, folderName));
+      writeFileSync(join(folder, 'AGENTS.md'), CONSTITUTION);
+      writeFileSync(join(folder, 'CLAUDE.md'), '@AGENTS.md\n');
+      writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
+      writeFileSync(join(folder, '.gitignore'), 'repos/\n');
+      for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
+    });
     // The template's files are copied into the product repository by the one module that writes them: `madarch init --template everything`.
     seedStarterSet(folder, template.id, options.templates);
     // The wiki's own language setting, kept where the wiki reads it: the product's manifest (madarch-64o5.84). A product

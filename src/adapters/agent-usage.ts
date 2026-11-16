@@ -1,3 +1,4 @@
+import { withSpan } from '../obs/trace.js';
 
 /**
  * What one agent run spent, in the store's mechanism tables (madarch-stm0.4, decision 0035, item 22): the model, the
@@ -70,27 +71,29 @@ export async function recordAgentUsage(owner: DatabaseOwner, rows: readonly Agen
   if (rows.length === 0) return;
   await createAgentUsageSchema(owner);
   const orderedRows = ordered(rows);
-  await owner.transaction('write', async (tx) => {
-    for (const row of orderedRows) {
-      await tx.query(
-        `INSERT INTO agent_usage (run_id, unit, plugin, plugin_version, kind, field, model, input_tokens, output_tokens, total_tokens, cost_amount, cost_currency, turns, reported, stopped, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
-         ON CONFLICT (run_id, unit, kind, field, model) DO UPDATE SET
-           plugin = EXCLUDED.plugin,
-           plugin_version = EXCLUDED.plugin_version,
-           input_tokens = EXCLUDED.input_tokens,
-           output_tokens = EXCLUDED.output_tokens,
-           total_tokens = EXCLUDED.total_tokens,
-           cost_amount = EXCLUDED.cost_amount,
-           cost_currency = EXCLUDED.cost_currency,
-           turns = EXCLUDED.turns,
-           reported = EXCLUDED.reported,
-           stopped = EXCLUDED.stopped,
-           updated_at = now()`,
-        [row.run, row.unit, row.plugin, row.pluginVersion, row.kind, row.field, row.model, row.inputTokens, row.outputTokens, row.totalTokens,
-          row.cost === null ? null : row.cost.amount.toFixed(6), row.cost === null ? null : row.cost.currency, row.turns, row.reported, row.stopped],
-      );
-    }
+  await withSpan('usage.write', { 'db.system': 'postgres', 'usage.rows': orderedRows.length }, async () => {
+    await owner.transaction('write', async (tx) => {
+      for (const row of orderedRows) {
+        await tx.query(
+          `INSERT INTO agent_usage (run_id, unit, plugin, plugin_version, kind, field, model, input_tokens, output_tokens, total_tokens, cost_amount, cost_currency, turns, reported, stopped, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+           ON CONFLICT (run_id, unit, kind, field, model) DO UPDATE SET
+             plugin = EXCLUDED.plugin,
+             plugin_version = EXCLUDED.plugin_version,
+             input_tokens = EXCLUDED.input_tokens,
+             output_tokens = EXCLUDED.output_tokens,
+             total_tokens = EXCLUDED.total_tokens,
+             cost_amount = EXCLUDED.cost_amount,
+             cost_currency = EXCLUDED.cost_currency,
+             turns = EXCLUDED.turns,
+             reported = EXCLUDED.reported,
+             stopped = EXCLUDED.stopped,
+             updated_at = now()`,
+          [row.run, row.unit, row.plugin, row.pluginVersion, row.kind, row.field, row.model, row.inputTokens, row.outputTokens, row.totalTokens,
+            row.cost === null ? null : row.cost.amount.toFixed(6), row.cost === null ? null : row.cost.currency, row.turns, row.reported, row.stopped],
+        );
+      }
+    });
   });
 }
 
@@ -141,30 +144,54 @@ function costOf(amount: string | null, currency: string | null): AgentUsageAmoun
 export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise<KindUsageView> {
   await createAgentUsageSchema(owner);
   return await owner.transaction('snapshot', async (tx) => {
-    const totals = await tx.query<{ input: string; output: string; total: string; runs: string }>(
-      'SELECT coalesce(sum(input_tokens), 0)::text AS input, coalesce(sum(output_tokens), 0)::text AS output, coalesce(sum(total_tokens), 0)::text AS total, count(DISTINCT run_id)::text AS runs FROM agent_usage WHERE kind = $1',
+    const totals = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT coalesce(sum(input_tokens), 0)::text AS input, coalesce(sum(output_tokens), 0)::text AS output, coalesce(sum(total_tokens), 0)::text AS total, count(DISTINCT run_id)::text AS runs FROM agent_usage WHERE kind = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ input: string; output: string; total: string; runs: string }>(
+      sql,
       [kind],
     );
-    const byCurrency = await tx.query<{ currency: string; amount: string }>(
-      'SELECT cost_currency AS currency, sum(cost_amount)::text AS amount FROM agent_usage WHERE kind = $1 AND cost_currency IS NOT NULL GROUP BY cost_currency',
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const byCurrency = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT cost_currency AS currency, sum(cost_amount)::text AS amount FROM agent_usage WHERE kind = $1 AND cost_currency IS NOT NULL GROUP BY cost_currency';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ currency: string; amount: string }>(
+      sql,
       [kind],
     );
-    const newest = await tx.query<{ run_id: string; at: string }>(
-      `SELECT run_id, max(updated_at)::text AS at FROM agent_usage WHERE kind = $1 GROUP BY run_id ORDER BY max(updated_at) DESC, run_id DESC LIMIT ${String(KIND_USAGE_RUNS + 1)}`,
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const newest = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT run_id, max(updated_at)::text AS at FROM agent_usage WHERE kind = $1 GROUP BY run_id ORDER BY max(updated_at) DESC, run_id DESC LIMIT ${String(KIND_USAGE_RUNS + 1)}`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ run_id: string; at: string }>(
+      sql,
       [kind],
     );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const runIds = newest.rows.slice(0, KIND_USAGE_RUNS).map((row) => row.run_id);
-    const rows = runIds.length === 0 ? [] : (await tx.query<{
+    const rows = runIds.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT run_id, unit, plugin, plugin_version, kind, field, model, input_tokens::text AS input_tokens, output_tokens::text AS output_tokens,
+              total_tokens::text AS total_tokens, cost_amount::text AS cost_amount, cost_currency, turns, reported, stopped, updated_at::text AS updated_at
+       FROM agent_usage WHERE kind = $1 AND run_id = ANY($2::text[])
+       ORDER BY run_id, plugin, field, model NULLS FIRST, unit`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{
       run_id: string; unit: string; plugin: string; plugin_version: string; kind: string; field: string; model: string | null;
       input_tokens: string; output_tokens: string; total_tokens: string; cost_amount: string | null; cost_currency: string | null;
       turns: number; reported: boolean; stopped: 'tokens' | 'cost' | null; updated_at: string;
     }>(
-      `SELECT run_id, unit, plugin, plugin_version, kind, field, model, input_tokens::text AS input_tokens, output_tokens::text AS output_tokens,
-              total_tokens::text AS total_tokens, cost_amount::text AS cost_amount, cost_currency, turns, reported, stopped, updated_at::text AS updated_at
-       FROM agent_usage WHERE kind = $1 AND run_id = ANY($2::text[])
-       ORDER BY run_id, plugin, field, model NULLS FIRST, unit`,
+      sql,
       [kind, runIds],
-    )).rows;
+    );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    })).rows;
     const runs: KindUsageRun[] = newest.rows.slice(0, KIND_USAGE_RUNS).map((entry) => {
       const held = rows.filter((row) => row.run_id === entry.run_id);
       const lines: KindUsageLine[] = held.map((row) => ({

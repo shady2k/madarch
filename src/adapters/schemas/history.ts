@@ -1,4 +1,5 @@
 /** Preparation of a source history's tables and canonical model digest migration. */
+import { withSpan } from '../../obs/trace.js';
 import type { DatabaseOwner } from '../database-owner.js';
 import { createSchemaOnce } from '../schema-stamp.js';
 
@@ -43,7 +44,7 @@ export const historySchema = {
       name: 'history',
       parts: [...SCHEMA, 'canonical-digest-migration'],
       tables: ['assertions', 'source_commits', 'source_registry'],
-      create: async (transaction) => {
+      create: async (transaction) => await withSpan('schema.prepare', { 'db.system': 'postgres', 'schema.statements': SCHEMA.length, 'db.sql.bytes': SCHEMA.reduce((bytes, sql) => bytes + Buffer.byteLength(sql), 0) }, async () => {
         for (const statement of SCHEMA) await transaction.query(statement);
         const columns = await transaction.query<{ column_name: string }>(
           "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'source_commits'",
@@ -58,7 +59,7 @@ export const historySchema = {
           }
           await transaction.query('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
         }
-      },
+      }),
     });
   },
 };

@@ -178,7 +178,7 @@ function valueOf(attribute: { readonly value?: Record<string, unknown> }): unkno
 
 /** The spans one trace file holds, in the order it wrote them. A line that is not a span is refused by its file and line. */
 export function readTraceSpans(file: string): TraceSpan[] {
-  return parseTraceSpans(readFileSync(file, 'utf8'), file);
+  return parseTraceSpans(withSpanSync('fs.read', { 'file.path': file }, (span) => { const answer = readFileSync(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; }), file);
 }
 
 function parseTraceSpans(text: string, file: string, line = 0): TraceSpan[] {

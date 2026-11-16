@@ -18,6 +18,7 @@ import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPa
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
 import { parseAddress, type FramePage } from './address.js';
+import { withSpan } from './trace.js';
 import { PageView, type PageRuntime } from './page.js';
 import { Alert, AlertDescription } from './components/ui/alert.js';
 import {
@@ -153,7 +154,11 @@ export function App(): ReactElement {
 
   // The probe that lifts the calm state: the product read the server answers first, without touching the graph.
   useEffect(() => setConnectionProbe(async () => {
-    const answer = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
+    const answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': `${base}/api/product` }, async (span) => {
+      const held = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
+      span.setAttribute('http.status', held.status);
+      return held;
+    });
     if (answer.ok) reportOnline();
     else if (answer.status === 503) reportOffline('starting');
     else if (answer.status === 502 || answer.status === 504) reportOffline();
@@ -303,7 +308,10 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
+  // This machine's plugin isolation is read here, once, beside the role: a page that offers the isolation choice reads
+  // it from the runtime instead of asking the settings route for itself.
+  const machine = savedRole.data === null ? undefined : { pluginIsolation: savedRole.data.pluginIsolation ?? null, pluginsUnconfined: savedRole.data.pluginsUnconfined, reload: savedRole.reload };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds, ...(machine === undefined ? {} : { machine }) };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (

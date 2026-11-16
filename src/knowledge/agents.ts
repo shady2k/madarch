@@ -11,6 +11,7 @@
  * `makeUnitAgent` is called only when a fill with an agent chosen has read the
  * code.
  */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import path from 'node:path';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { ACP_ADAPTERS, acpAdapterBinFolder, acpAgentFolder, acpInstallOffer, acpLaunchOf, acpLoginState, type AcpAdapterCatalogueEntry } from '../fill/acp-probe.js';
@@ -59,8 +60,13 @@ function launchOf(entry: AcpAdapterCatalogueEntry, env: DraftEnv): { binary: str
 /** The version of an npm adapter madarch installed, read from the package it wrote; null when it cannot be read. */
 function installedVersionOf(entry: AcpAdapterCatalogueEntry, env: DraftEnv, home: string): string | null {
   if (entry.install.kind !== 'npm') return null;
+  const packageName = entry.install.package;
   try {
-    const kept = JSON.parse(readFileSync(path.join(acpAgentFolder(entry, env, home), 'node_modules', entry.install.package, 'package.json'), 'utf8')) as { version?: unknown };
+    const kept = JSON.parse(withSpanSync('fs.read', { 'file.path': path.join(acpAgentFolder(entry, env, home), 'node_modules', packageName, 'package.json') }, (span) => {
+      const held = readFileSync(path.join(acpAgentFolder(entry, env, home), 'node_modules', packageName, 'package.json'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    })) as { version?: unknown };
     return typeof kept.version === 'string' && kept.version !== '' ? kept.version : null;
   } catch {
     return null;
@@ -107,7 +113,11 @@ export async function installAdapter(id: string, env: DraftEnv): Promise<{ ok: t
 /** The product's host settings, shared by the page and the pressed fill. */
 export function readAgentSettings(file: string): Record<string, unknown> {
   let text: string;
-  try { text = readFileSync(file, 'utf8'); } catch (error) {
+  try { text = withSpanSync('fs.read', { 'file.path': file }, (span) => {
+    const held = readFileSync(file, 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  }); } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw new Error(`${file}:1: the product settings cannot be read: ${(error as Error).message}`);
   }
@@ -139,7 +149,7 @@ export function pluginAgentOptions(id: string, env: DraftEnv, workFolder: string
   const launch = launchOf(entry, env);
   const command = launch === undefined ? undefined : resolveExecutable(launch.binary, searchPathOf(entry, env));
   if (launch === undefined || command === undefined) throw new Error(`src/knowledge/agents.ts:1: ${import.meta.dir}/agents.ts: ${entry.label} has no installed ACP adapter; install it in the wiki's agent settings before filling`);
-  mkdirSync(workFolder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': workFolder }, () => mkdirSync(workFolder, { recursive: true }));
   const prepared = acpLaunchOf(entry, env, workFolder, { ...process.env, ...env, PATH: searchPathOf(entry, env) }, launch.args);
   return {
     adapter: { id, command, args: prepared.args }, environment: prepared.env, cwd: workFolder, repositories, preferences,
@@ -178,6 +188,6 @@ export async function queryAgentChoices(id: string, env: DraftEnv): Promise<{ ok
     return { ok: false, message: `${entry.label} could not tell its models: ${error instanceof Error ? error.message : String(error)}` };
   } finally {
     await connection?.close().catch(() => undefined);
-    await rm(scratch, { recursive: true, force: true });
+    await withSpan('fs.remove', { 'file.path': scratch }, async () => await rm(scratch, { recursive: true, force: true }));
   }
 }

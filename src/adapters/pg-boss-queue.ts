@@ -1,3 +1,4 @@
+import { withSpan } from '../obs/trace.js';
 /**
  * The queue's pg-boss adapter (decision 0027, "Queue"): `QueueService`
  * (`src/fill/queue.ts`) served by pg-boss, running on the process's one
@@ -100,7 +101,13 @@ export interface PgBossQueueOptions {
 function transactionDatabase(transaction: OuterTransaction): Db {
   return {
     executeSql: async (text: string, values?: unknown[]) => {
-      const { rows } = await transaction.query(text, values);
+      const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = text;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await transaction.query(sql, values);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       return { rows };
     },
   };
@@ -247,8 +254,8 @@ class PgBossQueue implements QueueService {
    * statement that takes it.
    */
   private async stampEnqueuedAt(transaction: OuterTransaction, queue: string, id: string): Promise<void> {
-    const { rows } = await transaction.query<{ id: string }>(
-      `WITH next AS (
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `WITH next AS (
          INSERT INTO ${this.schema}.${ENQUEUE_STAMP_TABLE} AS stamp (queue, enqueued_at)
          VALUES ($1, $2::timestamptz)
          ON CONFLICT (queue) DO UPDATE SET enqueued_at = GREATEST(stamp.enqueued_at + ${ENQUEUE_STAMP_STEP}, $2::timestamptz)
@@ -257,9 +264,15 @@ class PgBossQueue implements QueueService {
        UPDATE ${this.schema}.job AS job
          SET created_on = (SELECT enqueued_at FROM next)
          WHERE job.name = $1 AND job.id = $3::uuid
-       RETURNING job.id`,
+       RETURNING job.id`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await transaction.query<{ id: string }>(
+      sql,
       [queue, new Date().toISOString(), id],
     );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     // The one place this promise could be lost without a word: a statement that
     // matched no row. Raising it here fails the enqueue — and the caller's
     // transaction with it — rather than answering a job whose order is not the
@@ -282,7 +295,7 @@ class PgBossQueue implements QueueService {
     // The last key is the fallback for a job this adapter did not enqueue, which
     // may share another's instant; it keeps two claims of the same rows answering
     // the same order. The metadata carries the priority and the time it reads.
-    const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true });
+    const jobs = await withSpan('queue.fetch', { 'db.system': 'postgres', 'queue.name': request.queue, 'queue.limit': limit }, async (span) => { const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true }); span.setAttribute('db.rows', jobs.length); return jobs; });
     return jobs
       .slice()
       .sort((left, right) => right.priority - left.priority || left.createdOn.getTime() - right.createdOn.getTime() || byCodePoint(left.id, right.id))
