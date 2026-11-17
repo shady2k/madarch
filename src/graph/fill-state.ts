@@ -69,7 +69,9 @@ export type StoreStep<Record, State extends string> =
 
 
 const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
-type Identity = { readonly id: number; readonly uid: string; readonly key: Readonly<Record<string, unknown>> };
+type Identity = { readonly id: number; readonly uid: string; readonly key: Readonly<Record<string, unknown>>;
+  /** An edge subject's own ends and discriminator, as its record holds them. */
+  readonly from_node?: number; readonly to_node?: number; readonly discriminator?: string };
 /** A transaction must see assertions it just wrote after its transaction timestamp. */
 async function readGraphRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], subjectUids?: readonly string[]): Promise<AssertionRecord[]> {
   return await withSpan('graph.fill.records', {}, async () => {
@@ -82,19 +84,27 @@ export async function readRecordsIn(tx: SqlExecutor, sort: 'vertex' | 'edge', ki
   if (ids.length === 0) return [];
   return await withSpan('graph.fill.records', {}, async () => {
     const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-    const held = (await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT id::text AS id,uid::text AS uid,key FROM node WHERE id=ANY($1::bigint[])`, [ids])).rows;
-    const identities: Identity[] = held.map(row => ({ id: Number(row.id), uid: row.uid, key: row.key }));
+    const identities: Identity[] = [];
+    if (sort === 'vertex') {
+      const held = (await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT id::text AS id,uid::text AS uid,key FROM node WHERE id=ANY($1::bigint[])`, [ids])).rows;
+      for (const row of held) identities.push({ id: Number(row.id), uid: row.uid, key: row.key });
+    } else {
+      // An edge subject is an `edge` row: `node` holds no row for it, and its ends are its own.
+      const held = (await tx.query<{id:string;uid:string;from_node:string;to_node:string;discriminator:string}>(`SELECT id::text AS id,uid::text AS uid,from_node::text AS from_node,to_node::text AS to_node,discriminator FROM edge WHERE id=ANY($1::bigint[])`, [ids])).rows;
+      for (const row of held) identities.push({ id: Number(row.id), uid: row.uid, key: {}, from_node: Number(row.from_node), to_node: Number(row.to_node), discriminator: row.discriminator });
+    }
     return await readAssertions(tx,sort,kind,fields,{validAt:clock,recordedAt:clock,identities});
   });
 }
 /**
  * The subjects a lookup field's value names: value table → assertion → subject (decision 0039, item 25). The
  * value tables are read by their primary key, and a lookup field's value column carries the generated index,
- * so the walk meets the assertions that state this value and no other subject of the kind.
+ * so the walk meets the assertions that state this value and no other subject of the kind. A subject that
+ * stated the value more than once is one subject: the rows are distinct on the subject, not one per assertion.
  */
 export async function readSubjectsByValueIn(tx: SqlExecutor, kind: string, field: string, value: unknown): Promise<Identity[]> {
   const table = assertionValueTableName(kind, 'vertex', field);
-  const held = await withSpan('graph.fill.lookup', { 'graph.kind': kind }, async () => await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT n.id::text AS id,n.uid::text AS uid,n.key
+  const held = await withSpan('graph.fill.lookup', { 'graph.kind': kind }, async () => await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT DISTINCT n.id::text AS id,n.uid::text AS uid,n.key
     FROM "${table}" v
     JOIN assertion_vertex_subject s ON s.assertion_id=v.assertion_id
     JOIN edge e ON e.id=s.subject_edge_id
@@ -186,7 +196,10 @@ async function runNode(tx: SqlExecutor, runId: string): Promise<AssertionRecord 
 }
 /** The unit a name (and optionally a generation) states, in the generation that is not replaced. */
 async function unitNode(tx: SqlExecutor, unitId: string, generation?: number): Promise<AssertionRecord | undefined> {
-  const candidates = (await readNamedRecords(tx, 'system.unit', 'unit_name', unitId)).filter(row => generation === undefined || number(row.values['generation']) === generation);
+  // The index finds every subject that ever stated the name; only a subject that states it now is that unit.
+  const candidates = (await readNamedRecords(tx, 'system.unit', 'unit_name', unitId))
+    .filter(row => row.values['unit_name'] === unitId)
+    .filter(row => generation === undefined || number(row.values['generation']) === generation);
   // A replacement closes a generation: the link is written once and never withdrawn (`system.unit-replacement`).
   const replaced = generation === undefined && candidates.length > 0
     ? new Set((await edgeRowsIn(tx, 'system.unit-replacement', 'from', candidates.map(row => row.id))).map(edge => edge.from))

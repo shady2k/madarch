@@ -7,7 +7,7 @@
  */
 import type { SqlExecutor } from '../sql-driver.js';
 import { semanticBinding } from '../knowledge/semantic-bindings.js';
-import { loadAssertions } from './assertion-read.js';
+import { activeExistenceSql, loadAssertions } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { readKindAssertions } from './records.js';
@@ -182,7 +182,10 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
     const contract = graphContractOf(manifest);
     const declaration = contract.vertex.find(vertex => vertex.name === kind);
     if (declaration === undefined) throw new Error(`${import.meta.path}:163: snapshot kind ${kind} is undeclared`);
-    // One recursive walk of the sealed children from the snapshot's unit, never a read of every unit.
+    // One recursive walk of the sealed children from the snapshot's unit, never a read of every unit. An edge
+    // counts as the snapshot's own did: standing at `snapshot.validAt`, recorded by `snapshot.recordedAt`, and
+    // not retracted as of it. A child sealed after the snapshot is not in it, and a withdrawal after it is ignored.
+    const standing = activeExistenceSql('edge', 'e', ['system.unit-parent'], { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1] });
     const root = (await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid=$1::uuid', [snapshot.unitUid])).rows[0];
     const units = new Set<string>(root === undefined ? [] : (await tx.query<{ uid: string }>(`WITH RECURSIVE tree(id) AS (
       SELECT $1::bigint
@@ -191,7 +194,7 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
         JOIN entity k ON k.id=e.entity_id AND k.name='system.unit-parent'
         JOIN node child ON child.id=e.from_node
         JOIN entity ck ON ck.id=child.entity_id AND ck.name='system.unit'
-      WHERE graph_edge_active(e.id,k.name,1)
+      WHERE ${standing}
     ) SELECT n.uid::text AS uid FROM tree JOIN node n ON n.id=tree.id`, [root.id])).rows.map(row => row.uid));
     const assertions = await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)], undefined, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1], unitUids: [...units] });
     const selected = assertions.filter(assertion => assertion.selected === true);

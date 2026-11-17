@@ -320,11 +320,12 @@ export async function sealSplitIn(tx:SqlExecutor,options:{readonly parentUnitId:
 async function splits(tx:SqlExecutor,unitId:string,generation:number,parents:boolean):Promise<readonly SealedChild[]>{
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return [];
  const own=await read(tx,'system.unit',uid);if(!own)return [];
- const edges=await edgeRowsIn(tx,'system.unit-parent',parents?'to':'from',[own.id]);
+ // `system.unit-parent` is written child -> parent: the unit's own end names which way the walk goes.
+ const edges=await edgeRowsIn(tx,'system.unit-parent',parents?'from':'to',[own.id]);
  const sealed=new Map((await readRecordsIn(tx,'edge','system.unit-parent',['sealed_at'],edges.map(edge=>edge.id))).map(edge=>[edge.id,edge.values['sealed_at']]));
  const reached=edges.filter(edge=>sealed.get(edge.id)!==undefined);
- const other=new Map((await readRecordsIn(tx,'vertex','system.unit',['unit_name','generation'],reached.map(edge=>parents?edge.from:edge.to))).map(unit=>[unit.id,unit]));
- return reached.map(edge=>{const unit=other.get(parents?edge.from:edge.to);if(!unit)throw new Error(`${import.meta.path}: split endpoint missing`);return {unitId:String(unit.values['unit_name']),generation:Number(unit.values['generation']),sealedAt:Number(sealed.get(edge.id))};}).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
+ const other=new Map((await readRecordsIn(tx,'vertex','system.unit',['unit_name','generation'],reached.map(edge=>parents?edge.to:edge.from))).map(unit=>[unit.id,unit]));
+ return reached.map(edge=>{const unit=other.get(parents?edge.to:edge.from);if(!unit)throw new Error(`${import.meta.path}: split endpoint missing`);return {unitId:String(unit.values['unit_name']),generation:Number(unit.values['generation']),sealedAt:Number(sealed.get(edge.id))};}).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
 }
 export async function readSealedChildren(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,false));}
 export async function readSplitParents(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,true));}
