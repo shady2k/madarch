@@ -700,6 +700,30 @@ check recomputed every active vertex and edge of every relation kind in every
 context, and one such check took up to 18 s on a starter product with a
 three-file repository (ALX-98, `fill-states`).
 
+Clarification (2026-11-17, madarch-64o5.74, ALX-107): the rules of this item
+hold at every valid-time instant, not only at the transaction's own instant,
+following SQL:2011 application-time integrity (PostgreSQL 18 temporal keys and
+`PERIOD` foreign keys). Valid intervals make the active graph change without a
+transaction when a bound passes, so the premise above, that every earlier state
+was admitted, holds only if each write is checked across the valid time it
+changes. The deferred check therefore evaluates the same rules for the same
+changed subjects at each instant where their effective graph can change inside
+a changed interval: the start and the end of every valid interval the
+transaction wrote or retracted, and every valid-from or valid-to of the checked
+subjects' assertions that falls inside such an interval. Between two of these
+instants nothing the check reads changes, so they suffice; the instants come
+from the checked subjects only, so the cost still grows with the change. A
+write is refused only for what it wrote: a bound that ends a vertex or a
+required edge while a dependent edge stays open is refused unless the same
+transaction ends or replaces the dependent edges at that bound, as for the
+retraction of a last required edge, and an edge may not be valid where its
+endpoint is not. The passing of time never refuses a later, unrelated
+transaction and never leaves a reader a relation that became invalid by expiry.
+A valid-from the writer supplies by default is one acceptance instant per
+transaction (`transaction_timestamp()`), not a clock reading per statement, so
+the statements of one create share their start. Kinds with the `system`
+capability stay outside this relation check, as before.
+
 A manifest declares ordered scalar key fields, key-edge roles and for each
 parent deletion either `restrict` or `cascade`; omission refuses the manifest.
 Key-edge declarations must form a DAG; the manifest checker rejects cycles
