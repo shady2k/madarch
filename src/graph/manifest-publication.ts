@@ -309,7 +309,11 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       let record: import('./records.js').AssertionRecord | undefined;
       if ('key' in draft) {
         const prior = held.get(identity(draft));
-        record = prior === undefined ? rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key) && draft.keyEdges === undefined) : rows.find(row => row.uid === prior.uid);
+        if (prior !== undefined) record = rows.find(row => row.uid === prior.uid);
+        else if (draft.keyEdges !== undefined) {
+          const resolved = await resolveEntityRef(tx, publicationContract, draft);
+          record = rows.find(row => row.uid === resolved.uid);
+        } else record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
       }
       else {
         const from = await resolveEntityRef(tx, publicationContract, draft.from);
