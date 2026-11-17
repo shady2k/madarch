@@ -29,7 +29,7 @@ export async function prepareGraphSchema(owner: DatabaseOwner, declared: GraphCo
     validateValueContracts(contract);
     const metadata=await tx.query<{standing:string|null}>(`SELECT pg_advisory_xact_lock($1::bigint),to_regclass('madarch_meta.schema_stamp')::text AS standing`,[storeSchemaLockKey()]);
     const held=metadata.rows[0]?.standing == null ? {rows:[]} : await tx.query<{name:string;stamp:string}>(`SELECT name,stamp FROM madarch_meta.schema_stamp WHERE name IN ('one-graph','one-graph-revision')`);
-    const stamp=graphSchemaStamp(contract);
+    const stamp=graphSchemaStamp(declared);
     if(held.rows.some(row=>row.name==='one-graph'&&row.stamp===stamp) && held.rows.some(row=>row.name==='one-graph-revision'&&row.stamp===String(SCHEMA_REVISION))) return {reset:false};
     const reset=!held.rows.some(row=>row.name==='one-graph-revision'&&row.stamp===String(SCHEMA_REVISION));
     const statements:string[]=[...METADATA_SCHEMA];
