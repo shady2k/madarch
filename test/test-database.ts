@@ -352,27 +352,37 @@ function queueTestDatabaseDrop(socketDir: string, database: string, timing?: Tes
 function enqueueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
   dropLane = dropLane.then(async () => {
     const start = performance.now();
-    timing?.('database-drop-start', 0);
+    let failure: Error | undefined;
+    try {
+      timing?.('database-drop-start', 0);
+    } catch (error) {
+      failure = error instanceof Error ? error : new Error(String(error));
+    }
     try {
       await dropDatabase(socketDir, database);
-      failedDrops = failedDrops.filter((failure) => !(failure.socketDir === socketDir && failure.database === database));
-      // Only a database that is gone stops being owed: a failed drop keeps counting (ALX-134).
-      dropsOwed -= 1;
     } catch (error) {
-      const held = error instanceof Error ? error : new Error(String(error));
-      // Never swallowed: `waitForTestDatabaseDrops` names this database and this error, and the drop stays owed.
-      failedDrops = [...failedDrops.filter((failure) => !(failure.socketDir === socketDir && failure.database === database)), { socketDir, database, error: held, timing }];
-    } finally {
-      timing?.('database-drop', performance.now() - start);
+      failure ??= error instanceof Error ? error : new Error(String(error));
     }
+    try {
+      timing?.('database-drop', performance.now() - start);
+    } catch (error) {
+      failure ??= error instanceof Error ? error : new Error(String(error));
+    }
+    if (failure !== undefined) {
+      // Keep callback failures visible with the database they accompanied; a later drain retries it.
+      failedDrops = [...failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database)), { socketDir, database, error: failure, timing }];
+      return;
+    }
+    failedDrops = failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database));
+    // Only a database that is gone stops being owed: a failed drop keeps counting (ALX-134).
+    dropsOwed -= 1;
   });
 }
 
 /**
  * Waits for every drop the run owes: the preload does this before it stops the
- * run's server. A drop that failed is retried here, and a drop that fails again
- * makes this call reject, naming every database that was not dropped and the
- * error of each — a drain never reports a queue it did not empty (ALX-134). The
+ * run's server. This call retries failures recorded before it starts; failures
+ * first encountered while awaiting the lane are reported without retry. The
  * databases stay owed, so a later call retries them once their cause is gone.
  */
 export async function waitForTestDatabaseDrops(): Promise<void> {
@@ -383,7 +393,7 @@ export async function waitForTestDatabaseDrops(): Promise<void> {
   if (failedDrops.length === 0) return;
   const named = [...failedDrops].sort((left, right) => (left.database < right.database ? -1 : left.database > right.database ? 1 : 0));
   const detail = named.map((failure) => `"${failure.database}": ${failure.error.message}`).join('; ');
-  throw new Error(`test/test-database.ts:386: ${String(named.length)} queued database drop${named.length === 1 ? '' : 's'} failed, so ${named.length === 1 ? 'this database still stands' : 'these databases still stand'}: ${detail}`);
+  throw new Error(`${String(named.length)} queued database drop${named.length === 1 ? '' : 's'} failed, so ${named.length === 1 ? 'this database still stands' : 'these databases still stand'}: ${detail}`);
 }
 
 /** How many drops the run still owes: a case that closed its owner leaves one until the lane drops its database, and a failed drop keeps its place (ALX-134). */
