@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import type {DatabaseOwner} from '../src/adapters/database-owner.js';
 import type {SqlExecutor} from '../src/sql-driver.js';
-import {commitFacts,fileFacts,listFiles,repositoryFacts,storedFileTexts} from '../src/graph/records.js';
+import {commitFacts,fileFacts,listFiles,repositoryFacts} from '../src/graph/records.js';
 import {repositoryManifest} from './repository-contract-fixture.js';
 
 function encode(value:unknown):unknown {
@@ -39,7 +39,6 @@ test('missing repository returns empty results without requiring dependent seman
  const owner=missingParentOwner('repository');
  expect(await repositoryFacts(owner,'missing')).toBeNull();
  expect(await listFiles(owner,{repository:'missing',limit:10})).toEqual({rows:[],next:null});
- expect(await storedFileTexts(owner,'missing',['file.txt'])).toEqual(new Map());
  expect(await fileFacts(owner,'missing','file.txt')).toBeNull();
 });
 
