@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from './api.js';
-import { createTestHistory } from './test-database.js';
+import { createTestHistory, waitForTestDatabaseDrops } from './test-database.js';
 import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
 
 /** A clock a test moves by hand, never the real one. */
@@ -29,6 +29,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // The teardowns queued their drops (`test-database.ts`): the comparison is of a run whose drops are done.
+  await waitForTestDatabaseDrops();
   expect(await processDatabases()).toEqual(databaseBaseline);
 });
 

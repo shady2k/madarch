@@ -34,7 +34,8 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
 export type TestDatabaseOwner = DatabaseOwner & FillStateDatabase;
 import { bindTestWriteCapability } from './write-capability-fixture.js';
-import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
+import { clusterEndpoint, clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
+import { graphSchemaStamp } from '../src/adapters/schemas/graph-definition.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { sha256Hex } from '../src/graph/digest.js';
@@ -51,8 +52,11 @@ function historyDatabaseOf(stem: string, namespace?: string): string {
 /** The variable naming the run server's socket folder; `run-postgres.ts` sets it before any test file loads. */
 export const TEST_SERVER_VARIABLE = 'MADARCH_TEST_PG_SOCKET';
 
-/** One prepared database on the run's server, never opened by a case. */
-const TEST_DATABASE_TEMPLATE = 'template_madarch_test';
+/** The run's template of one graph contract, never opened by a case. */
+const CONTRACT_TEMPLATE_PREFIX = 'template_madarch_';
+
+/** One prepared template per contract of the run, by the server's socket folder and the template's name. */
+const contractTemplates = new Map<string, Promise<void>>();
 let templateReady: Promise<void> | undefined;
 
 /** How many databases this process has made, so two cases of one file never share a name. */
@@ -64,29 +68,103 @@ function quotedDatabase(name: string): string {
 }
 
 /**
- * Prepares the run's empty-contract store before test cases load. Closing the
- * owner's pool is part of readiness: PostgreSQL cannot clone a connected database.
- * Children on this server reuse the prepared template instead of preparing it again.
+ * How the run names the template of one contract (ALX-105 variant 4): the
+ * contract's own schema stamp, twelve hex characters of it, so a schema change
+ * names a new template and a case of a changed contract never clones the old
+ * schema. PostgreSQL truncates identifiers past 63 bytes; this name stays short.
+ */
+function contractTemplateName(stamp: string): string {
+  return `${CONTRACT_TEMPLATE_PREFIX}${stamp.slice(0, 12)}`;
+}
+
+/** The schema stamp the store of a case would write for the contract the case declares. */
+function contractStamp(declared: GraphContract | undefined): string {
+  return graphSchemaStamp(withAssertionContract(declared ?? EMPTY_CONTRACT));
+}
+
+/** The run server's cluster, for the statements no transaction may hold: `CREATE DATABASE` and a session lock. */
+function runCluster(socketDir: string): { socketDir: string; dataDir: string; port: number; user: string; bin: string; stop: () => Promise<void> } {
+  return { socketDir, dataDir: socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+}
+
+/** The key of one template's creation lock, derived from the template's name so every process of a run agrees. */
+function templateLockKey(name: string): string {
+  return BigInt(`0x${sha256Hex(new TextEncoder().encode(`madarch:test-template:${name}`)).slice(0, 15)}`).toString();
+}
+
+/**
+ * Runs `work` under a session advisory lock of the run's server. `CREATE DATABASE`
+ * may not run inside a transaction, so the transaction-scoped lock the store's
+ * own schema uses cannot hold it: the lock is taken by a connection of its own
+ * and given back when the work is done, whichever way it ended. A process killed
+ * holding it releases it with its connection, so a crashed run never leaves a
+ * template locked.
+ */
+async function withServerLock(socketDir: string, key: string, work: () => Promise<void>): Promise<void> {
+  const { Client } = await import('pg');
+  const client = new Client({ ...clusterEndpoint(socketDir), user: 'postgres', database: 'postgres' });
+  await client.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock($1::bigint)', [key]);
+    await work();
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1::bigint)', [key]).catch(() => undefined);
+    await client.end().catch(() => undefined);
+  }
+}
+
+/**
+ * Makes the run's template of one contract once, under the server's advisory lock
+ * for that template, and answers whether it was there already. A case with an
+ * explicit contract clones this template instead of installing the schema: the
+ * installation is thousands of statements and a checkpoint-free copy is one
+ * (ALX-105, C and H). Closing the owner's pool is part of the preparation —
+ * PostgreSQL cannot clone a database another session is connected to.
+ */
+async function prepareContractTemplate(declared: GraphContract | undefined, socketDir: string, timing?: TestDatabaseOptions['timing']): Promise<{ name: string; reused: boolean }> {
+  const name = contractTemplateName(contractStamp(declared));
+  const key = `${socketDir}\n${name}`;
+  const existing = contractTemplates.get(key);
+  if (existing !== undefined) {
+    timing?.('contract-template-reused', 0);
+    await existing;
+    return { name, reused: true };
+  }
+  let reused = false;
+  const work = (async () => {
+    await withServerLock(socketDir, templateLockKey(name), async () => {
+      const held = await clusterQuery(runCluster(socketDir), 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+      if (held.length !== 0) {
+        reused = true;
+        timing?.('template-already-exists', 0);
+        return;
+      }
+      const preparationStart = performance.now();
+      timing?.('contract-template-preparation-start', 0);
+      const owner = await createDatabaseOwner({ cluster: { socketDir }, database: name });
+      try {
+        await prepareStore(owner, declared === undefined ? {} : { contract: declared });
+      } finally {
+        await owner.close();
+        timing?.('contract-template-preparation', performance.now() - preparationStart);
+      }
+    });
+  })();
+  contractTemplates.set(key, work);
+  // A preparation that failed is not kept: the next case of the contract tries again instead of inheriting the failure.
+  void work.catch(() => { if (contractTemplates.get(key) === work) contractTemplates.delete(key); });
+  await work;
+  return { name, reused };
+}
+
+/**
+ * Prepares the run's empty-contract template before test cases load. Children on
+ * this server reuse the prepared template instead of preparing it again.
  */
 export async function prepareTestDatabaseTemplate(timing?: TestDatabaseOptions['timing']): Promise<void> {
   templateReady ??= (async () => {
     await ensureRunPostgres();
-    const socketDir = testServerSocket();
-    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-    const held = await clusterQuery(cluster, 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DATABASE_TEMPLATE]);
-    if (held.length !== 0) {
-      timing?.('template-already-exists', 0);
-      return;
-    }
-    const preparationStart = performance.now();
-    timing?.('template-preparation-start', 0);
-    const owner = await createDatabaseOwner({ cluster: { socketDir }, database: TEST_DATABASE_TEMPLATE });
-    try {
-      await prepareStore(owner);
-    } finally {
-      await owner.close();
-      timing?.('template-preparation', performance.now() - preparationStart);
-    }
+    await prepareContractTemplate(undefined, testServerSocket(), timing);
   })();
   await templateReady;
 }
@@ -223,18 +301,19 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   // this owner's own fresh one, dropped when the owner closes.
   const database = options.database ?? `t_${String(process.pid)}_${String(made)}`;
   const own = options.database === undefined;
-  const clone = options.graphContract === undefined && options.socket === undefined && own;
+  // A fresh database of the case's own on the run's server clones the run's template of the contract the case
+  // declares (ALX-105 variant 4): the schema is installed once per contract and a case pays a copy of it. A
+  // database the case names, and a server it names, are not the run's to template.
+  const clone = own && options.socket === undefined;
   if (clone) {
     const templateStart = performance.now();
-    const templateWasRequested = templateReady !== undefined;
     options.timing?.('template-ready-start', 0);
-    await prepareTestDatabaseTemplate(options.timing);
-    options.timing?.(templateWasRequested ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
-    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+    const template = await prepareContractTemplate(options.graphContract, socketDir, options.timing);
+    options.timing?.(template.reused ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
     const cloneStart = performance.now();
     options.timing?.('database-clone-start', 0);
     try {
-      await clusterQuery(cluster, 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(TEST_DATABASE_TEMPLATE)}`);
+      await clusterQuery(runCluster(socketDir), 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(template.name)}`);
     } finally {
       options.timing?.('database-clone', performance.now() - cloneStart);
     }
