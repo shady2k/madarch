@@ -55,11 +55,11 @@ async function immutableLookups(executor:SqlExecutor):Promise<ImmutableLookups>{
 async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):Promise<{entities:Map<string,string>;instant:number}>{
  const cache=await immutableLookups(executor);
  const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
- const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT transaction_timestamp()::text AS instant':'SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity')).rows;
+ const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant':'SELECT id::text,name,sort,floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant FROM entity')).rows;
  for(const row of rows)if(row.id!==undefined)cache.kinds.set(row.sort+':'+row.name,row.id);
  const entities=new Map<string,string>();
  for(const name of [...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)]){const id=cache.kinds.get(name);if(id!==undefined)entities.set(name,id);}
- return {entities,instant:Date.parse(rows[0]!.instant)};
+ return {entities,instant:Number(rows[0]!.instant)};
 }
 
 /** Serialize graph operations before any identity or queue locks. */
