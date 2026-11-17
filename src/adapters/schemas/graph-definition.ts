@@ -165,6 +165,7 @@ export function generateContractStatements(declared: GraphContract) {
     END $$`);
     const checks: string[] = [];
     const names: string[] = [];
+    const lookups: string[] = [];
     for (const sort of ['vertex','edge'] as const) {
       for (const kind of contract[sort]) {
         entities.push({name:kind.name,sort:sort === 'vertex' ? 'node':'edge',repeats:sort === 'edge' ? ('repeats' in kind && kind.repeats):false,discriminator:'discriminator' in kind ? kind.discriminator ?? null:null});
@@ -172,6 +173,7 @@ export function generateContractStatements(declared: GraphContract) {
         for (const field of fields) {
           const table = assertionValueTableName(kind.name,sort,field.name);
           names.push(table);
+          if (field.lookup === true) lookups.push(table);
           statements.push(`CREATE TABLE IF NOT EXISTS "${table}" (assertion_id bigint PRIMARY KEY REFERENCES assertion(assertion_id), value ${sqlType(field)}${field.nullable === true ? '' : ' NOT NULL'})`);
           trigger(table, 'immutable', 'graph_immutable', 27, false,
         `CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_immutable()`);
@@ -434,6 +436,7 @@ WITH active_edges AS MATERIALIZED (
         END LOOP;
         RETURN NULL;
       END $$`);
+    for (const table of lookups) statements.push(`CREATE INDEX IF NOT EXISTS "${table}_lookup" ON "${table}"(value)`);
     const keyTables = contract.vertex.flatMap(kind => kind.key.map(name => assertionValueTableName(kind.name,'vertex',name)));
     for (const table of ['node','assertion','assertion_vertex_subject',...keyTables]) {
       trigger(table, 'immutable_key', 'graph_key_check', 5, true,

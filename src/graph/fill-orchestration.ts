@@ -7,7 +7,7 @@ import { byCodePoint } from '../model/order.js';
 import { raise, here, withLocation } from '../fill/fsm-core.js';
 import { withSpan } from '../obs/trace.js';
 import { FACT_RANK_FIELDS } from '../fill/facts.js';
-import { readRunGraphUidIn, readUnitGraphUidIn, type FillStateDatabase, type FillStateSnapshotDatabase } from './fill-state.js';
+import { edgeRowsIn, readRecordsIn, readRunGraphUidIn, readUnitGraphUidIn, type FillStateDatabase, type FillStateSnapshotDatabase } from './fill-state.js';
 import { readKindAssertions as readSelectedKindAssertions, type AssertionRecord } from './records.js';
 import { EMPTY_CONTRACT, type GraphContract } from './contract.js';
 import { startupBinding } from './manifest-publication.js';
@@ -316,22 +316,19 @@ export async function sealSplitIn(tx:SqlExecutor,options:{readonly parentUnitId:
  await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-parent',from:{kind:'system.unit',uid,key:{}},to:{kind:'system.unit',uid:parent,key:{}},discriminator:uid,values:{sealed_at:options.at},producer:binding.sourceUid,producerVersion:binding.contractVersion}]});}
  return options.children.map(item=>({...item,sealedAt:options.at}));
 }
+/** A unit's sealed children (or its parent), from the unit's own `system.unit-parent` edges. */
 async function splits(tx:SqlExecutor,unitId:string,generation:number,parents:boolean):Promise<readonly SealedChild[]>{
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return [];
  const own=await read(tx,'system.unit',uid);if(!own)return [];
- const edges=await readKindAssertions(tx,'edge','system.unit-parent',['sealed_at']);
- const units=await readKindAssertions(tx,'vertex','system.unit',['unit_name','generation']);
- return edges.filter(edge=>(parents?edge.from:edge.to)===own.id&&edge.values.sealed_at!==undefined).map(edge=>{const unit=units.find(row=>row.id===(parents?edge.to:edge.from));if(!unit)throw new Error(`${import.meta.path}: split endpoint missing`);return {unitId:String(unit.values.unit_name),generation:Number(unit.values.generation),sealedAt:Number(edge.values.sealed_at)};}).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
+ // `system.unit-parent` is written child -> parent: the unit's own end names which way the walk goes.
+ const edges=await edgeRowsIn(tx,'system.unit-parent',parents?'from':'to',[own.id]);
+ const sealed=new Map((await readRecordsIn(tx,'edge','system.unit-parent',['sealed_at'],edges.map(edge=>edge.id))).map(edge=>[edge.id,edge.values['sealed_at']]));
+ const reached=edges.filter(edge=>sealed.get(edge.id)!==undefined);
+ const other=new Map((await readRecordsIn(tx,'vertex','system.unit',['unit_name','generation'],reached.map(edge=>parents?edge.to:edge.from))).map(unit=>[unit.id,unit]));
+ return reached.map(edge=>{const unit=other.get(parents?edge.to:edge.from);if(!unit)throw new Error(`${import.meta.path}: split endpoint missing`);return {unitId:String(unit.values['unit_name']),generation:Number(unit.values['generation']),sealedAt:Number(sealed.get(edge.id))};}).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
 }
 export async function readSealedChildren(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,false));}
 export async function readSplitParents(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,true));}
-export async function readPublicationIn(tx:SqlExecutor,unitId:string,generation:number):Promise<PublicationRecord|null>{
- const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return null;
- const unit=await read(tx,'system.unit',uid);if(!unit||unit.values.state!=='published')return null;
- const operations=await related(tx,'system.operation','system.operation-unit',uid);
- const terminal=operations.find(row=>row.values.key==='complete');if(!terminal)return null;
- return {unitId,generation,digest:String(terminal.values.digest),facts:Number(unit.values.produced??0),publishedAt:Number(unit.values.published_at??unit.values.updated_at??0)};
-}
 export async function writeFillEnd(database:OrchestratorDatabase,end:FillEnd):Promise<void>{await transaction(database,'write',async tx=>{
  await locked(tx);const uid=await requiredRun(tx,end.runId);await write(tx,'system.run',uid,{end_recorded:true,end_state:end.state,end_message:end.message??''});
  const previous=await related(tx,'system.unread','system.unread-run',uid),{contract,binding}=await orchestrationBinding(tx);
@@ -372,17 +369,24 @@ export async function readRunStagePlans(database:FillStateSnapshotDatabase,runId
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
 });}
+/** A run's units, from the run: its own `system.unit-run` edges name them. */
 async function runUnits(tx:SqlExecutor,runId:string):Promise<AssertionRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
- const edges=await readKindAssertions(tx,'edge','system.unit-run',[]),run=await read(tx,'system.run',uid);if(!run)return [];
- const ids=new Set(edges.filter(edge=>edge.to===run.id).map(edge=>edge.from));
- return (await readKindAssertions(tx,'vertex','system.unit',unitFields)).filter(row=>ids.has(row.id));
+ const run=await read(tx,'system.run',uid);if(!run)return [];
+ return await readRecordsIn(tx,'vertex','system.unit',unitFields,(await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from));
 }
+/** The publications of a run's published units: their operations are read once, not a unit at a time. */
 async function publications(tx:SqlExecutor,runId:string):Promise<{record:PublicationRecord;stageId:string}[]>{
+ const units=(await runUnits(tx,runId)).filter(unit=>unit.values['state']==='published');
+ if(units.length===0)return [];
+ const links=await edgeRowsIn(tx,'system.operation-unit','to',units.map(unit=>unit.id));
+ const operations=await readRecordsIn(tx,'vertex','system.operation',fields['system.operation']??[],links.map(link=>link.from));
+ const held=new Map(operations.map(operation=>[operation.id,operation]));
  const out:{record:PublicationRecord;stageId:string}[]=[];
- for(const unit of await runUnits(tx,runId)){
-  const record=await readPublicationIn(tx,String(unit.values.unit_name),Number(unit.values.generation));
-  if(record)out.push({record,stageId:String(unit.values.stage_name)});
+ for(const unit of units){
+  const terminal=links.filter(link=>link.to===unit.id).map(link=>held.get(link.from)).find(operation=>operation!==undefined&&operation.values['key']==='complete');
+  if(terminal===undefined)continue;
+  out.push({record:{unitId:String(unit.values['unit_name']),generation:Number(unit.values['generation']),digest:String(terminal.values.digest),facts:Number(unit.values['produced']??0),publishedAt:Number(unit.values['published_at']??unit.values['updated_at']??0)},stageId:String(unit.values['stage_name'])});
  }
  return out;
 }
@@ -396,8 +400,8 @@ async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promis
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return null;
  const unit=await read(tx,'system.unit',uid),v=unit?.values;if(!v||v.planned_at===undefined)return null;
  const versions=await related(tx,'system.unit-cache-version','system.unit-cache-version-unit',uid);
- const edges=await readKindAssertions(tx,'edge','system.unit-run',[]),edge=edges.find(edge=>edge.from===unit!.id);
- const run=(await readKindAssertions(tx,'vertex','system.run',['run_name'])).find(row=>row.id===edge?.to);
+ const edge=(await edgeRowsIn(tx,'system.unit-run','from',[unit!.id]))[0];
+ const run=edge===undefined?undefined:(await readRecordsIn(tx,'vertex','system.run',['run_name'],[edge.to]))[0];
  if(!run)throw new Error(`${import.meta.path}: planned unit ${unitId}/${generation} has no run`);
  return {unitId,generation,runId:String(run.values.run_name),stageId:String(v.plan_stage_name),stageUnitId:String(v.plan_stage_unit_name),scope:String(v.plan_scope),stagePosition:Number(v.plan_stage_position),planPosition:Number(v.plan_position),plannedAt:Number(v.planned_at),...(versions.length?{cacheVersions:Object.fromEntries(versions.map(row=>[String(row.values.name),String(row.values.version)]))}:{})};
 }

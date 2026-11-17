@@ -212,8 +212,10 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     async filled(folder: string): Promise<boolean> {
       const held = await opened(folder);
       if (held === undefined) return false;
+      const read = readProduct(resolve(folder));
+      if (!read.ok) throw new Error(`the filled state of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
       const { hasSuccessfulFill } = await import('../graph/fill-state.js');
-      return await hasSuccessfulFill(held.fillState);
+      return await hasSuccessfulFill(held.fillState, read.product.name);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
       const held = await opened(request.product.folder);
