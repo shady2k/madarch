@@ -359,25 +359,8 @@ export function generateContractStatements(declared: GraphContract) {
     return {contract, statements, triggers, entities, entityStatement};
 }
 
-const schemaStamps = new WeakMap<GraphContract, string>();
-
-/** An identity cache is safe only while the declaration cannot change. */
-function freezeContract(value: object, seen = new WeakSet<object>()): void {
-  if (seen.has(value)) return;
-  seen.add(value);
-  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
-    if ('value' in descriptor && descriptor.value !== null && typeof descriptor.value === 'object') {
-      freezeContract(descriptor.value, seen);
-    }
-  }
-  Object.freeze(value);
-}
-
 /** Canonical declarations and every generated statement define a prepared schema. */
 export function graphSchemaStamp(contract: GraphContract): string {
-  const cached = schemaStamps.get(contract);
-  if (cached !== undefined) return cached;
-  freezeContract(contract);
   const generated = generateContractStatements(contract);
   const declaration = JSON.stringify(generated.contract, (_key, value: unknown) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
@@ -386,6 +369,5 @@ export function graphSchemaStamp(contract: GraphContract): string {
   });
   const stamp = sha256Hex(new TextEncoder().encode([String(SCHEMA_REVISION), ...SCHEMA, declaration,
     ...generated.statements, ...generated.triggers.map(trigger => trigger.statement), generated.entityStatement].join('\n')));
-  schemaStamps.set(contract, stamp);
   return stamp;
 }

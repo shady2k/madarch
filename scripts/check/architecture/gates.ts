@@ -1509,8 +1509,8 @@ function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<st
       const quasis = entry['quasis'] as Node[];
       return (entry['expressions'] as Node[]).some((expression, index) => {
         const prefix = quasis.slice(0, index + 1).map(quasi => String(quasi['cooked'])).join('${expression}');
-        const target = /CREATE (?:OR REPLACE |CONSTRAINT )?TRIGGER \S+ (?:BEFORE|AFTER|INSTEAD OF) (?:INSERT|UPDATE(?: OF [\w, ]+)?|DELETE|TRUNCATE)(?: OR (?:INSERT|UPDATE|DELETE|TRUNCATE))* ON ("?)$/u.exec(prefix);
-        return target !== null && String(quasis[index + 1]?.['cooked']).startsWith(`${target[1]} `)
+        const target = /CREATE\s+(?:OR\s+REPLACE\s+|CONSTRAINT\s+)?TRIGGER\s+\S+\s+(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE(?:\s+OF\s+[\w,\s]+)?|DELETE|TRUNCATE)(?:\s+OR\s+(?:INSERT|UPDATE|DELETE|TRUNCATE))*\s+ON\s+("?)$/u.exec(prefix);
+        return target !== null && new RegExp(`^${target[1]}\\s`, 'u').test(String(quasis[index + 1]?.['cooked']))
           && named(expression, String(binding['value'])) && expression['ctxt'] === binding['ctxt'];
       });
     });

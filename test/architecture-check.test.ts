@@ -126,6 +126,24 @@ describe('the architecture check', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  for (const [name, space] of [['two spaces', '  '], ['tab', '\t'], ['newline', '\n']] as const) {
+    test(`trigger header accepts ${name} whitespace`, async () => {
+      const root = fixtureProject();
+      try {
+        writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: context', '    type: text']);
+        writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+          'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS context (id bigint)`];',
+          'export function generate() {',
+          "  for (const table of ['context']) {",
+          '    const statement = `CREATE' + space + 'CONSTRAINT' + space + 'TRIGGER' + space + 'dirty' + space + 'AFTER' + space + 'UPDATE' + space + 'OF' + space + 'id' + space + 'OR' + space + 'INSERT' + space + 'ON' + space + '"${table}"' + space + 'FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+          '  }',
+          '}',
+        ]);
+        expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([]);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  }
+
   test('a trigger name interpolation does not prove the loop table is its target', async () => {
     const root = fixtureProject();
     try {
