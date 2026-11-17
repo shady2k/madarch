@@ -24,3 +24,5 @@ labels:
 description:
   en: A flag set gathers the feature flags that apply to one product, one environment or one sales plan, and gives the provider's answers as a whole. It is what a caller usually loads at once.
   ru: Набор флагов собирает флаги функций, относящиеся к одному продукту, одной среде или одному тарифу, и даёт ответы поставщика целиком. Обычно вызывающий загружает его за один раз.
+derives-from:
+- flag-provider

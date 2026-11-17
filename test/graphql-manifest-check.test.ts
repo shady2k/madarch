@@ -1,6 +1,6 @@
 /**
- * The manifest check refuses a field that collides with a relation the Entity interface carries (decision 0036,
- * section 1): a kind that declares `mentions` while the `mentions` edge stands on every entity refuses the manifest,
+ * The manifest check refuses a field that collides with a declared relation (decision 0036,
+ * section 1): a kind that declares `mentions` while the `mentions` edge stands on that kind refuses the manifest,
  * naming both declarations.
  */
 import { describe, expect, test } from 'bun:test';

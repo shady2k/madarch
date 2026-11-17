@@ -545,7 +545,7 @@ async function answerNow(
   query: string,
 ): Promise<{ readonly kind: 'read'; readonly rows: readonly unknown[] } | { readonly kind: 'unanswered'; readonly reason: string }> {
   try {
-    return { kind: 'read', rows: await reader.query(query) };
+    return { kind: 'read', rows: await withSpan('graph.orchestrator.answerNow', {}, async () => await reader.query(query)) };
   } catch (error) {
     if (error instanceof SnapshotError || error instanceof GraphReadRefusal) return { kind: 'unanswered', reason: error.message };
     throw error;
@@ -1589,7 +1589,7 @@ async function attemptUnitPhases(
     const active = new Set<Promise<readonly unknown[]>>();
     const query = async (text: string): Promise<readonly unknown[]> => {
       if (closed) throw new Error('the attempt graph reader is closed');
-      const rows = await reader.query(text);
+      const rows = await withSpan('graph.orchestrator.trackedReader', {}, async () => await reader.query(text));
       if (closed) throw new Error('the attempt graph reader is closed');
       const read = { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() };
       const event = { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` };
@@ -1604,7 +1604,7 @@ async function attemptUnitPhases(
     };
     return {
       graph: { query: (text: string) => {
-        const pending = query(text);
+        const pending = withSpan('graph.orchestrator.trackedReader', {}, async () => await query(text));
         active.add(pending);
         void pending.then(() => active.delete(pending), () => active.delete(pending));
         return pending;
@@ -1935,7 +1935,24 @@ export interface RefusedRunStart {
 /** How long a live run with no lease at all may stand unchanged before the next start treats its process as gone. */
 export const RUN_ORPHAN_AFTER_MS = 5 * 60_000;
 
-/** The token a run's owner renews its lease under: its process token, or one scoped to the run. */
+/** The pg-boss claim the caller holds while driving a pressed fill. No separate run lease is stored. */
+export interface RunClaim {
+  readonly queue: string;
+  readonly job: ClaimedJob<unknown>;
+}
+
+/** Heartbeats only the queue's own claim; stopping the service leaves recovery to pg-boss. */
+export function beginRunHeartbeat(orchestrator: FillOrchestrator, runId: string, claim: RunClaim | undefined): void {
+  stopHeartbeat(orchestrator);
+  if (claim === undefined) return;
+  orchestrator.heartbeat.runId = runId;
+  const timer = setInterval(() => {
+    void orchestrator.queue.heartbeat(claim.queue, claim.job).catch(() => undefined);
+  }, 5_000);
+  timer.unref?.();
+  orchestrator.heartbeat.timer = timer;
+}
+
 /** Stops the heartbeat when no run of this orchestrator is live. */
 export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
   const heartbeat = orchestrator.heartbeat;
@@ -1946,21 +1963,19 @@ export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestra
   heartbeat.ownerToken = null;
 }
 
-/**
- * Ends a run whose owner's lease lapsed: the recovery claims the expired lease
- * under the same row lock a planning step uses, so a live planner renewing it
- * wins and this writes nothing. A lease with time left is the owner's proof that
- * it is alive on every platform; elapsed state age is only the fallback for a
- * run that predates the lease and has no identity to read.
- */
+/** Ends the prior attempt only on pg-boss retry proof; direct runs retain the unchanged-state recovery window. */
 export async function recoverOrphanedRun(
   orchestrator: FillOrchestrator,
-  options: { readonly runId: string; readonly at: number; readonly afterMs?: number },
+  options: { readonly runId: string; readonly at: number; readonly afterMs?: number; readonly claim?: RunClaim },
 ): Promise<RunRecord | null> {
   const run = await readRun(orchestrator.database, options.runId);
   if (run === null || isFinalRunState(run.state)) return run;
   if (!['created', 'planning', 'running', 'pausing', 'cancelling'].includes(run.state)) return run;
-  if(options.at-run.updatedAt<(options.afterMs??RUN_ORPHAN_AFTER_MS))return null;
+  const queuedRun = options.claim?.job.data as { readonly runId?: unknown } | undefined;
+  // A retry is queue proof that the prior attempt ended. A first claim proves no prior owner died.
+  if (options.claim !== undefined) {
+    if (queuedRun?.runId !== run.runId || options.claim.job.attempt < 1) return null;
+  } else if (options.at - run.updatedAt < (options.afterMs ?? RUN_ORPHAN_AFTER_MS)) return null;
   await skipOutstandingUnits(orchestrator, run, 'the process that ran it ended');
   const failed = await advanceRun(orchestrator.database, { runId: run.runId, event: { type: 'fail', at: options.at, cause: 'process-ended', detail: 'the process that ran it ended' } });
   if (!failed.ok) return run;
@@ -1974,14 +1989,14 @@ export async function recoverOrphanedRun(
  * never ran starts this run; a quiescent one wakes for it; a chain already
  * following another run is refused, because one product fills one run at a time.
  */
-export async function startRun(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<StartedRun | RefusedRunStart> {
+export async function startRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly claim?: RunClaim }): Promise<StartedRun | RefusedRunStart> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   // A run the next start finds live but unchanged past the orphan window is ended before admission: a
   // process that died leaves no run standing `running` for ever.
   const known = await readChain(database, orchestrator.product);
-  if (known?.context.activeRunId !== null && known?.context.activeRunId !== undefined && known.context.activeRunId !== options.runId) {
-    await recoverOrphanedRun(orchestrator, { runId: known.context.activeRunId, at });
+  if (known?.context.activeRunId !== null && known?.context.activeRunId !== undefined && (known.context.activeRunId !== options.runId || (options.claim?.job.attempt ?? 0) > 0)) {
+    await recoverOrphanedRun(orchestrator, { runId: known.context.activeRunId, at, ...(options.claim === undefined ? {} : { claim: options.claim }) });
   }
   const chain = await openChain(database, { product: orchestrator.product, at });
   const existing = await readRun(database, options.runId);

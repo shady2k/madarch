@@ -85,7 +85,7 @@ test('0039.26: a source retraction masks its own stream, not another source', as
 
 test.each([['definition', 3], ['amount', 'three'], ['amount', 2147483648]] as const)('0039.7: invalid %s=%s rolls back all identities and assertions', async (field, value) => {
   await fixture(async owner => {
-    await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...term('bad'), values: { [field]: value } }], removals: [] }); })).rejects.toThrow('TYPE_MISMATCH');
+    await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [{ ...term('bad'), values: { [field]: value } }], removals: [] }); })).rejects.toMatchObject({ code: 'SCHEMA_INVALID', path: `/values/${field}`, actual: value, retryable: false });
     expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
     expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
   });
@@ -311,5 +311,62 @@ test('0039.25: time intervals are checked and recorded sequence is assigned by s
     expect((await selected(owner))[0]?.selected ?? null).toBeNull();
     await expect(owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); const node = await ensureVertex(tx, graph, ref('a')); await writeAssertion(tx, graph, { kind: 'fixture.term', sort: 'vertex', subjectId: node.nodeId, property: 'definition', operation: 'assert', value: 'bad', validFrom: '2021-01-01T00:00:00Z', validTo: '2020-01-01T00:00:00Z' }); })).rejects.toThrow();
     expect(await owner.run(tx => loadAssertions(tx, 'vertex', 'fixture.term', ['definition']))).toHaveLength(1);
+  });
+});
+
+
+test('bulk identities survive retry and registrations do not survive rollback', async () => {
+  await fixture(async owner => {
+    const keys = ['batch-a', 'batch-b'];
+    await expect(owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      for (const name of keys) await ensureVertex(tx, graph, ref(name));
+      throw new Error('rollback registrations');
+    })).rejects.toThrow('rollback registrations');
+    expect((await owner.run(tx => tx.query("SELECT * FROM node WHERE key->>'name' IN ('batch-a','batch-b')"))).rows).toEqual([]);
+    const create = async () => await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: keys.map(name => term(name)), removals: [] });
+      const made = [];
+      for (const name of keys) made.push(await ensureVertex(tx, graph, ref(name)));
+      return made;
+    });
+    const first = await create();
+    const again = await create();
+    expect(again.map(node => [node.nodeId, node.uid])).toEqual(first.map(node => [node.nodeId, node.uid]));
+    expect(new Set(first.map(node => node.uid)).size).toBe(2);
+  });
+});
+
+test('bulk repeated edges keep shared endpoints, discriminators, typed values and rollback', async () => {
+  await fixture(async owner => {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: ['a', 'b', 'c'].map(name => term(name)), removals: [] });
+    });
+    const edges = [
+      { from: ref('a'), to: ref('b'), discriminator: 'first', values: { weight: 1 } },
+      { from: ref('a'), to: ref('c'), discriminator: 'second', values: { weight: 2 } },
+      { from: ref('a'), to: ref('b'), discriminator: 'third', values: { weight: 3 } },
+    ].map(edge => ({ ...edge, kind: 'fixture.links', producer: 'fixture', producerVersion: '1' }));
+    const publish = async (rollback = false) => await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [], edges, removals: [] });
+      if (rollback) throw new Error('rollback edge batch');
+    });
+    const read = async () => await owner.run(tx => loadAssertions(tx, 'edge', 'fixture.links', ['$exists', 'weight']));
+    await expect(publish(true)).rejects.toThrow('rollback edge batch');
+    expect(await read()).toEqual([]);
+    await publish();
+    const first = await read();
+    expect(first.filter(row => row.property === '$exists')).toHaveLength(3);
+    expect(first.filter(row => row.property === 'weight').map(row => row.value).sort()).toEqual([1, 2, 3]);
+    const identities = await owner.run(tx => tx.query<{ uid: string; discriminator: string }>("SELECT e.uid::text, e.discriminator FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='fixture.links' ORDER BY e.discriminator"));
+    expect(identities.rows.map(row => row.discriminator)).toEqual(['first', 'second', 'third']);
+    await publish();
+    const repeated = await owner.run(tx => tx.query<{ uid: string; discriminator: string }>("SELECT e.uid::text, e.discriminator FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='fixture.links' ORDER BY e.discriminator"));
+    expect(repeated.rows).toEqual(identities.rows);
+    const now = new Date().toISOString();
+    expect([...selectAssertionSlots(await read(), { validAt: now, recordedAt: now, contexts: [1] }).values()]).toHaveLength(6);
   });
 });

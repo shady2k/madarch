@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A rollout moves traffic from the old version to the new in steps: a few instances, a share of users, one region at a time. At each pause it watches health and can stop or reverse the change.'
   ru: 'Постепенное развёртывание переводит трафик со старой версии на новую шагами: несколько экземпляров, доля пользователей, по одному региону. На каждой паузе оно следит за здоровьем и может остановить или отменить изменение.'
+derives-from:
+- deployment
+- release-gate

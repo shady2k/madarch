@@ -11,7 +11,7 @@ import { Button } from './ui/button.js';
 import { FilterBar, FilterField } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
 import { SearchGroupTitle, SearchResultLink, SearchResults } from './ui/search-results.js';
-import { Metadata, Paragraph, Stack } from './ui/typography.js';
+import { Metadata, Paragraph, Stack, Text } from './ui/typography.js';
 import { follow } from './relations.js';
 import type { SectionContext } from './types.js';
 
@@ -23,6 +23,8 @@ const RESULTS_CONTROL = {
 export interface SearchHit {
   readonly node: Record<string, unknown>;
   readonly line: string;
+  /** The text of the field the words were found in: the answer's excerpt. */
+  readonly matched: string;
 }
 
 /** One kind's answers: its name, the catalogue's word for it, how many it holds and its best rows. */
@@ -35,7 +37,7 @@ export interface SearchGroup {
 
 /** The query one search runs: the grouped root of section 7, over every kind or the ones a section names. */
 export function searchQuery(kinds: readonly string[] | undefined): string {
-  const selection = 'kind label count results { node { id kind label template } line }';
+  const selection = 'kind label count results { node { id kind label template } line matched }';
   return kinds === undefined
     ? `query Search($text: String!, $perKind: Int, $lang: String) { searchGroups(text: $text, perKind: $perKind, lang: $lang) { ${selection} } }`
     : `query Search($text: String!, $perKind: Int, $kinds: [String!], $lang: String) { searchGroups(text: $text, kinds: $kinds, perKind: $perKind, lang: $lang) { ${selection} } }`;
@@ -82,6 +84,21 @@ export function rowsOf(groups: readonly SearchGroup[], base: string): SearchRow[
   return rows;
 }
 
+/**
+ * One answer: the entity's own name, and under it the matched line when it says more than the name (a commit's short hash
+ * and its message, a kind's definition).
+ */
+function titleOfHit(hit: SearchHit): ReactElement {
+  const label = typeof hit.node['label'] === 'string' ? hit.node['label'] : '';
+  const excerpt = hit.matched === '' || hit.matched === label ? null : hit.matched;
+  return (
+    <>
+      <Text data-testid="search-title">{label === '' ? hit.line : label}</Text>
+      {excerpt === null ? null : <Text data-testid="search-excerpt">{excerpt}</Text>}
+    </>
+  );
+}
+
 /** The answers grouped by kind: each kind's word and count, its best rows, and the way to the whole answer. */
 export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 }: {
   readonly groups: readonly SearchGroup[];
@@ -109,12 +126,12 @@ export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 
             const here = at === active;
             return href === undefined
               ? <Paragraph key={hit.line}>{hit.line}</Paragraph>
-              : <SearchResultLink key={href} active={here} aria-current={here ? 'true' : undefined} data-testid="search-row" href={href} onClick={follow(open, href)}>{hit.line}</SearchResultLink>;
+              : <SearchResultLink key={href} active={here} aria-current={here ? 'true' : undefined} data-testid="search-row" href={href} {...follow(open, href)}>{titleOfHit(hit)}</SearchResultLink>;
           })}
         </div>
       ))}
       {resultsHref === undefined ? null : (
-        <SearchResultLink active={false} href={base + resultsHref} onClick={follow(open, base + resultsHref)} data-testid="search-all">
+        <SearchResultLink active={false} href={base + resultsHref} {...follow(open, base + resultsHref)} data-testid="search-all">
           {t('knowledge.searchAll', { count: total })}
         </SearchResultLink>
       )}

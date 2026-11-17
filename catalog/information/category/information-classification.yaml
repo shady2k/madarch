@@ -24,3 +24,6 @@ labels:
 description:
   en: An information classification puts a piece of information at one level of sensitivity, such as public, internal, confidential or secret. The level decides who is allowed to read it and how it must be protected while stored and sent.
   ru: 'Уровень секретности относит сведения к одной ступени чувствительности: открытые, внутренние, конфиденциальные или секретные. От уровня зависит, кому разрешено их читать и как их защищать при хранении и передаче.'
+derives-from:
+- information-category
+- information-item

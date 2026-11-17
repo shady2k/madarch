@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An SSO configuration ties a service to one identity provider: which issuer it trusts, which client it is, which claims it reads and how it maps them to roles. It lets people sign in once and reach the service without a separate password.'
   ru: 'Настройка SSO связывает сервис с одним поставщиком идентичности: какому издателю он доверяет, какой он клиент, какие утверждения читает и как переводит их в роли. Она позволяет человеку войти один раз и попасть в сервис без отдельного пароля.'
+derives-from:
+- code.service
+- iam-account

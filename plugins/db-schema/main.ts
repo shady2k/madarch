@@ -732,7 +732,17 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       while (nextFile < definitions.length) {
         const index = nextFile++;
         const file = definitions[index]!;
-        contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content', file.keyEdges);
+        // The text is the blob the graph names, read through the host (decision 0037): this plugin holds no environment,
+        // and the host routes the read to the core plugin that owns git's store (decision 0038).
+        const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
+        if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
+        try {
+          const read = await context.read({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), blob });
+          contents[index] = read.binary ? undefined : read.text;
+        } catch {
+          // A read the host cannot answer leaves this file out: the other files' facts stand.
+          contents[index] = undefined;
+        }
       }
     }));
     for (const [index, file] of definitions.entries()) {
@@ -848,7 +858,7 @@ function answerOf(model: Model): UnitResult {
 
 /**
  * One entity's field values, by field name. They are assembled here, in one function per kind, and nowhere else: protocol
- * `madarch.plugins/2` answers one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
+ * `madarch.plugins/3` reconciles one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
  * a move to it changes `vertexOf` and the declaration's field markers alone, never the reading below.
  */
 type Values = Readonly<Record<string, unknown>>;

@@ -5,8 +5,9 @@
  * `madarch/kinds/<group>/<subgroup>/<kind>.yaml` declares each kind,
  * including where its entities come from
  * (the graph, or Markdown files in the product repository) and the template
- * that shows them. The engine holds no kind of its own: nothing here names a
- * kind, a folder or a template, and a product without the file has no pages.
+ * that shows them. A product may explicitly extend a protected engine system
+ * kind. This reader admits extensions; installation and durable contract-version
+ * activation belong to the graph bootstrap.
  *
  * ```yaml
  * kinds:
@@ -36,6 +37,7 @@
 import { ROLE_BINDING_SCHEMA, semanticRoleFields, semanticRoleEdges } from '../../model/semantic-role-protocol.js';
 import { MANIFEST_CONTRACT } from '../../graph/manifest-contract.js';
 import { withAssertionContract } from '../../graph/system-contract.js';
+import { withSpanSync } from '../../obs/trace.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
@@ -56,7 +58,8 @@ import { PluginManifest } from '../../plugin/closure.js';
 import { FIELD_TYPES, fieldTypeOf, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords, type VertexContract, type EdgeContract } from '../../graph/contract.js';
 import { byCodePoint } from '../../model/order.js';
 import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
-import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
+import { checkValueTypes, resolveValueSchema, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
+import { systemKindPresentation } from './system-catalogue.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/catalog.yaml';
@@ -323,7 +326,14 @@ export interface PurposeDecl {
   line: number;
 }
 
+/** Exact suffixes and basenames mapped to the catalogue's normalized technology names. */
+export interface ProfileTechnologyMap {
+  readonly extensions: Readonly<Record<string, string>>;
+  readonly filenames: Readonly<Record<string, string>>;
+}
+
 export interface KindDecl {
+  readonly duplicateSubjectEdge?:string;
   readonly systemBase?: VertexContract;
   readonly evidence?: { readonly immutable: true; readonly digestField?: string; readonly contentField?: string; readonly digestAlgorithm?: 'sha256' };
   readonly templatePolicy?: 'page' | 'member' | 'none';
@@ -415,6 +425,17 @@ export interface KindDecl {
    * This kind holds the product's value sets, and the roles below name its fields: `name`, `label-en`, `label-ru`,
    * and optionally `description` and `order`. The engine finds the kind by this declaration, never by its name.
    */
+  /**
+   * This kind holds the product's page templates (the owner's decision of 2026-11-15): the `name` role names the
+   * template's name and the `body` role its text; `path`, when declared, names the file it was read from.
+   */
+  readonly pageTemplate?: Readonly<Record<string, string>>;
+  /**
+   * This kind holds a repository's files, and these roles name what a read of one needs (decision 0037): `repository`
+   * and `path` find the entity, and `blob` names the bytes git serves. The engine finds the kind by this declaration,
+   * never by its name.
+   */
+  readonly fileText?: Readonly<Record<string, string>>;
   readonly referenceSet?: Readonly<Record<string, string>>;
   /**
    * This kind holds the entries of the product's value sets, with roles `set`, `value`, `label-en`, `label-ru`, and
@@ -427,6 +448,11 @@ export interface KindDecl {
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
   derivesFrom?: readonly string[];
+  /** 0039 item 35: absence propagates only through these explicit dependencies. */
+  profileMarkers?: Readonly<Record<string, readonly string[]>>;
+  /** Normalized values, unlike profileMarkers which retains matching paths. */
+  profileTechnologies?: Readonly<Record<string, ProfileTechnologyMap>>;
+  applicability?: { readonly dependencies: readonly string[]; readonly markers: readonly string[]; readonly profile?: string };
   /**
    * The classes a kind's entities take, decided by path patterns the catalogue declares (a file's code, test,
    * documentation, dependency or generated class): the first rule whose pattern matches names the class, and the one
@@ -714,9 +740,9 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
  * the check read this one list: a field added here is listed by the finding and expected by the test alike.
  */
 export const KIND_FIELDS: readonly string[] = [
-  'contract-uid', 'identity', 'evidence', 'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'naming', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'contract-uid', 'identity', 'evidence', 'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'naming', 'duplicate-subject-edge', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'key-edges', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'key-edges', 'capability', 'derives-from', 'applicability', 'profile-markers', 'profile-technologies', 'agent', 'classes', 'exclude', 'page-template', 'file-text',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -1694,14 +1720,15 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     let decl = raw;
     const inherited = raw['extends'];
     if ((protectedGraphKinds.has(name) || protectedGraphEdges.has(name)) && inherited === undefined) {
-      problem([], 'a protected name requires extends: system:<same name> (0039 item 9)');
+      problem([], `a protected name requires extends: system:${name} (0039 item 9)`);
       continue;
     }
     const base = inherited === undefined ? undefined : protectedContract.vertex.find((kind) => inherited === `system:${kind.name}` && kind.name === name);
     if (inherited !== undefined) {
       const start = findings.length;
       if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned kind as its declaration'); continue; }
-      for (const field of ['key', 'key-edges', 'capability', 'identity', 'contract-uid', 'evidence'] as const) if (raw[field] !== undefined) problem([field], `a system extension cannot replace its inherited ${field}`);
+      const metadata = new Set(['extends', 'fields', 'source', 'derives-from', 'title', 'labels', 'description', 'group', 'origin', 'purpose', 'audience', 'facts', 'attributes', 'details', 'relations', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'member', 'import-folder', 'import-file', ...CATALOG_ONLY_FIELDS]);
+      for (const key of Object.keys(raw)) if (!metadata.has(key)) problem([key], `"${key}" cannot replace an inherited system contract`);
       if (raw['source'] !== undefined && raw['source'] !== 'graph') problem(['source'], 'a system extension has source graph');
       const additions = raw['fields'];
       if (additions !== undefined && !Array.isArray(additions)) problem(['fields'], 'a system extension adds a list of nullable fields');
@@ -1712,7 +1739,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       }
       if (findings.length !== start) continue;
       const { extends: _inherited, ...overlay } = raw;
-      decl = { source: 'graph', ...overlay };
+      decl = { ...systemKindPresentation(name), source: 'graph', ...overlay };
+    } else if (inherited !== undefined) {
+      problem(['extends'], 'a system extension names the same protected kind as its declaration');
+      continue;
     }
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`);
@@ -1746,6 +1776,11 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none' && decl['source'] === undefined && decl['fields'] === undefined && decl['key'] === undefined && decl['key-edges'] === undefined) continue;
     if (policy === 'none') {
+      if (base !== undefined) {
+        if (raw['fields'] !== undefined) catalogProblem(['fields'], 'a system extension with template-policy none cannot add graph fields before activation');
+        for (const field of ['source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (raw[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+        continue;
+      }
       if (decl['source'] !== undefined && decl['source'] !== 'graph') catalogProblem(['source'], 'a kind with template-policy none may declare only source graph');
       for (const field of ['folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
     }
@@ -1931,7 +1966,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const parseBinding = (raw: unknown, path: (string | number)[]): FieldBinding | undefined | null => {
       if (raw === undefined) return undefined;
       if (typeof raw === 'string') {
-        const parsed = BINDING_PATTERN.exec(raw);
+        const parsed = raw.match(BINDING_PATTERN);
         if (parsed === null) { problem(path, `"binding" is "<plugin>@<major>.<field>" (a plugin id, the major version the manifest binds, and a field the plugin declares), and is ${JSON.stringify(raw)}`); return null; }
         return { kind: 'plugin', plugin: parsed[1]!, major: parsed[2]!, field: parsed[3]! };
       }
@@ -2060,7 +2095,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     if (Array.isArray(key) && new Set(key).size !== key.length) problem(['key'], 'scalar key fields are ordered and unique (0039 item 28)');
-    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
+    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry' | 'page-template' | 'file-text', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
       const raw = decl[field];
       if (raw === undefined) return undefined;
       if (!isRecord(raw)) { problem([field], `"${field}" maps a role to the kind's field that holds it`); return undefined; }
@@ -2069,7 +2104,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const fieldNames = new Set(fields.map((one) => one.name));
       for (const [role, name] of Object.entries(body)) {
         if (!/^[a-z][a-z0-9-]*$/.test(role)) { problem([field, role], `"${role}" is a lower-case role name`); continue; }
-        if (typeof name !== 'string' || (!fieldNames.has(name) && !(field === 'reference-set-entry' && role === 'set' && keyEdges.some((held) => held.role === name)))) { problem([field, role], `role "${role}" names a field this kind declares`); continue; }
+        if (typeof name !== 'string' || (!fieldNames.has(name) && !(((field === 'reference-set-entry' && role === 'set') || (field === 'file-text' && role === 'repository')) && keyEdges.some((held) => held.role === name)))) { problem([field, role], `role "${role}" names a field this kind declares`); continue; }
         roles[role] = name;
       }
       const before = findings.length;
@@ -2077,6 +2112,15 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (new Set(Object.values(roles)).size !== Object.values(roles).length) problem([field], `"${field}" gives one role per field`);
       return findings.length === before ? roles : undefined;
     };
+    /**
+     * The kind whose entities are the product's page templates (decision 0036, section 6; the owner's decision of
+     * 2026-11-15): its `name` and `body` roles name the template's name and its text, and `path` names the file it came
+     * from when the kind declares it. The engine finds the kind by this declaration, never by its name.
+     */
+    const pageTemplate = valueSetRoles('page-template', ['name', 'body']);
+    // The roles a file's entity names its repository, path and blob by: the engine reads no file by a name of its own.
+    const fileText = valueSetRoles('file-text', ['repository', 'path', 'blob']);
+    if (fileText !== undefined && !keyEdges.some(edge => edge.role === fileText['repository'])) problem(['file-text', 'repository'], 'the repository role names a declared key-edge role, never a scalar field (0039)');
     const valueSet = valueSetRoles('reference-set', ['name', 'label-en', 'label-ru']);
     const valueSetEntry = valueSetRoles('reference-set-entry', ['set', 'value', 'label-en', 'label-ru']);
     if (valueSet !== undefined && Array.isArray(key) && !key.includes(valueSet['name']!)) problem(['reference-set'], '"reference-set" names a "name" role that is one of the kind\'s key fields');
@@ -2136,6 +2180,61 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (!Array.isArray(rawExclude) || rawExclude.length === 0 || rawExclude.some((one) => typeof one !== 'string' || one.trim() === '')) problem(['exclude'], '"exclude" is a list of path patterns the producer leaves out, such as "**/node_modules/**"');
       else exclude = (rawExclude as string[]).map((one) => one.trim());
     }
+    const profileListField = (name: string): boolean => {
+      const target = fields.find(entry => entry.name === name);
+      const schema = target?.schema === undefined ? undefined : resolveValueSchema(target.schema, valueTypes);
+      const rawItems = schema?.['items'];
+      const items = isRecord(rawItems) ? resolveValueSchema(rawItems, valueTypes) : undefined;
+      return schema?.['type'] === 'array' && items?.['type'] === 'string';
+    };
+    let profileMarkers: KindDecl['profileMarkers'];
+    if (decl['profile-markers'] !== undefined) {
+      const raw = decl['profile-markers'];
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw) || Object.values(raw).some(value => !Array.isArray(value) || value.some(pattern => typeof pattern !== 'string' || pattern.trim() === ''))) problem(['profile-markers'], 'profile-markers maps profile fields to marker path patterns');
+      else {
+        profileMarkers = raw as Record<string, string[]>;
+        for (const field of Object.keys(profileMarkers)) if (!profileListField(field)) problem(['profile-markers', field], `profile-markers field "${field}" must declare an array of strings schema`);
+      }
+    }
+    let profileTechnologies: KindDecl['profileTechnologies'];
+    const rawTechnologies = decl['profile-technologies'];
+    if (rawTechnologies !== undefined) {
+      const maps: Record<string, ProfileTechnologyMap> = {};
+      if (!isRecord(rawTechnologies)) problem(['profile-technologies'], 'profile-technologies maps profile fields to {extensions, filenames}');
+      else for (const [field, raw] of Object.entries(rawTechnologies)) {
+        const path = ['profile-technologies', field];
+        if (!profileListField(field)) problem(path, `profile-technologies field "${field}" must declare an array of strings schema`);
+        if (profileMarkers?.[field] !== undefined) problem(path, `profile-technologies field "${field}" cannot also have profile-markers`);
+        if (!isRecord(raw) || Object.keys(raw).some(key => key !== 'extensions' && key !== 'filenames') || !isRecord(raw['extensions']) || !isRecord(raw['filenames'])) {
+          problem(path, 'profile-technologies declares exactly extensions and filenames maps');
+          continue;
+        }
+        let valid = true;
+        for (const selector of ['extensions', 'filenames'] as const) {
+          for (const [marker, technology] of Object.entries(raw[selector] as Record<string, unknown>)) {
+            const plain = marker.trim() === marker && marker !== '' && ![...marker].some(char => '/\\*?[]{}\0'.includes(char));
+            if (!plain || (selector === 'extensions' && (!marker.startsWith('.') || marker.length === 1)) || typeof technology !== 'string' || technology.trim() === '' || technology.trim() !== technology) {
+              problem([...path, selector, marker], `${selector} maps exact ${selector === 'extensions' ? 'dot-prefixed suffixes' : 'basenames'} to nonempty normalized technology names`);
+              valid = false;
+            }
+          }
+        }
+        if (Object.keys(raw['extensions']).length + Object.keys(raw['filenames']).length === 0) {
+          problem(path, 'profile-technologies requires at least one extension or filename');
+          valid = false;
+        }
+        if (valid) maps[field] = { extensions: raw['extensions'] as Record<string, string>, filenames: raw['filenames'] as Record<string, string> };
+      }
+      profileTechnologies = maps;
+    }
+    const rawApplicability = decl['applicability'];
+    let applicability: KindDecl['applicability'];
+    if (rawApplicability !== undefined) {
+      const body = rawApplicability as Record<string, unknown>;
+      const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(entry => typeof entry === 'string' && entry.trim() !== '');
+      if (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['dependencies', 'markers', 'profile'].includes(key)) || !strings(body['dependencies']) || !strings(body['markers']) || (body['profile'] !== undefined && typeof body['profile'] !== 'string')) problem(['applicability'], 'applicability declares dependencies, marker path patterns and an optional profile field');
+      else applicability = { dependencies: body['dependencies'], markers: body['markers'], ...(body['profile'] === undefined ? {} : { profile: body['profile'] as string }) };
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -2179,11 +2278,14 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
       ...(naming === undefined ? {} : { naming }),
+      ...(typeof decl['duplicate-subject-edge']==='string'?{duplicateSubjectEdge:decl['duplicate-subject-edge']}:{}),
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
       ...(details.length > 0 ? { details } : {}),
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
       ...(findingsKind === true ? { findings: true } : {}),
+      ...(pageTemplate === undefined ? {} : { pageTemplate }),
+      ...(fileText === undefined ? {} : { fileText }),
       ...(valueSet === undefined ? {} : { referenceSet: valueSet }),
       ...(valueSetEntry === undefined ? {} : { referenceSetEntry: valueSetEntry }),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
@@ -2204,6 +2306,9 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(applicability === undefined ? {} : { applicability }),
+      ...(profileMarkers === undefined ? {} : { profileMarkers }),
+      ...(profileTechnologies === undefined ? {} : { profileTechnologies }),
       ...(classes.length === 0 ? {} : { classes }),
       ...(exclude === undefined ? {} : { exclude }),
       ...(agent === undefined ? {} : { agent }),
@@ -2321,7 +2426,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         }
         if (ends.includes('any') && ends.length !== 1) { findings.push({ file, line: at(['edges', index, direction, ends.indexOf('any')]), message: `edge "${body['name']}": any stands alone in the ${direction} endpoint list (0039 item 1)` }); return; }
         for (const [endpoint, name] of ends.entries()) {
-          if (name !== 'any' && !kinds.has(name) && !protectedGraphKinds.has(name)) { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
+          if (name !== 'any' && !kinds.has(name) && !protectedGraphKinds.has(name) && catalogEntries.get(name)?.templatePolicy !== 'none') { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
         }
       }
       const fieldTypes = new Set([...FIELD_TYPES, ...Object.keys(valueTypes)]);
@@ -2357,6 +2462,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   const keyParents = new Map<string, string[]>();
   for (const kind of kinds.values()) {
     const parents: string[] = [];
+    if(kind.duplicateSubjectEdge!==undefined){
+      const edge=edges.get(kind.duplicateSubjectEdge);
+      if(!edge||(!edge.from.includes(kind.name)&&!edge.to.includes(kind.name)))findings.push({file,line:at(['kinds',kind.name,'duplicate-subject-edge']),message:`kind "${kind.name}": duplicate subject edge must be a declared relation of this kind`});
+    }
     for (const [roleIndex, role] of (kind.keyEdges ?? []).entries()) {
       const roleLine = at(['kinds', kind.name, 'key-edges', roleIndex]);
       const edge = edges.get(role.edge);
@@ -2498,6 +2607,10 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (field.binding?.kind !== 'plugin') continue;
       const binding = field.binding;
       const line = field.line ?? kind.line;
+      if (kind.systemBase !== undefined) {
+        findings.push({ file, line, message: `kind "${name}": field "${field.name}" cannot bind a plugin yet: system extensions require UID-aware plugin transport before plugin writes can be admitted` });
+        continue;
+      }
       const plugin = plugins.get(binding.plugin);
       if (plugin === undefined) {
         findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to ${binding.plugin}@${binding.major}.${binding.field}, and the manifest declares no plugin "${binding.plugin}"` });
@@ -2524,7 +2637,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       else held.fields.push(field);
     }
     if (byPlugin.size === 0) continue;
-    // A kind a plugin fills has a key: the unique index of its table is built from the key's columns.
+    // A kind a plugin fills has a key: the unique index uses its natural-key columns.
     for (const [id, entry] of byPlugin) {
       if (kind.key === undefined || kind.key.length === 0) {
         findings.push({ file, line: kind.line, message: `kind "${name}": the plugin "${id}" fills it, and the manifest declares no "key": a table is unique by its kind's natural key` });
@@ -2550,17 +2663,18 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   // authoritative), the dependency graph is acyclic and declared, and a plugin reads only what the
   // closure of its earliest output kind holds. No fill starts while any finding stands.
   const dependencies = new Map<string, readonly string[]>();
-  for (const [name, kind] of kinds) dependencies.set(name, kind.derivesFrom ?? []);
+  for (const [name, kind] of catalogEntries) dependencies.set(name, kind.derivesFrom ?? []);
+  for (const [name, kind] of kinds) dependencies.set(name, [...new Set([...(kind.derivesFrom ?? []), ...(kind.applicability?.dependencies ?? [])])]);
   for (const [name, deps] of dependencies) {
-    const kind = kinds.get(name)!;
+    const kind = kinds.get(name) ?? catalogEntries.get(name)!;
     for (const dependency of deps) {
-      if (!kinds.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
+      if (!dependencies.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
     }
   }
   const cycle = findDependencyCycle(dependencies);
   if (cycle !== undefined) {
     const first = cycle[0]!;
-    findings.push({ file, line: kinds.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
+    findings.push({ file, line: kinds.get(first)?.line ?? catalogEntries.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
   }
   const checkField = (owner: string, field: FieldDecl, ownerLine: number, edge: boolean): void => {
     const line = field.line ?? ownerLine;
@@ -2618,10 +2732,18 @@ export function setKindsLanguage(productFolder: string, language: string): strin
       const root = realpathSync(productFolder);
       if (!real.startsWith(`${root}/`) && !real.startsWith(`${root}\\`)) return `${file}: the manifest is a link to ${real}, outside the product ${productFolder}, so the language is not written into it`;
     }
-    const document = parseDocument(readFileSync(file, 'utf8'));
+    const document = parseDocument(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const result = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(result));
+      return result;
+    }));
     if (document.errors.length > 0) return `${file}: the manifest cannot be read, so the language is not written into it: ${document.errors[0]!.message.split('\n')[0]}`;
     document.set('language', language);
-    writeFileSync(file, document.toString(), 'utf8');
+    withSpanSync('fs.write', { 'file.path': file }, (span) => {
+      const data = document.toString();
+      span.setAttribute('file.bytes', Buffer.byteLength(data));
+      return writeFileSync(file, data, 'utf8');
+    });
     return undefined;
   } catch (error) {
     return `${file}: the language could not be written: ${(error as Error).message}`;
@@ -2629,6 +2751,25 @@ export function setKindsLanguage(productFolder: string, language: string): strin
 }
 
 /** The first single-file Markdown kind is home; graph-backed products use the declared `product` kind. */
+/**
+ * The kind whose entities are the product's page templates, found by its own `page-template:` declaration (the owner's
+ * decision of 2026-11-15): the engine holds no kind name of its own, and a product that declares none draws no page
+ * template of its own.
+ */
+export function pageTemplateKind(manifest: KindsManifest): KindDecl | undefined {
+  for (const decl of [...manifest.kinds.values()].sort((left, right) => byCodePoint(left.name, right.name))) if (decl.pageTemplate !== undefined) return decl;
+  return undefined;
+}
+
+/**
+ * The kind whose entities are a repository's files, found by its own `file-text:` declaration (decision 0037): the
+ * engine holds no kind name of its own, so a file's text is found by the roles the product declares.
+ */
+export function fileTextKind(manifest: KindsManifest): KindDecl | undefined {
+  for (const decl of [...manifest.kinds.values()].sort((left, right) => byCodePoint(left.name, right.name))) if (decl.fileText !== undefined) return decl;
+  return undefined;
+}
+
 export function homeKind(manifest: KindsManifest): KindDecl | undefined {
   for (const decl of manifest.kinds.values()) if (decl.source === 'markdown' && decl.file !== undefined) return decl;
   const product = manifest.kinds.get('product');
@@ -2657,12 +2798,20 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
 }
 
 
+/** Edges with catalogue-only endpoints keep their declarations, without a table or GraphQL type yet. */
+export function deferredEdgesOf(manifest: KindsManifest): EdgeDecl[] {
+  return [...(manifest.edges?.values() ?? [])].filter((edge) => [...edge.from, ...edge.to]
+    .every((name) => name === 'any' || manifest.kinds.has(name) || manifest.catalog?.kinds.has(name))
+    && [...edge.from, ...edge.to].some((name) => !manifest.kinds.has(name) && manifest.catalog?.kinds.get(name)?.templatePolicy === 'none'))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+}
+
 /**
  * The kinds in the order their declared dependencies give (decision 0035, item 11): a kind after the kinds it depends on.
  * The manifest's check refuses a cycle before a fill starts, so the order stands whenever a fill reads it.
  */
 export function kindsInDependencyOrder(manifest: KindsManifest): string[] {
-  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.derivesFrom ?? []]));
+  const dependencies = new Map<string, readonly string[]>([...(manifest.catalog?.kinds ?? []), ...manifest.kinds].map(([name, kind]) => [name, kind.derivesFrom ?? []]));
   return dependencyOrder(dependencies);
 }
 

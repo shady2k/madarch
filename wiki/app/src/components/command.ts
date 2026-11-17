@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
 import { i18n } from '../i18n.js';
+import { withSpan } from '../trace.js';
+import { graphRefusalMessage } from '../graph-refusal.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -18,9 +20,20 @@ export interface FillPlanField {
   readonly producers: readonly string[];
 }
 
+/** The graph's recorded applicability of a kind, including its direct ancestor when inherited. */
+export interface KindApplicability {
+  readonly kind: string;
+  readonly state: 'not-searched' | 'applicable' | 'empty' | 'failed' | 'inapplicable';
+  readonly reason: string;
+  readonly ancestor?: string;
+  readonly evidence: readonly string[];
+  readonly contested: boolean;
+}
+
 /** One selected kind's place in the plan. */
 export interface FillPlanKind {
   readonly kind: string;
+  readonly applicability: KindApplicability;
   readonly fields: readonly FillPlanField[];
   /** The fields an agent fills, alone or beside a producer it refines. */
   readonly agentFields: readonly string[];
@@ -61,8 +74,9 @@ export interface FillPlanView {
   readonly kinds: readonly FillPlanKind[];
   readonly needsAgent: readonly FillPlanNeed[];
   readonly errors: readonly FillPlanError[];
-  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string }[];
+  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string; readonly applicability?: KindApplicability }[];
   readonly pluginsOnly: boolean;
+  readonly emptyKinds: readonly { readonly kind: string; readonly state: 'no-producer-declared' }[];
 }
 
 /** One agent `GET /api/agents` offers, and the one saved for this product. */
@@ -143,10 +157,81 @@ export interface ProductSettingsAnswer {
   };
   /** The cap a fill runs under when the person names none (madarch-64o5.90). */
   readonly tokenCap: number;
-  readonly danger?: unknown;
+  /** What the two dangerous actions would remove and keep: the plan the page shows before a press. */
+  readonly danger?: { readonly rewrite: DangerPlanAnswer; readonly fresh: ResetPlanAnswer };
   readonly dangerError?: string;
   readonly busy: boolean;
   readonly own?: boolean;
+}
+
+/** One row of the graph verdict report a person still has to look at (madarch-mwhd.1). */
+export interface GraphVerdictRow {
+  readonly id: string;
+  readonly role: 'node' | 'edge';
+  readonly kind: string;
+  readonly label: string;
+  readonly verdict: string;
+  readonly reason: string;
+}
+
+/** The saved report's coverage, per verdict and per kind. */
+export interface GraphVerdictReport {
+  readonly generatedAt: string;
+  readonly validatorVersion: string;
+  readonly totals: { readonly items: number; readonly valid: number; readonly invalid: number; readonly unreviewed: number };
+  readonly reasons: readonly { readonly reason: string; readonly count: number }[];
+  readonly byKind: readonly { readonly role: string; readonly kind: string; readonly valid: number; readonly invalid: number; readonly unreviewed: number }[];
+}
+
+/** `GET /api/graph-verdicts`: the budgets, the saved report and one page of its non-valid rows. */
+export interface GraphVerdictsAnswer {
+  readonly file: string;
+  readonly budgets: { readonly itemsPerRun: number; readonly modelCallsPerRun: number };
+  readonly cached: boolean;
+  readonly report?: GraphVerdictReport;
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly rows: readonly GraphVerdictRow[];
+}
+
+/** The budgets the saved report is read under: no judge starts. */
+export const peekGraphVerdicts = (base: string, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
+  command(base, '/api/graph-verdicts?peek=1', signal === undefined ? {} : { signal });
+
+/** One page of the rows a person still has to look at. */
+export const graphVerdictRows = (base: string, options: { readonly offset: number; readonly limit: number }, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
+  command(base, `/api/graph-verdicts?verdict=non-valid&limit=${String(options.limit)}&offset=${String(options.offset)}`, signal === undefined ? {} : { signal });
+
+/** Runs one verdict pass and answers its first page. */
+export const runGraphVerdicts = (base: string, options: { readonly offset: number; readonly limit: number }): Promise<GraphVerdictsAnswer> =>
+  command(base, `/api/graph-verdicts?force=1&verdict=non-valid&limit=${String(options.limit)}&offset=${String(options.offset)}`, { method: 'GET' });
+
+/** Saves what one verdict run may judge. */
+export const saveGraphVerdictBudgets = (base: string, itemsPerRun: number, modelCallsPerRun: number): Promise<{ budgets: { itemsPerRun: number; modelCallsPerRun: number } }> =>
+  command(base, '/api/graph-verdicts', { method: 'POST', body: JSON.stringify({ itemsPerRun, modelCallsPerRun }) });
+
+/** `POST /api/rewrite-pages`: removes the pages the agent wrote and starts a fill that writes them again. */
+export const rewritePages = (base: string): Promise<{ plan: ResetPlanAnswer; fill: unknown }> =>
+  command(base, '/api/rewrite-pages', { method: 'POST', body: '{}' });
+
+/** `POST /api/start-fresh`: removes the pages and the graph, with the plan the person confirmed. */
+export const startFresh = (base: string, preview: ResetPlanAnswer): Promise<unknown> =>
+  command(base, '/api/start-fresh', { method: 'POST', body: JSON.stringify({ preview }) });
+
+/** What one of the two dangerous actions removes and keeps, as the settings answer states it. */
+export interface DangerPlanAnswer {
+  readonly agentPages: readonly string[];
+  readonly keptPages: readonly string[];
+}
+
+/** The reset plan the server confirms before it starts a product over. */
+export interface ResetPlanAnswer {
+  readonly store: readonly string[];
+  readonly agentPages: readonly string[];
+  readonly keptPages: readonly string[];
+  readonly unansweredQuestions: readonly string[];
+  readonly keptAnswers: readonly string[];
 }
 
 /** `GET /api/settings`: the reader's own role on this machine. */
@@ -154,6 +239,10 @@ export interface ReaderSettingsAnswer {
   readonly role: string;
   readonly asked: boolean;
   readonly roles: readonly string[];
+  /** Whether this machine and its person chose to run plugins without isolation; null when nobody was asked. */
+  readonly pluginsUnconfined: boolean | null;
+  /** What the start probe found about this machine's plugin sandbox. */
+  readonly pluginIsolation: { readonly capable: boolean; readonly reason: string };
 }
 
 /** One place or entity a problem names. */
@@ -172,7 +261,6 @@ export interface Problem {
   readonly kind: string;
   readonly sonar: string;
   readonly severity: string;
-  readonly fixer: 'agent' | 'person';
   readonly closed: boolean;
   readonly place: ProblemLink;
   readonly entity: ProblemLink | null;
@@ -183,9 +271,8 @@ export interface Problem {
   readonly statement: string | null;
   readonly sentence: string | null;
   readonly target: string | null;
-  readonly reason: string;
-  readonly textKey?: string;
-  readonly textArgs?: Readonly<Record<string, string | number>>;
+  /** The problem's sentence as a code the page says in the reader's language, and the values it fills. */
+  readonly text: { readonly code: string; readonly args?: Readonly<Record<string, string | number>> };
   readonly file: string;
   readonly line: number | null;
   readonly source?: string;
@@ -207,7 +294,6 @@ export interface ProblemCategory {
   readonly section: string;
   readonly sonar: string;
   readonly severity: string;
-  readonly fixer: 'agent' | 'person';
   readonly count: number;
   readonly open: number;
   readonly closed: number;
@@ -263,6 +349,14 @@ export interface FillStatusAnswer {
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** Whether a fill ever succeeded on this product. */
   readonly filled?: boolean;
+  /** `no-manifest` when the product has no kinds manifest: a fill has nothing to read yet. */
+  readonly manifest?: 'ok' | 'not-filled' | 'no-manifest';
+  /** The manifest file the product reads, named on the home when it is absent. */
+  readonly manifestFile?: string;
+  /** The guide that writes a product's manifests. */
+  readonly manifestGuide?: string;
+  /** A repository's fill stopped before its last commit: the graph holds part of it. */
+  readonly incomplete?: boolean;
   /** madarch's own wiki is documentation: it offers no fill. */
   readonly own?: boolean;
 }
@@ -289,7 +383,70 @@ export interface FillRunEvent {
   readonly summary: string;
 }
 
-/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events and its usage. */
+/** One step of an agent unit's exchange, as madarch recorded it (madarch-64o5.88). */
+export interface AgentExchangeStepView {
+  readonly at: string;
+  readonly sessionUpdate: string;
+  readonly kind: string;
+  readonly title?: string;
+  readonly tool?: string;
+  readonly status?: string;
+  readonly path?: string;
+  readonly text?: string;
+  readonly detail?: string;
+  readonly bytes?: number;
+  readonly cut?: boolean;
+}
+
+/** One file an agent unit opened through madarch's file callbacks. */
+export interface AgentExchangeOpenView {
+  readonly at: string;
+  readonly repository: string;
+  readonly path: string;
+  readonly line?: number;
+  readonly limit?: number;
+  readonly bytes: number;
+}
+
+/** One agent unit's whole exchange: what it was given, what it did, what it returned and what it cost. */
+export interface AgentExchangeView {
+  readonly run: string;
+  readonly unit: string;
+  readonly agent: string;
+  readonly model: string | null;
+  readonly session: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly durationMs: number;
+  readonly state: string;
+  readonly given: {
+    readonly prompt: string;
+    readonly bytes: number;
+    readonly cut: boolean;
+    readonly task: unknown;
+    readonly files: readonly string[];
+    readonly filesTotal: number;
+  };
+  readonly steps: readonly AgentExchangeStepView[];
+  readonly stepsDropped: number;
+  readonly opened: readonly AgentExchangeOpenView[];
+  readonly openedDropped: number;
+  readonly returned: { readonly text: string; readonly bytes: number; readonly cut: boolean } | null;
+  readonly usage: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly cachedWriteTokens?: number;
+    readonly cachedReadTokens?: number;
+    readonly totalTokens?: number;
+    readonly context?: { readonly used: number; readonly size: number };
+    readonly turns: number;
+    readonly reported: boolean;
+  } | null;
+  readonly stop: string | null;
+  readonly failure: string | null;
+}
+
+/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
@@ -310,6 +467,13 @@ export interface FillRunDetail {
   readonly records: number;
   readonly publishedUnits: number;
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
+  /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
+  readonly agentExchanges?: readonly AgentExchangeView[];
+  /** The run's trace as its run view states it: its wall time and the time each step took (madarch-64o5.88). */
+  readonly summary?: {
+    readonly wallMs: number;
+    readonly steps: readonly { readonly step: string; readonly wallMs: number }[];
+  };
 }
 
 // ---- the client -------------------------------------------------------------------------------------------------
@@ -329,6 +493,8 @@ export const offlineWords = (): string => i18n.t('connection.offline');
 function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
     const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
+    const refusal = graphRefusalMessage(held.error);
+    if (refusal !== undefined) return { message: refusal, code: 'SCHEMA_INVALID' };
     if (typeof held.error?.message === 'string') return { message: held.error.message, ...(typeof held.error.code === 'string' ? { code: held.error.code } : {}) };
     if (typeof held.message === 'string') return { message: held.message };
   }
@@ -341,10 +507,14 @@ let changes = 0;
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, {
-      credentials: 'same-origin',
-      ...init,
-      headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
+    response = await withSpan('net.fetch', { 'http.method': init.method ?? 'GET', 'http.url': `${base}${path}` }, async (span) => {
+      const answer = await fetch(`${base}${path}`, {
+        credentials: 'same-origin',
+        ...init,
+        headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
+      });
+      span.setAttribute('http.status', answer.status);
+      return answer;
     });
   } catch (failure) {
     // A read the app itself abandoned (its component left) says nothing about the server.
@@ -371,7 +541,7 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
   return body as T;
 }
 
-const query = (params: Record<string, string | undefined>): string => {
+const searchString = (params: Record<string, string | undefined>): string => {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') search.set(key, value);
   return search.size === 0 ? '' : `?${search.toString()}`;
@@ -390,7 +560,7 @@ export const readAgents = (base: string, signal?: AbortSignal): Promise<AgentsAn
 
 /** The models the chosen agent reports; asking starts its adapter on this machine. `fresh` asks it again. */
 export const readAgentChoices = (base: string, agent: string, signal?: AbortSignal, fresh = false): Promise<AgentChoicesAnswer> =>
-  command<AgentChoicesAnswer>(base, `/api/agent-choices${query({ agent, ...(fresh ? { fresh: '1' } : {}) })}`, signal === undefined ? {} : { signal });
+  command<AgentChoicesAnswer>(base, `/api/agent-choices${searchString({ agent, ...(fresh ? { fresh: '1' } : {}) })}`, signal === undefined ? {} : { signal });
 
 /** Saves the agent that writes this product's pages; `install` is the yes to fetching an adapter that is not here. */
 export const chooseAgent = (base: string, agent: string | null, install = false): Promise<{ chosen: { id: string; label: string } | null }> =>
@@ -412,6 +582,9 @@ export const readReaderSettings = (base: string, signal?: AbortSignal): Promise<
 
 /** Keeps the reader's role on this machine. */
 export const saveReaderRole = (base: string, role: string): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ role }) });
+
+/** Keeps this machine's answer about running plugins without isolation. */
+export const saveReaderIsolation = (base: string, unconfined: boolean): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ pluginsUnconfined: unconfined }) });
 
 /** `GET /api/problems`: the open problems, grouped by rule. */
 export const readProblems = (base: string, signal?: AbortSignal): Promise<ProblemListing> => command(base, '/api/problems', signal === undefined ? {} : { signal });
@@ -435,17 +608,17 @@ export const readFillStatus = (base: string, signal?: AbortSignal): Promise<Fill
 export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs: readonly FillRunDetail[] }> => command(base, '/api/fill-runs', signal === undefined ? {} : { signal });
 
 /** One run, by its id. */
-export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
+export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${searchString({ run: runId })}`, signal === undefined ? {} : { signal });
 
 /** Starts the fill of the kinds checked: their dependencies and order are the server's. */
 export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly model?: string | null; readonly reasoning?: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
   command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
 
 /** A person's «Пауза». */
-export const pauseFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/pause${query({ run: runId })}`, { method: 'POST', body: '{}' });
+export const pauseFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/pause${searchString({ run: runId })}`, { method: 'POST', body: '{}' });
 
 /** A person's «Остановить», after the second press that confirms it. */
-export const stopFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/stop${query({ run: runId })}`, { method: 'POST', body: JSON.stringify({ confirm: true }) });
+export const stopFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/stop${searchString({ run: runId })}`, { method: 'POST', body: JSON.stringify({ confirm: true }) });
 
 /** The product's one change stream, for a page that stays open while a fill runs. */
 export const eventsAddress = (base: string): string => `${base}/api/events`;

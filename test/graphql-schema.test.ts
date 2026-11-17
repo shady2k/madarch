@@ -15,7 +15,7 @@ import { SchemaRefusal } from '../src/graphql/names.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
-import { typeNameOf, fieldNameOf } from '../src/graphql/names.js';
+import { kindTypeNameOf, fieldNameOf } from '../src/graphql/names.js';
 
 /** A product folder holding one manifest text and the template its kinds name, read the way a product's is. */
 function manifestOf(text: string): KindsManifest {
@@ -56,7 +56,7 @@ describe('the schema of a published manifest', () => {
     expect(schema.getType('BigInt')).toBeDefined();
     expect(schema.getType('DateTime')).toBeDefined();
     expect(schema.getType('JSON')).toBeDefined();
-    const file = schema.getType('DemoFile') as GraphQLObjectType;
+    const file = schema.getType('KindDemoFile') as GraphQLObjectType;
     const fields = file.getFields();
     expect(fields['demoFileRepository']?.type.toString()).toBe('DemoFileRepositoryConnection!');
     expect(fields['demoTouchedOf']?.type.toString()).toBe('DemoTouchedConnection!');
@@ -67,10 +67,22 @@ describe('the schema of a published manifest', () => {
     const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
     const foundation = withAssertionContract(withManifestContract({ vertex: [], edge: [], dictionary: [] }));
     for (const kind of foundation.vertex) {
-      const type = schema.getType(typeNameOf(kind.name)) as GraphQLObjectType;
+      const type = schema.getType(kindTypeNameOf(kind.name)) as GraphQLObjectType;
       expect(type).toBeDefined();
       for (const field of kind.fields) expect(type.getFields()[fieldNameOf(field.name)]).toBeDefined();
     }
+  });
+
+  test('the frame reads each kind\'s purpose and audience and each role\'s leading groups', () => {
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
+    const kind = (schema.getType('NavigationKind') as GraphQLObjectType).getFields();
+    expect(kind['purpose']?.type.toString()).toBe('String');
+    expect(kind['audience']?.type.toString()).toBe('[String!]');
+    const roleLead = (schema.getType('RoleLead') as GraphQLObjectType).getFields();
+    expect(roleLead['role']?.type.toString()).toBe('String!');
+    expect(roleLead['lead']?.type.toString()).toBe('[String!]!');
+    const bootstrap = (schema.getType('Bootstrap') as GraphQLObjectType).getFields();
+    expect(bootstrap['roleLeads']?.type.toString()).toBe('[RoleLead!]!');
   });
 
   test('is one schema from one manifest: two derivations are identical', () => {
@@ -101,29 +113,24 @@ describe('the schema of a published manifest', () => {
     expect(sdl).toContain('fields: [CatalogueField!]!');
   });
 
-  test('keeps the mechanism\'s page template apart from a product kind named template', () => {
+  test('keeps the mechanism\'s page template apart from a product kind named page.template', () => {
+    // One name space, two families (src/graphql/names.ts): a kind's types carry the `Kind` prefix, so a kind named after
+    // an engine type stands beside it rather than being refused or renamed.
     const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:
+  page.template:
+    
+    source: graph
+    title: name
   template:
     
     source: graph
     title: name
 `)));
-    expect(sdl).toContain('type Template implements Entity');
+    expect(sdl).toContain('type KindPageTemplate implements Entity');
+    expect(sdl).toContain('type KindTemplate implements Entity');
     expect(sdl).toContain('templates: [PageTemplate!]!');
-  });
-
-  test('refuses a reserved type name, naming the declaration and the reserved name', () => {
-    const error = refusalOf(`
-kinds:
-  demo.edge:
-    
-    source: graph
-    title: name
-`);
-    expect(error.message).toContain('the kind "demo.edge"');
-    expect(error.message).toContain('"DemoEdge"');
-    expect(error.message).toContain('reserved');
+    expect(sdl).toContain('type PageTemplate');
   });
 
   test('encodes a contract field whose name the schema reserves, instead of refusing the product', () => {
@@ -156,7 +163,7 @@ kinds:
 `);
     expect(error.message).toContain('the kind "demo.file"');
     expect(error.message).toContain('the kind "demo-file"');
-    expect(error.message).toContain('"DemoFile"');
+    expect(error.message).toContain('"KindDemoFile"');
   });
 
   test('refuses a field and an edge that encode to one field name on a type, naming both', () => {
@@ -174,6 +181,7 @@ kinds:
     title: path
 edges:
   - name: links-to
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.file]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
@@ -193,6 +201,7 @@ kinds:
     title: name
 edges:
   - name: demo.contains
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.absent]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }

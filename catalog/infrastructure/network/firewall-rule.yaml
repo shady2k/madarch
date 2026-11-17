@@ -25,3 +25,8 @@ labels:
 description:
   en: 'A firewall rule states which traffic may pass and which may not: from which addresses to which, on which ports and protocols, in which direction. Together the rules decide what can reach a service and what it can reach.'
   ru: 'Правило брандмауэра говорит, какой трафик можно пропустить, а какой нельзя: от каких адресов к каким, по каким портам и протоколам, в каком направлении. Вместе правила решают, что может дойти до сервиса и куда он сам может обратиться.'
+derives-from:
+- ip-range
+- network-zone
+- product-profile
+- protocol

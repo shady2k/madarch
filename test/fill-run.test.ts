@@ -78,6 +78,10 @@ describe('the one fill', () => {
     const run = await runFill({ product, database: owner, runId: 'all-steps', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
+    if (run.state !== 'succeeded') {
+      const events = await owner.transaction('snapshot', async (tx) => (await tx.query<{ kind: string; unit_id: string; summary: string }>('SELECT kind, unit_id, summary FROM fill_event WHERE run_id = $1 ORDER BY seq', ['all-steps'])).rows);
+      console.error('fill diagnostic', JSON.stringify({ run, events }));
+    }
     expect(run.state).toBe('succeeded');
     expect([...new Set(run.units.map((unit) => unit.stageId))].sort()).toEqual(['plugin-turns']);
     const facts = await repositoryFacts(owner, 'repo');

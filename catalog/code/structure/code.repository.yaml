@@ -12,6 +12,7 @@ relation-constraints:
   - contains
   in:
   - contains
+  - product.uses-repository
 template-policy: page
 source: graph
 fields:
@@ -56,4 +57,6 @@ labels:
 description:
   en: A version control repository holds the source files and folders of a product, and every commit records who changed what and when. A product may keep everything in one repository or spread it over several, for example one per service.
   ru: Репозиторий — хранилище исходного кода продукта вместе с полной историей его изменений в системе контроля версий (например, git). В нём лежат файлы и папки продукта, а каждый коммит фиксирует, кто, когда и что изменил. У продукта может быть один или несколько репозиториев.
-derives-from: []
+derives-from:
+- product
+- product-profile

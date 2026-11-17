@@ -42,3 +42,6 @@ description:
     to the exact source behind the claim.
   ru: Позиция фиксирует одно утверждение в спорном вопросе. Свидетельства утверждения
     указывают на точный источник.
+
+derives-from:
+- question

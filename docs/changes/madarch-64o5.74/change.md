@@ -214,3 +214,124 @@ assertion is not relaxed and no behavior is changed.
 Static checks pass with architecture 874/874 and no new debt. This is review
 correction evidence, not stage acceptance; the pre-existing stop-databases
 failures remain outside this increment.
+
+### Foundation integration, 2026-11-16
+
+This checkpoint merges origin/main into eff3e64f5ba48bde791567101c7ec0d76917c5ab.
+Decision 0039 storage remains binding: typed assertions, parent-key edges, immediate checked operations, immutable blob evidence, graph orchestration and queue fencing/retry behavior. No stage acceptance is claimed.
+
+Validation: bun run check passes with 560 inherited architecture findings, zero io-spans and zero catalogue-pointer findings. No added debt. App check/build pass; app tests 221 pass. Focused schema/plugin/manifest suites 68 pass; loop/logging/semantic/architecture suites 68 pass. Full executor suite remains non-green: undeclared-kind label and large diagram/database behavior also fail on the unmodified snapshot. The batching bound changes from 12 to 14 to account for constant typed-template assertion-read overhead (12 statements observed), not per-row reads. The source cache and stderr logs are retained; stderr limit remains 64 KiB. Recovery lease is queue-owned, 24 hours with 30-second renewal, not a new engine control table.
+
+### Main merge conflicts
+
+| File | Resolution |
+| --- | --- |
+| `.architecture/violations.json` | Retained only inherited active union entries; removed stale findings; added none. |
+| `catalog/code/structure/code.file.yaml` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `catalog/templates/pages/code-file.yaml` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `catalog/templates/pages/home.yaml` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `plugins/db-schema/main.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `plugins/disk/main.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `plugins/glossary/main.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `plugins/imports/main.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `plugins/test-quarantine/main.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `scripts/check/architecture/gates.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `scripts/graphql-starter.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/agent-usage.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/pg-boss-queue.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/prepare-store.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/schemas/fill-state.ts` | Kept snapshot deletion; retired storage surface stays removed. |
+| `src/adapters/schemas/graph-contract.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/schemas/graph.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/adapters/schemas/orchestrator.ts` | Kept snapshot deletion; retired storage surface stays removed. |
+| `src/adapters/schemas/queue.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/fill/fsm.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/orchestrator-host.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/orchestrator-store.ts` | Kept snapshot deletion; retired storage surface stays removed. |
+| `src/fill/orchestrator.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/plugin-turns.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/producer-outcomes.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/stage.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/stages/plugin-contract.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/fill/state-store.ts` | Kept snapshot deletion; retired storage surface stays removed. |
+| `src/graph/authored.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/claims.ts` | Kept snapshot deletion; retired storage surface stays removed. |
+| `src/graph/consistency.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/graph-writes.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/graphql-read.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/manifest-publication.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/one-graph.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/plugin-turns.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/producer-outcomes.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/records.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/start-entity.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graph/write.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graphql/names.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graphql/schema.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/graphql/starter.graphql` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/knowledge/fill-role.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/knowledge/graph-read.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/knowledge/product.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/loop/plan.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/loop/views.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/page-contract/schema.ts` | Kept snapshot typed assertions and key-edge storage; ported main API/read functionality without retired tables. |
+| `src/plugin/agent.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/plugin/host.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/plugin/product-files.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/product/cli.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/product/daemon-fills.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/product/fill-stages.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/product/manifest/kinds.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `src/product/store-preparation.ts` | Kept snapshot immediate checked writes, parent identities and graph orchestration; ported main plugin, tracing and localization behavior. |
+| `test/architecture-gates.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/catalog-check.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/catalog-read.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/consistency-plugin.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/db-schema-path.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-already-running.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-fsm.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-orchestrator.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-runs.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-serial-stage.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fill-state-store.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/fixtures/starter-catalog-sources.json` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graph-one-schema.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graph-records.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graph-write.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graphql-executor.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graphql-schema-route.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graphql-schema.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graphql-writes.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/graphql/fixture.golden.graphql` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/imports-path.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/page-contract.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/plugin-agent-bridge.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/plugin-agent-reference.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/plugin-fill-access.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/plugin-host.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/plugin-output-partitions.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/problems-wiki.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/producer-outcomes.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/product-serve.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/product-wiki-serve.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/schema-stamp.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/source-follows-fill.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/test-quarantine-plugin.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `test/workflows-read.test.ts` | Kept snapshot storage assertions and ported main reader/API intent to current graph contract. |
+| `wiki/app/src/components/bars.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/catalogue.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/command.ts` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/diagram.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/overview.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/problems.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/run.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/source.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/ui/controls.test.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/ui/graph.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/components/ui/select.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/compose.test.ts` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/kit-page.tsx` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/locales/en.json` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+| `wiki/app/src/locales/ru.json` | Ported main reader/UI content onto snapshot typed graph, localized UI, and Kind-prefixed schema. |
+
+Document gate is blocked by the inherited Base f438fd54a15b664d97e502f8de50e6118a7fcf9b not belonging to local main target history. No proposal acceptance is claimed.

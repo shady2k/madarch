@@ -1,25 +1,29 @@
 /** Host-side ACP agent bridge: graph-only reads, explicit writes and validated extraction results. */
 import { createHash } from 'node:crypto';
-import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import { Type, type Static } from 'typebox';
+import { agentExchangeFolder, AgentExchangeRecorder } from '../fill/agent-exchange.js';
 import { englishOnly } from './english-task.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
 import type { AgentMeter } from '../fill/agent-meter.js';
-import { withSpan } from '../obs/trace.js';
+import { startSpan, withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
 import { UnitBoundStop } from '../fill/unit-bound.js';
 import type { GraphAnswerer } from './host.js';
 import { PluginUnitResult, PluginFactsApplyRequest, type PluginContractDeclaration } from './protocol.js';
 
-import { canonicalKey, validateUnitResult } from './results.js';
+import { canonicalEntity, validateUnitResult } from './results.js';
 
 const AgentExtraction = Type.Object({ ...PluginUnitResult.properties, ...PluginFactsApplyRequest.properties.operation.properties }, { additionalProperties: false });
 type AgentExtraction = Static<typeof AgentExtraction>;
+
+import { catalogueFileTextRole, type FileTextRole } from '../knowledge/file-text-kind.js';
 
 const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
 
@@ -39,6 +43,13 @@ export interface PluginAgentOptions {
   readonly preferences?: AgentPreferences;
   /** Host-owned adapter environment, including the person’s authentication settings. */
   readonly environment?: Readonly<Record<string, string>>;
+  /**
+   * Reads one blob's text through the same plugin path a page uses (decision 0037): the host supplies it, and the agent's
+   * file reads ask it by the blob id the graph holds, never by a working-copy path.
+   */
+  readonly readFile?: (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }) => Promise<string>;
+  /** The roles a file's entity names its repository and blob by; the catalogue's when a product declares none (0037). */
+  readonly fileText?: FileTextRole;
   /** Repository identities mapped to writable host folders. Missing identities cannot be written. */
   readonly repositories?: Readonly<Record<string, string>>;
   readonly cwd?: string;
@@ -61,6 +72,11 @@ export interface PluginAgentOptions {
   readonly onActivity?: (unitId: string) => void;
   /** Host attribution writer receives the actual session identity and its reported usage. */
   readonly onSession?: (metadata: PluginAgentReport) => void;
+  /**
+   * Where the unit's whole ACP exchange is kept (madarch-64o5.88): the fill run it belongs to and the store's `traces`
+   * folder. Left out, the unit runs as before and madarch keeps no exchange of its own.
+   */
+  readonly exchange?: { readonly run: string; readonly traces: string };
 }
 
 type AgentPart = NonNullable<PluginManifest['agent']>;
@@ -74,7 +90,7 @@ function virtualPath(path: string): string {
 
 function under(path: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
-    const clean = root === '/' || root === '.' ? '' : virtualPath(root.replace(/\/$/, ''));
+    const clean = root === '/' || root === '.' ? '' : virtualPath(root.endsWith('/') ? root.slice(0, -1) : root);
     return clean === '' || path === clean || path.startsWith(`${clean}/`);
   });
 }
@@ -109,14 +125,29 @@ export class PluginAgentBridge {
       this.options.onActivity?.(unitId);
       const controller = new AbortController();
       this.turns.add(controller);
+      // The exchange is madarch's own record of the unit (madarch-64o5.88): it starts before the agent does, so a unit
+      // that never answered still leaves what it was given and why it failed.
+      const exchange = this.options.exchange === undefined ? undefined : new AgentExchangeRecorder({
+        folder: agentExchangeFolder(this.options.exchange.traces, this.options.exchange.run),
+        run: this.options.exchange.run, unit: unitId, agent: this.options.adapter.id,
+      });
+      // The agent asks its MCP server for graph context, rather than receiving a second file inventory.
+      const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(englishOnly(task ?? null))}`;
+      exchange?.setGiven({ prompt, task: englishOnly(task ?? null), files: [] });
       let connection: PluginAgentConnection | undefined;
       let sessionId: string | undefined;
+      /** The empty folder the agent runs in: made for the session, and removed with it. */
+      let workspace: string | undefined;
       const checkSession = (id: string): void => {
         if (sessionId === undefined || id !== sessionId || this.closed) throw new Error(`${WHERE}: file request names no active agent session`);
       };
       try {
+        // No workspace and no file tools (owner's decision, 2026-11-15; decision 0038): the agent runs in an empty scratch
+        // folder, writes nothing, and its one file read is a blob the graph names, answered by the host. A path that is no
+        // graph file, a write and a terminal are refused by the client.
+        workspace = mkdtempSync(join(tmpdir(), 'madarch-agent-session-'));
         connection = await this.options.connect(this.options.adapter, {
-          cwd: this.options.cwd ?? process.cwd(), env: this.options.environment,
+          cwd: workspace, env: this.options.environment,
           files: {
             readTextFile: async (params) => {
               this.options.onActivity?.(unitId);
@@ -125,45 +156,35 @@ export class PluginAgentBridge {
               const name = virtualPath(params.path);
               const file = byPath.get(name);
               if (file === undefined) throw new Error(`${WHERE}: graph read denied for ${name}`);
-              const content = await this.graph.value(file.kind, file.key, 'content', file.keyEdges);
-              if (typeof content !== 'string') throw new Error(`${WHERE}: graph file ${name} has no text content`);
-              log.debug('plugin agent file read', { unitId, path: name });
-              const lines = content.split('\n');
-              const start = (params.line ?? 1) - 1;
-              const limit = params.limit ?? undefined;
-              return { content: params.line == null && limit === undefined ? content : lines.slice(start, limit === undefined ? undefined : start + limit).join('\n') };
-            },
-            writeTextFile: async (params) => {
-              checkSession(params.sessionId);
-              const name = virtualPath(params.path);
-              if (!under(name, this.part.writeRoots ?? [])) throw new Error(`${WHERE}: write denied for ${name}`);
-              const [repository, ...parts] = name.split('/');
-              const root = this.options.repositories?.[repository!];
-              if (root === undefined || parts.length === 0) throw new Error(`${WHERE}: no host write root for ${name}`);
-              // ACP writes refuse symlink components.
-              let target = root;
-              if (!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink()) throw new Error(`${WHERE}: unsafe host root ${root}`);
-              for (const part of parts.slice(0, -1)) {
-                target = join(target, part);
-                try { mkdirSync(target); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-                if (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink()) throw new Error(`${WHERE}: unsafe write directory ${target}`);
-              }
-              target = join(target, parts.at(-1)!);
-              const fd = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
-              try { writeFileSync(fd, params.content); } finally { closeSync(fd); }
-              log.info('plugin agent file written', { unitId, path: name });
-              return {};
+              // The text is the blob the graph names, read by the host through the git plugin (decision 0037): the agent
+              // and the page share one read path, and neither reads a working copy.
+              const roles = this.options.fileText ?? catalogueFileTextRole();
+              const blob = await this.graph.value(file.kind, file.key, roles.blob, file.keyEdges);
+              if (typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: graph file ${name} holds no blob id, and a file's text is read by its blob`);
+              if (this.options.readFile === undefined) throw new Error(`${WHERE}: this host answers no blob read, and a file's text is read through the host`);
+              log.debug('plugin agent file read', { unitId, path: name, blob });
+              const repository = file.keyEdges?.['code.file-repository']?.key['name'];
+              if (typeof repository !== 'string') throw new Error(`${WHERE}: graph file ${name} lacks its repository key edge`);
+              const content = await this.readAgentFile(repository, blob, params.line ?? undefined, params.limit ?? undefined);
+              // Which file the unit opened, and how much it was shown, is the record's own answer to «what did it do».
+              exchange?.fileOpen({
+                repository, path: String(file.key[roles.path]),
+                ...(params.line == null ? {} : { line: params.line }), ...(params.limit == null ? {} : { limit: params.limit }),
+                bytes: Buffer.byteLength(content, 'utf8'),
+              });
+              return { content };
             },
           },
           onRefused: (refusal) => { this.options.onActivity?.(unitId); log.warn('plugin agent tool refused', { unitId, method: refusal.method }); },
-          onUpdate: (update) => { this.options.onActivity?.(unitId); log.debug('plugin agent update', { unitId, kind: update.kind }); },
+          onUpdate: (update) => { this.options.onActivity?.(unitId); log.debug('plugin agent update', { unitId, kind: update.kind }); exchange?.step(update); },
         });
         this.connections.add(connection);
         if (this.paused) connection.freeze?.();
         if (this.closed) throw new Error(`${WHERE}: bridge closed during runner startup`);
         await connection.initialize();
-        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd(), ...(this.options.mcpServers === undefined ? {} : { mcpServers: this.options.mcpServers }) });
+        const session = await connection.newSession({ cwd: workspace, ...(this.options.mcpServers === undefined ? {} : { mcpServers: this.options.mcpServers }) });
         sessionId = session.sessionId;
+        exchange?.setSession(session.sessionId, session.model);
         const choices = choicesOf(session);
         for (const kind of ['model', 'reasoning'] as const) {
           const wanted = this.options.preferences?.[kind];
@@ -173,10 +194,6 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        // The agent reads one language (madarch-64o5.107) and reads the graph through the session's own MCP server: the
-        // task is resolved to its English text, and no list of files and no dump of context stands here (owner's
-        // decisions, 2026-11-15).
-        const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(englishOnly(task ?? null))}`;
         const meter = this.options.meter;
         meter?.beginSession();
         // No prompt is asked under a spent bound: the unit ends with its reason before the model spends anything
@@ -188,13 +205,12 @@ export class PluginAgentBridge {
         const asked = notice === undefined ? prompt : `${prompt}\n\n${notice}`;
         const turn = meter === undefined ? undefined : await meter.runTurn(session, asked, { model: session.model, signal: controller.signal });
         const answer = turn?.result ?? await session.prompt(asked, { signal: controller.signal });
-        if (controller.signal.aborted || this.closed) throw new Error(`${WHERE}: agent turn cancelled`);
         const stop = turn?.stop ?? meter?.stop();
-        // A cap crossed while the agent worked throws away nothing the agent produced (owner's decision, 2026-11-15): a
-        // complete answer stands, and the caller records that the unit went over. A turn with no answer at all ends the
-        // unit with the bound's reason; any other non-answer is the protocol's.
-        if (answer.stopReason !== 'end_turn' && stop === undefined) throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         const usage = session.usage();
+        exchange?.answer(answer.text, answer.stopReason);
+        exchange?.setUsage(usage);
+        if (controller.signal.aborted || this.closed) { exchange?.cancelled(); throw new Error(`${WHERE}: agent turn cancelled`); }
+        if (answer.stopReason !== 'end_turn' && stop === undefined) throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         span.setAttribute('madarch.agent.model', session.model ?? 'not reported');
         span.setAttribute('madarch.agent.session', session.sessionId);
         span.setAttribute('madarch.agent.usage_reported', usage.reported);
@@ -214,6 +230,8 @@ export class PluginAgentBridge {
         // Whatever the agent produced is kept, entry by entry (owner's rule, 2026-11-15): an entry the contract or the
         // graph cannot take is left out and named, and never costs the entries beside it what the agent got right.
         const envelope = raw as Record<string, unknown>;
+        if ((envelope['end'] as { state?: unknown } | undefined)?.state === 'inapplicable' &&
+          ['vertices', 'edges', 'removals', 'problems'].some(name => envelope[name] !== undefined && (!Array.isArray(envelope[name]) || (envelope[name] as unknown[]).length > 0))) throw unusable('inapplicable requires a complete search with no instances, removals or unread places');
         // A malformed collection is a malformed answer, never an empty complete one: an answer whose `vertices` or
         // `edges` is no list names nothing, so it retracts nothing and the unit fails with that reason.
         for (const name of ['vertices', 'edges'] as const) {
@@ -263,9 +281,9 @@ export class PluginAgentBridge {
         // whole-result validation refuses a repeat, and the owner's rule keeps what the agent got right).
         const firstAt = new Map<string, string>();
         const identityOf = (name: 'vertices' | 'edges', entry: unknown): string => {
-          const held = entry as { kind?: unknown; key?: unknown; from?: { kind?: unknown; key?: unknown }; to?: { kind?: unknown; key?: unknown }; discriminator?: unknown };
-          if (name === 'vertices') return `v:${String(held.kind)}:${canonicalKey((held.key ?? {}) as never)}`;
-          return `e:${String(held.kind)}:${String(held.from?.kind)}:${canonicalKey((held.from?.key ?? {}) as never)}:${String(held.to?.kind)}:${canonicalKey((held.to?.key ?? {}) as never)}:${String(held.discriminator ?? '')}`;
+          if (name === 'vertices') return `v:${canonicalEntity(entry as import('./protocol.js').PluginEntityRef)}`;
+          const held = entry as import('./protocol.js').PluginEdgeResult;
+          return `e:${held.kind}:${canonicalEntity(held.from)}:${canonicalEntity(held.to)}:${held.discriminator ?? ''}`;
         };
         const collect = async (name: 'vertices' | 'edges'): Promise<unknown[]> => {
           const kept: unknown[] = [];
@@ -298,12 +316,29 @@ export class PluginAgentBridge {
         if (dropped.length > 0) log.warn('plugin agent entries left out', { unitId, leftOut: dropped.length, of: `${String(vertices.length + dropped.length)} vertices and edges` });
         log.info('plugin agent result validated', { unitId, vertices: vertices.length, edges: edges.length, leftOut: dropped.length });
         return result;
+      } catch (error) {
+        exchange?.failed(error);
+        throw error;
       } finally {
         this.activeUnits.delete(unitId);
         this.turns.delete(controller);
         if (connection !== undefined) { this.connections.delete(connection); await connection.close(); }
+        if (workspace !== undefined) {
+          const held = workspace;
+          workspace = undefined;
+          removeWorkspace(held);
+        }
+        exchange?.finish();
       }
     });
+  }
+
+  /** One file's text for the agent, read in a span of its own: the host answers it by the blob's id. */
+  private async readAgentFile(repository: string, blob: string, from?: number, limit?: number): Promise<string> {
+    const span = startSpan('plugin.agent.file', { 'madarch.plugin': 'agent' });
+    try {
+      return await this.options.readFile!({ repository, blob, ...(from === undefined ? {} : { from }), ...(limit === undefined ? {} : { limit }) });
+    } finally { span.end(); }
   }
 
   pause(): void {
@@ -322,4 +357,10 @@ export class PluginAgentBridge {
     await Promise.all([...this.connections].map(async (connection) => await connection.close()));
     this.connections.clear();
   }
+}
+
+/** Removes one agent's scratch workspace, in a span of its own: the conversation has ended and its files go with it. */
+function removeWorkspace(folder: string): void {
+  const span = startSpan('plugin.agent.workspace', {});
+  try { rmSync(folder, { recursive: true, force: true }); } finally { span.end(); }
 }

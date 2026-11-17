@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
@@ -22,6 +22,10 @@ import { activateTestProduct, retainTestStorePreparationOwner } from './prepared
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { startFileTextServer } from './file-text-server.js';
+
+/** The host hands the plugin the git tool it resolved; a test that serves reads does the same. */
+process.env['MADARCH_TOOL_GIT'] = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 
 /** The source-text kind the fixture declares: a file's text at the commit a fill recorded. */
 const SOURCE_KIND = `id: fixture.source
@@ -42,7 +46,7 @@ fields:
   type: text
   producers:
   - person
-- name: source_text
+- name: blob
   type: text
   producers:
   - person
@@ -72,12 +76,16 @@ let home = '';
 let folder = '';
 let repository = '';
 let closeOwner: (() => Promise<void>) | undefined;
+let files: Awaited<ReturnType<typeof startFileTextServer>> | undefined;
+let readOwner: DatabaseOwner | undefined;
 
 /** The commit a repository stands at now. */
 const headOf = (): string => git(repository, 'rev-parse', 'HEAD');
+/** The blob of one file at the repository's head. */
+const blobOf = (path: string): string => git(repository, 'rev-parse', `HEAD:${path}`);
 
-/** One `source` opinion, as the fill's source-text producer states it. */
-async function publishSource(path: string, text: string, commit: string): Promise<void> {
+/** One file's blob, as a fill states it: the text of a file is read by the blob the graph names (decision 0037). */
+async function publishBlob(path: string, blob: string): Promise<void> {
   const read = readKinds(folder);
   if (!read.present) throw new Error('the fixture manifest is absent');
   const contract = graphContractOf(read.manifest);
@@ -85,11 +93,11 @@ async function publishSource(path: string, text: string, commit: string): Promis
   try {
     await owner.transaction('write', async (tx) => {
       await bindTestWriteCapability(tx, contract);
-      const source = { kind: 'fixture-text', key: { path }, keyEdges: { 'source-repository': { kind: 'code.repository', key: { name: 'code' } } } };
       const repository = { kind: 'code.repository', key: { name: 'code' } };
-      const revision = { kind: 'code.commit', key: { hash: commit } };
+      const source = { kind: 'fixture-text', key: { path }, keyEdges: { 'source-repository': repository } };
+      const revision = { kind: 'code.commit', key: { hash: headOf() } };
       const provenance = { producer: 'fixture', producerVersion: '1' };
-      await publishGraphDrafts(tx, contract, { vertices: [{ ...source, ...provenance, values: { source_text: text } }, { ...revision, ...provenance }], removals: [], edges: [
+      await publishGraphDrafts(tx, contract, { vertices: [{ ...source, ...provenance, values: { blob } }, { ...revision, ...provenance }], removals: [], edges: [
         { kind: 'source-repository', from: source, to: repository, ...provenance },
         { kind: 'source-commit', from: source, to: revision, ...provenance },
       ] });
@@ -111,7 +119,7 @@ beforeAll(async () => {
   mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
   writeFileSync(join(folder, 'madarch/kinds/common/attachment/fixture-text.yaml'), SOURCE_KIND);
   const declaration = parse(readFolderManifestText(folder));
-  declaration['semantic-bindings'].source = { kind: 'fixture-text', fields: { path: 'path', content: 'source_text' }, edges: {
+  declaration['semantic-bindings'].source = { kind: 'fixture-text', fields: { path: 'path', blob: 'blob' }, edges: {
     repository: { kind: 'source-repository', direction: 'from' }, commit: { kind: 'source-commit', direction: 'from' },
   } };
   for (const [name, target, required] of [['source-repository', 'code.repository', true], ['source-commit', 'code.commit', false]] as const) {
@@ -126,16 +134,22 @@ beforeAll(async () => {
   closeOwner = await retainTestStorePreparationOwner();
   await fillInProcess(folder, home);
   await activateTestProduct(folder, home);
+  // The api role waits on the store's read queue: the fill role answers it, and this test serves that side itself.
+  const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
+  files = await startFileTextServer(reader);
+  readOwner = reader;
 }, 180_000);
 
 afterAll(async () => {
+  await files?.stop();
+  await readOwner?.close();
   await closeOwner?.();
   if (work !== '') rmSync(work, { recursive: true, force: true });
 });
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
   const first = headOf();
-  await publishSource('src/a.ts', 'export const a = 1;\n', first);
+  await publishBlob('src/a.ts', blobOf('src/a.ts'));
   const api = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home) });
   try {
     const before = await api.source('code', 'src/a.ts');
@@ -146,7 +160,7 @@ test('a source read reports the commit of a fill another process published, with
     git(repository, 'commit', '-qm', 'second');
     const second = headOf();
     await fillInProcess(folder, home);
-    await publishSource('src/a.ts', 'export const a = 2;\n', second);
+    await publishBlob('src/a.ts', blobOf('src/a.ts'));
     // The text is read from the store; the commit and the kinds must be the store's too, without a status poll between.
     expect(await api.source('code', 'src/a.ts')).toEqual({ text: 'export const a = 2;\n', commit: second });
   } finally { await api.close(); }

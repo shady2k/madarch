@@ -69,3 +69,5 @@ labels:
 description:
   en: 'A practice is a rule of how the team works, usually born from a mistake that repeated until someone wrote it down: what to do, why it matters and where it applies. A practice names the requests, review findings or failed runs it came from, and the check or test that holds it when one exists.'
   ru: 'Практика — правило о том, как работает команда, обычно рождённое ошибкой, которая повторялась, пока кто-то не записал её: что делать, почему это важно и где применяется. Практика называет запросы, находки ревью или неудачные запуски, из которых пришла, и проверку или тест, которые её держат, если они есть.'
+derives-from:
+- constitution

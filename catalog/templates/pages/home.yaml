@@ -39,18 +39,36 @@ sections:
     title: { en: What the graph holds, ru: Что держит граф }
     params: {}
 
-  - id: byLanguage
-    component: bars
+  # The facts the graph answers about the code it holds (madarch-64o5.133, the home's fact cards): each card is one
+  # aggregate over the current tree, drawn as a number or a chart, with the ground it rests on under it and the way into
+  # the kind's catalogue page. A card opens for the roles whose work reads it, as the kind's own audience names them; the
+  # reader who reads as everything reads them all.
+  - id: filesCount
+    component: fact
+    on: root
+    title: { en: Files, ru: Файлы }
+    roles: { show: [developer, architect] }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+      }
+    params:
+      kind: code.file
+      display: number
+  - id: filesByLanguage
+    component: fact
     on: root
     title: { en: By language, ru: По языку }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        groupBy(field: "language", limit: 10) { key count }
+        count
+        groupBy(field: "language", limit: 8) { key count }
       }
     params:
-      path: groupBy
-      valuePath: count
-  - id: byRepository
+      kind: code.file
+      display: bar
+      by: language
+  - id: filesByRepository
     component: bars
     on: root
     title: { en: Files by repository, ru: Файлы по репозиторию }
@@ -62,3 +80,45 @@ sections:
       path: edges
       labelPath: node.label
       valuePath: node.codeFileRepositoryOf.totalCount
+  - id: filesByAge
+    component: fact
+    on: root
+    title: { en: Time since last change, ru: Время с последнего изменения }
+    roles: { show: [developer, architect] }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+        histogram(field: "lastChange", bounds: [30, 90, 365]) { from to count }
+      }
+    params:
+      kind: code.file
+      display: timeline
+      by: lastChange
+  - id: largestFiles
+    component: fact
+    on: root
+    title: { en: Largest files in bytes, ru: Самые большие файлы в байтах }
+    roles: { show: [developer, architect] }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+        topN(field: "bytes", n: 10) { node { label } value }
+      }
+    params:
+      kind: code.file
+      display: bar
+      by: bytes
+  - id: mostChangedFiles
+    component: fact
+    on: root
+    title: { en: "Most changed files (commits, merge commits included)", ru: "Чаще изменяемые файлы (коммиты, включая слияния)" }
+    roles: { show: [developer, architect] }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+        topN(field: "commitCount", n: 10) { node { label } value }
+      }
+    params:
+      kind: code.file
+      display: bar
+      by: commitCount

@@ -61,3 +61,10 @@ test('a search shared as ?q= searches the same words as ?text= (madarch-64o5.83)
   // Another template keeps its own parameters untouched.
   expect(parseAddress('/p/run', '?q=fill', '').page.params?.['q']).toBe('fill');
 });
+
+
+test('a source address binds the current source template and preserves its line variable', () => {
+  expect(parseAddress('/products/shop/src', '?repo=core&path=src%2Fx.ts&line=12', '/products/shop')).toMatchObject({
+    page: { template: 'source', params: { repo: 'core', path: 'src/x.ts', line: '12' } }, unknown: false, frame: null,
+  });
+});

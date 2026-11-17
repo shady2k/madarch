@@ -26,3 +26,6 @@ labels:
 description:
   en: A release is one version of the product handed to its users, marked by a number and carrying a stated set of changes. It may reach everyone at once or gradually, and its notes say what is new.
   ru: Выпуск — одна версия продукта, переданная пользователям, отмеченная номером и несущая определённый набор изменений. Он может дойти до всех сразу или постепенно, а его заметки говорят, что нового.
+derives-from:
+- build-artifact
+- change

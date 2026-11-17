@@ -57,3 +57,5 @@ labels:
 description:
   en: 'A principle is a rule the team follows in every choice about the architecture, the code or the way it works: one system for one job, no hard-coded values, delete what is replaced at once. It is written so a decision can be held against it and a departure must be argued.'
   ru: 'Принцип — правило, которого команда держится в каждом выборе об архитектуре, коде или способе работы: одна система для одной задачи, никаких вписанных значений, заменённое удаляют сразу. Он сформулирован так, чтобы по нему можно было судить решение, а отступление нужно было обосновать.'
+derives-from:
+- product

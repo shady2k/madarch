@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /** The built-in demo product: keep the upstream repository as its authority. */
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -21,9 +22,9 @@ export function prepareDemo(options: DemoOptions = {}): DemoResult {
   const home = resolve(productsHome(env, options.home));
   const folder = join(home, 'madarch-product');
   try {
-    if (existsSync(home) && !statSync(home).isDirectory())
+    if (existsSync(home) && !withSpanSync('fs.stat', { 'file.path': home }, () => statSync(home)).isDirectory())
       return { ok: false, message: `the products home ${home} is not a folder` };
-    mkdirSync(home, { recursive: true });
+    withSpanSync('fs.mkdir', { 'file.path': home }, () => mkdirSync(home, { recursive: true }));
   } catch (error) {
     return { ok: false, message: `the products home ${home} cannot be used: ${(error as Error).message}` };
   }
@@ -53,20 +54,20 @@ export function prepareDemo(options: DemoOptions = {}): DemoResult {
   const stagedProduct = join(staging, 'product');
   const clone = runGit(home, ['clone', '--quiet', url, stagedProduct]);
   if (!clone.ok) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     return { ok: false, message: `git clone failed for ${url}: ${clone.output}; if the network is unavailable, check your connection; if you are offline, try madarch init` };
   }
   const stagedRead = readProduct(stagedProduct);
   if (!stagedRead.ok) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     return { ok: false, message: `${stagedRead.file}:${stagedRead.line}: ${stagedRead.message}` };
   }
   // mkdir is exclusive: a destination that appeared during the clone is not
   // ours, so leave it intact and discard only this invocation's staging.
   try {
-    mkdirSync(folder);
+    withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder));
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     if ((error as NodeJS.ErrnoException).code === 'EEXIST')
       return { ok: false, message: `the demo folder ${folder} appeared while the clone was running; it was left unchanged` };
     return { ok: false, message: `the demo folder ${folder} cannot be reserved: ${(error as Error).message}` };
@@ -74,9 +75,9 @@ export function prepareDemo(options: DemoOptions = {}): DemoResult {
   try {
     renameSync(stagedProduct, folder);
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
     return { ok: false, message: `the cloned demo could not be installed at ${folder}: ${(error as Error).message}; the empty reserved folder remains at that path` };
   }
-  rmSync(staging, { recursive: true, force: true });
+  withSpanSync('fs.remove', { 'file.path': staging }, () => rmSync(staging, { recursive: true, force: true }));
   return { ok: true, folder, updated: false };
 }

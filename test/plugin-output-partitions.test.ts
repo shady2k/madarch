@@ -41,7 +41,7 @@ function fixture() {
   const contract = { vertices: ['Items', 'Summary'].map(kind => ({ kind, key: ['id'], fields: ['id', 'text'].map(field) })), edges: [] };
   writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'partitions', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version },
     produces: [{ kind: 'Items', fields: '*', reads: [], partition: 'key' }, { kind: 'Summary', fields: '*', reads: ['Items'] }] }));
-  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
+  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value', 'ownFacts'] } }));
   writeFileSync(join(plugin, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk';
 import { mode, revision } from './scenario.js';
 const contract=${JSON.stringify(contract)};
@@ -66,8 +66,8 @@ await definePlugin({ name:'partitions', version:'1.0.0', contract, graph:true, g
   const kinds = Object.fromEntries(['Items', 'Summary'].map(kind => [kind, { source: 'graph', 'derives-from': kind === 'Summary' ? ['Items'] : [], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) }]));
   writeFolderManifest(product, stringify({ language: 'en', kinds, plugins: [{ id: 'partitions', version: 1, path: 'plugins/partitions', inputs: ['Items'], outputs: ['Items', 'Summary'], closure: ['plugins/partitions/plugin.json', 'plugins/partitions/contract.json', 'plugins/partitions/main.js', 'plugins/partitions/scenario.js'] }] }));
   let releaseHashes: string[] = [];
-  function change(mode: Mode, revision: string) {
-    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)};\n`);
+  function change(mode: Mode, revision: string, releaseNote = revision) {
+    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)}; // ${releaseNote}\n`);
     const hash = closureOf(plugin).hash; releaseHashes = [hash];
     writeFileSync(join(product, 'madarch/plugins.lock'), stringify({ plugins: [{ id: 'partitions', path: 'plugins/partitions', version: '1.0.0', closure: hash }] }));
     git(product, 'add', '-A'); git(product, '-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid', 'commit', '-qm', revision);
@@ -118,11 +118,14 @@ test('a failed partition retains prior and accepted facts but blocks dependants'
     expect(failed.state).not.toBe('succeeded');
     expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
     expect((await readProgress(owner,'failed')).some(event=>event.kind==='unit-failed' && event.summary.includes('second partition refused'))).toBe(true);
-    const after = await rows();
-    expect(after.map(row => row.id)).toEqual(before.map(row => row.id));
-    expect(after.find(row => row.id === 'b')?.text).toBe('first:b');
-    for (const row of after) expect(['first:'+row.id,'replacement:'+row.id]).toContain(row.text);
+    // Accepted partitions remain visible even when a later partition fails.
+    expect(await rows()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a', text: 'replacement:a' }),
+      expect.objectContaining({ id: 'b', text: 'first:b' }),
+    ]));
     expect(await rows('Summary')).toEqual([]);
+    // The facts the earlier run published are still the earlier run's: nothing retracted them.
+    expect(before.length).toBe(keys.length);
     const outcomes = await readProducerOutcomes(owner, { runId: 'failed' });
     expect(outcomes.some(outcome => outcome.kind === 'Summary' && outcome.outcome === 'completed')).toBe(false);
   } finally { await owner.close(); }

@@ -30,6 +30,7 @@ key:
 - port
 derives-from:
 - code.service
+- product-profile
 labels:
   en:
     one: Port

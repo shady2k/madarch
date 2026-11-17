@@ -14,6 +14,7 @@ declare const bindingBrand: unique symbol;
 export interface GraphPrincipal { readonly [principalBrand]: true; readonly producer: string; readonly version: string; readonly uid: string; readonly kind: string; readonly sourceUid: string; readonly principalUid: string; readonly scope: string; readonly sessionUid?: string }
 export interface ProducerBinding { readonly [bindingBrand]: true; readonly producer: string; readonly version: string; readonly sourceUid: string; readonly contextId: number; readonly principalUid: string; readonly scope: string; readonly sessionUid?: string }
 interface PrincipalState { readonly owner: DatabaseOwner; readonly productUid: string; readonly producer: string; readonly version: string; readonly uid: string; readonly kind: string; readonly sourceUid: string; readonly principalUid: string; readonly scope: string; readonly sessionUid?: string }
+export const MERGE_ACTION:ProducerAction='merge';
 export type ProducerAction = 'assert' | 'retract-own' | 'resolve' | 'merge';
 interface BindingState { readonly actions: ReadonlySet<ProducerAction>; readonly owner: DatabaseOwner; readonly contract: string; readonly principal: PrincipalState; readonly contextId: number; readonly scope: string; readonly vertices: ReadonlyMap<string, ReadonlySet<string>>; readonly edges: ReadonlyMap<string, ReadonlySet<string>> }
 function contractFingerprint(contract: GraphContract): string {

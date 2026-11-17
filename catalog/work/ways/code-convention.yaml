@@ -72,3 +72,5 @@ labels:
 description:
   en: A code convention states one rule of how the code is written — which names, which structure, which patterns are forbidden — and where it applies. A linter configuration, a type check or an architecture check carries it, so the rule is enforced rather than remembered.
   ru: 'Соглашение о коде формулирует одно правило о том, как пишут код: какие имена, какая структура, какие образцы запрещены, — и где оно действует. Его держит настройка линтера, проверка типов или проверка архитектуры, поэтому правило исполняется, а не запоминается.'
+derives-from:
+- constitution

@@ -4,6 +4,7 @@
  * Validate the complete plan again before applying it: an answer added after the
  * preview is never deleted using that old preview.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { lstatSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { renderCorrection, renderQuestion } from '../loop/entities.js';
@@ -131,17 +132,21 @@ export async function applyReset(productFolder: string, plan: ResetPlan, options
   }
   for (const path of plan.store) if (present(path) && !realInside(original.storeFolder, path)) throw failure(path, 'the store path leaves its folder: nothing was removed from the product');
   // A write failure is explicit and happens before deletion.
+withSpanSync('reset.write', { 'file.path': productFolder, 'reset.files': original.edits.size }, () => {
   for (const [relative, source] of original.edits) {
     if (!options.keepQuestions && plan.unansweredQuestions.includes(relative)) continue;
     const path = join(productFolder, relative);
     try { writeFileSync(path, source, 'utf8'); }
     catch (error) { throw failure(path, `resolution metadata could not be updated: ${(error as Error).message}`); }
   }
+  });
   const paths = [...(options.keepStore ? [] : plan.store.filter((path) => options.resetStore === undefined || path !== join(original.storeFolder, 'graph'))), ...plan.agentPages.map((relative) => join(productFolder, relative)), ...(options.keepQuestions ? [] : plan.unansweredQuestions.map((relative) => join(productFolder, relative)))];
+withSpanSync('reset.remove', { 'file.path': productFolder, 'reset.files': paths.length }, () => {
   for (const path of paths) {
     try { rmSync(path, { recursive: plan.store.includes(path), force: true }); }
     catch (error) { throw failure(path, `could not be removed: ${(error as Error).message}`); }
   }
+  });
   try { rmdirSync(join(productFolder, 'docs', 'domains')); }
   catch { /* A person's page remains, or the folder is gone. */ }
 }

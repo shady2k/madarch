@@ -11,6 +11,7 @@
  * and cause. The child's output goes to a log file beside the state file, so
  * a failed start can be read up.
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { stopWindowsDaemon } from './windows-daemon-stop.js';
 import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
@@ -31,6 +32,7 @@ import { here } from '../model/raise.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
 import { setManifestPublicationState } from './manifest-publication-state.js';
+import { canStartDelegatedScope, delegatedScopeCommand } from '../plugin/sandbox-delegation.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
 const STATE_FILE = '.madarch-daemon.json';
@@ -65,17 +67,17 @@ async function freePort(): Promise<number | undefined> {
     const listener = netServer();
     listener.unref();
     listener.once('error', () => answer(undefined));
-    listener.listen(0, '127.0.0.1', () => {
+    withSpanSync('net.listen', { 'net.host': '127.0.0.1', 'net.port': 0 }, () => listener.listen(0, '127.0.0.1', () => {
       const address = listener.address();
       const port = typeof address === 'object' && address ? address.port : 0;
       listener.close(() => answer(port > 0 ? port : undefined));
-    });
+    }));
   });
 }
 
 function readState(home: string): DaemonState | undefined {
   try {
-    const parsed = JSON.parse(readFileSync(statePath(home), 'utf8')) as DaemonState;
+    const parsed = JSON.parse(withSpanSync('fs.read', { 'file.path': statePath(home) }, (span) => { const held = readFileSync(statePath(home), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })) as DaemonState;
     if (parsed.home !== home || !Number.isInteger(parsed.pid) || !Number.isInteger(parsed.port) || typeof parsed.token !== 'string') return undefined;
     return parsed;
   } catch { return undefined; }
@@ -84,9 +86,9 @@ function readState(home: string): DaemonState | undefined {
 /** The command line of one process id, or undefined when it does not exist. */
 function processArgs(pid: number): string | undefined {
   if (process.platform === 'win32') return windowsProcessArgs(pid);
-  try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replaceAll('\0', ' '); }
+  try { return withSpanSync('fs.read', { 'file.path': `/proc/${pid}/cmdline` }, (span) => { const held = readFileSync(`/proc/${pid}/cmdline`, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).replaceAll('\0', ' '); }
   catch {
-    const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+    const result = withSpanSync('process.run', { 'process.command': 'ps', 'process.args': ['-p', String(pid), '-o', 'command='] }, (span) => { const answer = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
     return result.status === 0 ? result.stdout.trim() : undefined;
   }
 }
@@ -104,7 +106,7 @@ function windowsProcessArgs(pid: number): string | undefined {
   // PowerShell 7 answers where a machine carries only that, and a program that
   // cannot be started at all is not this command's answer either.
   for (const program of ['powershell', 'pwsh']) {
-    const result = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+    const result = withSpanSync('process.run', { 'process.command': program, 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => { const answer = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
     if (result.error !== undefined || result.status !== 0) continue;
     const said = (result.stdout ?? '').trim();
     return said === '' ? undefined : said;
@@ -208,9 +210,9 @@ function readChild(pid: number, state: { home: string; port: number }, reads: Ch
 function daemonTokenMatches(state: DaemonState): boolean {
   if (process.platform === 'win32') return true;
   try {
-    return readFileSync(`/proc/${state.pid}/environ`, 'utf8').split('\0').includes(`MADARCH_DAEMON_TOKEN=${state.token}`);
+    return withSpanSync('fs.read', { 'file.path': `/proc/${state.pid}/environ` }, (span) => { const held = readFileSync(`/proc/${state.pid}/environ`, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).split('\0').includes(`MADARCH_DAEMON_TOKEN=${state.token}`);
   } catch {
-    const env = spawnSync('ps', ['eww', '-p', String(state.pid)], { encoding: 'utf8' });
+    const env = withSpanSync('process.run', { 'process.command': 'ps', 'process.args': ['eww', '-p', String(state.pid)] }, (span) => { const answer = spawnSync('ps', ['eww', '-p', String(state.pid)], { encoding: 'utf8' }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
     return env.status === 0 && env.stdout.includes(`MADARCH_DAEMON_TOKEN=${state.token}`);
   }
 }
@@ -231,7 +233,7 @@ function daemonIsAlive(state: DaemonState, reads: ChildReadings = childReadings)
   return readChild(state.pid, state, reads).reading === 'daemon' && daemonTokenMatches(state);
 }
 
-function saveState(home: string, state: DaemonState): void { writeFileSync(statePath(home), JSON.stringify(state, null, 2) + '\n', { mode: 0o600 }); }
+function saveState(home: string, state: DaemonState): void { withSpanSync('fs.write', { 'file.path': statePath(home), 'file.bytes': Buffer.byteLength(JSON.stringify(state, null, 2) + '\n') }, () => writeFileSync(statePath(home), JSON.stringify(state, null, 2) + '\n', { mode: 0o600 })); }
 function clearState(home: string): void { try { unlinkSync(statePath(home)); } catch { /* already gone */ } }
 
 /**
@@ -320,10 +322,10 @@ function portOccupied(port: number): Promise<boolean> {
 function acquireLock(home: string): string | undefined {
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   for (let attempt = 0; attempt < 2; attempt++) {
-    try { writeFileSync(join(home, LOCK_FILE), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 }); return token; }
+    try { withSpanSync('fs.write', { 'file.path': join(home, LOCK_FILE), 'file.bytes': Buffer.byteLength(JSON.stringify({ pid: process.pid, token })) }, () => writeFileSync(join(home, LOCK_FILE), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 })); return token; }
     catch {
       try {
-        const holder = JSON.parse(readFileSync(join(home, LOCK_FILE), 'utf8')) as { pid?: number };
+        const holder = JSON.parse(withSpanSync('fs.read', { 'file.path': join(home, LOCK_FILE) }, (span) => { const held = readFileSync(join(home, LOCK_FILE), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })) as { pid?: number };
         if (Number.isInteger(holder.pid) && !processExists(holder.pid!)) { unlinkSync(join(home, LOCK_FILE)); continue; }
       } catch { /* a lock that cannot be read is not ours to remove */ }
       return undefined;
@@ -333,7 +335,7 @@ function acquireLock(home: string): string | undefined {
 }
 function releaseLock(home: string, token: string): void {
   try {
-    const holder = JSON.parse(readFileSync(join(home, LOCK_FILE), 'utf8')) as { token?: string };
+    const holder = JSON.parse(withSpanSync('fs.read', { 'file.path': join(home, LOCK_FILE) }, (span) => { const held = readFileSync(join(home, LOCK_FILE), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })) as { token?: string };
     if (holder.token === token) unlinkSync(join(home, LOCK_FILE));
   } catch { /* lock already removed */ }
 }
@@ -409,7 +411,7 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   if (!built.ok) return { ok: false, message: built.message };
   const home = homePath(options.home);
   let lock: string | undefined;
-  try { mkdirSync(home, { recursive: true }); }
+  try { withSpanSync('fs.mkdir', { 'file.path': home }, () => mkdirSync(home, { recursive: true })); }
   catch (error) { return { ok: false, message: `the products home ${home} cannot be used for the daemon state: ${(error as Error).message}` }; }
   try { lock = acquireLock(home); }
   catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
@@ -483,7 +485,7 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
 export async function answersAsDaemon(port: number, token: string): Promise<boolean> {
   const nonce = randomUUID();
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    const response = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': `http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}` }, async (span) => { const response = await fetch(`http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }); span.setAttribute('http.status', response.status); return response; });
     if (!response.ok) return false;
     const body = (await response.json().catch(() => null)) as { proof?: unknown } | null;
     if (body === null || typeof body.proof !== 'string') return false;
@@ -513,13 +515,45 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist };
   delete env.MADARCH_STORE_OWNER_URL;
   delete env.MADARCH_STORE_OWNER_TOKEN;
-  const proc = spawn(child.command, child.args, { detached: true, stdio: ['ignore', log, log], env });
-  proc.unref();
+  const start = (command: string, args: string[]): import('node:child_process').ChildProcess => {
+    const started = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => spawn(command, args, { detached: true, stdio: ['ignore', log, log], env }));
+    started.unref();
+    return started;
+  };
+  // Where the user manager delegates cpu, memory and pids, the daemon starts in its own transient scope and makes the
+  // daemon/plugins child layout there (sandbox-delegation.ts). The scope's shell writes the daemon's real pid, so the
+  // state file, the command-line check and stop all name the daemon rather than systemd-run.
+  const pidFile = join(home, `.madarch-daemon-pid-${token}`);
+  const delegated = await canStartDelegatedScope();
+  let proc: import('node:child_process').ChildProcess;
+  if (delegated) {
+    const scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`);
+    proc = start(scope.command, scope.args);
+    const pidWritten = await waitUntil(() => existsSync(pidFile), 2500);
+    if (!pidWritten) {
+      try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+      try { unlinkSync(pidFile); } catch { /* never written */ }
+      proc = start(child.command, child.args);
+    }
+  } else {
+    proc = start(child.command, child.args);
+  }
+  const daemonPid = (() => {
+    try {
+      const written = withSpanSync('fs.read', { 'file.path': pidFile }, (span) => {
+        const text = readFileSync(pidFile, 'utf8');
+        span.setAttribute('file.bytes', Buffer.byteLength(text));
+        return text;
+      });
+      const held = Number(written.trim());
+      return Number.isInteger(held) && held > 0 ? held : proc.pid!;
+    } catch { return proc.pid!; }
+  })();
   // A spawn that cannot even happen (a PATH without bun) is a failed start,
   // not an uncaught error on a process the state file already names.
   const childFault: { message?: string } = {};
   proc.once('error', (error) => { childFault.message = (error as Error).message; });
-  const state: DaemonState = { pid: proc.pid!, port, startedAt: Date.now(), home, token, version: runningVersion() };
+  const state: DaemonState = { pid: daemonPid, port, startedAt: Date.now(), home, token, version: runningVersion() };
   try { saveState(home, state); } catch (error) {
     await stopProcess(state, reads);
     clearState(home);
@@ -551,8 +585,12 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
     return false;
   }, READY_TIMEOUT_MS);
-  if (ready && answered && daemonIsAlive(state, reads)) return { ok: true, pid: state.pid, port };
+  if (ready && answered && daemonIsAlive(state, reads)) {
+    try { unlinkSync(pidFile); } catch { /* never written */ }
+    return { ok: true, pid: state.pid, port };
+  }
   await stopProcess(state, reads);
+  try { unlinkSync(pidFile); } catch { /* never written */ }
   const current = readState(home);
   const survived = daemonIsAlive(state, reads);
   // A record for a daemon that is really gone goes; a record whose process
@@ -561,7 +599,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   if (childFault.message !== undefined) return { ok: false, taken: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
   const why = startFailureWhy(state.pid, port, seen, { answered, tokenMissed });
   let diagnostic = '';
-  try { diagnostic = `\n${readFileSync(logPath(home), 'utf8')}`; } catch { /* the child may have failed before writing */ }
+  try { diagnostic = `\n${withSpanSync('fs.read', { 'file.path': logPath(home) }, (span) => { const held = readFileSync(logPath(home), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })}`; } catch { /* the child may have failed before writing */ }
   const taken = !survived && !answered && await addressHeld(port);
   return survived
     ? { ok: false, taken: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
@@ -592,7 +630,7 @@ export function stopDaemon(options: { home?: string }): number {
   const home = homePath(options.home);
   // Nothing to stop stands where the home does not stand yet, and a stop
   // never creates one; the empty answer matches what status answers there.
-  try { if (!statSync(home).isDirectory()) { console.log('not running'); return 0; } }
+  try { if (!withSpanSync('fs.stat', { 'file.path': home }, () => statSync(home)).isDirectory()) { console.log('not running'); return 0; } }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') { console.log('not running'); return 0; }
     console.error(`the products home ${home} cannot be read to stop the daemon: ${(error as Error).message}`);
@@ -736,6 +774,12 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const { validateProductManifests } = await import('../graph/manifest-publication.js');
   const { createManifestWatch } = await import('./manifest-watch.js');
   const home = homePath(options.home);
+  const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
+  const cgroup = await prepareSandboxCgroup(process.env);
+  if (!cgroup.ok) console.error(cgroup.message);
+  const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
+  const probe = await probePluginSandbox();
+  if (probe.state === 'unavailable') console.error(probe.reason);
   // A start of this home stops a PostgreSQL server a crash left before it serves: its data folder is no process's to
   // keep when no madarch process uses it.
   await stopDatabasesUnder(knowledgeRootOf(home));

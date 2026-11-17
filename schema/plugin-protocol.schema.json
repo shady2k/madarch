@@ -40,7 +40,7 @@
           "properties": {
             "protocol": {
               "type": "string",
-              "const": "madarch.plugins/2",
+              "const": "madarch.plugins/3",
               "description": "The protocol version this plugin speaks."
             },
             "name": {
@@ -74,6 +74,10 @@
                   "type": "array",
                   "items": {
                     "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "ownFacts"
+                      },
                       {
                         "type": "string",
                         "const": "files"
@@ -555,6 +559,10 @@
             "planOutput": {
               "type": "boolean"
             },
+            "read": {
+              "type": "boolean",
+              "description": "The plugin answers the host's blob reads: a page's text and the agent's file reads, by (repository, blob id) (decision 0037)."
+            },
             "reads": {
               "anyOf": [
                 {
@@ -918,6 +926,111 @@
         },
         "method": {
           "type": "string",
+          "const": "graph.ownFacts"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unitId",
+            "scope"
+          ],
+          "properties": {
+            "unitId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "parent": {
+                  "$defs": {
+                    "Entity": {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "key"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "key": {
+                          "type": "object",
+                          "patternProperties": {
+                            "^.*$": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "keyEdges": {
+                          "type": "object",
+                          "patternProperties": {
+                            "^.*$": {
+                              "$ref": "Entity"
+                            }
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "$id": "Entity"
+                    }
+                  },
+                  "$ref": "Entity"
+                },
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "commit": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
           "const": "graph.files"
         },
         "params": {
@@ -938,6 +1051,69 @@
       },
       "additionalProperties": false,
       "description": "The plugin asks the host for the file vertices whose path matches a pattern."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "file.read"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "repository",
+            "blob"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The repository’s name, as the graph’s file vertices hold it."
+            },
+            "blob": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The git blob id of the content, as the graph holds it."
+            },
+            "from": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The first line asked for, 1-based; absent, the first line."
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The last line asked for, inclusive; absent, the last line of the blob."
+            }
+          },
+          "additionalProperties": false,
+          "description": "One file read an ordinary plugin asks the host for, by repository and blob id."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for a file’s text by repository and blob id; the host routes it to the core plugin that owns git."
     },
     {
       "type": "object",
@@ -1818,10 +1994,294 @@
                             "$ref": "Entity"
                           }
                         }
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "required": [
+                          "target"
+                        ],
+                        "properties": {
+                          "target": {
+                            "$defs": {
+                              "Entity": {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "key"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "key": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "keyEdges": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "$ref": "Entity"
+                                      }
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "$id": "Entity"
+                              }
+                            },
+                            "$ref": "Entity"
+                          },
+                          "commit": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The commit the value was read at."
+                          },
+                          "digest": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The content digest the value was read at."
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The path inside that repository, when the value has one."
+                          },
+                          "lineStart": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "The first line the value was read at, counted from 1."
+                          },
+                          "lineEnd": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "The last line the value was read at, counted from 1."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "What one value stands on: where it was read, and at which lines."
                       }
                     },
                     "additionalProperties": false,
                     "description": "An entity the plugin produced before that the unit's input no longer holds."
+                  }
+                },
+                "edgeRemovals": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "from",
+                      "to"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The edge kind, one the plugin's contract declares."
+                      },
+                      "from": {
+                        "$defs": {
+                          "Entity": {
+                            "type": "object",
+                            "required": [
+                              "kind",
+                              "key"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "key": {
+                                "type": "object",
+                                "patternProperties": {
+                                  "^.*$": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "keyEdges": {
+                                "type": "object",
+                                "patternProperties": {
+                                  "^.*$": {
+                                    "$ref": "Entity"
+                                  }
+                                }
+                              }
+                            },
+                            "additionalProperties": false,
+                            "$id": "Entity"
+                          }
+                        },
+                        "$ref": "Entity"
+                      },
+                      "to": {
+                        "$defs": {
+                          "Entity": {
+                            "type": "object",
+                            "required": [
+                              "kind",
+                              "key"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "key": {
+                                "type": "object",
+                                "patternProperties": {
+                                  "^.*$": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "keyEdges": {
+                                "type": "object",
+                                "patternProperties": {
+                                  "^.*$": {
+                                    "$ref": "Entity"
+                                  }
+                                }
+                              }
+                            },
+                            "additionalProperties": false,
+                            "$id": "Entity"
+                          }
+                        },
+                        "$ref": "Entity"
+                      },
+                      "discriminator": {
+                        "type": "string",
+                        "description": "What tells repeats between the same ends apart; an empty string where the kind does not repeat."
+                      },
+                      "values": {
+                        "type": "object",
+                        "patternProperties": {
+                          "^.*$": {}
+                        }
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "required": [
+                          "target"
+                        ],
+                        "properties": {
+                          "target": {
+                            "$defs": {
+                              "Entity": {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "key"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "key": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "keyEdges": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "$ref": "Entity"
+                                      }
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "$id": "Entity"
+                              }
+                            },
+                            "$ref": "Entity"
+                          },
+                          "commit": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The commit the value was read at."
+                          },
+                          "digest": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The content digest the value was read at."
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The path inside that repository, when the value has one."
+                          },
+                          "lineStart": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "The first line the value was read at, counted from 1."
+                          },
+                          "lineEnd": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "The last line the value was read at, counted from 1."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "What one value stands on: where it was read, and at which lines."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on."
                   }
                 }
               },

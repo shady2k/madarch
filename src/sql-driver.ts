@@ -7,4 +7,5 @@ export interface SqlExecutor {
   ): Promise<{ rows: Row[] }>;
 }
 
-export type SqlTransactionKind = 'snapshot' | 'write';
+export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;
+export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];

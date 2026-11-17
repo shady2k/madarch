@@ -44,6 +44,7 @@ description:
   ru: Таблица — именованный набор строк с одинаковыми столбцами, который база данных хранит вместе. Столбцы задают поля строки, ключи отличают строки, а индексы помогают их находить.
 derives-from:
 - code.database
+- product-profile
 
 key-edges:
 - role: code.table-database

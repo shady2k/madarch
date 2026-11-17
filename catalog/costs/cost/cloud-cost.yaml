@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A cloud cost is the money a cloud provider charges for the capacity the product consumes: computing time, storage, network traffic and managed services. It is usually billed per period and can be split by resource, service or team.'
   ru: 'Облачная стоимость — деньги, которые облачный провайдер берёт за ресурсы, потребляемые продуктом: вычислительное время, хранилище, сетевой трафик и управляемые сервисы. Обычно её выставляют за период и делят по ресурсам, сервисам или командам.'
+derives-from:
+- cost-record

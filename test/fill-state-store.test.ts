@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 
@@ -233,4 +233,17 @@ test('generation identities and replacement links live in the ordinary graph', a
     const links=await tx.query<{count:string}>("SELECT count(*)::text AS count FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node a ON a.id=e.from_node JOIN node b ON b.id=e.to_node WHERE k.name='system.unit-replacement' AND a.uid=$1::uuid AND b.uid=$2::uuid",[first,second]);
     expect(links.rows[0]?.count).toBe('1');
   });
+});
+
+
+test('a malformed attempt cannot enter the typed graph state and the prior record survives', async () => {
+  const unitId = 'unit-malformed-attempt';
+  await runningUnit(unitId);
+  const before = await readUnit(database, unitId);
+  await expect(database.transaction('write', async tx => {
+    const uid = await readUnitGraphUidIn(tx, unitId, 1);
+    if (uid === undefined) throw new Error('fixture unit is absent');
+    await putFillVertexIn(tx, 'system.unit', uid, { attempt: 'one' });
+  })).rejects.toThrow();
+  expect(await readUnit(database, unitId)).toEqual(before);
 });

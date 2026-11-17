@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A touchpoint is any moment where a person comes into contact with the product or the organisation: a screen, a letter, a phone call, a shop counter. Journeys are made of touchpoints, and each one can help or hinder the person.'
   ru: 'Точка контакта — любой момент, когда человек соприкасается с продуктом или организацией: экран, письмо, звонок, стойка в магазине. Путь человека складывается из точек контакта, и каждая может помочь или помешать.'
+derives-from:
+- user-journey

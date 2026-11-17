@@ -55,7 +55,7 @@ function stage(id: string, consumes: readonly string[], produces: readonly strin
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: () => ({ units: [] }),
     execute: () => ({ outcome: 'draft' }),
-    };
+  };
 }
 
 /** The workflows of one text, read against the engine's stage registry. */

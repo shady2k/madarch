@@ -8,6 +8,13 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import type { SnapshotEntry } from './repository-snapshot.js';
+import { withSpanSync } from '../obs/trace.js';
+
+function withoutTrailingSlash(folder: string): string {
+  let end = folder.length;
+  while (end > 0 && folder[end - 1] === '/') end -= 1;
+  return folder.slice(0, end);
+}
 
 /** How a read of the product repository's own files reads them. */
 export interface ProductFileRead {
@@ -45,8 +52,13 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
       }
     },
     text: (path) => {
+      const file = join(productFolder, path);
       try {
-        return readFileSync(join(productFolder, path), 'utf8');
+        return withSpanSync('fs.read', { 'file.path': file }, (span) => {
+          const held = readFileSync(file, 'utf8');
+          span.setAttribute('file.bytes', Buffer.byteLength(held));
+          return held;
+        });
       } catch {
         return undefined;
       }
@@ -61,11 +73,16 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
       }
     },
     filesIn: (folder) => {
+      const directory = join(productFolder, folder);
       try {
-        return readdirSync(join(productFolder, folder), { withFileTypes: true })
-          .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-          .map((entry) => `${folder.replace(/\/+$/, '')}/${entry.name}`)
-          .sort();
+        return withSpanSync('fs.readdir', { 'file.path': directory }, (span) => {
+          const entries = readdirSync(directory, { withFileTypes: true });
+          span.setAttribute('file.entries', entries.length);
+          return entries
+            .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
+            .map((entry) => `${withoutTrailingSlash(folder)}/${entry.name}`)
+            .sort();
+        });
       } catch {
         return [];
       }
@@ -86,7 +103,10 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
           else if (entry.isFile()) found.push(relative(productFolder, full).split('\\').join('/'));
         }
       };
-      walk(productFolder);
+      withSpanSync('fs.readdir', { 'file.path': productFolder }, (span) => {
+        walk(productFolder);
+        span.setAttribute('file.entries', found.length);
+      });
       return found.sort();
     },
     filesBelow: (folder) => {
@@ -112,7 +132,10 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
           else if (entry.isFile()) found.push(relative(productFolder, full).split('\\').join('/'));
         }
       };
-      walk(root);
+      withSpanSync('fs.readdir', { 'file.path': root }, (span) => {
+        walk(root);
+        span.setAttribute('file.entries', found.length);
+      });
       return found.sort();
     },
   };
@@ -160,11 +183,11 @@ export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryL
       for (let at = 0; at < blobs.length; at++) held.set(blobs[at]!, texts[at]!);
     },
     filesIn: (folder) => {
-      const prefix = folder.replace(/\/+$/, '') + '/';
+      const prefix = withoutTrailingSlash(folder) + '/';
       return [...entries.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/')).sort();
     },
     filesBelow: (folder) => {
-      const prefix = folder.replace(/\/+$/, '') + '/';
+      const prefix = withoutTrailingSlash(folder) + '/';
       return [...entries.keys()].filter((path) => path.startsWith(prefix)).sort();
     },
     paths: () => [...entries.keys()].sort(),

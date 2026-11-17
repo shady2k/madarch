@@ -12,6 +12,8 @@ import { byCodePoint } from '../model/order.js';
 import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
 import { activateGraphProducer, producerIdentityOf, requirePublicationBinding, type ProducerBinding } from './producer-binding.js';
 import { selectAssertions } from './assertion-selection.js';
+import { catalogueRequests, parseRequest } from './door-contract.js';
+import { fits, GraphRefusal } from './validation.js';
 
 export type AuthoredAction = 'list' | 'read' | 'create' | 'edit' | 'delete' | 'schema';
 export interface AuthoredArguments {
@@ -36,15 +38,10 @@ export interface AuthoredResult {
 }
 export class AuthoredRefusal extends Error {
   readonly field: string | undefined;
-  constructor(readonly status: number, message: string, readonly conflict?: { readonly field: string; readonly current: unknown; readonly author: string }) {
+  constructor(readonly status: number, message: string, readonly conflict?: { readonly field: string; readonly current: unknown; readonly author: string }, readonly refusal?: GraphRefusal) {
     super(`${import.meta.path}:1: ${message}`);
     this.field = message.startsWith('field "') ? message.slice(7, message.indexOf('"', 7)) : undefined;
   }
-}
-
-function integerText(value: string): boolean {
-  const digits = value.startsWith('-') ? value.slice(1) : value;
-  return digits.length > 0 && [...digits].every((point) => '0123456789'.includes(point));
 }
 
 function validate(fields: readonly FieldContract[], values: Readonly<Record<string, unknown>>, required: boolean): void {
@@ -56,12 +53,7 @@ function validate(fields: readonly FieldContract[], values: Readonly<Record<stri
       if (field.nullable === true) continue;
       throw new AuthoredRefusal(400, `field ${JSON.stringify(field.name)}: a value is required`);
     }
-    const valid = field.type === 'text' ? typeof value === 'string'
-      : field.type === 'boolean' ? typeof value === 'boolean'
-      : field.type === 'integer' ? typeof value === 'number' && Number.isInteger(value) && value >= -2147483648 && value <= 2147483647
-      : field.type === 'bigint' ? (typeof value === 'number' && Number.isSafeInteger(value)) || (typeof value === 'string' && integerText(value) && BigInt(value) >= -9223372036854775808n && BigInt(value) <= 9223372036854775807n)
-      : field.type === 'timestamp' ? typeof value === 'string' && Number.isFinite(Date.parse(value))
-      : (() => { try { return JSON.stringify(value) !== undefined; } catch { return false; } })();
+    const valid = fits(field, value);
     if (!valid) throw new AuthoredRefusal(400, `field ${JSON.stringify(field.name)}: expected ${field.type}`);
   }
 }
@@ -81,6 +73,11 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const contract = withAssertionContract(writeContractOf(manifest));
   const vertex = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: no field contract is declared`);
+  try { parseRequest(catalogueRequests(contract).authored(kind, action), args); }
+  catch (error) {
+    if (!(error instanceof GraphRefusal)) throw error;
+    throw new AuthoredRefusal(400, error.message, undefined, error);
+  }
   const result = { kind, fields: vertex.fields };
   if (action === 'schema') return result;
   const identity = person === undefined ? undefined : producerIdentityOf(person);

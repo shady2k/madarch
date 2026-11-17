@@ -1,0 +1,17 @@
+# Every log madarch keeps for this product (madarch-64o5.88): the server's records, the fills, each plugin's standard
+# error, the agents' exchanges, the store's PostgreSQL log and the runs' spans — one route with filters and a live tail.
+# The optional `run` binds the run a link from a run page names, so the page opens filtered to it.
+template: logs
+variables:
+  run:
+    type: String
+    required: false
+sections:
+  - id: header
+    component: header
+    title: { en: Logs, ru: Журналы }
+    params:
+      titlePath: label
+  - id: logs
+    component: logs
+    after: header

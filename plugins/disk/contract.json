@@ -111,13 +111,6 @@
             "required": false
           },
           {
-            "name": "content",
-            "type": "text",
-            "meaning": "The content read from the pinned repository.",
-            "example": "example",
-            "required": false
-          },
-          {
             "name": "language",
             "type": "text",
             "meaning": "The language read from the pinned repository.",
@@ -363,6 +356,10 @@
   },
   "rights": {
     "network": "none",
-    "filesystem": true
+    "filesystem": true,
+    "graph": true,
+    "graphReads": [
+      "ownFacts"
+    ]
   }
 }

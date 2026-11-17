@@ -14,8 +14,9 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { authoredEntity } from './authored.js';
 import { authoredImportTarget, type AuthoredImportIdentity } from '../adapters/authored-import.js';
 import { withSpan } from '../obs/trace.js';
+import {resolveDuplicate,unmerge,type MergeInput,type UnmergeInput} from './merges.js';
 import { resolveDispute, type ResolveDisputeInput } from './disputes.js';
-import { activateGraphProducer, producerIdentityOf, requireProducerAction, type ProducerBinding } from './producer-binding.js';
+import { MERGE_ACTION, activateGraphProducer, producerIdentityOf, requireProducerAction, type ProducerBinding } from './producer-binding.js';
 
 export type ManualRequest = { readonly contractVersion?: string; readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[] } & (
   | { readonly kind: 'authored-import'; readonly input: { readonly identity: AuthoredImportIdentity; readonly words: string; readonly entityKind: string; readonly values: Readonly<Record<string, unknown>>; readonly prefix: string } }
@@ -23,6 +24,8 @@ export type ManualRequest = { readonly contractVersion?: string; readonly precon
   | { readonly kind: 'put-edge'; readonly input: Parameters<typeof putEdgeAssertion>[2] }
   | { readonly kind: 'problem-task'; readonly input: Parameters<typeof putProblemTaskAssertion>[2] }
   | { readonly kind: 'retract'; readonly input: Parameters<typeof retractAssertion>[2] }
+  | { readonly kind: 'merge-duplicates'; readonly input: MergeInput }
+  | { readonly kind: 'unmerge'; readonly input: UnmergeInput }
   | { readonly kind: 'resolve-dispute'; readonly input: ResolveDisputeInput });
 interface AdmittedRequest { readonly source: WriteSource; readonly operation: ManualRequest; readonly identity: string }
 const QUEUE = MANUAL_GRAPH_QUEUE.name;
@@ -31,6 +34,13 @@ const HOST_GRANTS = new WeakMap<DatabaseOwner, Map<string, ProducerBinding>>();
 async function dispatch(tx: OuterTransaction, data: AdmittedRequest, resolver?: ProducerBinding): Promise<WriteAnswer> {
   return await withSpan('graph.manual.dispatch', {}, async () => {
     switch (data.operation.kind) {
+      case 'merge-duplicates': case 'unmerge': {
+        if(!resolver)throw new WriteRefusal('SOURCE_FORBIDDEN missing merge grant');
+        const manifest=await readPublishedManifest(tx);if(!manifest)throw new WriteRefusal('the graph holds no published manifest');
+        const contract=withAssertionContract(writeContractOf(manifest));
+        const result=data.operation.kind==='merge-duplicates'?await resolveDuplicate(tx,contract,resolver,data.operation.input):await unmerge(tx,contract,resolver,data.operation.input);
+        return {...result,written:1};
+      }
       case 'resolve-dispute': {
         if (!resolver) throw new WriteRefusal('SOURCE_FORBIDDEN missing authenticated resolver grant');
         const manifest = await readPublishedManifest(tx);
@@ -80,7 +90,7 @@ async function admit(owner: DatabaseOwner, data: AdmittedRequest) {
     if (!manifest) throw new WriteRefusal('the graph holds no published manifest');
     const contract = withAssertionContract(writeContractOf(manifest));
     const principal = producerIdentityOf(hostBinding);
-    requireProducerAction(hostBinding, data.operation.kind === 'resolve-dispute' ? 'resolve' : data.operation.kind === 'retract' ? 'retract-own' : 'assert');
+    requireProducerAction(hostBinding, data.operation.kind === 'merge-duplicates' || data.operation.kind === 'unmerge' ? MERGE_ACTION : data.operation.kind === 'resolve-dispute' ? 'resolve' : data.operation.kind === 'retract' ? 'retract-own' : 'assert');
     if (data.operation.kind === 'resolve-dispute' && principal.kind !== 'person') throw new WriteRefusal('SOURCE_FORBIDDEN resolution requires a retained person');
     const binding = await activateGraphProducer(tx, contract, hostBinding);
     const scope = await resolveOperationScope(tx, contract, binding, { runId: data.identity, unitId: data.identity, generation: 0 });
@@ -101,7 +111,7 @@ export async function executeManualOperation(owner: DatabaseOwner, source: Write
   return await withSpan('graph.manual-operation', { 'madarch.source': source.producer }, async () => {
     if (!source.operationId) throw new WriteRefusal('an authenticated operation request identity is required');
     const principal = producerIdentityOf(hostBinding);
-    requireProducerAction(hostBinding, operation.kind === 'resolve-dispute' ? 'resolve' : operation.kind === 'retract' ? 'retract-own' : 'assert');
+    requireProducerAction(hostBinding, operation.kind === 'merge-duplicates' || operation.kind === 'unmerge' ? MERGE_ACTION : operation.kind === 'resolve-dispute' ? 'resolve' : operation.kind === 'retract' ? 'retract-own' : 'assert');
     if (operation.kind === 'resolve-dispute' && principal.kind !== 'person') throw new WriteRefusal('SOURCE_FORBIDDEN resolution requires a retained person');
     source = { ...source, producer: principal.producer, version: principal.version };
     const identity = canonicalJsonDigest({ sourceUid: principal.sourceUid, operationId: source.operationId });

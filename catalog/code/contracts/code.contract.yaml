@@ -54,6 +54,7 @@ key:
 - path
 derives-from:
 - code.file
+- code.service
 card: true
 definition-block: contract
 labels:

@@ -48,8 +48,8 @@ fields:
 key:
 - path
 derives-from:
-- code.service
 - code.route
+- code.service
 labels:
   en:
     one: Health endpoint

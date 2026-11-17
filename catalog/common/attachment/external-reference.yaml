@@ -27,3 +27,5 @@ labels:
 description:
   en: 'An external reference connects an entity to its counterpart elsewhere: a ticket in an issue tracker, a record in a customer system, a row in a catalogue. It names the other system, the identifier used there and the address a person can open.'
   ru: 'Внешняя ссылка связывает сущность с её двойником в другой системе: тикетом в трекере, записью в системе клиентов, строкой в каталоге. В ней названы другая система, тамошний идентификатор и адрес, который можно открыть.'
+derives-from:
+- product

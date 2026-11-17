@@ -16,9 +16,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
-import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
-import { withSpan } from '../obs/trace.js';
+import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
+import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
+import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -102,6 +104,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     refuseStarts();
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
+    await closeFileTextSessions();
     const deadline = Date.now() + ENDING_MS;
     // Queues stop without holding up exit. Normal owner/run closes can enter the synchronous graceful server stop,
     // so the process-exit path uses only force shutdown below; giveUp keeps normal close behavior.
@@ -138,6 +141,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
     withoutSignals();
+    await closeFileTextSessions();
     await stopQueues(state);
     for (const owner of [...state.owners]) {
       if (process.platform === 'win32') await owner.close();
@@ -167,6 +171,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             state.databaseFolders.add(join(storeFolder, 'graph'));
             await owner.ready;
             held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
+            await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
           } catch (error) {
@@ -174,6 +179,11 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             continue;
           }
         }
+        // A file's text waits on this process, not on a fill (madarch-u3vw.16): the pages' requests are answered between
+        // fills, through the same plugin read the agent's file reads use.
+        await serveFileTexts(held.queue).catch((error: unknown) => {
+          log(`madarch fill: the store ${storeFolder} could not answer a file read: ${error instanceof Error ? error.message : String(error)}`);
+        });
         const job = await claimFillRun(held.queue).catch((error: unknown) => {
           log(`madarch fill: the queue of ${storeFolder} could not be claimed: ${error instanceof Error ? error.message : String(error)}`);
           return null;
@@ -224,6 +234,9 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       productFolder,
       storeFolder: held.storeFolder,
       runId: data.runId,
+      // The claimed job is the run's own lock: the fill heartbeats it, and the run is recoverable when this
+      // process ends without settling it (decision 0039, item 12).
+      claim: { queue: FILL_RUN_QUEUE, job },
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
@@ -262,7 +275,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
 function storeFoldersOf(knowledgeRoot: string): string[] {
   let names: string[];
   try {
-    names = readdirSync(knowledgeRoot).sort();
+    names = withSpanSync('fs.readdir', { 'file.path': knowledgeRoot }, (span) => { const held = readdirSync(knowledgeRoot); span.setAttribute('file.entries', held.length); return held; }).sort();
   } catch {
     return [];
   }

@@ -50,3 +50,5 @@ key-edges:
 - role: process-step-process
   edge: process-step-process
   side: from
+derives-from:
+- business-process

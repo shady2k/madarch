@@ -24,3 +24,7 @@ labels:
 description:
   en: A data entity is a concept the business stores — a customer, an order, an invoice — with its attributes and the key that identifies each instance. It is the data model's view of a domain thing, close to a table but named in business terms.
   ru: 'Сущность данных — понятие, которое бизнес хранит: клиент, заказ, счёт, — с его атрибутами и ключом, отличающим один экземпляр от другого. Это взгляд модели данных на объект предметной области: близко к таблице, но названо словами бизнеса.'
+derives-from:
+- domain-entity
+- logical-data-model
+- product-profile

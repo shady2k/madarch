@@ -24,3 +24,5 @@ labels:
 description:
   en: A locale names a language together with a region, such as Russian for Russia or English for the United Kingdom, and carries their rules for dates, numbers, currency and sorting. The same text may need different words in two locales that share a language.
   ru: Локаль называет язык вместе с регионом — русский для России или английский для Великобритании — и несёт их правила дат, чисел, валют и сортировки. Один и тот же текст может требовать разных слов в двух локалях с общим языком.
+derives-from:
+- product

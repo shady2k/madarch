@@ -117,8 +117,9 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
         files: async (pattern) => (pattern.endsWith('.ts') ? [{ kind: 'code.file', key: { path: 'src/schema.ts' }, keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} }] : []),
-        value: async () => readFileSync(sourceFile, 'utf8'),
+        value: async (_kind, _key, field) => field === 'blob' ? 'blob-src/schema.ts' : null,
       },
+      readBlob: async (ask) => ({ text: ask.blob === 'blob-src/schema.ts' ? readFileSync(sourceFile, 'utf8') : '', lines: 1, bytes: 1, binary: false }),
     });
     const session = await host.open();
     try {
@@ -201,7 +202,12 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
           return Object.keys(sources).filter((path) => pattern === 'src/*.ts' ? path.startsWith('src/') : true)
             .map((path) => ({ kind: 'code.file', key: { path },keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} }));
         },
-        value: async (_kind, key) => sources[String(key['path'])] ?? null,
+        // The graph names each file's blob; the host answers the text by it (decision 0037).
+        value: async (_kind, key, field) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+      },
+      readBlob: async (ask) => {
+        const text = sources[String(ask.blob).replace(/^blob-/u, '')] ?? '';
+        return { text, lines: text.split('\n').length, bytes: text.length, binary: false };
       },
     });
     const session = await host.open();

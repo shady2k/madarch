@@ -25,3 +25,7 @@ labels:
 description:
   en: An evaluation run applies one version of a model to a dataset and measures the result with a chosen metric. It fixes the model, the data and the metric, so two runs can be compared.
   ru: Запуск оценки применяет одну версию модели к набору данных и измеряет результат выбранной метрикой. Он закрепляет модель, данные и метрику, поэтому два запуска можно сравнивать.
+derives-from:
+- dataset
+- ml-model
+- product-profile

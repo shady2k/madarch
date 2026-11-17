@@ -1,10 +1,12 @@
+import { withSpan } from '../obs/trace.js';
 /**
  * The GraphQL API's executor (decision 0036, sections 1, 4 and 5): one operation, one read-only snapshot transaction,
  * the schema derived from the product's published manifest, and the read layer's resolvers. Admission refuses a query
  * deeper than MAX_DEPTH before any read; each request has its own configurable deadline (30 seconds by default).
  * A refused or stopped query returns no data and one error whose `extensions.code` names the limit.
  */
-import { buildSchema, execute, getNamedType, GraphQLError, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
+import { GraphRefusal, type GraphRefusalBody } from './validation.js';
+import { buildSchema, execute, getNamedType, getVariableValues, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { sha256Hex } from './digest.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
@@ -13,7 +15,7 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { readProductTemplates } from './product-templates.js';
+import { readPublishedTemplates } from './product-templates.js';
 
 /**
  * The depth a query may reach, counting the root field as one (decision 0036, section 5; seven since the portal frame's
@@ -47,9 +49,16 @@ export interface GraphqlOperation {
 /** What the executor needs of the product it answers for. */
 export interface GraphqlProduct {
   readonly deadlineMs?: number;
+  /**
+   * The read of one file's text by the blob the graph names (decision 0037): the role that answers a read gives it, and a
+   * product without one answers the field with null.
+   */
+  readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>;
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
+  /** One page of every log the product keeps, read from the machine's own files rather than the graph. */
+  readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown;
 }
 
 /** The answer of one operation: the GraphQL result, and the HTTP status a route gives it. */
@@ -61,7 +70,7 @@ export interface GraphqlAnswer {
 /** The GraphQL response shape: `data` only on success, one error on a refusal. */
 export interface MessageBody {
   readonly data?: unknown;
-  readonly errors?: readonly { message: string; extensions?: { code: string } }[];
+  readonly errors?: readonly { message: string; extensions?: { code: string } | GraphRefusalBody }[];
 }
 
 /** The schemas derived so far, by their SDL: one build per manifest revision. */
@@ -212,8 +221,9 @@ export function structureRevisionOf(sdl: string, templates: readonly { name: str
 }
 
 /** Whether a GraphQL error is PostgreSQL's statement timeout or a cancelled statement. */
-function isStatementTimeout(error: GraphQLError): boolean {
-  return /canceling statement due to statement timeout|cancelled statement|canceling statement due to user request/iu.test(error.message);
+/** Whether an error is a statement the store cancelled: the executor's own reads raise it as a field's read does. */
+function isStatementTimeout(error: unknown): error is Error {
+  return error instanceof Error && /canceling statement due to statement timeout|cancelled statement|canceling statement due to user request/iu.test(error.message);
 }
 
 /** One answer's JSON size, or its refusal when it is over the response bound. */
@@ -234,7 +244,11 @@ function prepare(manifest: KindsManifest, document: DocumentNode, operation: Gra
   const sdl = graphqlSchemaOf(published);
   const schema = schemaOf(sdl);
   const invalid = validate(schema, document);
-  if (invalid.length > 0) throw new GraphqlRefusal('INVALID_QUERY', invalid.map((error) => error.message).join('; '), 400);
+  if (invalid.length > 0) throw new GraphRefusal('/query', 'operation using declared fields and typed arguments', operation.query);
+  const selected = selectedOperation(document, operation.operationName);
+  if (selected === undefined) throw new GraphRefusal('/operationName', 'one selected operation', operation.operationName ?? null);
+  const variables = getVariableValues(schema, selected.variableDefinitions ?? [], operation.variables ?? {});
+  if (variables.errors !== undefined) throw new GraphRefusal('/variables', 'values matching the operation variable definitions', operation.variables ?? {});
   const cost = queryCost(document, schema, operation.variables, operation.operationName);
   if (cost > MAX_NODES) throw new GraphqlRefusal('LIMIT_NODES', `the query costs ${String(cost)} nodes; the limit is ${String(MAX_NODES)}`);
   return { manifest, published, sdl, schema };
@@ -247,7 +261,8 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   try {
     document = parse(operation.query);
   } catch (error) {
-    return { status: 400, body: { errors: [{ message: error instanceof GraphQLError ? error.message : String(error) }] } };
+    const refusal = new GraphRefusal('/query', 'GraphQL operation text', operation.query);
+    return { status: 400, body: { errors: [{ message: refusal.message, extensions: refusal.toJSON() }] } };
   }
   const depth = queryDepth(document, operation.operationName);
   if (depth > MAX_DEPTH) {
@@ -257,7 +272,6 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   if (aliases > MAX_ALIASES) {
     return { status: 400, body: { errors: [{ message: `the query holds ${String(aliases)} aliases; the limit is ${String(MAX_ALIASES)}`, extensions: { code: 'LIMIT_ALIASES' } }] } };
   }
-  const templates = readProductTemplates(product.folder);
   let backend: number | undefined;
   // A caller that holds the manifest is admitted before the snapshot: a refusal costs no connection.
   let prepared: { manifest: KindsManifest; published: ReturnType<typeof publishedManifestOf>; sdl: string; schema: GraphQLSchema } | undefined;
@@ -265,20 +279,45 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     try {
       prepared = prepare(product.manifest, document, operation);
     } catch (error) {
+      if (error instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: error.message, extensions: error.toJSON() }] } };
       if (error instanceof GraphqlRefusal) return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };
       if (error instanceof SchemaRefusal) return { status: 400, body: { errors: [{ message: error.message }] } };
       throw error;
     }
   }
   const work = owner.transaction('snapshot', async (tx) => {
-    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(deadlineMs)]);
-    const pid = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = "SELECT set_config('statement_timeout', $1, true)";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query(sql, [String(deadlineMs)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const pid = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT pg_backend_pid() AS pid';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ pid: number }>(sql);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     backend = Number(pid.rows[0]?.pid);
     // The manifest is read inside the operation's snapshot: a publication between the schema and the data would
     // otherwise answer a query whose fields the rows no longer match.
-    const see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
+    let see: NonNullable<typeof prepared>;
+    let templates: Awaited<ReturnType<typeof readPublishedTemplates>>;
+    try {
+      see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
+      // The product's page templates are the graph's entities (the owner's decision of 2026-11-15): read in this page's
+      // own snapshot, never from the checkout.
+      templates = await readPublishedTemplates(tx, see.manifest);
+    } catch (error) {
+      // A statement timeout is the operation's wherever it is raised: a read the page makes before its fields answers
+      // TIMEOUT as they do, never a server error.
+      if (isStatementTimeout(error)) throw new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(deadlineMs)} ms`, 200);
+      throw error;
+    }
     const { manifest, published, sdl, schema } = see;
-    const structure = structureRevisionOf(sdl, templates.templates);
+    const structure = structureRevisionOf(sdl, templates.templates.templates);
     // One connection, one statement at a time: resolvers of one level run together, and a client asked for a second
     // query while the first is in flight answers neither (the weight of a page's aliases must not break its read).
     let queue: Promise<unknown> = Promise.resolve();
@@ -286,7 +325,13 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
       get(target, property, receiver) {
         if (property === 'query') {
           return async (text: string, params?: readonly unknown[]) => {
-            const run = queue.then(async () => await target.query(text, params as never));
+            const run = queue.then(async () => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+              const sql = text;
+              span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+              const result = await target.query(sql, params as never);
+              span.setAttribute('db.rows', result.rows.length);
+              return result;
+            }));
             queue = run.catch(() => undefined);
             return await run;
           };
@@ -295,7 +340,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText, product.logs);
     const result = await execute({
       schema,
       document,
@@ -320,6 +365,8 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   try {
     const result = await Promise.race([work, deadline]);
     if (result.errors !== undefined && result.errors.length > 0) {
+      const refusal = result.errors.find(error => error.originalError instanceof GraphRefusal)?.originalError;
+      if (refusal instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: refusal.message, extensions: refusal.toJSON() }] } };
       return {
         status: 200,
         body: boundResponse({
@@ -330,9 +377,16 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     }
     return { status: 200, body: boundResponse({ data: result.data }) };
   } catch (error) {
+    if (error instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: error.message, extensions: error.toJSON() }] } };
     if (error instanceof GraphqlRefusal) {
       if (expired) {
-        if (backend !== undefined) await owner.run(async (tx) => { await tx.query('SELECT pg_cancel_backend($1)', [backend]); }).catch(() => undefined);
+        if (backend !== undefined) await owner.run(async (tx) => { await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+          const sql = 'SELECT pg_cancel_backend($1)';
+          span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+          const result = await tx.query(sql, [backend]);
+          span.setAttribute('db.rows', result.rows.length);
+          return result;
+        }); }).catch(() => undefined);
         await work.catch(() => undefined);
       }
       return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };

@@ -192,7 +192,14 @@ export function createFillMachine<State extends string, Event extends FillEventO
   for (const transition of spec.transitions) {
     const on = configStates[transition.from]!.on;
     const candidates = (on[transition.event] ??= []);
-    candidates.push({ target: transition.to, guard: transition.id, actions: [...transition.actions] });
+    // A transition that stays in its own state is a step of its own (a generation's next attempt), so it
+    // re-enters the state: without `reenter` XState reads it as no transition at all and applies nothing.
+    candidates.push({
+      target: transition.to,
+      guard: transition.id,
+      actions: [...transition.actions],
+      ...(transition.to === transition.from ? { reenter: true } : {}),
+    });
   }
 
   // XState names one guard per transition: the composite holds when every declared guard holds.
@@ -249,7 +256,10 @@ export function createFillMachine<State extends string, Event extends FillEventO
     const target = next.value;
     if (typeof target !== 'string') raise(`machine ${spec.id}: state "${state}" is not atomic after event "${event.type}"; the fill's machines keep flat states`);
 
-    if (target === state) {
+    // A transition whose target is its own state that holds was still taken: XState's answer names the same
+    // state for it as for a step the table refused, so the table's own guards decide which of the two it is.
+    const sameState = candidates.find((candidate) => candidate.to === target && candidate.guards.every((name) => spec.guards[name]!.check(context, event)));
+    if (target === state && sameState === undefined) {
       // XState found no transition whose guard holds. Name the guard that refused: the candidate
       // whose guards came furthest before one of them failed is the one the event was aimed at.
       let closest: { readonly candidate: TransitionSpec<State, Event>; readonly failing: string; readonly passed: number } | null = null;

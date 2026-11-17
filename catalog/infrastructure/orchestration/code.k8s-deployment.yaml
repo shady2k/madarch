@@ -74,6 +74,9 @@ key:
 derives-from:
 - code.file
 - code.image
+- code.service
+- k8s-namespace
+- product-profile
 labels:
   en:
     one: Kubernetes deployment
@@ -84,3 +87,7 @@ labels:
 description:
   en: A Kubernetes Deployment says which container image should run, how many replicas of it and how the cluster should check and replace them. Changing the declaration makes the cluster roll out a new version gradually.
   ru: Развёртывание Kubernetes говорит, какой образ контейнера должен работать, сколько его копий нужно и как кластер должен их проверять и заменять. Изменение объявления заставляет кластер постепенно выпустить новую версию.
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []

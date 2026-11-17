@@ -17,7 +17,8 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 import { putEdgeAssertion as putEdgeIn, putEntityAssertion as putEntityIn, retractAssertion as retractIn, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
-import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
+import { agentSource, callProductTool, productTools } from '../src/mcp/authored.js';
+import { GraphRefusal } from '../src/graph/validation.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -197,7 +198,7 @@ describe('the agent writes the graph', () => {
       words: 'the owner asked for the term Kind',
     });
     expect(written.uid).toBeDefined();
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind ... on DocTerm { title body titleAssertions { source { id } evidence { target { kind } locator } } } } }`, { id: written.uid });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind ... on KindDocTerm { title body titleAssertions { source { id } evidence { target { kind } locator } } } } }`, { id: written.uid });
     const term = data['entity'] as Record<string, any>;
     expect(term.kind).toBe('doc.term');
     expect(term.title).toBe('Kind');
@@ -218,7 +219,7 @@ describe('the agent writes the graph', () => {
       kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'the agent says that' },
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     });
-    const data = await graphql(`{ allCodeRepository: allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on DemoRepository { description contested descriptionAssertions { source { id } value } } } } } }`);
+    const data = await graphql(`{ allCodeRepository: allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on KindDemoRepository { description contested descriptionAssertions { source { id } value } } } } } }`);
     const node = (data['allCodeRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBe('the agent says that');
     expect(node.contested).toContain('description');
@@ -228,7 +229,7 @@ describe('the agent writes the graph', () => {
   test('retract closes only the agent\'s own open opinions', async () => {
     const retracted = await retractAssertion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'r1' }, fields: ['description'] }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] });
     expect(retracted.retracted).toBe(true);
-    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on DemoRepository { description contested descriptionAssertions { source { id } operation } } } } } }`);
+    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on KindDemoRepository { description contested descriptionAssertions { source { id } operation } } } } } }`);
     const node = (data['allDemoRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBe('the plugin says this');
     expect(node.contested).not.toContain('description');
@@ -250,7 +251,7 @@ describe('the agent writes the graph', () => {
     expect(written.written).toBeGreaterThan(0);
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
     const id = repository.edges[0].node.id;
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 5) { edges { node { position assertions { source { id } evidence { target { kind } locator } } } } } } } }`, { id });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(first: 5) { edges { node { position assertions { source { id } evidence { target { kind } locator } } } } } } } }`, { id });
     const edge = ((data['entity'] as Record<string, any>).demoContains.edges[0].node);
     expect(edge.position).toBe(1);
     expect(edge.assertions.map((one: any) => one.source.id)).toContain('c452d2e1-0000-7000-8000-000000000001');
@@ -259,12 +260,12 @@ describe('the agent writes the graph', () => {
 
   test('an unknown field is refused naming it, and evidence is required', async () => {
     const unknown = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'r1' }, values: { nope: 1 }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] }).catch((error: unknown) => error);
-    expect(unknown).toBeInstanceOf(WriteRefusal);
-    expect((unknown as WriteRefusal).message).toContain('"nope"');
-    expect((unknown as WriteRefusal).field).toBe('nope');
+    expect(unknown).toBeInstanceOf(GraphRefusal);
+    expect((unknown as GraphRefusal).path).toBe('/values/nope');
+    expect((unknown as GraphRefusal).actual).toBe(1);
     const noEvidence = await putEntityAssertion(owner, agent, { kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'x' }, evidence: [] }).catch((error: unknown) => error);
-    expect(noEvidence).toBeInstanceOf(WriteRefusal);
-    expect((noEvidence as WriteRefusal).message).toContain('graph target is required');
+    expect(noEvidence).toBeInstanceOf(GraphRefusal);
+    expect((noEvidence as GraphRefusal).path).toBe('/evidence');
   });
   test('the MCP client name and the session become the producer, and initialize reports the client', async () => {
     expect(agentSource('Claude Code', 'session-9')).toEqual({ producer: 'agent:Claude-Code', version: 'session-9' });
@@ -283,6 +284,7 @@ describe('the agent writes the graph', () => {
     let seen: WriteSource | undefined;
     let seenBinding: unknown;
     const stub = {
+      requestContract: async () => contract,
       putEntity: async (source: WriteSource, _input: unknown, options: { hostBinding: unknown }) => { seen = source; seenBinding = options.hostBinding; return { kind: 'doc.term', uid: 'uid-1' }; },
     } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
     const answer = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] }, grant);
@@ -291,10 +293,10 @@ describe('the agent writes the graph', () => {
     expect(seenBinding).toBe(grant);
     const refused = await callProductTool(stub, agentSource('codex', 's1'), 'write_anything', {});
     expect(refused.isError).toBe(true);
-    expect((refused.answer as Record<string, any>).error.message).toContain('is no tool');
+    expect((refused.answer as Record<string, any>).error).toMatchObject({ code: 'SCHEMA_INVALID', path: '/tool', actual: 'write_anything' });
   });
   test('one product session serves the schema, the query and the writes', async () => {
-    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'render_diagram', 'graph_resolve_dispute', 'put_entity', 'put_edge', 'retract']);
+    expect(productTools(contract).map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'render_diagram', 'put_entity', 'put_edge', 'retract', 'graph_resolve_dispute']);
     const stub = {
       graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
       graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),
@@ -329,12 +331,12 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25  } }],
     });
     expect(edge.written).toBeGreaterThan(0);
-    const forward = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 5) { edges { node { node { ... on DemoRepository { name } } } } } } } }`, { id: term.uid });
+    const forward = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 5) { edges { node { node { ... on KindDemoRepository { name } } } } } } } }`, { id: term.uid });
     const mentioned = ((forward['entity'] as Record<string, any>).mentions.edges[0].node.node);
     expect(mentioned.name).toBe('r1');
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
     const rid = repository.edges[0].node.id;
-    const inverse = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { mentionsOf(first: 5) { edges { node { node { ... on DocTerm { title } } } } } backlinks(first: 20) { edges { node { relation from { kind } } } } } } }`, { id: rid });
+    const inverse = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { mentionsOf(first: 5) { edges { node { node { ... on KindDocTerm { title } } } } } backlinks(first: 20) { edges { node { relation from { kind } } } } } } }`, { id: rid });
     const node = inverse['entity'] as Record<string, any>;
     expect(node.mentionsOf.edges[0].node.node.title).toBe('Mentioned');
     expect(node.backlinks.edges.some((one: any) => one.node.relation === 'mentionsOf')).toBe(true);
@@ -347,14 +349,14 @@ describe('the agent writes the graph', () => {
       kind: 'demo.contains', from: { kind: 'demo.file', key: fileKey, keyEdges: fileParents }, to: { kind: 'demo.repository', key: repositoryKey },
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     }).catch((error: unknown) => error);
-    expect(reversed).toBeInstanceOf(WriteRefusal);
-    expect((reversed as WriteRefusal).message).toContain('the from of the edge');
+    expect(reversed).toBeInstanceOf(GraphRefusal);
+    expect((reversed as GraphRefusal).path).toBe('/from');
     const nullAttribute = await putEdgeAssertion(owner, agent, {
       kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey, keyEdges: fileParents },
       values: { weight: null }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     }).catch((error: unknown) => error);
-    expect(nullAttribute).toBeInstanceOf(WriteRefusal);
-    expect((nullAttribute as WriteRefusal).message).toContain('not nullable');
+    expect(nullAttribute).toBeInstanceOf(GraphRefusal);
+    expect((nullAttribute as GraphRefusal).path).toBe('/values/weight');
     const sized = await putEdgeAssertion(owner, agent, {
       kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey, keyEdges: fileParents },
       values: { weight: 3 }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
@@ -436,7 +438,7 @@ describe('the agent writes the graph', () => {
     });
     expect(retracted.retracted).toBe(true);
     const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(where: { position: { _gt: 0 } }, first: 10) { edges { node { position assertions { source { id } operation } } } } } } }`, { id: repository.edges[0].node.id });
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDemoRepository { demoContains(where: { position: { _gt: 0 } }, first: 10) { edges { node { position assertions { source { id } operation } } } } } } }`, { id: repository.edges[0].node.id });
     const edges = ((data['entity'] as Record<string, any>).demoContains.edges).map((one: any) => one.node);
     const kept = edges.find((one: any) => one.position === 7);
     expect(kept).toBeDefined();
@@ -477,19 +479,19 @@ describe('the agent writes the graph', () => {
   });
 
   test('an unknown tool argument and non-text words are refused at the tool boundary', async () => {
-    const stub = { putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
+    const stub = { requestContract: async () => contract, putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
     const unknown = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], valuess: 1 });
     expect(unknown.isError).toBe(true);
-    expect((unknown.answer as Record<string, any>).error.message).toContain('valuess');
-    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], words: ['x'] });
+    expect((unknown.answer as Record<string, any>).error.path).toBe('/valuess');
+    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'x' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } } }], words: ['x'] });
     expect(words.isError).toBe(true);
-    expect((words.answer as Record<string, any>).error.message).toContain('words');
+    expect((words.answer as Record<string, any>).error.path).toBe('/words');
     const preconditions = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', {
-      kind: 'doc.term', values: {}, evidence: [],
+      kind: 'doc.term', values: { title: 'Valid title' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } } }],
       preconditions: [{ uid: '019a0000-0000-7000-8000-000000000001', recordedSequence: '1', extra: true }],
     });
     expect(preconditions.isError).toBe(true);
-    expect((preconditions.answer as Record<string, any>).error.field).toBe('preconditions');
+    expect((preconditions.answer as Record<string, any>).error.path).toBe('/preconditions/0/extra');
   });
   test('two mentions of one entity stay apart by their places, and a retraction closes one', async () => {
     const term = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Occurrences' }, evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }] });
@@ -497,7 +499,7 @@ describe('the agent writes the graph', () => {
     const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 3  } }];
     await putEdgeAssertion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:3:1', evidence });
     await putEdgeAssertion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:9:1', evidence });
-    const both = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const both = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
     const mentions = (both['entity'] as Record<string, any>).mentions;
     expect(mentions.totalCount).toBe(2);
     expect(mentions.edges.map((one: any) => one.node.discriminator).sort()).toEqual(['docs/glossary.md:3:1', 'docs/glossary.md:9:1']);
@@ -506,7 +508,7 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }],
     });
     expect(retracted.retracted).toBe(true);
-    const left = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const left = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindDocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
     const after = (left['entity'] as Record<string, any>).mentions;
     expect(after.totalCount).toBe(1);
     expect(after.edges[0].node.discriminator).toBe('docs/glossary.md:9:1');

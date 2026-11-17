@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A test oracle says what the right result is: a written expected value, a golden file, a property the answer must satisfy or a second implementation. Without an oracle a test can see what happened but not decide whether it was correct.'
   ru: 'Тестовый оракул говорит, каким должен быть правильный результат: записанное ожидаемое значение, золотой файл, свойство, которому ответ обязан удовлетворять, или вторая реализация. Без оракула тест видит, что вышло, но не может решить, верно ли это.'
+derives-from:
+- test-condition

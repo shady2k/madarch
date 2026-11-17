@@ -10,6 +10,7 @@ import {validateEvidenceLocator} from './evidence-locator.js';
 import { validateFieldValue,validateValueContracts } from './value-validation.js';
 import { scanMentions } from './mentions.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
+import { validateFields } from './validation.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
@@ -63,7 +64,7 @@ async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):P
 }
 
 /** Serialize graph operations before any identity or queue locks. */
-export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]);}
+export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await withSpan('graph.write.acquireGraphWriteLock', { 'db.system': 'postgres' }, async () => await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]));}
 export interface WriteCapability {
   readonly sourceUid:string; readonly principalUid:string; readonly operationUid:string;
   readonly unitUid?:string; readonly productUid:string; readonly context:number; readonly contractVersion:string; readonly scope:string;
@@ -151,12 +152,12 @@ async function storedReference(executor:SqlExecutor,contract:GraphContract,ref:E
  if(ref.uid===undefined||Object.keys(ref.key).length>0||ref.keyEdges!==undefined)return ref;
  const kind=contract.vertex.find(vertex=>vertex.name===ref.kind);if(!kind)throw new Error(`${WHERE}:74: UNKNOWN_KIND ${ref.kind}`);
  if(visited.includes(ref.uid))throw new Error(`${WHERE}:74: KEY_EDGE_CYCLE ${ref.kind}`);
- const held=(await executor.query<{id:string;kind:string;key:EntityRefDraft['key']}>(`SELECT n.id::text,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[ref.uid])).rows[0];
+ const held=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;key:EntityRefDraft['key']}>(`SELECT n.id::text,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[ref.uid]))).rows[0];
  if(!held||held.kind!==ref.kind)throw new Error(`${WHERE}:74: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
  const keyEdges:Record<string,EntityRefDraft>={};
  for(const role of kind.keyEdges??[]){
   const from=role.direction==='from'?'from_node':'to_node';const to=role.direction==='from'?'to_node':'from_node';
-  const parents=(await executor.query<{uid:string;kind:string}>(`SELECT parent.uid::text,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node parent ON parent.id=e.${to} JOIN entity pk ON pk.id=parent.entity_id WHERE e.${from}=$1::bigint AND ek.name=$2`,[held.id,role.edge])).rows;
+  const parents=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{uid:string;kind:string}>(`SELECT parent.uid::text,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node parent ON parent.id=e.${to} JOIN entity pk ON pk.id=parent.entity_id WHERE e.${from}=$1::bigint AND ek.name=$2`,[held.id,role.edge]))).rows;
   if(parents.length!==1)throw new Error(`${WHERE}:74: REQUIRED_PARENT ${ref.kind}.${role.role}`);
   keyEdges[role.role]=await storedReference(executor,contract,{kind:parents[0]!.kind,key:{},uid:parents[0]!.uid},[...visited,ref.uid]);
  }
@@ -165,9 +166,9 @@ async function storedReference(executor:SqlExecutor,contract:GraphContract,ref:E
 async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context:number):Promise<{id:string;uid:string}>{
  const resolved=await storedReference(executor,contract,ref);
  const uid=await refUid(executor,contract,resolved,context);
- const row=(await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ const row=(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid]))).rows[0];
  if(!row||row.kind!==ref.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
- if(!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
+ if(!(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context]))).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
  return {id:row.id,uid};
 }
 /** Resolves a declared identity without creating it. */
@@ -196,7 +197,7 @@ async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContrac
 export async function activateBoundIdentities(executor:SqlExecutor,declared:GraphContract):Promise<void>{
  const binding=requireWriteCapability(executor);const contract=withAssertionContract(declared);checkBinding(binding,contract,binding.context);
  for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid]){
-  const held=(await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context])).rows[0];
+  const held=(await withSpan('graph.write.activateBoundIdentities', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context]))).rows[0];
   if(!held)throw new Error(`${WHERE}:57: TARGET_MISSING authenticated lineage ${uid}`);
   if(!held.active)await writeAssertion(executor,contract,{sort:'vertex',kind:held.kind,subjectId:held.id,property:'$exists',operation:'assert',value:true},binding.context);
  }
@@ -555,7 +556,7 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  return await withSpan('graph.publish',{},async()=>{
  const prepared=preparePublicationContract(declared);const {contract}=prepared;checkBindingRevision(requireWriteCapability(executor),prepared.version,context);
  const checkFields=(kind:{readonly name:string;readonly fields:readonly FieldContract[]},values:Readonly<Record<string,unknown>>):void=>{
-  for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name);if(!field)throw new Error(`${WHERE}:193: UNKNOWN_FIELD ${kind.name}.${name}`);validate(field,value);validateFieldValue(contract,field,value);}
+  validateFields(kind.fields,values,'/values');for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name)!;validate(field,value);validateFieldValue(contract,field,value);}
  };
  const checkRef=(ref:EntityRefDraft):void=>{const kind=contract.vertex.find(kind=>kind.name===ref.kind);if(!kind)throw new Error(`${WHERE}:196: UNKNOWN_KIND ${ref.kind}`);checkFields(kind,ref.key);for(const parent of Object.values(ref.keyEdges??{}))checkRef(parent);};
  for(const draft of drafts.vertices){try{checkRef(draft);const kind=contract.vertex.find(kind=>kind.name===draft.kind)!;checkFields(kind,draft.values??{});
@@ -568,16 +569,16 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(kind=>kind.name===draft.kind);if(!kind)throw new Error(`${WHERE}:198: UNKNOWN_EDGE ${draft.kind}`);checkRef(draft.from);checkRef(draft.to);checkFields(kind,draft.values??{});}
  let written=await publishBatch(executor,prepared,drafts,context);
  for(const draft of drafts.removals){if(await removeEntity(executor,contract,draft,context))written++;}
- for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context))written++;}
+ for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context,draft.evidence))written++;}
  return written;
  });
 }
-async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number):Promise<void>{
+async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<void>{
  const binding=requireWriteCapability(executor);
  const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
  const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
  const languages=(await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context])).rows;
- await admitAssertionInputs(executor,contract,(languages.length?languages:[{language:null}]).map(({language})=>({sort,kind,subjectId,property,operation:'retract',language})),context);
+ await admitAssertionInputs(executor,contract,(languages.length?languages:[{language:null}]).map(({language})=>({sort,kind,subjectId,property,operation:'retract',language,evidence})),context);
 }
 export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
  return await withSpan('graph.vertex.retract',{},async()=>{
@@ -593,15 +594,15 @@ export async function removeEntity(executor:SqlExecutor,declared:GraphContract,d
   }
   permitted(requireWriteCapability(executor),kindName,'$exists',true);
   const incident=(await executor.query<{id:string;kind:string}>(`SELECT e.id::text AS id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id WHERE (e.from_node=$1::bigint OR e.to_node=$1::bigint) AND graph_edge_active(e.id,k.name,$2::bigint)`,[id,context])).rows;
-  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context);
+  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context,draft.evidence);
   const retiredKind=contract.vertex.find(vertex=>vertex.name===kindName)!;
-  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context);
+  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context,draft.evidence);
  };
- if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract'},context);}
+ if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract',evidence:draft.evidence},context);}
  else await retire(draft.kind,subject.id,new Set());
  return true;
  });
 }
-export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1):Promise<boolean>{
- for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context);return true;
+export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1,evidence?:readonly EvidenceDraft[]):Promise<boolean>{
+ for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context,evidence);return true;
 }

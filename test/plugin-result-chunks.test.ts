@@ -3,13 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PluginHost, RequestLog } from '../src/plugin/host.js';
+import { PROTOCOL_VERSION } from '../src/plugin/protocol.js';
 
 /** Real wire requests with confinement disabled: these test transport, never sandbox isolation. */
 async function operationRun(options: {count?:number; textBytes?:number; maxUnitOutputBytes?:number; fail?:boolean; script?:string; trusted?:boolean; raw?:string; providerDelayMs?:number; planning?:boolean} = {}) {
   const root=mkdtempSync(join(tmpdir(),'madarch-facts-transport-'));
   const outputs={vertices:[{kind:'item',key:['id'],fields:[{name:'text',type:'text',meaning:'fixture text',example:'',required:false}]}],edges:[]};
   writeFileSync(join(root,'plugin.json'),JSON.stringify({name:'transport',version:'1.0.0',entry:'entry.ts',runtime:{name:'bun',version:Bun.version},produces:[{kind:'item',fields:'*'}]}));
-  writeFileSync(join(root,'contract.json'),JSON.stringify({id:'transport',version:'1.0.0',outputs,rights:{network:'none'}}));
+  const rights=options.raw===undefined?{network:'none',graph:true,graphReads:['files','value','ownFacts']}:{network:'none'};
+  writeFileSync(join(root,'contract.json'),JSON.stringify({id:'transport',version:'1.0.0',outputs,rights}));
   writeFileSync(join(root,'entry.ts'),`import {definePlugin} from 'madarch-plugin-sdk';
 await definePlugin({name:'transport',version:'1.0.0',contract:${JSON.stringify(outputs)},${options.planning?"async planOutput(unit,context){ await context.facts.apply('planned',{vertices:[]}); return {partitions:[]}; },":''}async extract(unit,context){
   ${options.script??''}
@@ -21,13 +23,13 @@ await definePlugin({name:'transport',version:'1.0.0',contract:${JSON.stringify(o
   if(options.raw!==undefined) writeFileSync(join(root,'entry.ts'),`const send=value=>process.stdout.write(JSON.stringify(value)+'\\n');
 process.stdin.setEncoding('utf8'); let held='';
 process.stdin.on('data',chunk=>{held+=chunk;let newline;while((newline=held.indexOf('\\n'))!==-1){const line=held.slice(0,newline);held=held.slice(newline+1);const message=JSON.parse(line);if(message.method==='unit'){${options.raw}}else if(message.method==='stop'){send({jsonrpc:'2.0',id:message.id,result:{stopping:true}});process.exit(0);}}});
-send({jsonrpc:'2.0',id:'introduce',method:'introduce',params:{protocol:'madarch.plugins/2',name:'transport',version:'1.0.0',rights:{network:'none'},limits:{},outputs:${JSON.stringify(outputs)}}});`);
+send({jsonrpc:'2.0',id:'introduce',method:'introduce',params:{protocol:${JSON.stringify(PROTOCOL_VERSION)},name:'transport',version:'1.0.0',rights:{network:'none'},limits:{},outputs:${JSON.stringify(outputs)}}});`);
   const operations:unknown[]=[];
   const calls:unknown[]=[];
   const requests=new RequestLog();
   let session;
   try {
-    session=await new PluginHost({pluginFolder:root,repository:root,workRoot:join(root,'work'),trust:'validation',env:{...process.env,MADARCH_PLUGIN_SANDBOX:'off'},requests,...(options.trusted===false?{}:{operations:{async apply(unitId,key,operation,preconditions,contractVersion){calls.push({unitId,key,operation,preconditions,contractVersion});if(options.providerDelayMs)await Bun.sleep(options.providerDelayMs);if(options.fail)throw new Error('fixture admission refused');if (typeof operation !== 'object' || operation === null || !('vertices' in operation)) throw new Error('expected vertices operation');
+    session=await new PluginHost({pluginFolder:root,repository:root,workRoot:join(root,'work'),trust:'validation',env:{...process.env,MADARCH_PLUGIN_SANDBOX:'off'},graph:{ownFacts:async()=>({vertices:[],edges:[]}),files:async()=>[],value:async()=>null},requests,...(options.trusted===false?{}:{operations:{async apply(unitId,key,operation,preconditions,contractVersion){calls.push({unitId,key,operation,preconditions,contractVersion});if(options.providerDelayMs)await Bun.sleep(options.providerDelayMs);if(options.fail)throw new Error('fixture admission refused');if (typeof operation !== 'object' || operation === null || !('vertices' in operation)) throw new Error('expected vertices operation');
       operations.push(operation);return {operationUid:key,accepted:true};}}}),limits:{unitMs:3000,...(options.maxUnitOutputBytes===undefined?{}:{maxUnitOutputBytes:options.maxUnitOutputBytes})}}).open();
     if(options.planning){
       let refusal:unknown;

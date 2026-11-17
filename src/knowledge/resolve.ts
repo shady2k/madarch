@@ -13,9 +13,9 @@ import { parseTarget } from './markdown.js';
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; /** The id or key of the entity the target is, when it is one. */ entity?: string }
   /** `why` is the reason as data, so the app can say it in the reader's language; `reason` is the same in English for an engineer. */
-  | { state: 'broken'; target: string; reason: string; why?: BrokenWhy };
+  | { state: 'broken'; target: string; reason: string; why: BrokenWhy };
 
-type BrokenWhy =
+export type BrokenWhy =
   | { code: 'empty' }
   | { code: 'no-entity'; key: string }
   | { code: 'no-path' }

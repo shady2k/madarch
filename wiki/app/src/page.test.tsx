@@ -10,6 +10,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('./page.js');
+const { searchWhere } = await import('./components/table.js');
 const { linkOfNode } = await import('./components/diagram-links.js');
 const { i18n } = await import('./i18n.js');
 await i18n.changeLanguage('en');
@@ -35,7 +36,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>, ru
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, pageName: null, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, ...runtime },
+      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, pageName: null, role: 'everything', open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, ...runtime },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -57,7 +58,7 @@ const ID = '00000000-0000-0000-0000-00000000dead';
 const navigation = {
   product: 'Madarch',
   groups: [],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, nav: null, count: 2, entryId: ID }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
   purposes: [],
 };
 
@@ -228,26 +229,61 @@ test('a table with a next page draws its pager even when the page holds fewer ro
   }
 });
 
-test('a table offers a sort only when its query declares the order variable', async () => {
+test('a table offers a sort only when its query declares the order variable, and a header press orders both ways', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {
-    expect(without.container.querySelector('select')).toBeNull();
+    expect(without.container.querySelector('[data-testid="table-sort-label"]')).toBeNull();
+
   } finally {
     await without.close();
   }
-  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { totalCount: 0, edges: [] } });
+  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { rows: { totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'one') }] } } });
   try {
-    const select = withOrder.container.querySelector('select');
-    expect(select).not.toBeNull();
-    await act(async () => {
-      if (select !== null) {
-        select.value = 'label';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    });
+    const sort = withOrder.container.querySelector('[data-testid="table-sort-label"]') as HTMLButtonElement;
+    expect(sort).not.toBeNull();
+    await act(async () => { sort.click(); });
+
     expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }]);
+    await act(async () => { sort.click(); });
+    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }, { rows_orderBy: [{ field: 'label', direction: 'DESC' }] }]);
   } finally {
     await withOrder.close();
+  }
+});
+
+test('a table offers a search that merges into the where, and clears it again', () => {
+  // The control is the kit's input and a Find button; the where it asks is the server's, merged with the facet filters
+  // the reader already chose (madarch-64o5.128). The text a browser types is exercised by the walk.
+  expect(searchWhere({ language: { _eq: 'typescript' } }, 'label', 'cloud')).toEqual({ language: { _eq: 'typescript' }, label: { _contains: 'cloud' } });
+  expect(searchWhere({ language: { _eq: 'typescript' }, label: { _contains: 'cloud' } }, 'label', '')).toEqual({ language: { _eq: 'typescript' } });
+});
+
+test('a table draws the search field and its Find button when the query takes a where', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', searchField: 'label', filterFields: [{ field: 'label', label: { en: 'Label' } }], columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(where: $records_where, first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, edges: [] } } },
+  );
+  try {
+    expect(page.container.querySelector('[data-testid="table-search"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="table-find"]')?.textContent).toBe('Find');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a facet carries each value\'s count and narrows the server\'s where', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', facets: [{ field: 'language', label: { en: 'Language' }, path: 'facets.groupBy' }], columns: [{ label: { en: 'Path' }, path: 'node.label' }] }, { query: 'instances(where: $records_where, first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 4, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'a.ts') }] }, facets: { groupBy: [{ key: 'typescript', count: 3 }, { key: 'yaml', count: 1 }] } } },
+  );
+  try {
+    const typescript = page.container.querySelector('[data-testid="table-facet-language-typescript"]') as HTMLButtonElement;
+    expect(typescript.textContent).toContain('3');
+    await act(async () => { typescript.click(); });
+    expect(page.reloads).toEqual([{ records_where: { language: { _eq: 'typescript' } } }]);
+    expect((page.container.querySelector('[data-testid="table-facet-language-typescript"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+  } finally {
+    await page.close();
   }
 });
 
@@ -322,7 +358,8 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   }
 });
 
-test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
+
+test('a failed picture says what happened in the reader\'s language and names the place the server reported', async () => {
   const real = globalThis.fetch;
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
   try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
@@ -331,7 +368,7 @@ test('a failed picture speaks the reader\'s language, never the server\'s', asyn
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const words = page.container.textContent ?? '';
     expect(words).toContain('The diagram could not be built.');
-    expect(words).not.toContain('did not draw');
+    expect(page.container.querySelector('[data-testid="diagram-failure-place"]')?.textContent).toBe('the picture did not draw within 2 s');
   } finally {
     (globalThis as { fetch: typeof fetch }).fetch = real;
     await page.close();
@@ -342,4 +379,76 @@ test('a pressed node opens the page the server named for it', () => {
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'other', modelRef: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({}, { id: 'n9' })).toBeUndefined();
+});
+
+test('a section the template does not open for the reader\'s role stands on the page under its title', async () => {
+  const held = section('facts', 'facts', { rows: [{ label: { en: 'Name' }, path: 'label' }] }, { title: { en: 'Facts', ru: 'Факты' }, roles: { open: ['engineer'] } });
+  const data = { facts: { label: 'The shop' } };
+  const analyst = await renderPage([held], data, { role: 'analyst' });
+  try {
+    const collapsed = analyst.container.querySelector('[data-testid="collapsed-section"]');
+    expect(collapsed?.getAttribute('data-section-id')).toBe('facts');
+    expect(collapsed?.querySelector('summary')?.textContent).toBe('Facts');
+    expect(collapsed?.hasAttribute('open')).toBe(false);
+    expect(collapsed?.textContent).toContain('The shop');
+  } finally {
+    await analyst.close();
+  }
+  const engineer = await renderPage([held], data, { role: 'engineer' });
+  try {
+    expect(engineer.container.querySelector('[data-testid="collapsed-section"]')).toBeNull();
+    expect(engineer.container.querySelector('h2')?.textContent).toBe('Facts');
+    expect(engineer.container.textContent).toContain('The shop');
+  } finally {
+    await engineer.close();
+  }
+  // The reader of every role opens every section, as the product's own default role does.
+  const everything = await renderPage([held], data, { role: 'everything' });
+  try {
+    expect(everything.container.querySelector('[data-testid="collapsed-section"]')).toBeNull();
+  } finally {
+    await everything.close();
+  }
+});
+
+test('the details block states every field, marks a disputed one and names the place its value rests on', async () => {
+  const page = await renderPage([section('details', 'details', { path: 'details' })], {
+    details: { details: [
+      { name: 'lines', type: 'integer', key: false, value: 12, contested: false, assertions: [{ source: { label: 'code-index' }, selected: true, recordedAt: '2026-01-01T00:00:00Z', evidence: [{ target: { label: 'r1/src/a.ts' }, locator: { lineStart: 4 } }] }] },
+      { name: 'url', type: 'text', key: false, value: null, contested: true, assertions: [{ source: { label: 'one' }, selected: true, recordedAt: '2026-01-01T00:00:00Z', evidence: [] }] },
+      { name: 'path', type: 'text', key: true, value: 'src/a.ts', contested: false, assertions: [] },
+    ] },
+  });
+  try {
+    expect(page.container.querySelectorAll('[data-testid="detail-value"]')).toHaveLength(3);
+    expect(page.container.textContent).toContain('12');
+    expect(page.container.querySelector('[data-testid="detail-key"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="contested"]')).not.toBeNull();
+    const source = page.container.querySelector('[data-testid="detail-source"]')?.textContent ?? '';
+    expect(source).toContain('code-index');
+    expect(source).toContain('r1/src/a.ts:4');
+  } finally { await page.close(); }
+});
+
+test('the breadcrumb walks the containers the graph answered, each one a link into its page', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label', chainPath: 'trail' })], {
+    header: { id: '9', kind: 'a.file', label: 'a.ts', trail: [{ id: '1', kind: 'a.repository', label: 'r1' }, { id: '2', kind: 'a.directory', label: 'src' }] },
+  });
+  try {
+    const links = [...page.container.querySelectorAll('nav a, [data-testid="page-header"] a')].map((one) => one.getAttribute('href'));
+    expect(links).toContain('/e/a.repository/1');
+    expect(links).toContain('/e/a.directory/2');
+  } finally { await page.close(); }
+});
+
+test('a template finding is listed above the page, which still stands', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label' })], { header: { label: 'Write' } }, {
+    findings: [{ file: 'templates/entity.yaml', line: 12, path: 'sections.diagram.params.depth', message: 'depth is 3; the schema takes one of 1, 2' }],
+  });
+  try {
+    expect(page.container.querySelector('[data-testid="page-title"]')?.textContent).toBe('Write');
+    const findings = page.container.querySelector('[data-testid="template-findings"]')?.textContent ?? '';
+    expect(findings).toContain('templates/entity.yaml:12');
+    expect(findings).toContain('depth is 3');
+  } finally { await page.close(); }
 });

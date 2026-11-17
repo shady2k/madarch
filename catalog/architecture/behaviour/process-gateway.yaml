@@ -57,3 +57,5 @@ key-edges:
 - role: process-gateway-process
   edge: process-gateway-process
   side: from
+derives-from:
+- business-process

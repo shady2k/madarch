@@ -2,6 +2,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 import { ClosureRefusal } from './closure-refusal.js';
 
 /** The path of one file, as the closure names it: relative, with `/` separators whatever the platform. */
@@ -27,7 +28,11 @@ export function walk(folder: string, root = folder): { path: string; file: strin
       else if (stat.isFile()) found.push({ path: closurePath(root, file), file });
     }
   };
-  visit(folder);
+  // One span for the walk: a span for each directory read would bury the tree it found.
+  withSpanSync('fs.readdir', { 'file.path': folder }, (span) => {
+    visit(folder);
+    span.setAttribute('file.entries', found.length);
+  });
   return found.sort((left, right) => byCodePoint(left.path, right.path));
 }
 
@@ -40,8 +45,13 @@ export function dependencyFiles(folder: string, missing: (error: ClosureRefusal)
     const manifest = join(owner, 'package.json');
     if (!existsSync(manifest)) return;
     let value: { dependencies?: Record<string, string> };
-    try { value = JSON.parse(readFileSync(manifest, 'utf8')); }
-    catch (error) { throw new ClosureRefusal('plugin-dependency', `${manifest}:1: ${(error as Error).message}`, manifest); }
+    try {
+      value = JSON.parse(withSpanSync('fs.read', { 'file.path': manifest }, (span) => {
+        const held = readFileSync(manifest, 'utf8');
+        span.setAttribute('file.bytes', Buffer.byteLength(held));
+        return held;
+      }));
+    } catch (error) { throw new ClosureRefusal('plugin-dependency', `${manifest}:1: ${(error as Error).message}`, manifest); }
     for (const name of Object.keys(value.dependencies ?? {}).sort(byCodePoint)) {
       if (!/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_][a-z0-9_.-]*$/i.test(name) || name.split('/').some((part) => part === '.' || part === '..')) {
         throw new ClosureRefusal('plugin-dependency', `${manifest}:1: invalid dependency package name ${JSON.stringify(name)}`, manifest);

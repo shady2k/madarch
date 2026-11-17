@@ -23,7 +23,7 @@
 import { Type, type Static } from 'typebox';
 
 /** The protocol's version: the introduction names it, and a host refuses any other. */
-export const PROTOCOL_VERSION = 'madarch.plugins/2';
+export const PROTOCOL_VERSION = 'madarch.plugins/3';
 
 /** The version of the documents themselves (the schema's `$id` carries it too). */
 export const PROTOCOL_CONTRACT = 2;
@@ -87,12 +87,20 @@ export const PluginEdgeResult = Type.Object(
   { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
 
+/** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
+export const PluginGraphOwnFactsRequest = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  scope: Type.Object({ parent: Type.Optional(PluginEntityRef), repository: Type.Optional(Type.String({ minLength: 1 })), commit: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export const PluginGraphOwnFactsResult = Type.Object({ vertices: Type.Array(PluginVertexResult), edges: Type.Array(PluginEdgeResult) }, { additionalProperties: false });
+
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
 export const PluginRemoval = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
     key: PluginKeyValues,
     keyEdges: Type.Optional(PluginKeyEdges),
+    evidence: Type.Optional(PluginEvidence),
   },
   { additionalProperties: false, description: 'An entity the plugin produced before that the unit\'s input no longer holds.' },
 );
@@ -113,9 +121,10 @@ export const PluginUnitProblem = Type.Object(
 export const PluginUnitEnd = Type.Union(
   [
     Type.Object({ state: Type.Literal('complete') }, { additionalProperties: false, description: 'The unit read everything its input holds.' }),
+    Type.Object({ state: Type.Literal('inapplicable'), searched: Type.String({minLength:1}), evidence: Type.Array(PluginEvidence, {minItems:1}) }, {additionalProperties:false}),
     Type.Object({ state: Type.Literal('partial'), cause: Type.String({ minLength: 1 }) }, { additionalProperties: false, description: 'The unit stopped short; the cause says why, and the host publishes no removals for it.' }),
   ],
-  { description: 'How a unit ended: complete, or partial with the cause.' },
+  { description: 'How a unit ended: complete, partial with the cause, or inapplicable with the searched scope and evidence.' },
 );
 
 /** The answer to one unit: what the plugin found, and how far it got. */
@@ -191,7 +200,7 @@ export const PluginContractDeclaration = Type.Object(
 
 /** One graph read a plugin may declare: its name. */
 export const PluginGraphRead = Type.Union(
-  [Type.Literal('files'), Type.Literal('value'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
+  [Type.Literal('ownFacts'), Type.Literal('files'), Type.Literal('value'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
   { description: 'One graph read the host answers: files and value are the unit reads, removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
 );
 
@@ -262,10 +271,55 @@ export const PluginIntroduce = Type.Object(
     limits: Type.Optional(PluginLimits),
     outputs: PluginContractDeclaration,
     planOutput: Type.Optional(Type.Boolean()),
+    read: Type.Optional(Type.Boolean({ description: 'The plugin answers the host\'s blob reads: a page\'s text and the agent\'s file reads, by (repository, blob id) (decision 0037).' })),
     reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). A whole-graph plugin is planned once, last, and planned again when anything it read moved.' })),
   },
   { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights, limits and what it reads.' },
 );
+
+/**
+ * One read of a repository's bytes, asked of the plugin by the host (decision 0037, madarch-u3vw.16): a file's text is
+ * always read by (repository, blob id) from git's object store through the git plugin, never from a working copy. The
+ * plugin answers the lines asked for, so a page can virtualise a large file.
+ */
+export const PluginReadRequest = Type.Object(
+  {
+    repository: Type.String({ minLength: 1, description: 'The repository root as the plugin sees it: the sandbox binds it read-only, and the host names that path.' }),
+    blob: Type.String({ minLength: 1, description: 'The git blob id of the content, as the graph holds it.' }),
+    from: Type.Optional(Type.Integer({ minimum: 1, description: 'The first line asked for, 1-based; absent, the first line.' })),
+    to: Type.Optional(Type.Integer({ minimum: 1, description: 'The last line asked for, inclusive; absent, the last line of the blob.' })),
+  },
+  { additionalProperties: false, description: 'One blob read: a repository, a blob id and the lines asked for.' },
+);
+export type PluginReadRequest = Static<typeof PluginReadRequest>;
+
+/** What one blob read answers: the lines' text, the whole blob's counts, and whether it is text at all. */
+export const PluginReadResult = Type.Object(
+  {
+    text: Type.String({ description: 'The lines asked for, joined with their own line breaks; empty when the blob is no text.' }),
+    lines: Type.Integer({ minimum: 0, description: 'Every line of the blob.' }),
+    bytes: Type.Integer({ minimum: 0, description: "The blob's size in bytes." }),
+    binary: Type.Boolean({ description: 'True when the blob is no UTF-8 text: it has no text, and a page says so.' }),
+  },
+  { additionalProperties: false, description: "One blob read's answer." },
+);
+export type PluginReadResult = Static<typeof PluginReadResult>;
+
+/**
+ * One file read a plugin asks of the host (owner's decision, 2026-11-15; decision 0038): an ordinary plugin holds no
+ * environment and reads no repository; it names the repository and the blob id the graph holds, and the host routes the
+ * read to the core plugin that owns git's object store. A plugin that declared no "repository" capability is refused.
+ */
+export const PluginFileReadAsk = Type.Object(
+  {
+    repository: Type.String({ minLength: 1, description: 'The repository’s name, as the graph’s file vertices hold it.' }),
+    blob: Type.String({ minLength: 1, description: 'The git blob id of the content, as the graph holds it.' }),
+    from: Type.Optional(Type.Integer({ minimum: 1, description: 'The first line asked for, 1-based; absent, the first line.' })),
+    to: Type.Optional(Type.Integer({ minimum: 1, description: 'The last line asked for, inclusive; absent, the last line of the blob.' })),
+  },
+  { additionalProperties: false, description: 'One file read an ordinary plugin asks the host for, by repository and blob id.' },
+);
+export type PluginFileReadAsk = Static<typeof PluginFileReadAsk>;
 
 /** One read-only query of the graph: the file vertices whose path matches a pattern (decision 0035, item 15). */
 export const PluginGraphFilesRequest = Type.Object(
@@ -394,6 +448,7 @@ export const PluginAgentRunRequest = Type.Object({ unitId: Type.String({ minLeng
 const AgentRunMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('agent.run'), params: PluginAgentRunRequest }, { additionalProperties: false });
 const GraphFilesMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.files'), params: PluginGraphFilesRequest }, { additionalProperties: false, description: 'The plugin asks the host for the file vertices whose path matches a pattern.' });
 const GraphValueMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.value'), params: PluginGraphValueRequest }, { additionalProperties: false, description: 'The plugin asks the host for one field of one vertex.' });
+const FileReadMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('file.read'), params: PluginFileReadAsk }, { additionalProperties: false, description: 'The plugin asks the host for a file’s text by repository and blob id; the host routes it to the core plugin that owns git.' });
 /**
  * One page of the writer's consistency records: the cursor a previous answer named, and the most rows this page may
  * hold. The host bounds the size, so a plugin walks a large store one page at a time.
@@ -418,6 +473,7 @@ export const PluginFactsApplyRequest = Type.Object({
     vertices: Type.Optional(Type.Array(PluginVertexResult)),
     edges: Type.Optional(Type.Array(PluginEdgeResult)),
     removals: Type.Optional(Type.Array(PluginRemoval)),
+    edgeRemovals: Type.Optional(Type.Array(PluginEdgeResult)),
   }, { additionalProperties: false }),
 }, { additionalProperties: false });
 const FactsApplyMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('facts.apply'), params: PluginFactsApplyRequest }, { additionalProperties: false });
@@ -441,7 +497,9 @@ export const PluginProtocolMessage = Type.Union(
     UnitRequestMessage,
     PlanOutputMessage,
     AgentRunMessage,
+    Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.ownFacts'), params: PluginGraphOwnFactsRequest }, { additionalProperties: false }),
     GraphFilesMessage,
+    FileReadMessage,
     GraphValueMessage,
     GraphRemovedEndsMessage,
     GraphUnevidencedMessage,
@@ -465,6 +523,8 @@ export const PluginProtocolMessage = Type.Union(
   },
 );
 
+export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsRequest>;
+export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
 export type PluginFactsApplyRequest = Static<typeof PluginFactsApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;

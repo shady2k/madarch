@@ -24,7 +24,7 @@ describe('observable producer completion', () => {
           ['first', 'z-unit', 1, { producer: 'check', outcome: 'completed', produced: 2, reason: 'partial answer', producer_version: 'v1' }],
           ['first', 'a-unit', 2, { producer: 'check', outcome: 'empty', produced: 0 }],
           ['first', 'a-unit', 1, { producer: 'check', outcome: 'failed', produced: 0, reason: 'adapter crashed' }],
-          ['second', 'a-unit', 2, { producer: 'check', outcome: 'unchanged', produced: 0 }],
+          ['second', 'a-unit', 2, { producer: 'check', outcome: 'unchanged', produced: 1 }],
           ['first', 'pending', 1, {}],
         ] as const) {
           let run = runs.get(runId);
@@ -57,7 +57,7 @@ describe('observable producer completion', () => {
         { runId: 'first', unitId: 'z-unit', generation: 1, plugin: 'check', kind: 'Problem', outcome: 'completed', produced: 2, reason: 'partial answer', producerVersion: 'v1' },
       ]);
       expect(await readProducerOutcomes(owner, { unitId: 'a-unit', generation: 2 })).toEqual([
-        first[1]!, { runId: 'second', unitId: 'a-unit', generation: 2, plugin: 'check', kind: 'Problem', outcome: 'unchanged', produced: 0 },
+        first[1]!, { runId: 'second', unitId: 'a-unit', generation: 2, plugin: 'check', kind: 'Problem', outcome: 'unchanged', produced: 1 },
       ]);
       expect(await readProducerOutcomes(owner, { runId: 'second', unitId: 'z-unit' })).toEqual([{ ...first[2]!, runId: 'second', outcome: 'unchanged' }]);
       expect(await readProducerOutcomes(owner, { runId: 'first' })).toEqual(first);

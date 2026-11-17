@@ -60,8 +60,13 @@ export interface TemplateRead {
   readonly findings: readonly TemplateFinding[];
 }
 
-/** The names a section's `roles.show` may hold when it holds none: every role, and the reader with none chosen. */
-export const EVERY_ROLE = 'all';
+/**
+ * The role that stands for every role at once, as the reader's own settings name it (`/api/settings`, decision 0031): a
+ * section whose `roles.show` holds it opens for every reader, and a page composed without a role opens as that reader.
+ */
+export const EVERY_ROLE = 'everything';
+
+/** The reader who chose every role at once (decision 0031): it is not a role of the product, and opens every section. */
 
 function asRecord(node: unknown): Pair<unknown, unknown>[] {
   return isMap(node as Node) ? ((node as { items: Pair<unknown, unknown>[] }).items) : [];
@@ -131,7 +136,7 @@ export function readTemplate(text: string, options: { readonly name: string; rea
       const queryNode = childOf(sectionNode, 'query');
       // The command components (`fill`, `run`) and the page's own chrome (`tabs`, `search`, and a header whose title the
       // template states) read no graph data: their sections answer the page without a query.
-      const queryFree = ['tabs', 'search', 'run', 'header', 'kinds', 'catalogue', 'prepare', 'runs', 'first-run', 'problem-actions', 'settings-form', 'sources', 'product-overview', 'repositories'].includes(component);
+      const queryFree = ['tabs', 'search', 'run', 'header', 'source-page', 'kinds', 'catalogue', 'prepare', 'runs', 'first-run', 'problem-actions', 'settings-form', 'sources', 'product-overview', 'repositories', 'logs'].includes(component);
       if ((isScalar(queryNode) ? String(queryNode.value).trim() : '') === '' && !queryFree) {
         findings.push({ file, line: lineOfText(text, sectionNode), path: `sections.${id === '' ? String(at) : id}`, message: `the section "${id}" draws the ${component} component and states no query: a section's data is the graph's answer to its query` });
       }
@@ -243,8 +248,17 @@ export function resolveTemplate(name: string, templates: ReadonlyMap<string, Tem
   return { findings, resolved: { name, sections: ordered, variables } };
 }
 
-/** A section shown to the asked role: its `roles.show` holds the role, `all`, or nothing at all. */
+/**
+ * A section shown to the asked role: its `roles.show` names the role, names `everything`, or names nothing at all; and
+ * a reader who reads as `everything` opens every section, since that role is every role at once.
+ */
 export function sectionShownFor(section: PageSection, role: string): boolean {
   const show = section.roles?.show;
-  return show === undefined || show.length === 0 || show.includes(EVERY_ROLE) || show.includes(role);
+  return show === undefined || show.length === 0 || show.includes(EVERY_ROLE) || role === EVERY_ROLE || show.includes(role);
+}
+
+/** Whether a section stands open for the reader's role: `roles.open` names the roles that find it open, `all` or none every role. */
+export function sectionOpenFor(section: PageSection, role: string): boolean {
+  const open = section.roles?.open;
+  return open === undefined || open.length === 0 || open.includes(EVERY_ROLE) || role === EVERY_ROLE || open.includes(role);
 }

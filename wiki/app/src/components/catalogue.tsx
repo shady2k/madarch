@@ -5,6 +5,11 @@
  * separate signs; the fill method comes from the server's plan. Selection is explicit: the prerequisites the server adds
  * are marked «Нужно для X», cannot be dropped while their dependant stays, and the short bottom bar leads to the
  * preparation panel.
+ *
+ * The page as a reader had it before PR #299 (madarch-64o5.133): its header states how many kinds and records stand in
+ * view, each area and subgroup states its own share, every kind wears the state its fill left it in — never filled, filled
+ * or failed — and a contents list follows the areas as the page scrolls. The state is the graph's count with the newest
+ * run's own verdict on top of it.
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,22 +19,18 @@ import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { Skeleton } from './ui/skeleton.js';
+import { ResponsiveContents } from './ui/table-of-contents.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
-import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
+import { readFillPlan, useCommandRead, useChangeStream, type FillPlanError, type FillPlanView, type FillRunDetail } from './command.js';
+import { fetchFillRuns } from '../client.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation, NavigationKind } from '../client.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
 import { catalogueSelectionAddress, entityAddress, prepareAddress } from '../address.js';
 import type { SectionContext } from './types.js';
-
-const FILTER_TEST_IDS = {
-  area: "catalogue-area",
-  fillMethod: "catalogue-fill-filter",
-  inProduct: "catalogue-taken-filter",
-} as const;
 
 const lower = (text: string, language: string): string => text.toLocaleLowerCase(language);
 
@@ -71,7 +72,34 @@ function groupCheck(visible: readonly NavigationKind[], active: ReadonlySet<stri
   return { all: visible.length > 0 && on === visible.length, some: on > 0 && on < visible.length, count: visible.length };
 }
 
-/** One filter: a full-width native select with the kit's own chevron, on the same line as the other controls. */
+/** What one kind's fill stands as: nothing the graph holds of it, records it holds, or a fill that did not finish it. */
+type KindState = 'never' | 'filled' | 'failed';
+
+/**
+ * The kinds the newest runs left failed (madarch-64o5.133): the newest run that reached a kind decides it, and only a
+ * failed or cancelled unit says the fill did not finish the kind. A kind the newest run never reached, or reached while
+ * waiting or running, keeps the graph's own verdict.
+ */
+function failedKinds(runs: readonly FillRunDetail[]): Set<string> {
+  const seen = new Set<string>();
+  const failed = new Set<string>();
+  for (const run of runs) {
+    for (const group of run.groups) {
+      if (seen.has(group.kind)) continue;
+      seen.add(group.kind);
+      if (group.phase === 'failed' || group.phase === 'cancelled') failed.add(group.kind);
+    }
+  }
+  return failed;
+}
+
+/** One kind's state: a failed fill first, then whether the graph holds any record of the kind at all. */
+const stateOf = (kind: NavigationKind, failed: ReadonlySet<string>): KindState =>
+  failed.has(kind.kind) ? 'failed' : kind.count > 0 ? 'filled' : 'never';
+
+const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
+
+/** One filter: the kit's one-choice-of-several menu, on the same line as the other controls. */
 function FilterSelect({ label, value, options, onChange, testId }: {
   readonly label: string;
   readonly value: string;
@@ -82,7 +110,7 @@ function FilterSelect({ label, value, options, onChange, testId }: {
   return (
     <FieldLabel className="grid gap-1 text-small">
       {label}
-      <Select variant="filter" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
+      <ChoiceMenu label={label} value={value} options={options} onChange={onChange} testId={testId} />
     </FieldLabel>
   );
 }
@@ -110,6 +138,12 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   const planRead = useCommandRead<{ plan: FillPlanView }>(`catalogue-selection:${selectedKey}`, (signal) => readFillPlan(base, selection, signal), selecting && selection.length > 0);
   const allPlan = allRead.data?.plan;
   const selectionPlan = selection.length === 0 ? undefined : planRead.data?.plan;
+  // The fill's own record of each kind: the newest run that reached a kind says whether a fill left it failed, and the
+  // graph's count says whether it holds anything of the kind (madarch-64o5.133). The runs are read through the one
+  // read API, as the rest of the page's data is (madarch-64o5.136 restore).
+  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => fetchFillRuns(context.base, undefined, signal));
+  useChangeStream(context.base, () => { runs.reload(); });
+  const failed = failedKinds(runs.data?.runs ?? []);
 
   // A new address (the kind page's «Изменить состав», a reload) resets the mode and the explicit selection.
   useEffect(() => {
@@ -171,7 +205,17 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     return true;
   };
   const areas = areasOf(navigation, matches, language);
-  const shownCount = areas.reduce((sum, one) => sum + one.direct.length + one.subgroups.reduce((inner, subgroup) => inner + subgroup.kinds.length, 0), 0);
+  const kindsOf = (area: Area): NavigationKind[] => [...area.direct, ...area.subgroups.flatMap((subgroup) => subgroup.kinds)];
+  const shownCount = areas.reduce((sum, one) => sum + kindsOf(one).length, 0);
+  const shownRecords = areas.reduce((sum, one) => sum + kindsOf(one).reduce((inner, kind) => inner + kind.count, 0), 0);
+  /** The header's and each area's line: how many kinds stand here and how many records the graph holds of them. */
+  const totalsOf = (kinds: readonly NavigationKind[]): string =>
+    `${t('knowledge.catalogueKinds', { count: kinds.length })}, ${t('knowledge.catalogueEntities', { count: kinds.reduce((sum, kind) => sum + kind.count, 0) })}`;
+  const contents = areas.map((area) => ({
+    id: sectionId(area.id === '' ? '\u0000other' : area.id),
+    label: area.id === '' ? t('knowledge.groupOther') : area.label,
+    children: area.subgroups.map((subgroup) => ({ id: sectionId(subgroup.id), label: subgroup.label })),
+  }));
   const topAreas = [...new Set((navigation?.groups ?? []).filter((group) => group.parent === null || !new Set((navigation?.groups ?? []).map((one) => one.name)).has(group.parent)).map((group) => group.name))];
   const linkOf = (kind: NavigationKind): { href: string; onClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void } | null => {
     if (kind.entryId === null) return null;
@@ -185,10 +229,8 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     return (
       <FieldLabel className="ml-auto flex items-center gap-2 text-small text-muted">
         <Checkbox
-          checked={box.all}
-          ref={(input) => { if (input !== null) input.indeterminate = box.some; }}
-          onClick={(event) => { event.stopPropagation(); }}
-          onChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
+          checked={box.all ? true : box.some ? 'indeterminate' : false}
+          onCheckedChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
           data-testid="catalogue-group-check"
         />
         {t('catalogue.selectGroup', { count: box.count })}
@@ -199,10 +241,12 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   const row = (kind: NavigationKind): ReactElement => {
     const planKind = planKindOf(allPlan, kind.kind);
     const filled = filledBy(planKind);
+    const applicability = planKind?.applicability;
     const needed = added.get(kind.kind);
     const neededLabel = needed === undefined ? undefined : kindLabel(navigation, needed);
     const error: FillPlanError | undefined = errors.get(kind.kind);
     const link = linkOf(kind);
+    const state = stateOf(kind, failed);
     return (
       <ListItem key={kind.kind} className="border-b border-line py-3 last:border-b-0" data-testid="catalogue-kind" data-kind={kind.kind} data-changed={context.changedKinds?.has(kind.kind) ? 'true' : undefined}>
         <Stack className="flex items-start gap-3">
@@ -210,7 +254,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <Checkbox
               checked={active.has(kind.kind)}
               disabled={needed !== undefined}
-              onChange={() => toggle([kind.kind], !selected.has(kind.kind))}
+              onCheckedChange={() => toggle([kind.kind], !selected.has(kind.kind))}
               aria-label={kind.many}
               data-testid={`catalogue-kind-check-${kind.kind}`}
             />
@@ -219,9 +263,20 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <InlineGroup className="mb-0 gap-x-3">
               {link === null ? <Text className="font-medium">{kind.many}</Text> : <TextLink href={link.href} onClick={link.onClick} className="font-medium">{kind.many}</TextLink>}
               <Text className="text-small text-muted" data-testid="catalogue-count">{t('knowledge.catalogueEntities', { count: kind.count })}</Text>
+              <Badge variant={state === 'never' ? 'outline' : 'solid'} data-testid="catalogue-state" data-state={state}>{t(`knowledge.catalogueState.${state}`)}</Badge>
               {kind.taken ? <Badge variant="outline" data-testid="catalogue-taken">{t('catalogue.taken')}</Badge> : null}
             </InlineGroup>
             {kind.definition === null || kind.definition === '' ? null : <Paragraph className="m-0 text-small text-secondary" data-testid="catalogue-definition">{kind.definition}</Paragraph>}
+            {applicability === undefined ? null : (
+              <Stack className="grid gap-1" data-testid="catalogue-applicability">
+                <InlineGroup className="mb-0 gap-2">
+                  <Badge variant="outline" data-testid="catalogue-applicability-state">{t(`applicability.state.${applicability.state}`)}</Badge>
+                  {applicability.contested ? <Badge variant="outline">{t('applicability.contested')}</Badge> : null}
+                </InlineGroup>
+                {applicability.state === 'not-searched' ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-applicability-reason">{t('applicability.reason', { reason: applicability.reason })}</Paragraph>}
+                {applicability.ancestor === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-applicability-ancestor">{t('applicability.ancestor', { kind: kindLabel(navigation, applicability.ancestor) ?? applicability.ancestor })}</Paragraph>}
+              </Stack>
+            )}
             {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
             {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
             {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}
@@ -234,59 +289,63 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   };
 
   return (
-    <Stack className="grid gap-4" data-testid="catalogue-page">
-      <Stack className="flex flex-wrap items-end justify-between gap-3">
-        <Paragraph className="m-0 text-secondary">{t('knowledge.catalogueIntro')}</Paragraph>
-        {selecting ? (
-          <Button variant="ghost" size="default" onClick={leaveSelection} data-testid="catalogue-exit">{t('catalogue.exitSelection')}</Button>
-        ) : (
-          <Button variant="default" size="default" onClick={enterSelection} data-testid="catalogue-select">{t('catalogue.select')}</Button>
-        )}
-      </Stack>
-      {allRead.error === null ? null : <Alert variant="problem" data-testid="catalogue-error"><AlertDescription>{allRead.error}</AlertDescription></Alert>}
-      {allPlan === undefined && allRead.error === null ? <Skeleton className="h-8 w-72" /> : null}
-      {allPlan === undefined ? null : (
-        <>
-          <Stack className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <FieldLabel className="grid gap-1 text-small">{t('catalogue.search')}
-              <Input type="search" className="w-full" value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={t('catalogue.search')} aria-label={t('catalogue.search')} data-testid="catalogue-search" />
-            </FieldLabel>
-            <FilterSelect label={t('catalogue.area')} value={area} onChange={setArea} testId={FILTER_TEST_IDS.area} options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
-            <FilterSelect label={t('catalogue.inProduct')} value={taken} onChange={setTaken} testId={FILTER_TEST_IDS.inProduct} options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
-            <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId={FILTER_TEST_IDS.fillMethod} options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
-          </Stack>
-          <Stack className="flex flex-wrap items-center gap-3">
-            <Text className="text-small text-muted" data-testid="catalogue-shown">{t('catalogue.shown', { count: shownCount })}</Text>
-            {selecting ? <Button size="default" variant={onlySelected ? 'default' : 'ghost'} onClick={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Button> : null}
-          </Stack>
-          {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
-          {areas.map((top) => (
-            <Stack key={top.id === '' ? '\u0000other' : top.id} className="grid gap-3" data-testid="catalogue-area">
-              <Stack className="flex w-full flex-wrap items-baseline justify-between gap-3">
-                <SectionTitle className="m-0 min-w-0">{top.id === '' ? t('knowledge.groupOther') : top.label}</SectionTitle>
-                {groupBox([...top.direct, ...top.subgroups.flatMap((subgroup) => subgroup.kinds)])}
-              </Stack>
-              {top.direct.length === 0 ? null : <PlainList className="m-0 list-none p-0">{top.direct.map(row)}</PlainList>}
-              {top.subgroups.map((subgroup) => (
-                <Disclosure key={subgroup.id} open className="rounded-lg border border-line p-3" data-testid="catalogue-subgroup">
-                  <DisclosureSummary className="flex w-full cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <SmallTitle className="m-0 text-small font-medium">{subgroup.label}</SmallTitle>
-                    {selecting ? null : <Badge variant="outline" data-testid="catalogue-subgroup-count">{subgroup.kinds.length}</Badge>}
-                    {groupBox(subgroup.kinds)}
-                  </DisclosureSummary>
-                  <PlainList className="m-0 list-none p-0">{subgroup.kinds.map(row)}</PlainList>
-                </Disclosure>
-              ))}
-            </Stack>
-          ))}
-        </>
-      )}
-      {selecting ? (
-        <Stack className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-page px-4 py-2 shadow-sm" data-testid="catalogue-bottom">
-          <Text className="text-small" data-testid="catalogue-selected-count">{t('catalogue.selectedCount', { count: selected.size })}{' · '}{t('catalogue.dependencyCount', { count: added.size })}</Text>
-          <Button variant="default" size="default" disabled={selection.length === 0 || planRead.busy || (selectionPlan?.errors.length ?? 0) > 0} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
+    <Stack layout="catalogue" className="gap-4" data-testid="catalogue-page">
+      <Stack className="grid min-w-0 gap-4">
+        <Stack className="flex flex-wrap items-end justify-between gap-3">
+          <Paragraph className="m-0 text-secondary">{t('knowledge.catalogueIntro')}</Paragraph>
+          {selecting ? (
+            <Button variant="ghost" size="default" onClick={leaveSelection} data-testid="catalogue-exit">{t('catalogue.exitSelection')}</Button>
+          ) : (
+            <Button variant="default" size="default" onClick={enterSelection} data-testid="catalogue-select">{t('catalogue.select')}</Button>
+          )}
         </Stack>
-      ) : null}
+        {allRead.error === null ? null : <Alert variant="problem" data-testid="catalogue-error"><AlertDescription>{allRead.error}</AlertDescription></Alert>}
+        {allPlan === undefined && allRead.error === null ? <Skeleton className="h-8 w-72" /> : null}
+        {allPlan === undefined ? null : (
+          <>
+            <Stack className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <FieldLabel className="grid gap-1 text-small">{t('catalogue.search')}
+                <Input type="search" className="w-full" value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={t('catalogue.search')} aria-label={t('catalogue.search')} data-testid="catalogue-search" />
+              </FieldLabel>
+              <FilterSelect label={t('catalogue.area')} value={area} onChange={setArea} testId="catalogue-area" options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
+              <FilterSelect label={t('catalogue.inProduct')} value={taken} onChange={setTaken} testId="catalogue-taken-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
+              <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId="catalogue-fill-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
+            </Stack>
+            <Stack className="flex flex-wrap items-center gap-3">
+              <Text className="text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: shownCount })}{', '}{t('knowledge.catalogueEntities', { count: shownRecords })}</Text>
+              {selecting ? <Button size="default" variant={onlySelected ? 'default' : 'ghost'} onClick={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Button> : null}
+            </Stack>
+            {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
+            {areas.map((top) => (
+              <Stack key={top.id === '' ? '\u0000other' : top.id} id={sectionId(top.id === '' ? '\u0000other' : top.id)} className="grid scroll-mt-4 gap-3" data-testid="catalogue-area" data-group={top.id}>
+                <Stack className="flex w-full flex-wrap items-baseline justify-between gap-3">
+                  <SectionTitle className="m-0 min-w-0">{top.id === '' ? t('knowledge.groupOther') : top.label}</SectionTitle>
+                  <Text className="text-small text-muted" data-testid="catalogue-group-total">{totalsOf(kindsOf(top))}</Text>
+                  {groupBox(kindsOf(top))}
+                </Stack>
+                {top.direct.length === 0 ? null : <PlainList className="m-0 list-none p-0">{top.direct.map(row)}</PlainList>}
+                {top.subgroups.map((subgroup) => (
+                  <Disclosure key={subgroup.id} open id={sectionId(subgroup.id)} className="scroll-mt-4 rounded-lg border border-line p-3" data-testid="catalogue-subgroup" data-subgroup={subgroup.id}>
+                    <DisclosureSummary className="flex w-full cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <SmallTitle className="m-0 text-small font-medium">{subgroup.label}</SmallTitle>
+                      <Text className="text-small text-muted" data-testid="catalogue-subgroup-count">{totalsOf(subgroup.kinds)}</Text>
+                      {groupBox(subgroup.kinds)}
+                    </DisclosureSummary>
+                    <PlainList className="m-0 list-none p-0">{subgroup.kinds.map(row)}</PlainList>
+                  </Disclosure>
+                ))}
+              </Stack>
+            ))}
+          </>
+        )}
+        {selecting ? (
+          <Stack className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-page px-4 py-2 shadow-sm" data-testid="catalogue-bottom">
+            <Text className="text-small" data-testid="catalogue-selected-count">{t('catalogue.selectedCount', { count: selected.size })}{' · '}{t('catalogue.dependencyCount', { count: added.size })}</Text>
+            <Button variant="default" size="default" disabled={selection.length === 0 || planRead.busy || (selectionPlan?.errors.length ?? 0) > 0} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
+          </Stack>
+        ) : null}
+      </Stack>
+      {areas.length === 0 ? null : <ResponsiveContents title={t('knowledge.catalogueViews.contents')} items={contents} />}
     </Stack>
   );
 }

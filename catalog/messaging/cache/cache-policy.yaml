@@ -24,3 +24,6 @@ labels:
 description:
   en: A cache policy sets how long a cached value may be reused, when it is written or refreshed, and what happens when it expires. It balances the speed a cache gives against the risk of serving stale data.
   ru: Политика кэша задаёт, сколько времени значение можно переиспользовать, когда его записывают или обновляют и что происходит при истечении срока. Она уравновешивает скорость, которую даёт кэш, и риск показать устаревшие данные.
+derives-from:
+- cache
+- product-profile

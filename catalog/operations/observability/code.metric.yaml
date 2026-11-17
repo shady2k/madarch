@@ -55,6 +55,7 @@ fields:
 key:
 - name
 derives-from:
+- code.file
 - code.service
 labels:
   en:

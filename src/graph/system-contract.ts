@@ -6,9 +6,14 @@ export const SYSTEM_PROBLEM='system.problem';
 export const SYSTEM_PROBLEM_ABOUT='system.problem-about';
 
 export const SYSTEM_VERTEX_DEFINITIONS: readonly {name:string; fields:VertexContract['fields']; key?:VertexContract['key']; evidence?:VertexContract['evidence']}[] = [
+  {name:'system.merge',fields:[{name:'state',type:'text'},{name:'reason',type:'text'}]},
+  {name:'system.merge-question',fields:[{name:'state',type:'text'},{name:'reason',type:'text'}]},
+  {name:'system.merge-allocation',fields:[{name:'direction',type:'text',nullable:true}]},
   {name:'system.dispute-question',fields:[{name:'property',type:'text'},{name:'language',type:'text',nullable:true},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true},{name:'state',type:'text'}]},
   {name:'system.dispute-resolution',fields:[{name:'rationale',type:'text'},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true}]},
-  {name:'system.assertion',fields:[]},
+  {name:'system.dispute-pin',fields:[{name:'canonical_value',type:'text'},{name:'digest',type:'text'},{name:'segment_from',type:'timestamp'},{name:'segment_to',type:'timestamp',nullable:true}]},
+  {name:'system.assertion',fields:[],evidence:{immutable:true}},
+  {name:'system.kind-applicability',fields:[{name:'state',type:'text'},{name:'reason',type:'text'}]},
   {name:'system.product',fields:[]},
   {name:SYSTEM_PROBLEM,fields:[{name:'rule',type:'text'},{name:'fingerprint',type:'text'},{name:'reason',type:'text'},{name:'locator',type:'text'}]},
   {name:'system.content-snapshot',evidence:{immutable:true,digestField:'digest',digestAlgorithm:'sha256',contentField:'content'},key:['digest'],fields:[{name:'digest',type:'text'},{name:'content',type:'text'}]},
@@ -26,7 +31,7 @@ export const SYSTEM_VERTEX_DEFINITIONS: readonly {name:string; fields:VertexCont
   {name:'system.authored-import',fields:[{name:'source_path',type:'text'},{name:'content_digest',type:'text'}]},
   {name:'system.operation',fields:[{name:'words',type:'text'},{name:'key',type:'text'},{name:'canonical_request',type:'text'},{name:'digest',type:'text'},{name:'result',type:'text'}]},
 ];
-const vertices: readonly VertexContract[] = SYSTEM_VERTEX_DEFINITIONS.map(({name,fields,key,evidence}) => ({name,fields,...(evidence?{evidence}:{}),table:generatedTableName(name,'vertex'),key:key ?? [],capability:'system'}));
+const vertices: readonly VertexContract[] = SYSTEM_VERTEX_DEFINITIONS.map(({name,fields,key,evidence}) => ({name,fields,...(evidence?{evidence}:{}),table:generatedTableName(name,'vertex'),key:key ?? [],...(name === 'system.kind-applicability' ? { keyEdges: [{ role:'system.product',edge:'system.applicability-product',direction:'from' as const,onDelete:'cascade' as const },{ role:'kind',edge:'system.applicability-kind',direction:'from' as const,onDelete:'cascade' as const }] } : {}),capability:'system'}));
 
 
 /** Protected edges whose open endpoints follow the complete installed vertex registry. */
@@ -37,6 +42,16 @@ export function SYSTEM_EDGE_DEFINITIONS(targets: readonly string[]): readonly Ed
   });
   return [
     ...['subject','source','author','unit','operation','evidence','mentions'].map(relation => edge(`system.assertion-${relation}`,['system.assertion'],targets,relation==='evidence'||relation==='mentions',relation==='unit')),
+    edge('system.applicability-product',['system.kind-applicability'],['system.product']),
+    edge('system.applicability-kind',['system.kind-applicability'],['manifest.kind']),
+    edge('system.merge-member',['system.merge'],targets,true),
+    edge('system.merge-survivor',['system.merge'],targets),
+    edge('system.merge-question-member',['system.merge-question'],targets,true),
+    edge('system.merge-question-merge',['system.merge-question'],['system.merge'],false,true),
+    edge('system.merge-allocation-merge',['system.merge-allocation'],['system.merge']),
+    edge('system.merge-allocation-assertion',['system.merge-allocation'],['system.assertion']),
+    edge('system.merge-allocation-member',['system.merge-allocation'],targets),
+
     edge('system.dispute-candidate',['system.dispute-question'],['system.assertion'],true),
     edge('system.dispute-resolution-question',['system.dispute-resolution'],['system.dispute-question']),
     edge('system.resolution-assertion',['system.dispute-resolution'],['system.assertion']),
@@ -138,6 +153,6 @@ export function withAssertionContract(contract: GraphContract): GraphContract {
 /** Foundation identity and declared base fields are not product disagreements. */
 export function isDisputableProperty(sort:'vertex'|'edge',kind:string,property:string):boolean {
   const base=sort==='vertex'?[...SYSTEM_CONTRACT.vertex,...vertices,...MANIFEST_CONTRACT.vertex].find(one=>one.name===kind):[...SYSTEM_CONTRACT.edge,...SYSTEM_EDGE_DEFINITIONS([]),...MANIFEST_CONTRACT.edge].find(one=>one.name===kind);
-  if(base===undefined)return true;
+  if(base===undefined || kind==='system.kind-applicability' && property==='state')return true;
   return property!=='$exists'&&!base.fields.some(field=>field.name===property);
 }

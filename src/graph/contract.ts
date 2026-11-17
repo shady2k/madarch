@@ -72,6 +72,9 @@ export interface EdgeWords { readonly [language: string]: { readonly out: string
 export interface KeyEdgeContract { readonly role: string; readonly edge: string; readonly direction: 'from' | 'to'; readonly onDelete: 'restrict' | 'cascade' }
 
 export interface VertexContract {
+  /** Declared identity boundary for homonyms, independent of a resolver's chosen signals. */
+  readonly duplicateSubjectEdge?:string;
+  readonly duplicateSubjectRequired?:boolean;
   readonly evidence?: {readonly immutable:true;readonly digestField?:string;readonly contentField?:string;readonly digestAlgorithm?:'sha256'};
   readonly contractUid?: string;
   readonly identity?: {readonly namespace: string; readonly origin: readonly string[]};
@@ -184,6 +187,7 @@ export interface EdgeDraft {
 
 /** One edge a producer withdraws: its ends by kind and key, and the discriminator that tells repeats apart. */
 export interface EdgeRemovalDraft {
+  readonly evidence?: readonly EvidenceDraft[];
   readonly kind: string;
   readonly from: EntityRefDraft;
   readonly to: EntityRefDraft;
@@ -194,6 +198,7 @@ export interface EdgeRemovalDraft {
 /** One entity a producer no longer holds: its opinions are closed and it leaves the reads (a removal of a term). */
 export interface VertexRemovalDraft {
   readonly keyEdges?: Readonly<Record<string, EntityRefDraft>>;
+  readonly evidence?: readonly EvidenceDraft[];
   /** Withdraw only these fields, preserving the producer's other fields. */
   readonly selectedFields?: readonly string[];
   readonly kind: string;

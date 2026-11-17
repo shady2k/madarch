@@ -46,7 +46,12 @@ test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silen
     ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
     graph: {
       files: async () => [...files.keys()].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
-      value: async (_kind, key, field) => field === 'content' ? files.get(String(key['path'])) ?? null : null,
+      value: async (_kind, key, field) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+    },
+    // The one blob read (decision 0038): the graph names the blob, and the host answers its text.
+    readBlob: async (ask) => {
+      const text = files.get(String(ask.blob).replace(/^blob-/u, '')) ?? '';
+      return { text, lines: text.split('\n').length, bytes: text.length, binary: false };
     },
   });
   const session = await host.open();

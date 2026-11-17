@@ -15,7 +15,7 @@ import { publishGraphDrafts } from '../src/graph/write.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readProductTemplates } from '../src/graph/product-templates.js';
+import { readTemplatesOf } from './page-templates-fixture.js';
 import { diagramGraphOf } from '../src/render/diagram.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -37,12 +37,14 @@ test("a starter product's domain page and diagram name relations in the declared
     await publishValidatedManifests(owner, validation.value);
     const domain = { kind: 'domain', key: { name: 'Payments' } };
     const module = { kind: 'code.module', key: { name: 'payments' } };
-    const folderEntity = { kind: 'code.directory', key: { repository: 'app', path: 'src/payments' } };
-    const term = { kind: 'doc.term', key: { name: 'Payment' } };
+    const repository = { kind: 'code.repository', key: { name: 'app' } };
+    const folderEntity = { kind: 'code.directory', key: { path: 'src/payments' }, keyEdges: { 'code.directory-repository': repository } };
+    const term = { kind: 'doc.term', key: { identifier: 'payment' }, keyEdges: { 'doc.term-subject': domain } };
     const producer = { producer: 'fixture', producerVersion: '1' };
     const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
+        { ...repository, ...producer },
         { ...domain, ...producer },
         { ...module, ...producer },
         { ...folderEntity, ...producer },
@@ -58,7 +60,6 @@ test("a starter product's domain page and diagram name relations in the declared
     const uid = (await owner.transaction('snapshot', async (tx) => await tx.query<{ uid: string }>(
       `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'domain' AND n.key->>'name' = 'Payments' AND NOT n.removed`,
     ))).rows[0]!.uid;
-    const templates = readProductTemplates(folder);
     const declared = {
       ru: { 'domain.covers': 'покрывает', 'domain.covers-folder': 'покрывает папку', 'domain.uses-term': 'использует термин' },
       en: { 'domain.covers': 'covers', 'domain.covers-folder': 'covers folder', 'domain.uses-term': 'uses term' },
@@ -79,6 +80,7 @@ test("a starter product's domain page and diagram name relations in the declared
         expect(row.label).not.toMatch(/^(domain|code|module)[A-Z]/);
       }
       const neighbourhood = await owner.transaction('snapshot', async (tx) => {
+        const templates = (await readTemplatesOf(tx, manifest)).templates;
         const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, lang, 'fixture', templates);
         return await context.diagramNeighbourhood(uid, 1, lang);
       });

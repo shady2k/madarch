@@ -24,3 +24,5 @@ labels:
 description:
   en: A recovery point is a moment a backup or a replica can restore the data to. The distance from the failure to that moment is the data that would be lost.
   ru: Точка восстановления — момент, к которому резервная копия или реплика может вернуть данные. Расстояние от сбоя до этого момента и есть данные, которые будут потеряны.
+derives-from:
+- backup

@@ -24,3 +24,6 @@ labels:
 description:
   en: A usability test puts a person in front of the product with a task to do and watches how it goes. The session records what the person succeeded at, where they hesitated or failed, and what they said aloud.
   ru: Тест удобства — занятие, на котором человек получает задачу и работает с продуктом, а наблюдатели записывают, как это идёт. В записи сессии остаётся, что человек сделал, где замялся или не справился и что сказал вслух.
+derives-from:
+- screen
+- user-flow

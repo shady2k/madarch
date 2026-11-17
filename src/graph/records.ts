@@ -5,6 +5,8 @@ import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
 import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
+import { listDisputeSlots } from './dispute-read.js';
+import { withAssertionContract, isDisputableProperty } from './system-contract.js';
 
 export interface AssertionRecord {
   id: number; uid: string; key: Record<string, unknown>; values: Record<string, unknown>;
@@ -31,6 +33,12 @@ export interface AssertionRecordSelector {
 /** A batch reads identities once, then applies item 25 entirely in SQL. */
 export async function readKindsAssertions(tx: SqlExecutor, requests: readonly AssertionRecordRequest[], selector: AssertionRecordSelector = {}): Promise<AssertionRecord[][]> {
   return await withSpan('graph.records.batch', {}, async () => {
+    const hasMerges = (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    const context = Number(selector.contexts?.[0] ?? 1);
+    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : "'" + new Date(value).toISOString() + "'::timestamptz";
+    const valid = instant(selector.validAt);
+    const recorded = instant(selector.recordedAt);
+    const canonical = (id: string): string => hasMerges ? `graph_merge_target(${id},${context},${valid},${recorded})` : id;
     type Identity = { id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string };
     const identities: Identity[][] = requests.map(request => [...request.identities ?? []]);
     const parameters: unknown[] = [];
@@ -38,12 +46,18 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       if (request.identities !== undefined || request.subjectIds?.length === 0 || request.subjectUids?.length === 0) return [];
       parameters.push(request.kind);
       const where = [`k.name=$${parameters.length}`];
-      if (request.subjectIds !== undefined) { parameters.push(request.subjectIds); where.push(`n.id=ANY($${parameters.length}::bigint[])`); }
-      if (request.subjectUids !== undefined) { parameters.push(request.subjectUids); where.push(`n.uid=ANY($${parameters.length}::uuid[])`); }
-      return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
+      if (request.subjectIds !== undefined) { parameters.push(request.subjectIds); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM unnest($${parameters.length}::bigint[]) requested(id))` : `n.id=ANY($${parameters.length}::bigint[])`); }
+      if (request.subjectUids !== undefined) { parameters.push(request.subjectUids); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM node requested WHERE requested.uid=ANY($${parameters.length}::uuid[]))` : `n.uid=ANY($${parameters.length}::uuid[])`); }
+      if (request.sort === 'vertex' && hasMerges) where.push(`${canonical('n.id')}=n.id`);
+      return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : hasMerges ? `graph_effective_edges(${context},${valid},${recorded})` : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
     });
     if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
-    const loaded = await loadAssertionsBatch(tx, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)) })), selector);
+    const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));
+    if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:72: product assertion reads require an explicit graph contract for dispute resolution`);
+    const now = disputable ? new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString() : undefined;
+    const disputes = disputable ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), { validAt: selector.validAt ?? now!, recordedAt: selector.recordedAt ?? now!, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) }) : [];
+    const resolvedAssertionIds = disputes.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
+    const loaded = await loadAssertionsBatch(tx, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)), unprojectedProperties: selector.contract?.vertex.find(kind => kind.name === request.kind)?.key ?? [] })), { ...selector, projectMergedSubjects: hasMerges, resolvedAssertionIds });
     return requests.map((request,index) => identities[index]!.flatMap(row => {
       const own = loaded[index]!.filter(assertion => assertion.subjectId === Number(row.id));
       const chosen = own.filter(assertion => assertion.selected);
@@ -156,4 +170,67 @@ export async function graphKindCounts(owner:DatabaseOwner):Promise<readonly {kin
   const counts=new Map(declared.map((kind,index)=>[kind.name,records[index]!.length]));
   return kinds.rows.map(kind=>({kind:kind.name,count:counts.get(kind.name)??0}));
  }));
+}
+
+/** One currently supported assertion whose retained evidence is stale or unavailable. */
+export interface StaleEvidence {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, unknown>>;
+  readonly opinion: string;
+  readonly producer: string;
+  readonly evidence: import('./contract.js').EvidenceEntry;
+  readonly reason: string;
+  readonly applicability: 'stale' | 'unavailable';
+  readonly state: import('./evidence-read.js').EvidenceState;
+}
+
+/** Evaluate current assertion support without rewriting its independent historical validity. */
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
+  const limit = query.limit ?? 200;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${import.meta.path}:181: evidence page limit must be an integer from 1 to 1000`);
+  return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => {
+    const { readPublishedManifest } = await import('./manifest-publication.js');
+    const { evidenceSupportRoles } = await import('./evidence-support.js');
+    const { readEvidenceStates } = await import('./evidence-read.js');
+    const manifest = await readPublishedManifest(tx);
+    const support = evidenceSupportRoles(manifest?.semanticBindings);
+    const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
+    const selector = { validAt: now, recordedAt: now, contexts: [1] };
+    const candidates: { kind: string; key: Record<string, unknown>; assertion: StoredAssertion; target: string; targetKind: string; targetKey: Record<string, import('./contract.js').KeyValueDraft>; locator: Record<string, unknown>; relation: string; cursor: string }[] = [];
+    for (const sort of ['vertex', 'edge'] as const) for (const kind of contract[sort]) {
+      const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
+      const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
+      for (const record of records) {
+        const active = new Set(record.activeSources);
+        const slots = selectAssertionSlots(record.assertions, selector);
+        const ids = new Set([...slots.values()].flatMap(slot => slot.candidates).filter(assertion => active.has(assertion.source)).map(assertion => assertion.id));
+        const assertions = record.assertions.filter(assertion => ids.has(assertion.id) && assertion.evidence.length > 0);
+        if (assertions.length === 0) continue;
+        const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
+          `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid
+           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node origin ON origin.id=e.from_node
+           JOIN node target ON target.id=e.to_node JOIN entity k ON k.id=target.entity_id
+           WHERE ek.name='system.assertion-evidence' AND origin.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]);
+        for (const link of links.rows) {
+          const cursor = `${link.assertion}:${link.uid}`;
+          if (query.after !== undefined && cursor <= query.after) continue;
+          const attachment = JSON.parse(link.discriminator) as { locator: Record<string, unknown>; relation: string };
+          candidates.push({ kind: kind.name, key: sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator }, assertion: assertions.find(assertion => assertion.id === link.assertion)!, target: link.target, targetKind: link.target_kind, targetKey: link.target_key, ...attachment, cursor });
+        }
+      }
+    }
+    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
+    const page = candidates.slice(0, limit);
+    const states = await readEvidenceStates(tx, contract, page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    const rows: StaleEvidence[] = [];
+    for (const [index, candidate] of page.entries()) {
+      const state = states[index]!;
+      const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || state.currentApplicability === 'unknown' ? 'unavailable' : undefined;
+      if (applicability === undefined) continue;
+      rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
+        evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },
+        reason: applicability === 'stale' ? 'the immutable evidence no longer supports the current source' : state.issues.join('; ') || 'current evidence support is unavailable', applicability, state });
+    }
+    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.cursor } : {}) };
+  }));
 }

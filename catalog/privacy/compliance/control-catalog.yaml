@@ -24,3 +24,5 @@ labels:
 description:
   en: A control catalog groups controls under families and gives each its statements, parameters and assessment methods. It is the source from which a profile selects the controls that apply to a system.
   ru: Каталог контролей объединяет контроли по семействам и даёт каждому его утверждения, параметры и методы оценки. Из него профиль выбирает контроли, которые относятся к системе.
+derives-from:
+- product

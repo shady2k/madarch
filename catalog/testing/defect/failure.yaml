@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A failure is what happens when the product behaves differently from what was required or expected: a wrong answer, a stopped service, a lost payment. A failure is the visible effect of one or more defects.'
   ru: 'Сбой — событие, когда продукт ведёт себя не так, как требуется или ожидается: неверный ответ, остановленный сервис, потерянный платёж. Сбой — видимое следствие одного или нескольких дефектов.'
+derives-from:
+- test-result

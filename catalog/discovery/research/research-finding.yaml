@@ -24,3 +24,7 @@ labels:
 description:
   en: A research finding states something the research showed about users, their needs or their difficulties, and names the interviews, observations or answers it rests on. A finding is a claim a team can act on, not a summary of everything that was said.
   ru: Результат исследования утверждает то, что исследование показало о пользователях, их нуждах или трудностях, и называет интервью, наблюдения или ответы, на которых он держится. Это утверждение, на которое команда может опереться, а не пересказ всего сказанного.
+derives-from:
+- interview
+- observation
+- survey

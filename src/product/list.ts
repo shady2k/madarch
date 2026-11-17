@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * Listing the products a products home holds — `madarch list` (decision
  * 0019: madarch serves and lists any folder with a valid `workspace.yaml`,
@@ -73,7 +74,7 @@ export function listProducts(options: ListOptions = {}): ProductList {
   // absent home is a person who never created a product, and reads as an
   // empty list — the difference is the error's own cause, never its text.
   try {
-    const stats = statSync(home);
+    const stats = withSpanSync('fs.stat', { 'file.path': home }, () => statSync(home));
     if (!stats.isDirectory()) {
       return { outcome: 'refused', message: `the products home ${home} cannot be listed: a file of that name is in the way — point the command at another home` };
     }
@@ -86,7 +87,7 @@ export function listProducts(options: ListOptions = {}): ProductList {
 
   let entries: import('node:fs').Dirent[];
   try {
-    entries = readdirSync(home, { withFileTypes: true });
+    entries = withSpanSync('fs.readdir', { 'file.path': home }, (span) => { const result = readdirSync(home, { withFileTypes: true }); span.setAttribute('file.entries', result.length); return result; });
   } catch (error) {
     return { outcome: 'refused', message: `the products home ${home} could not be listed: ${(error as Error).message}` };
   }
@@ -94,19 +95,21 @@ export function listProducts(options: ListOptions = {}): ProductList {
   const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(folderCodePoints);
   const products: ProductIdentity[] = [];
   const unreadable: UnreadableProduct[] = [];
-  for (const name of folders) {
-    const folder = join(home, name);
-    // A folder with no manifest at all is nothing this home holds as a
-    // product; a folder whose manifest cannot even be reached is the
-    // reader's refusal, never a quiet skip.
-    try {
-      statSync(join(folder, MANIFEST_FILE));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+  withSpanSync('products.read', { 'file.path': home, 'file.entries': folders.length }, () => {
+    for (const name of folders) {
+      const folder = join(home, name);
+      // A folder with no manifest at all is nothing this home holds as a
+      // product; a folder whose manifest cannot even be reached is the
+      // reader's refusal, never a quiet skip.
+      try {
+        statSync(join(folder, MANIFEST_FILE));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      }
+      const read = readProduct(folder);
+      if (read.ok) products.push(read.product);
+      else unreadable.push({ folder, file: read.file, line: read.line, message: read.message });
     }
-    const read = readProduct(folder);
-    if (read.ok) products.push(read.product);
-    else unreadable.push({ folder, file: read.file, line: read.line, message: read.message });
-  }
+  });
   return { outcome: 'listed', products, unreadable };
 }

@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An external interface is one point where the product and an outside system exchange something: a called API, a received webhook, a shared file, a message queue. The context view names each interface and what crosses it.'
   ru: 'Внешний интерфейс — точка, где продукт и внешняя система обмениваются чем-то: вызываемый API, полученный вебхук, общий файл или очередь сообщений. Контекстное представление называет каждый интерфейс и то, что через него проходит.'
+derives-from:
+- external-system

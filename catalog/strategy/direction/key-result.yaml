@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A key result puts a number and a time on an objective: a share, a count, a time or a rate that should change. When the period ends, the key result says plainly whether the objective was reached.'
   ru: 'Ключевой результат привязывает к задаче число и срок: долю, количество, время или темп, которые должны измениться. Когда период кончается, по ключевому результату прямо видно, достигнута ли задача.'
+derives-from:
+- objective

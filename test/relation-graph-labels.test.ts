@@ -10,7 +10,7 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { executeGraphql } from '../src/graph/graphql-execute.js';
 import { ReadContext } from '../src/graph/graphql-read.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
-import { readProductTemplates } from '../src/graph/product-templates.js';
+import { readPublishedTemplates } from '../src/graph/product-templates.js';
 import { diagramGraphOf } from '../src/render/diagram.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -48,7 +48,8 @@ test('published custom relation labels answer both languages without a catalogue
       await owner.transaction('snapshot', async tx => {
         const manifest = await readPublishedManifest(tx);
         if (manifest === undefined) throw new Error('missing published product');
-        const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, lang, 'fixture', readProductTemplates(folder));
+        const held = await readPublishedTemplates(tx, manifest);
+        const context = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, lang, 'fixture', held.templates, held.files, new Map(held.templates.templates.map((one) => [one.name, one.body])), held.findings);
         const rows = await tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'manifest.kind' AND n.key->>'name' = 'demo.repository'");
         const hood = await context.diagramNeighbourhood(rows.rows[0]!.uid, 1, lang);
         expect(hood).toBeDefined();

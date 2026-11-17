@@ -1,0 +1,143 @@
+id: practice.product-profile
+purpose: understand
+audience:
+- product
+- architect
+- developer
+definition: A product profile states the technical areas that apply to a product.
+sources:
+- https://backstage.io/docs/features/software-catalog/system-model/
+- https://github.com/github-linguist/linguist
+acquisition:
+- conversation
+- document
+- agent-from-graph
+relation-constraints:
+  out: []
+  in: []
+template-policy: none
+source: graph
+fields:
+- name: deployment
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: data_stores
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: web_ui
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: mobile
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: ml
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: messaging
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: languages
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+- name: frameworks
+  type: json
+  nullable: true
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  producers:
+  - profile-markers
+key: []
+derives-from:
+- product
+labels:
+  en:
+    one: Product profile
+    many: Product profiles
+  ru:
+    one: Профиль продукта
+    many: Профили продукта
+description:
+  en: A product profile records whether deployment platforms, data stores, web interfaces,
+    mobile clients, machine learning and messaging apply, and the languages and frameworks
+    in use. Unknown is distinct from absent.
+  ru: Профиль продукта указывает применимость платформ развёртывания, хранилищ данных,
+    веб-интерфейсов, мобильных клиентов, машинного обучения и обмена сообщениями,
+    а также используемые языки и каркасы. Неизвестность отличается от отсутствия.
+key-edges:
+- role: product
+  edge: profile-product
+  side: from
+profile-markers:
+  mobile:
+  - '**/AndroidManifest.xml'
+  - '**/Info.plist'
+  - '**/pubspec.yaml'
+profile-technologies:
+  languages:
+    extensions:
+      .ts: TypeScript
+      .tsx: TypeScript
+      .mts: TypeScript
+      .cts: TypeScript
+      .js: JavaScript
+      .jsx: JavaScript
+      .mjs: JavaScript
+      .cjs: JavaScript
+      .py: Python
+      .go: Go
+      .rs: Rust
+      .java: Java
+      .rb: Ruby
+      .kt: Kotlin
+      .swift: Swift
+      .dart: Dart
+    filenames: {}
+  frameworks:
+    extensions:
+      .vue: Vue
+      .svelte: Svelte
+    filenames:
+      next.config.js: Next.js
+      next.config.mjs: Next.js
+      next.config.ts: Next.js
+      angular.json: Angular
+      svelte.config.js: Svelte
+      svelte.config.ts: Svelte
+      astro.config.mjs: Astro
+      astro.config.ts: Astro

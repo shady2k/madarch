@@ -16,8 +16,11 @@ relation-constraints:
   - subscribes
   - dependsOn
   - ownedBy
+  - code.service.contains
+  - container.contains-component
   in:
   - partOf
+  - code.service.contains
 template-policy: page
 source: graph
 details:
@@ -67,9 +70,8 @@ fields:
 key:
 - name
 derives-from:
-- code.directory
-- code.file
-- code.module
+- product-profile
+- software-system
 card: true
 views: [c4-component]
 system: container

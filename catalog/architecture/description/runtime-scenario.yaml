@@ -39,8 +39,8 @@ fields:
 key:
 - name
 derives-from:
-- code.route
-- code.symbol
+- code.service
+- doc.use-case
 labels:
   en:
     one: Runtime scenario

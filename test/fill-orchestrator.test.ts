@@ -22,7 +22,7 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitReads, type RunSnapshot } from '../src/graph/fill-orchestration.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
@@ -31,7 +31,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, readChain, readRun, readRunUnits, readUnit } from '../src/graph/fill-state.js';
+import { advanceRun, advanceUnit, readChain, readRun, readRunUnits, readUnit, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
@@ -1615,4 +1615,118 @@ test('declaration scheduling admits unrelated producers but waits for publicatio
   await workOnce(opened.orchestrator, { worker: 'scripted' });
   const third = await admitUnits(opened.orchestrator, { runId: started.run.runId });
   expect(third.admitted.map((unit) => unit.unitId)).toEqual(['declared/reader:c']);
+});
+
+
+describe('immediate operation transactions (decision 0039)', () => {
+  test('a serialization failure rolls back the operation and a later attempt commits it', async () => {
+    const owner = await createTestDatabaseOwner();
+    let inject = false;
+    const lending = Object.create(owner) as TestDatabaseOwner;
+    lending.transaction = async (kind, work) => await owner.transaction(kind, async tx => {
+      const value = await work(tx);
+      if (kind === 'write' && inject) {
+        inject = false;
+        throw Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' });
+      }
+      return value;
+    });
+    let unitUid: string | undefined;
+    const stage = fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context) => {
+        unitUid = context.operationUnitUid;
+        inject = true;
+        await writeFixtureFact(context, 'src:1', { kind: 'file-facts' });
+        return { outcome: 'draft' };
+      },
+    });
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), owner: lending, limits: { retryDelayMs: 0 } });
+      await admitUnits(opened.orchestrator, { runId });
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
+      expect(unitUid).toBeDefined();
+      expect(await owner.transaction('snapshot', async tx => await operationReceipt(tx, EMPTY_CONTRACT, unitUid!, 'fixture-fact'))).toBeUndefined();
+      stage.execute = async (_unit, context) => {
+        await writeFixtureFact(context, 'src:1', { kind: 'file-facts' });
+        return { outcome: 'draft' };
+      };
+      opened.clock.advance(1_000);
+      expect((await driveRun(opened.orchestrator, { runId, workers: 1 })).settled).toBe(true);
+      expect((await readUnit(owner, 'snapshot/src'))?.state).toBe('published');
+      expect(await owner.transaction('snapshot', async tx => await operationReceipt(tx, EMPTY_CONTRACT, unitUid!, 'fixture-fact'))).toBeDefined();
+    } finally {
+      const opened = worlds.pop();
+      if (opened !== undefined) await opened.close();
+      await owner.close();
+    }
+  }, 60_000);
+
+  test('a cached success cannot authorize a different current generation', async () => {
+    const stage = writingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 2 });
+    stage.unitScheduling = id => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(1);
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+    await advanceUnit(opened.owner, { unitId: 'plugin-turns/producer', event: { type: 'invalidate', at: NOW + 1, replacement: 2, cause: 'producer now abstains' } });
+    expect((await replaceStaleGeneration(opened.owner, { unitId: 'plugin-turns/producer', runId, inputsDigest: 'abstained', retries: 0, at: NOW + 2 })).ok).toBe(true);
+    await opened.owner.transaction('write', async tx => {
+      const uid = await readUnitGraphUidIn(tx, 'plugin-turns/producer', 2);
+      if (uid === undefined) throw new Error('replacement fixture unit is absent');
+      await putFillVertexIn(tx, 'system.unit', uid, { state: 'published', producer: 'fixture', produced_kind: 'Document', outcome: 'abstained', produced: 0 });
+    });
+    expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(0);
+    expect((await readUnit(opened.owner, 'plugin-turns/consumer'))?.state).toBe('blocked');
+  }, 60_000);
+
+  test('a stop written through the run state machine cancels its units', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(writingStage('snapshot', { units: ['src'] })) });
+    expect((await cancelRun(opened.orchestrator, { runId, cause: 'the person stopped the run' })).run.state).toBe('cancelled');
+    expect((await readRunUnits(opened.owner, runId)).every(unit => isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('the same live run may be started again without ending its units', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(writingStage('snapshot', { units: ['src'] })) });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await startRun(opened.orchestrator, { runId })).ok).toBe(true);
+    expect((await readRun(opened.owner, runId))?.state).toBe('running');
+    expect((await readRunUnits(opened.owner, runId)).some(unit => !isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('a worker killed inside its attempt is retried after the queue expires its claim', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(writingStage('snapshot', { units: ['src'] })), limits: { retries: 1, retryDelayMs: 0 } });
+    await admitUnits(opened.orchestrator, { runId });
+    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
+    expect(claimed.data.unitId).toBe('snapshot/src');
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: claimed.attempt, attempt: claimed.attempt } })).ok).toBe(true);
+    await opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = now() - interval '1 hour', expire_seconds = 1 WHERE id = $1`, [claimed.id]));
+    await opened.queue.recover(QUEUE);
+    await sweepUnits(opened.orchestrator, { runId });
+    opened.clock.advance(1_000);
+    await sweepUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-2' })).result).toBe('published');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+  }, 60_000);
+
+  test('a block refused after cancellation settles the attempt claim', async () => {
+    let cancel: (() => Promise<void>) | undefined;
+    const stage = fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async () => {
+        await cancel!();
+        return { outcome: 'blocked', reason: 'the stage cannot continue' };
+      },
+    });
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    await admitUnits(opened.orchestrator, { runId });
+    cancel = async () => {
+      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'cancel', at: NOW + 1, cause: 'the run is stopping' } })).ok).toBe(true);
+    };
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('refused');
+    const rows = await opened.owner.run(async tx => (await tx.query<{ state: string }>(`SELECT state FROM ${QUEUE_SCHEMA}.job WHERE name = $1 AND state IN ('created', 'retry', 'active')`, [QUEUE])).rows);
+    expect(rows).toEqual([]);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('cancelled');
+  }, 30_000);
 });

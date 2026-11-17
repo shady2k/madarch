@@ -8,13 +8,14 @@
  * registry, the event trigger on ddl_command_end — are not rules here: they change the engine's types and its schema, and
  * the owner filed them with the core redesign.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { parseSync as parseTypeScript } from '@swc/core';
 import { loadModule, parseSync as parseSql } from 'libpg-query';
 import { parseDocument } from 'yaml';
 import likec4Keywords from './external-likec4-keywords.json';
-import { validateDeclaredJsonSchema } from '../../../src/graph/value-validation.js';
+import { closedSchema, validateDeclaredJsonSchema } from '../../../src/graph/value-validation.js';
+import { checkValueTypes, type ValueTypes } from '../../../src/graph/value-types.js';
 import { byCodePoint } from '../../../src/model/order.js';
 import { orderedViolations, type ArchitectureViolation } from './violation.js';
 import { declarationProtocolLiteral } from './protocol-literals.js';
@@ -40,18 +41,24 @@ function parseModule(file: string, text: string, tsx: boolean): GateModule {
   const bytes = new TextEncoder().encode(text);
   // The gates walk a node's enclosing functions: every child names its parent once, here, so the walk is cheap.
   const root = tree as Record<string, unknown>;
-  const link = (node: Record<string, unknown>): void => {
-    for (const [key, entry] of Object.entries(node)) {
-      if (key === 'span' || key === 'ctxt' || key === 'parent') continue;
-      for (const child of Array.isArray(entry) ? entry : [entry]) {
-        if (child === null || typeof child !== 'object') continue;
-        const held = child as Record<string, unknown>;
-        held['parent'] = node;
-        link(held);
-      }
+  const link = (value: unknown, parent: Record<string, unknown> | undefined): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) link(item, parent);
+      return;
     }
+    if (value === null || typeof value !== 'object') return;
+    const node = value as Record<string, unknown>;
+    if (typeof node['type'] === 'string') {
+      // A syntax node knows the node that stands above it. A slot that holds nodes without being one
+      // (`{ spread, expression }`, the shape SWC wraps an argument in) hands the parent it was given
+      // on, so a node inside a call's arguments still names the function that encloses it.
+      if (parent !== undefined) node['parent'] = parent;
+      for (const [key, entry] of Object.entries(node)) if (key !== 'span' && key !== 'ctxt' && key !== 'parent') link(entry, node);
+      return;
+    }
+    for (const [key, entry] of Object.entries(node)) if (key !== 'span' && key !== 'ctxt' && key !== 'parent') link(entry, parent);
   };
-  link(root);
+  link(root, undefined);
   return {
     file,
     text,
@@ -221,7 +228,7 @@ export function manifestFormatWords(root: string): Set<string> {
     for (const entry of entries.sort((left, right) => byCodePoint(left.name, right.name))) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
-      if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+      if (!entry.isFile() || !entry.name.endsWith('.ts') || entry.name === 'system-catalogue.ts') continue;
       const file = relative(root, path).split('\\').join('/');
       const module = parseModule(file, readFileSync(path, 'utf8'), false);
       for (const node of nodesOf(module.tree)) {
@@ -622,10 +629,33 @@ function stateSelectorListLiteral(module: GateModule, node: Node, modules: Map<s
 }
 
 /** A transaction mode is admitted only where an owner-backed helper forwards that parameter. */
+/** Transaction vocabulary is the exported const registry indexed by its exported type alias. */
+function transactionKindLiterals(modules: Map<string, GateModule>): readonly Node[] {
+  const authority = modules.get('src/sql-driver.ts');
+  if (authority === undefined) return [];
+  const type = nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], 'SqlTransactionKind')
+    && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+  if (type === undefined) return [];
+  const direct = nodesOf(type).filter(entry => entry['type'] === 'StringLiteral');
+  if (direct.length > 0) return direct;
+  const indexed = nodesOf(type).find(entry => entry['type'] === 'TsIndexedAccessType');
+  if (indexed === undefined || !nodesOf(indexed['objectType'] as Node).some(entry => entry['type'] === 'TsTypeQuery'
+    && named(entry['exprName'], 'SQL_TRANSACTION_KINDS'))
+    || !nodesOf(indexed['indexType'] as Node).some(entry => entry['type'] === 'TsTypeOperator' && entry['op'] === 'keyof')
+    || !nodesOf(indexed['indexType'] as Node).some(entry => entry['type'] === 'TsTypeQuery' && named(entry['exprName'], 'SQL_TRANSACTION_KINDS'))) return [];
+  const registry = nodesOf(authority.tree).find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SQL_TRANSACTION_KINDS')
+    && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+  const init = registry?.['init'] as Node | undefined;
+  const object = init?.['type'] === 'TsConstAssertion' ? init['expression'] as Node : undefined;
+  if (object?.['type'] !== 'ObjectExpression') return [];
+  return (object['properties'] as Node[]).flatMap(property => property['type'] === 'KeyValueProperty'
+    && (property['value'] as Node)?.['type'] === 'StringLiteral' ? [property['value'] as Node] : []);
+}
+
 function transactionModeLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const authority = modules.get('src/sql-driver.ts');
   const type = authority === undefined ? undefined : nodesOf(authority.tree).find(entry=>entry['type']==='TsTypeAliasDeclaration' && named(entry['id'],'SqlTransactionKind'));
-  if (type === undefined || !nodesOf(type).some(entry=>entry['type']==='StringLiteral' && stringValue(entry)===stringValue(node))) return false;
+  if (type === undefined || !transactionKindLiterals(modules).some(entry => stringValue(entry) === stringValue(node))) return false;
   const ownerImport = nodesOf(module.tree).some(entry=>entry['type']==='ImportDeclaration'
     && resolve('/',module.file,'..',stringValue(entry['source'] as Node)??'')==='/src/adapters/database-owner.js'
     && nodesOf(entry).some(specifier=>specifier['type']==='ImportSpecifier' && named(specifier['local'],'DatabaseOwner')));
@@ -962,7 +992,13 @@ function semanticProjectionLiteral(module: GateModule, node: Node, modules: Map<
     const declaration = parents.find((entry) => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'ROLE_BINDING_SCHEMA'));
     if (declaration !== undefined) {
       const literalCall = parents[0];
-      return literalCall?.['type'] === 'CallExpression' && nodesOf(literalCall['callee'] as Node).some((entry) => named(entry, 'Literal'));
+      if (literalCall?.['type'] === 'CallExpression' && nodesOf(literalCall['callee'] as Node).some((entry) => named(entry, 'Literal'))) return true;
+      if (parents[0]?.['type'] === 'ArrayExpression' && parents[1]?.['type'] === 'KeyValueProperty' && named(parents[1]['key'], 'required')) {
+        const object = parents.find((entry) => typeCall(entry, 'Object'));
+        const fields = (object?.['arguments'] as { expression: Node }[] | undefined)?.[0]?.expression;
+        return fields?.['type'] === 'ObjectExpression' && (fields['properties'] as Node[]).some((entry) => named(entry['key'], stringValue(node) ?? ''));
+      }
+      return false;
     }
   }
   const member = parents[0]?.['type'] === 'Computed' ? parents[1] : undefined;
@@ -971,6 +1007,26 @@ function semanticProjectionLiteral(module: GateModule, node: Node, modules: Map<
   if (properties?.['type'] !== 'MemberExpression' || !named(properties['property'], 'properties')) return false;
   const receiver = properties['object'] as Node;
   if (receiver['type'] !== 'Identifier') return false;
+  for (const loop of parents.filter((entry) => entry['type'] === 'ForOfStatement')) {
+    const binding = nodesOf(loop['left'] as Node).find((entry) => entry['type'] === 'VariableDeclarator'
+      && named(entry['id'], String(receiver['value'])) && (entry['id'] as Node)['ctxt'] === receiver['ctxt']);
+    if (binding === undefined) continue;
+    const collection = loop['right'] as Node;
+    let role = semanticCollectionRole(module, collection);
+    // documentOpinions accepts the two declared source/document roles through its role parameter.
+    if (role === undefined && module.file === 'src/knowledge/anchors.ts') {
+      const declaration = nodesOf(module.tree).find((entry) => entry['type'] === 'VariableDeclarator'
+        && named(entry['id'], String(collection['value'])) && (entry['id'] as Node)['ctxt'] === collection['ctxt']);
+      const init = declaration?.['init'] as Node | undefined;
+      const call = init?.['type'] === 'AwaitExpression' ? init['argument'] as Node : undefined;
+      const args = call?.['arguments'] as { expression: Node }[] | undefined;
+      const fn = parents.find((entry) => entry['type'] === 'FunctionDeclaration' && named(entry['identifier'], 'documentOpinions'));
+      if (call?.['type'] === 'CallExpression' && named(call['callee'], 'semanticEntities') && named(args?.[2]?.expression, 'role')
+        && fn !== undefined && (fn['params'] as Node[]).some((entry) => nodesOf(entry).some((part) => named(part, 'role')))
+        && roles.get('source')?.has(stringValue(node) ?? '') && roles.get('document')?.has(stringValue(node) ?? '')) return true;
+    }
+    if (role !== undefined && roles.get(role)?.has(stringValue(node) ?? '')) return true;
+  }
   for (const callback of parents.filter((entry) => entry['type'] === 'ArrowFunctionExpression')) {
     if (!(callback['params'] as Node[]).some((entry) => named(entry, String(receiver['value'])))) continue;
     const call = enclosing(module, callback).find((entry) => entry['type'] === 'CallExpression');
@@ -1209,7 +1265,7 @@ function typedEngineComparisonLiteral(module: GateModule, node: Node, modules: M
     const authority = modules.get(expected.file);
     const declaration = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => ['TsTypeAliasDeclaration', 'TsInterfaceDeclaration'].includes(String(entry['type'])) && named(entry['id'], expected.type));
     if (declaration === undefined) continue;
-    if (nodesOf(declaration).some(entry => stringValue(entry) === stringValue(node))) return true;
+    if ((expected.type === 'SqlTransactionKind' ? transactionKindLiterals(modules) : nodesOf(declaration)).some(entry => stringValue(entry) === stringValue(node))) return true;
     // FieldContract's storage type is itself an authoritative alias.
     if (expected.type === 'FieldContract' && authority !== undefined && nodesOf(authority.tree).some(entry => entry['type'] === 'TsTypeAliasDeclaration'
       && named(entry['id'], 'FieldType') && nodesOf(entry).some(literal => stringValue(literal) === stringValue(node)))) return true;
@@ -1219,6 +1275,14 @@ function typedEngineComparisonLiteral(module: GateModule, node: Node, modules: M
 
 /** Exact type declarations are vocabulary only at their authoritative engine boundary. */
 function engineTypeLiteral(module: GateModule, node: Node): boolean {
+  if(module.file==='src/graph/producer-binding.ts') {
+    const declaration=enclosing(module,node).find(entry=>entry['type']==='VariableDeclarator'&&named(entry['id'],'MERGE_ACTION'));
+    const id=declaration?.['id'] as Node|undefined;
+    if(declaration?.['init']===node&&id?.['typeAnnotation']!==undefined&&nodesOf(id['typeAnnotation'] as Node).some(entry=>entry['type']==='TsTypeReference'&&named(entry['typeName'],'ProducerAction'))) {
+      const union=nodesOf(module.tree).find(entry=>entry['type']==='TsTypeAliasDeclaration'&&named(entry['id'],'ProducerAction'));
+      return union!==undefined&&nodesOf(union).some(entry=>stringValue(entry)===stringValue(node));
+    }
+  }
   const declarations: Readonly<Record<string, readonly string[]>> = {
     'src/graph/producer-binding.ts': ['ProducerAction'],
     'src/graph/evidence-targets.ts': ['EvidenceLocatorDraft', 'EvidenceTarget'],
@@ -1253,24 +1317,51 @@ function engineTypeLiteral(module: GateModule, node: Node): boolean {
 }
 
 /** Database transaction modes are checked against their imported owner and exact argument slot. */
+function databaseOwnerType(module: GateModule, annotation: Node, modules: Map<string, GateModule>, seen = new Set<Node>()): boolean {
+  if (seen.has(annotation)) return false;
+  seen.add(annotation);
+  return nodesOf(annotation).some(reference => {
+    if (reference['type'] !== 'TsTypeReference') return false;
+    const name = reference['typeName'] as Node;
+    if (name?.['type'] !== 'Identifier') return false;
+    const imported = nodesOf(module.tree).find(entry => entry['type'] === 'ImportDeclaration'
+      && nodesOf(entry).some(binding => binding['type'] === 'ImportSpecifier' && named(binding['local'], String(name['value']))));
+    if (imported !== undefined) {
+      const path = resolve('/', module.file, '..', stringValue(imported['source'] as Node) ?? '').slice(1);
+      if (path === 'src/adapters/database-owner.js' && named(name, 'DatabaseOwner')) return true;
+      const authority = modules.get(path.endsWith('.js') ? `${path.slice(0, -3)}.ts` : path);
+      const binding = nodesOf(imported).find(entry => entry['type'] === 'ImportSpecifier' && named(entry['local'], String(name['value'])));
+      const importedName = (binding?.['imported'] ?? binding?.['local']) as Node | undefined;
+      const alias = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration'
+        && named(entry['id'], String(importedName?.['value'])) && enclosing(authority, entry).some(parent => parent['type'] === 'ExportDeclaration'));
+      if (authority !== undefined && alias !== undefined) return databaseOwnerType(authority, alias['typeAnnotation'] as Node, modules, seen);
+    }
+    const alias = nodesOf(module.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], String(name['value'])));
+    if (alias !== undefined) return databaseOwnerType(module, alias['typeAnnotation'] as Node, modules, seen);
+    return false;
+  });
+}
+
 function ownerTransactionLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const authority = modules.get('src/sql-driver.ts');
   const modes = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], 'SqlTransactionKind'));
-  if (modes === undefined || !nodesOf(modes).some(entry => stringValue(entry) === stringValue(node))) return false;
+  if (modes === undefined || !transactionKindLiterals(modules).some(entry => stringValue(entry) === stringValue(node))) return false;
   const parents = enclosing(module, node);
   const call = parents[0];
   const callee = call?.['callee'] as Node | undefined;
   if (call?.['type'] !== 'CallExpression' || callee?.['type'] !== 'MemberExpression'
     || !named(callee['property'], 'transaction') || (call['arguments'] as { expression: Node }[])[0]?.expression !== node) return false;
   const receiver = callee['object'] as Node;
-  const isOwner = (annotation: Node): boolean => nodesOf(annotation).some(entry => entry['type'] === 'TsTypeReference'
-    && named(entry['typeName'], 'DatabaseOwner'));
-  const imported = nodesOf(module.tree).some(entry => entry['type'] === 'ImportDeclaration'
-    && resolve('/', module.file, '..', stringValue(entry['source'] as Node) ?? '') === '/src/adapters/database-owner.js'
-    && nodesOf(entry).some(specifier => specifier['type'] === 'ImportSpecifier' && named(specifier['local'], 'DatabaseOwner')));
+  const isOwner = (annotation: Node): boolean => databaseOwnerType(module, annotation, modules);
   if (receiver['type'] === 'ThisExpression') return module.file === 'src/adapters/database-owner.ts'
     && parents.some(entry => entry['type'] === 'ClassDeclaration' && named(entry['identifier'], 'DatabaseOwner'));
-  if (!imported || receiver['type'] !== 'Identifier') return false;
+  if (receiver['type'] === 'MemberExpression' && (receiver['object'] as Node)?.['type'] === 'ThisExpression') {
+    const owner = parents.find(entry => entry['type'] === 'ClassDeclaration');
+    return owner !== undefined && nodesOf(owner).some(entry => entry['type'] === 'TsParameterProperty'
+      && nodesOf(entry).some(parameter => parameter['type'] === 'Identifier' && named(parameter, String((receiver['property'] as Node)?.['value']))
+        && parameter['typeAnnotation'] !== undefined && isOwner(parameter['typeAnnotation'] as Node)));
+  }
+  if (receiver['type'] !== 'Identifier') return false;
   return parents.some(scope => nodesOf(scope).some(entry => entry['type'] === 'Identifier'
     && named(entry, String(receiver['value'])) && entry['ctxt'] === receiver['ctxt']
     && entry['typeAnnotation'] !== undefined && isOwner(entry['typeAnnotation'] as Node)));
@@ -1358,7 +1449,7 @@ function interfaceMemberTypeLiteral(module: GateModule, node: Node, modules: Map
   if (object?.['type'] !== 'TsTypeReference' || (object['typeName'] as Node)['type'] !== 'Identifier') return false;
   if (indexed === undefined && (argumentsOfPick?.[1] === undefined || !nodesOf(argumentsOfPick[1]).includes(node))) return false;
   const name = String((object['typeName'] as Node)['value']);
-  const allowed = new Map([['OperationRequest', 'src/graph/operation-host.ts'], ['ProblemInput', 'src/loop/views.ts'], ['ReplyMaker', 'src/server/http.ts'], ['Problem', 'src/loop/views.ts'], ['SourceOpinion', 'src/knowledge/anchors.ts'], ['DocumentSection', 'src/knowledge/anchors.ts']]);
+  const allowed = new Map([['OperationRequest', 'src/graph/operation-host.ts'], ['ProblemInput', 'src/loop/views.ts'], ['ReplyMaker', 'src/server/http.ts'], ['Problem', 'src/loop/views.ts'], ['SourceOpinion', 'src/knowledge/anchors.ts'], ['DocumentSection', 'src/knowledge/anchors.ts'], ['LogViewerEntry', 'wiki/app/src/components/ui/log-viewer.tsx']]);
   const target = allowed.get(name);
   if (target === undefined) return false;
   const authority = modules.get(target);
@@ -1699,10 +1790,141 @@ function operationReceiptKeyLiteral(module: GateModule, node: Node, modules: Map
 }
 
 /** Protocol literals are exempt only in the declaration or validator that proves their wire role. */
+/** Engine presentation and log protocol slots, confined to their declaration or exact consumer position. */
+function presentationProtocolLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
+  const word = stringValue(node);
+  if (word === undefined) return false;
+  const parents = enclosing(module, node), parent = parents[0];
+  const fn = parents.find(entry => entry['type'] === 'FunctionDeclaration');
+  const variable = parents.find(entry => entry['type'] === 'VariableDeclarator');
+  const call = parents.find(entry => entry['type'] === 'CallExpression');
+  const declarationMember = (file: string, type: string, field: string): boolean => {
+    const authority = modules.get(file);
+    return authority !== undefined && nodesOf(authority.tree).some(entry => entry['type'] === 'TsInterfaceDeclaration'
+      && named(entry['id'], type) && nodesOf(entry).some(slot => slot['type'] === 'TsPropertySignature' && named(slot['key'], field)));
+  };
+  const logsMember = declarationMember('src/knowledge/logs.ts', 'LogQuery', word);
+  // HTTP URL and GraphQL argument spellings are the exact members of the log-read request.
+  if (logsMember) {
+    const callee = call?.['callee'] as Node | undefined;
+    if (['src/server/knowledge.ts', 'wiki/app/src/address.ts', 'wiki/app/src/components/logs.tsx'].includes(module.file)
+      && parent === call && callee?.['type'] === 'MemberExpression' && ['get', 'set'].some(name => named(callee['property'], name))
+      && (call!['arguments'] as { expression: Node }[])[0]?.expression === node
+      && parents.some(entry => named(entry['identifier'], 'logsAddress') || named(entry['identifier'], 'askedOf')
+        || (entry['type'] === 'KeyValueProperty' && named(entry['key'], 'logs')))) return true;
+    if (module.file === 'src/server/knowledge.ts' && parent?.['type'] === 'KeyValueProperty' && named(parent['key'], 'field')
+      && parents.some(entry => entry['type'] === 'KeyValueProperty' && named(entry['key'], 'logs'))) {
+      const refused = parents.find(entry => entry['type'] === 'CallExpression' && named(entry['callee'], 'refused'));
+      const branch = parents.find(entry => entry['type'] === 'IfStatement');
+      const test = branch?.['test'] as Node | undefined;
+      const handler = parents.find(entry => entry['type'] === 'KeyValueProperty' && named(entry['key'], 'logs'));
+      const binding = handler === undefined ? undefined : nodesOf(handler).find(entry => entry['type'] === 'VariableDeclarator'
+        && named(entry['id'], word));
+      const read = binding?.['init'] as Node | undefined;
+      const method = read?.['callee'] as Node | undefined;
+      if (refused !== undefined && test !== undefined && binding !== undefined && read?.['type'] === 'CallExpression'
+        && method?.['type'] === 'MemberExpression' && named(method['object'], 'query') && named(method['property'], 'get')
+        && stringValue((read['arguments'] as { expression: Node }[])[0]?.expression ?? {}) === word
+        && nodesOf(test).some(entry => named(entry, word))) return true;
+    }
+    if (module.file === 'src/graphql/schema.ts' && parent?.['type'] === 'KeyValueProperty' && named(parent['key'], 'name')
+      && parents.some(entry => entry['type'] === 'ObjectExpression' && (entry['properties'] as Node[]).some(property => property['type'] === 'KeyValueProperty'
+        && named(property['key'], 'name') && stringValue(property['value'] as Node) === 'logs'))) return true;
+  }
+  if (module.file === 'wiki/app/src/components/ui/log-viewer.tsx' && parent === call && named(call?.['callee'], 'change')
+    && (call!['arguments'] as { expression: Node }[])[0]?.expression === node
+    && declarationMember(module.file, 'LogViewerFilters', word)) return true;
+  if (module.file === 'src/fill/agent-exchange.ts' && named(fn?.['identifier'], 'agentExchangeFile') && parent === call
+    && named(call?.['callee'], 'recordFileName') && word === 'json' && (call!['arguments'] as { expression: Node }[])[1]?.expression === node
+    && nodesOf(fn!).some(entry => entry['type'] === 'ReturnStatement' && nodesOf(entry).includes(call!))
+    && nodesOf(module.tree).some(entry => entry['type'] === 'ImportDeclaration' && stringValue(entry['source'] as Node) === './run-records.js'
+      && nodesOf(entry).some(binding => binding['type'] === 'ImportSpecifier' && named(binding['local'], 'recordFileName')
+        && (binding['local'] as Node)['ctxt'] === (call!['callee'] as Node)['ctxt']))) return true;
+  if (module.file === 'src/knowledge/logs.ts' && named(fn?.['identifier'], 'entriesOfLogFile') && parent?.['type'] === 'ArrayExpression'
+    && named(variable?.['id'], 'skip') && declarationMember(module.file, 'LogEntry', word)
+    && (variable?.['init'] as Node | undefined)?.['type'] === 'NewExpression'
+    && named((variable!['init'] as Node)['callee'], 'Set')
+    && ((variable!['init'] as Node)['arguments'] as { expression: Node }[])[0]?.expression === parent
+    && nodesOf(fn!).some(entry => entry['type'] === 'CallExpression' && named(entry['callee'], 'contextOf')
+      && named((entry['arguments'] as { expression: Node }[])[1]?.expression, 'skip'))
+    && nodesOf(module.tree).some(entry => entry['type'] === 'FunctionDeclaration' && named(entry['identifier'], 'contextOf')
+      && nodesOf(entry).some(part => part['type'] === 'CallExpression' && (part['callee'] as Node)?.['type'] === 'MemberExpression'
+        && named((part['callee'] as Node)['object'], 'skip') && named((part['callee'] as Node)['property'], 'has')))) return true;
+  if (module.file === 'src/knowledge/logs.ts' && word === 'json' && parent?.['type'] === 'ArrayExpression'
+    && named(fn?.['identifier'], 'placeOf')) {
+    const includes = parents[1];
+    // Only the extension list tested against the source location's file suffix has a syntax role.
+    if (includes?.['type'] === 'MemberExpression') {
+      const call = parents[2];
+      const suffix = (call?.['arguments'] as { expression: Node }[] | undefined)?.[0]?.expression;
+      const method = suffix?.['callee'] as Node | undefined;
+      if (includes['object'] === parent && named(includes['property'], 'includes') && call?.['type'] === 'CallExpression'
+        && call['callee'] === includes && suffix?.['type'] === 'CallExpression' && method?.['type'] === 'MemberExpression'
+        && named(method['object'], 'file') && named(method['property'], 'slice')) return true;
+    }
+  }
+  if (module.file === 'wiki/app/src/components/file-highlight.ts' && parent?.['type'] === 'ArrayExpression' && named(variable?.['id'], 'WANTED_ALIASES')) {
+    return nodesOf(module.tree).some(entry => entry['type'] === 'ImportDeclaration' && stringValue(entry['source'] as Node)?.startsWith('shiki')
+      && nodesOf(entry).some(binding => named(binding['local'], 'bundledLanguagesInfo')))
+      && nodesOf(module.tree).some(entry => entry['type'] === 'CallExpression' && (entry['callee'] as Node)?.['type'] === 'MemberExpression'
+        && named((entry['callee'] as Node)['object'], 'bundledLanguagesInfo') && named((entry['callee'] as Node)['property'], 'find'));
+  }
+  if (module.file === 'wiki/app/src/components/details.tsx' && word === 'json' && named(fn?.['identifier'], 'valueText')
+    && parent?.['type'] === 'BinaryExpression' && parent['operator'] === '===' && named(parent['left'], 'type')) return true;
+  if (module.file === 'wiki/app/src/components/run.tsx') {
+    const type = nodesOf(module.tree).find(entry => entry['type'] === 'TsTypeAliasDeclaration' && named(entry['id'], 'RunCause'));
+    if (type !== undefined && parents.includes(type)) return true;
+    if (named(fn?.['identifier'], 'runCauseOf') && type !== undefined
+      && nodesOf(fn!['returnType'] as Node).some(entry => entry['type'] === 'TsTypeReference' && named(entry['typeName'], 'RunCause'))) {
+      // Returned tags must be declared causes. Diagnostic phrases qualify only in the classifier's folded-text test.
+      if (parent?.['type'] === 'ReturnStatement' && nodesOf(type).some(entry => stringValue(entry) === word)) return true;
+      const some = parents.find(entry => entry['type'] === 'CallExpression' && (entry['callee'] as Node)?.['type'] === 'MemberExpression'
+        && (entry['callee'] as Node)['object'] === parent && named((entry['callee'] as Node)['property'], 'some'));
+      const callback = (some?.['arguments'] as { expression: Node }[] | undefined)?.[0]?.expression;
+      const parameter = (callback?.['params'] as Node[] | undefined)?.[0];
+      if (parent?.['type'] === 'ArrayExpression' && callback?.['type'] === 'ArrowFunctionExpression' && parameter?.['type'] === 'Identifier'
+        && nodesOf(callback['body'] as Node).some(entry => entry['type'] === 'CallExpression' && (entry['callee'] as Node)?.['type'] === 'MemberExpression'
+          && named((entry['callee'] as Node)['object'], 'folded') && named((entry['callee'] as Node)['property'], 'includes')
+          && named((entry['arguments'] as { expression: Node }[])[0]?.expression, String(parameter['value'])))) return true;
+    }
+  }
+  if (module.file === 'wiki/app/src/kit-page.tsx' && parent === call && named(call?.['callee'], 'state')
+    && (call!['arguments'] as { expression: Node }[])[0]?.expression === node) {
+    // Locales are not engine modules; the state helper's own translation namespace is authoritative here.
+    return nodesOf(module.tree).some(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'state')
+      && nodesOf(entry).some(part => part['type'] === 'TemplateElement' && String(part['cooked']).startsWith('kit.')));
+  }
+  return false;
+}
+
+/** A refusal's own-property guard names a member of the server's exported response contract. */
+function graphRefusalGuardLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
+  if (module.file !== 'wiki/app/src/graph-refusal.ts') return false;
+  const parents = enclosing(module, node), call = parents[0];
+  const callee = call?.['callee'] as Node | undefined;
+  if (call?.['type'] !== 'CallExpression' || callee?.['type'] !== 'MemberExpression'
+    || !named(callee['object'], 'Object') || !named(callee['property'], 'hasOwn')) return false;
+  const args = call['arguments'] as { expression: Node }[];
+  if (args[1]?.expression !== node || !named(args[0]?.expression, 'body')) return false;
+  const fn = parents.find(entry => entry['type'] === 'FunctionDeclaration' && named(entry['identifier'], 'graphRefusalMessage'));
+  const branch = parents.find(entry => entry['type'] === 'IfStatement');
+  const authority = modules.get('src/graph/validation.ts');
+  const contract = authority === undefined ? undefined : nodesOf(authority.tree).find(entry => entry['type'] === 'TsInterfaceDeclaration'
+    && named(entry['id'], 'GraphRefusalBody') && enclosing(authority, entry).some(owner => owner['type'] === 'ExportDeclaration'));
+  if (fn === undefined || branch === undefined || contract === undefined
+    || !nodesOf(contract).some(entry => entry['type'] === 'TsPropertySignature' && named(entry['key'], stringValue(node) ?? ''))) return false;
+  const test = branch['test'] as Node;
+  return nodesOf(test).some(entry => entry['type'] === 'BinaryExpression' && entry['operator'] === '!=='
+    && stringValue(entry['right'] as Node) === 'SCHEMA_INVALID' && (entry['left'] as Node)?.['type'] === 'MemberExpression'
+    && named((entry['left'] as Node)['object'], 'body')
+    && ((entry['left'] as Node)['property'] as Node)?.['type'] === 'Computed'
+    && stringValue((((entry['left'] as Node)['property']) as Node)['expression'] as Node) === 'code');
+}
+
 function externalProtocolLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const value = stringValue(node);
   if (value === undefined) return false;
-  if (operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
+  if ((module.file === 'src/sql-driver.ts' && transactionKindLiterals(modules).includes(node)) || graphRefusalGuardLiteral(module, node, modules) || presentationProtocolLiteral(module, node, modules) || operationReceiptKeyLiteral(module, node, modules) || checkedBindingSlotLiteral(module, node, modules) || checkedMcpArgumentLiteral(module, node) || graphSelectorArgumentLiteral(module, node, modules) || tracePhaseLiteral(module, node) || graphSchemaTableLiteral(module, node, modules) || loopResultLiteral(module, node) || manifestContractLiteral(module, node) || checkedInterfaceKeyListLiteral(module, node, modules) || declarationProtocolLiteral(module, node, modules) || documentProjectionLiteral(module, node, modules) || semanticBindingLookupLiteral(module, node, modules) || interfaceMemberTypeLiteral(module, node, modules) || semanticRoleArgumentLiteral(module, node, modules) || conditionalSystemFieldsLiteral(module, node, modules) || protectedContractLiteral(module, node) || typedEngineComparisonLiteral(module, node, modules) || engineTypeLiteral(module, node) || ownerTransactionLiteral(module, node, modules) || checkedLocatorLiteral(module, node, modules) || protectedSelectionFieldLiteral(module, node, modules) || protectedRowFieldLiteral(module, node, modules) || machineStateSubsetLiteral(module, node, modules) || stateSelectorListLiteral(module, node, modules) || transactionModeLiteral(module, node, modules) || systemSelectorListLiteral(module, node, modules) || semanticRecordSlotsLiteral(module, node, modules) || semanticProjectionLiteral(module, node, modules) || systemRecordProjectionLiteral(module, node, modules) || systemEdgeRelationLiteral(module, node) || assertionSchemaLiteral(module, node) || systemFieldLiteral(module, node, modules) || likec4GrammarLiteral(module, node) || lifecycleOutcomeLiteral(module, node, modules) || closedCommandLiteral(module, node) || pluginCommandLiteral(module, node) || daemonMemberLiteral(module, node, modules) || indexedFileDiscriminant(module, node) || protocolSchemaLiteral(module, node) || pluginManifestDiagnostic(module, node)) return true;
   const ancestors = enclosing(module, node);
   // Only the response predicate's property test, not arbitrary strings inside the predicate, has a wire role.
   if (module.file === 'src/plugin/wire.ts') {
@@ -1750,9 +1972,57 @@ function externalProtocolLiteral(module: GateModule, node: Node, modules: Map<st
   return false;
 }
 
+/**
+ * SourceText exposes the file-read protocol, not a catalogue kind. Only its direct field-name declarations may use
+ * properties of FileTextResult; the same word in a resolver, another type or an arbitrary string remains checked.
+ */
+function fileTextProtocolFields(modules: Map<string, GateModule>): Set<Node> {
+  const permitted = new Set<Node>();
+  const protocol = modules.get('src/knowledge/file-text-shape.ts');
+  const schema = modules.get('src/graphql/schema.ts');
+  if (protocol === undefined || schema === undefined) return permitted;
+  const fields = new Set<string>();
+  for (const node of nodesOf(protocol.tree)) {
+    if (node['type'] !== 'TsInterfaceDeclaration' || (node['id'] as Node | undefined)?.['value'] !== 'FileTextResult') continue;
+    const body = (node['body'] as Node)['body'] as Node[];
+    for (const property of body) {
+      if (property['type'] !== 'TsPropertySignature') continue;
+      const key = property['key'] as Node;
+      if (key['type'] === 'Identifier') fields.add(String(key['value']));
+      else if (key['type'] === 'StringLiteral') fields.add(String(key['value']));
+    }
+  }
+  for (const node of nodesOf(schema.tree)) {
+    if (node['type'] !== 'CallExpression') continue;
+    const callee = node['callee'] as Node;
+    if (callee['type'] !== 'MemberExpression' || (callee['object'] as Node)['type'] !== 'ThisExpression'
+      || (callee['property'] as Node)['type'] !== 'Identifier' || (callee['property'] as Node)['value'] !== 'type') continue;
+    const args = node['arguments'] as { expression: Node }[];
+    if (args[0]?.expression['type'] !== 'StringLiteral' || stringValue(args[0].expression) !== 'SourceText') continue;
+    const declarations = args[1]?.expression;
+    if (declarations?.['type'] !== 'ArrayExpression') continue;
+    for (const entry of declarations['elements'] as ({ expression: Node } | null)[]) {
+      const field = entry?.expression;
+      if (field?.['type'] !== 'ObjectExpression') continue;
+      for (const property of field['properties'] as Node[]) {
+        if (property['type'] !== 'KeyValueProperty') continue;
+        const key = property['key'] as Node;
+        if ((key['type'] !== 'Identifier' && key['type'] !== 'StringLiteral') || key['value'] !== 'name') continue;
+        const value = property['value'] as Node;
+        if (value['type'] === 'StringLiteral' && fields.has(String(value['value']))) permitted.add(value);
+      }
+    }
+  }
+  return permitted;
+}
+
 /** Gate 1: no string literal of the engine names a kind or a field the starter catalogue alone declares. */
+/** The words the engine itself must spell, so a catalogue field that happens to share one is not read as product data. */
+export const ENGINE_WORDS: readonly string[] = ['secret'];
+
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
-  const format = manifestFormatWords(root);
+  const format = new Set([...manifestFormatWords(root), ...ENGINE_WORDS]);
+  const protocolFields = fileTextProtocolFields(modules);
   const names = new Set<string>();
   for (const kind of catalogueKinds(root)) {
     // A word the manifest format itself declares is the engine's vocabulary, not product data (`labels`, `definition`).
@@ -1764,7 +2034,10 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
   for (const module of modules.values()) {
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
-      if (value === undefined || !names.has(value) || externalProtocolLiteral(module, node, modules)) continue;
+      // The trusted system catalogue declares engine kinds, not product vocabulary.
+      // Its words must not exempt the same literals in any other engine module.
+      if (module.file === 'src/product/manifest/system-catalogue.ts') continue;
+      if (value === undefined || !names.has(value) || externalProtocolLiteral(module, node, modules) || protocolFields.has(node)) continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
     for (const node of nodesOf(module.tree)) {
@@ -1837,23 +2110,45 @@ export async function tableSourceViolations(root: string, modules: Map<string, G
 }
 
 /** An explicitly declared entity-reference shape is an edge, even inside typed JSON. */
-function embeddedIdentity(schema: unknown): boolean {
-  if (schema === null || typeof schema !== 'object') return false;
-  if (Array.isArray(schema)) return schema.some(embeddedIdentity);
+function embeddedIdentity(schema: unknown, registry: ReadonlyMap<string, unknown>, seen = new Set<unknown>()): boolean {
+  if (schema === null || typeof schema !== 'object' || seen.has(schema)) return false;
+  seen.add(schema);
+  if (Array.isArray(schema)) return schema.some((child) => embeddedIdentity(child, registry, seen));
   const node = schema as Record<string, unknown>;
   if (node['reference'] !== undefined) return true;
+  if (typeof node['$ref'] === 'string') {
+    const referenced = registry.get(node['$ref'].split('#')[0]!);
+    if (referenced !== undefined) {
+      closedSchema(referenced, node['$ref']);
+      if (embeddedIdentity(referenced, registry, seen)) return true;
+    }
+  }
   const properties = node['properties'];
   if (properties !== null && typeof properties === 'object' && !Array.isArray(properties)) {
     const fields = properties as Record<string, unknown>;
     const key = fields['key'];
     if (fields['kind'] !== undefined && key !== null && typeof key === 'object' && (key as Record<string, unknown>)['type'] === 'object') return true;
   }
-  return Object.values(node).some(embeddedIdentity);
+  // Only schema positions contain identities. A literal annotation or const object is data, not a schema.
+  for (const name of ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']) {
+    const map = node[name];
+    if (map !== null && typeof map === 'object' && !Array.isArray(map)
+      && Object.values(map).some((child) => embeddedIdentity(child, registry, seen))) return true;
+  }
+  for (const name of ['allOf', 'anyOf', 'oneOf', 'prefixItems']) {
+    const list = node[name];
+    if (Array.isArray(list) && list.some((child) => embeddedIdentity(child, registry, seen))) return true;
+  }
+  return ['items', 'contains', 'additionalProperties', 'unevaluatedProperties', 'unevaluatedItems', 'propertyNames', 'not', 'if', 'then', 'else', 'contentSchema']
+    .some((name) => embeddedIdentity(node[name], registry, seen));
 }
 
 /** Gate 2: references are edges; JSON metadata requires a valid bounded Draft 2020-12 schema (0039 item 4). */
 export function cataloguePointerViolations(root: string): ArchitectureViolation[] {
   const found: ArchitectureViolation[] = [];
+  const manifest = resolve(root, 'catalog/catalog.yaml');
+  const declaration = existsSync(manifest) ? parseDocument(readFileSync(manifest, 'utf8')).toJS() as Record<string, unknown> : {};
+  const valueTypes = (declaration['value-types'] ?? {}) as ValueTypes;
   for (const kind of catalogueKinds(root)) {
     for (const field of kind.fields) {
       let pointer = field.reference !== undefined;
@@ -1861,8 +2156,10 @@ export function cataloguePointerViolations(root: string): ArchitectureViolation[
         try {
           const schema = field.schema as Record<string, unknown> | undefined;
           if (schema?.['$schema'] !== 'https://json-schema.org/draft/2020-12/schema') throw new Error('JSON metadata requires Draft 2020-12');
-          validateDeclaredJsonSchema(schema);
-          pointer ||= embeddedIdentity(schema);
+          checkValueTypes(valueTypes);
+          const registry = new Map(Object.values(valueTypes).map((type) => [String(type.schema['$id']), type.schema]));
+          validateDeclaredJsonSchema(schema, valueTypes);
+          pointer ||= embeddedIdentity(schema, registry);
         } catch { pointer = true; }
       }
       if (pointer) found.push({ rule: 'catalogue-pointers', file: `catalog/${kind.path}`, line: field.line, symbol: field.name });
@@ -1916,6 +2213,9 @@ export const FILE_AND_PROCESS_ALLOWED: readonly { readonly file: string; readonl
   { file: 'src/identity/identity.ts', why: 'who the user is, asked of git' },
   { file: 'src/render/read-worker.ts', why: 'the renderer in a process of its own' },
   { file: 'src/obs/trace.ts', why: 'the trace writer' },
+  { file: 'src/knowledge/logs.ts', why: 'the log reader: it reads the logs madarch keeps in its own folders' },
+  { file: 'src/fill/agent-exchange.ts', why: "the agent exchange record: it writes and reads a run's own evidence beside its trace" },
+  { file: 'src/obs/retention.ts', why: 'the raw telemetry retention sweep' },
   { file: 'src/skills/install.ts', why: 'the skill set installed on disk' },
 ];
 
@@ -2054,7 +2354,7 @@ export const IO_CALLEES: readonly string[] = [
   'execFile', 'execFileSync', 'spawn', 'spawnSync', 'exec', 'connect', 'listen', 'query', 'request',
 ];
 
-/** The functions that open a span; `withSpan` first, then the trace API's own children. */
+/** The functions that open a span: the two forms of `withSpan`, and the trace API's own children. */
 const SPAN_CALLEES = new Set(['withSpan', 'withSpanSync', 'startSpan', 'startActiveSpan']);
 
 function calleeName(node: Node): string | undefined {
@@ -2170,12 +2470,29 @@ export function uiKitViolations(root: string, modules: Map<string, GateModule> =
 
 // ---- gate 9: every visible string through i18n -------------------------------------------------
 
-/** The props that are structure, not words a reader sees: a literal in one is not a missing translation. */
-const NON_TEXT_PROPS = new Set([
-  'className', 'style', 'id', 'role', 'type', 'name', 'value', 'href', 'to', 'src', 'key', 'ref', 'as', 'variant',
-  'size', 'slot', 'target', 'rel', 'htmlFor', 'tabIndex', 'method', 'action', 'dir', 'lang', 'form', 'autoComplete',
-  'inputMode', 'spellCheck', 'contentEditable', 'draggable', 'data-testid',
-]);
+/** The words a prop's name carries when a reader reads the prop: `title`, `label`, `alt` and their compounds. */
+const TEXT_PROP_WORDS = new Set(['title', 'label', 'alt', 'placeholder', 'description', 'summary', 'caption', 'legend', 'heading', 'text', 'message', 'note', 'hint', 'subtitle']);
+
+/**
+ * Whether a JSX attribute names words a reader reads (decision 0036, section 7): the attribute's own name says it —
+ * `title`, `label="…"`, `emptyText` — and a prop that names a test, a key or a style says it does not. Nothing here is
+ * a list of one product's strings: a name whose last word is a text word is text, every other name configures.
+ */
+function isTextProp(name: string): boolean {
+  if (name.startsWith('data-')) return false;
+  if (/Id$/u.test(name) || /Key$/u.test(name)) return false;
+  const words = name.split(/(?=[A-Z])|[-_]/u).map((one) => one.toLowerCase()).filter(Boolean);
+  const last = words.at(-1);
+  if (last === undefined) return false;
+  // `aria-label` is read aloud by a screen reader: its words are words a person hears.
+  return TEXT_PROP_WORDS.has(last) || name === 'aria-label';
+}
+
+/** Whether a text holds a word a person reads: a dash, a separator or a bracket is layout, never language. */
+function hasWords(text: string): boolean {
+  for (const character of text) if (/[\p{L}\p{N}]/u.test(character)) return true;
+  return false;
+}
 
 /** Gate 9: a JSX text or a literal in a visible prop is refused outside the locale files. */
 export function i18nViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
@@ -2184,16 +2501,18 @@ export function i18nViolations(root: string, modules: Map<string, GateModule> = 
     for (const node of nodesOf(module.tree)) {
       if (node['type'] === 'JSXText') {
         const text = typeof node['value'] === 'string' ? node['value'].trim() : '';
-        if (text !== '') found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: text.slice(0, 40) });
+        // An em dash standing for an empty value, a slash between two words: the page's layout, not a sentence.
+        if (text !== '' && hasWords(text)) found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: text.slice(0, 40) });
         continue;
       }
       if (node['type'] !== 'JSXAttribute') continue;
       const held = node['name'] as Node | undefined;
       const name = held?.['type'] === 'Identifier' ? String(held['value']) : undefined;
-      if (name === undefined || NON_TEXT_PROPS.has(name) || name.startsWith('data-') || name.startsWith('aria-')) continue;
+      if (name === undefined || !isTextProp(name)) continue;
       const value = node['value'] as Node | undefined;
       const literal = value?.['type'] === 'StringLiteral' && typeof value['value'] === 'string' ? value['value'] : undefined;
-      if (literal !== undefined && literal.trim() !== '') found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: `${name}: ${literal.slice(0, 40)}` });
+      // A literal the reader reads is refused: the sentence around it belongs to the interface's own catalogue.
+      if (literal !== undefined && hasWords(literal)) found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: `${name}: ${literal.slice(0, 40)}` });
     }
   }
   return once(found);

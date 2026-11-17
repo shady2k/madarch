@@ -49,7 +49,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -60,7 +60,7 @@ async function open(folder: string, options: { readonly operations?: { apply(uni
     releaseHashes: options.releaseHashes ?? [closureOf(folder).hash],
     limits: { ...LIMITS, ...(options.limits ?? {}) },
     cgroupParent: options.cgroupParent ?? parent,
-    ...(options.graph === undefined ? {} : { graph: options.graph }),
+    graph: { files: async () => [], value: async () => null, ownFacts: async () => ({ vertices: [], edges: [] }), ...options.graph },
     ...(options.requests === undefined ? {} : { requests: options.requests }),
     operations: options.operations ?? { async apply() { return { accepted:true }; } },
   });
@@ -200,7 +200,7 @@ describe('the handshake', () => {
     const session = await open(probeFolder);
     try {
       expect(session.declared.name).toBe('plugin-probe');
-      expect(session.declared.protocol).toBe('madarch.plugins/2');
+      expect(session.declared.protocol).toBe('madarch.plugins/3');
       expect(session.declared.outputs.vertices.map((kind) => kind.kind)).toEqual(['probe']);
       expect(session.closureHash).toBe(probeClosure.hash);
     } finally {
@@ -545,7 +545,7 @@ describe('the commands', () => {
     expect(done.code, done.stderr).toBe(0);
     expect(done.stdout).toContain('check: conforms');
     expect(done.stdout).toContain('unit normal: complete,');
-    expect(done.stderr).toContain('MADARCH_PLUGIN_SANDBOX');
+    expect(done.stderr).toContain('Plugins run unconfined');
     expect(existsSync(join(work, 'no-tools'))).toBe(false);
     expect(existsSync(join(work, 'no-cgroup'))).toBe(false);
   }, 30_000);
@@ -594,8 +594,8 @@ describe('the commands', () => {
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, stderr).toBe(0);
     expect(stdout.trim().split('\n')).toEqual(['completed 1', 'completed 2']);
-    expect(stderr.split('\n').filter((line) => line.includes('MADARCH_PLUGIN_SANDBOX'))).toEqual([
-      'Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.',
+    expect(stderr.split('\n').filter((line) => line.includes('Plugins run unconfined'))).toEqual([
+      'Plugins run unconfined because the operator chose to run without confinement; they can read and write everything the user can.',
     ]);
     expect(existsSync(join(work, 'no-tools'))).toBe(false);
     expect(existsSync(join(work, 'no-cgroup'))).toBe(false);

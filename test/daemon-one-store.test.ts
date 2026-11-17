@@ -34,7 +34,7 @@ afterAll(() => { rmSync(ROOT, { recursive: true, force: true }); });
 
 describe('two simultaneous first runs of one product', () => {
   test('open one store, and the second start is the chain\'s refusal', async () => await withStorePreparationOwner(async () => {
-    const fills = daemonFills(HOME);
+    const fills = daemonFills(HOME, { unconfined: true });
     const request = { product: { name: 'shop', folder: PRODUCT } };
     try {
       const answers = await Promise.all([

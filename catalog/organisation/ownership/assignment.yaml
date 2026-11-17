@@ -24,3 +24,7 @@ labels:
 description:
   en: An assignment says who is to do which piece of work and by when, such as a task, a review or a shift. It turns a plan into a duty someone holds.
   ru: 'Назначение говорит, кто должен выполнить какую работу и к какому сроку: задачу, просмотр или смену. Оно превращает план в обязанность конкретного человека или группы.'
+derives-from:
+- person
+- task
+- team

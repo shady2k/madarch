@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import contract from './contract.json';
 /**
  * The glossary plugin (decision 0035, items 3 and 8): it reads a glossary
  * document and answers the terms it states, in either of the two shapes a
@@ -197,8 +198,8 @@ const DEFAULT_PATTERN = '**/glossary*.md';
 const CONTENT_READ_CONCURRENCY = 8;
 
 /**
- * The unit's answer: every term of every document the pattern names. The documents are the graph's file vertices and
- * their content is what the files producer stored by blob — the plugin asks the host and never opens a folder.
+ * The unit's answer: every term of every document the pattern names. The documents are the graph's file vertices, and
+ * their text is asked of the host by the blob id the graph holds — the plugin opens no folder and holds no environment.
  */
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const inputs = (unit.inputs ?? {}) as GlossaryInputs;
@@ -211,7 +212,17 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     while (nextFile < files.length) {
       const index = nextFile++;
       const file = files[index]!;
-      contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content', file.keyEdges);
+      // The text is the blob the graph names, read through the host (decision 0037): the plugin holds no environment, and
+      // the host routes the read to the core plugin that owns git (decision 0038).
+      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
+      if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
+      try {
+        const read = await context.read({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), blob });
+        contents[index] = read.binary ? undefined : read.text;
+      } catch {
+        // A read the host cannot answer leaves this document out: the others' terms stand.
+        contents[index] = undefined;
+      }
     }
   }));
   const sources: { repository: string; path: string; text: string }[] = [];
@@ -230,7 +241,7 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     vertices.push({
       kind: TERM_KIND,
       key: { name: term.name },
-      values: { definition: term.definition, synonyms: term.synonyms, code: term.code },
+      values: { definition: term.definition, synonyms: term.synonyms, code: term.code, usages },
       evidence: { target: { kind: 'code.repository', key: { name: repository } }, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
     });
   }
@@ -249,20 +260,6 @@ await definePlugin({
   version: '1.0.0',
   // The graph's file vertices and their content, and no repository: the files producer alone reads the source.
   graph: true,
-  contract: {
-    vertices: [
-      {
-        kind: TERM_KIND,
-        key: ['name'],
-        fields: [
-          { name: 'name', type: 'text', meaning: 'The term itself, as the glossary writes it in bold.', example: 'Fill', required: true },
-          { name: 'definition', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
-          { name: 'synonyms', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
-          { name: 'code', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
-        ],
-      },
-    ],
-    edges: [{ kind: 'doc.term-usage', from: TERM_KIND, to: 'code.file', fields: ['line_start', 'line_end', 'count'].map(name => ({ name, type: 'integer' as const, meaning: 'The usage location or count.', example: 1, required: true })) }],
-  },
+  contract: contract.outputs as never,
   extract,
 });

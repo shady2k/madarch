@@ -62,3 +62,5 @@ key-edges:
 - role: constitution-product
   edge: constitution-product
   side: from
+derives-from:
+- product

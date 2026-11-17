@@ -24,3 +24,6 @@ labels:
 description:
   en: A database change alters tables, indexes or rows in a live database, sometimes with a migration that must be reversible. It records what it does, how it is rolled back and what it does to the data while it runs.
   ru: Изменение базы данных меняет таблицы, индексы или строки в работающей базе, иногда миграцией, которую можно отменить. В нём записано, что оно делает, как откатиться и что происходит с данными, пока оно идёт.
+derives-from:
+- change-record
+- code.database

@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A data-subject category groups people whose personal data is processed for the same reason and under the same rules: customers, employees, applicants, children. It helps an organisation see whose data it holds and what it owes them.'
   ru: 'Категория субъектов данных объединяет людей, чьи персональные данные обрабатывают по одной причине и по одним правилам: клиентов, сотрудников, соискателей, детей. Она помогает организации видеть, чьи данные у неё есть и что она им должна.'
+derives-from:
+- stakeholder

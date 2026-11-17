@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * `madarch upgrade` (madarch-lfhu; outcome 5 of docs/milestones/standalone.md):
  * the binary fetches its repository's latest GitHub release, checks the
@@ -228,7 +229,7 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<UpgradeOutc
   // rename, a step that refuses crossing a filesystem (EXDEV), and an
   // installed binary's prefix can be a mounted volume outside the system temp directory.
   const stage = join(dirname(target), (basename(target) as string) + '.upgrade-new');
-  writeFileSync(stage, binary.body);
+  withSpanSync('fs.write', { 'file.path': stage, 'file.bytes': Buffer.byteLength(binary.body) }, () => writeFileSync(stage, binary.body));
   chmodSync(stage, 0o755);
   if (process.platform === 'win32' && options.targetPath === undefined) {
     const helper = [
@@ -240,17 +241,17 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<UpgradeOutc
       '}',
       'try { Move-Item -LiteralPath $env:MADARCH_UPGRADE_STAGE -Destination $env:MADARCH_UPGRADE_TARGET -Force } catch { exit 1 }',
     ].join('; ');
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', helper], {
+    const child = withSpanSync('process.run', { 'process.command': 'powershell.exe', 'process.args': ['-NoProfile', '-NonInteractive', '-Command'], 'process.cwd': dirname(target) }, () => spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', helper], {
       detached: true,
       stdio: 'ignore',
       env: { ...process.env, MADARCH_UPGRADE_STAGE: stage, MADARCH_UPGRADE_TARGET: target, MADARCH_UPGRADE_PARENT: String(process.pid) },
-    });
+    }));
     child.unref();
   } else {
     try {
       renameSync(stage, target);
     } catch (error) {
-      rmSync(stage, { force: true });
+      withSpanSync('fs.remove', { 'file.path': stage }, () => rmSync(stage, { force: true }));
       return { prints: [], errors: [`the binary at ${target} could not be replaced: ${(error as Error).message}`], exit: 1 };
     }
   }
@@ -294,7 +295,7 @@ async function download(fetch_: typeof fetch, url: string): Promise<{ ok: true; 
  */
 function restartServerWith(target: string): string[] | null {
   if (!daemonIsRunning()) return null;
-  const run = spawnSync(target, ['start'], { encoding: 'utf8', timeout: 60_000 });
+  const run = withSpanSync('process.run', { 'process.command': target, 'process.args': ['start'] }, (span) => { const result = spawnSync(target, ['start'], { encoding: 'utf8', timeout: 60_000 }); span.setAttribute('process.exit_code', result.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(result.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(result.stderr ?? '')); return result; });
   const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim().split('\n').filter((line) => line !== '');
   if (run.status !== 0) return [`the background server is still the old one: ${said.join(' | ') || `${target} start exited with ${String(run.status)}`}; stop it with madarch stop and start it again`];
   return said;

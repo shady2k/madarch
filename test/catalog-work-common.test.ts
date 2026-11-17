@@ -84,7 +84,7 @@ describe('the Work and Common areas of the catalog', () => {
       expect(row.ru).toBeDefined();
       const page = ['accounting', 'code-convention', 'comment', 'constitution', 'epic', 'feature', 'field-set', 'kind', 'link-behaviour', 'link-type', 'milestone', 'practice', 'proposed-kind', 'question', 'responsibility', 'skill', 'stage', 'task', 'value-set', 'value-set-entry', 'work-span', 'workflow'];
       expect(row.policy).toBe(page.includes(name) ? 'page' : 'none');
-      for (const relation of [...row.out, ...row.into]) expect(CATALOG_RELATIONS).toHaveProperty(relation);
+      for (const relation of [...row.out, ...row.into]) expect(Object.hasOwn(CATALOG_RELATIONS, relation)).toBe(true);
     }
   });
 

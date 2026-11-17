@@ -29,6 +29,7 @@ import { parseStatementRef, type Correction, type Question } from './entities.js
 
 import { graphQuestions, graphCorrections, type LoopGraph } from './graph.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
+import type { ProblemText } from '../problems/types.js';
 
 const run = promisify(execFile);
 
@@ -56,7 +57,8 @@ export interface Unplaced {
   readonly file: string;
   readonly slug: string;
   readonly title: string;
-  readonly reason: string;
+  /** Why the answer reaches no page, as the code the app says in the reader's language and its values. */
+  readonly text: ProblemText;
 }
 
 export interface RefreshPlan {
@@ -112,13 +114,13 @@ export function decide(input: DecideInput): RefreshPlan {
     const places = new Set<string>();
     for (const entry of question.about) for (const id of placeOf(entry, pages)) places.add(id);
     if (question.askedIn !== null && byId.has(question.askedIn)) places.add(question.askedIn);
-    if (places.size === 0) unplaced.push({ kind: 'question', id: question.id, file: question.file, slug: question.slug, title: question.title, reason: `no page of the product is about ${question.about.join(', ') || 'anything'}, so the answer reaches no page: add a page that is, or name another page in the question's "about" in ${question.file}` });
+    if (places.size === 0) unplaced.push({ kind: 'question', id: question.id, file: question.file, slug: question.slug, title: question.title, text: { code: 'unplacedQuestion', args: { about: question.about.join(', '), file: question.file } } });
     for (const id of places) add(id, { kind: 'question-answered', question: question.slug, title: question.title });
   }
   for (const correction of input.corrections) {
     if (correction.status !== 'open') continue;
     const places = placeOf(correction.about, pages);
-    if (places.length === 0) unplaced.push({ kind: 'correction', id: correction.id, file: correction.file, slug: correction.slug, title: correction.title, reason: `the page ${parseStatementRef(correction.about)?.page ?? correction.about} is not among the product's pages any more, so the correction reaches no page (${correction.file})` });
+    if (places.length === 0) unplaced.push({ kind: 'correction', id: correction.id, file: correction.file, slug: correction.slug, title: correction.title, text: { code: 'unplacedCorrection', args: { page: parseStatementRef(correction.about)?.page ?? correction.about, file: correction.file } } });
     for (const id of places) add(id, { kind: 'correction', correction: correction.slug, statement: correction.about });
   }
   const product = pages.find((page) => page.file === PRODUCT_PATH);

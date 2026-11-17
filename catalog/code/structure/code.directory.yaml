@@ -9,8 +9,10 @@ acquisition:
 relation-constraints:
   out:
   - contains
+  - code.directory.contains
   in:
   - partOf
+  - code.directory.contains
 template-policy: page
 source: graph
 # The paths this kind leaves out: a product's own declaration, so no engine list decides what a repository's

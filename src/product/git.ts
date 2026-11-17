@@ -8,6 +8,7 @@
  * a folder reached through a symlink, a working tree the folder merely
  * stands inside — so a command never answers for someone else's history.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -55,7 +56,13 @@ export function runGit(folder: string, args: readonly string[], extra?: GitEnv):
     if (value !== undefined && !GIT_LEAKS.includes(name)) env[name] = value;
   }
   Object.assign(env, extra ?? {});
-  const run = spawnSync('git', args, { cwd: folder, encoding: 'utf8', env });
+  const run = withSpanSync('process.run', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': folder }, (span) => {
+    const result = spawnSync('git', args, { cwd: folder, encoding: 'utf8', env });
+    if (result.status !== null) span.setAttribute('process.exit_code', result.status);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(result.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(result.stderr ?? ''));
+    return result;
+  });
   const output = `${run.stderr ?? ''}${run.stdout ?? ''}`.trim();
   if (run.error !== undefined) {
     // No run happened: git's own error — normally ENOENT under a name PATH
@@ -79,7 +86,13 @@ export function porcelainStatus(folder: string, extra?: GitEnv): GitResult {
     if (value !== undefined && !GIT_LEAKS.includes(name)) env[name] = value;
   }
   Object.assign(env, extra ?? {});
-  const run = spawnSync('git', ['status', '--porcelain'], { cwd: folder, encoding: 'utf8', env });
+  const run = withSpanSync('process.run', { 'process.command': 'git', 'process.args': [...['status', '--porcelain']], 'process.cwd': folder }, (span) => {
+    const result = spawnSync('git', ['status', '--porcelain'], { cwd: folder, encoding: 'utf8', env });
+    if (result.status !== null) span.setAttribute('process.exit_code', result.status);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(result.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(result.stderr ?? ''));
+    return result;
+  });
   if (run.error !== undefined) {
     const output = `${run.stderr ?? ''}${run.stdout ?? ''}`.trim();
     return { ok: false, output: output === '' ? run.error.message : `${output}; ${run.error.message}` };

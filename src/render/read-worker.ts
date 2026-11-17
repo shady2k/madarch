@@ -7,7 +7,13 @@ import type { DiagramAnswer, DiagramRequest } from './diagram-render.js';
 import { requestStage } from '../server/stage.js';
 import { withSpan } from '../obs/trace.js';
 
-export interface ReadDescriptor { readonly folder: string; readonly connection: PoolConfig }
+export interface ReadDescriptor {
+  readonly folder: string;
+  readonly connection: PoolConfig;
+  /** The product's store folder and the knowledge root its logs stand under, when the caller reads logs too. */
+  readonly store?: string;
+  readonly knowledgeRoot?: string;
+}
 export type ReadWork =
   | { readonly kind: 'graphql'; readonly descriptor: ReadDescriptor; readonly operation: GraphqlOperation; readonly deadlineMs?: number }
   | { readonly kind: 'diagram'; readonly descriptor?: ReadDescriptor; readonly neighbourhood?: DiagramNeighbourhood; readonly request: DiagramRequest; readonly deadlineMs?: number };

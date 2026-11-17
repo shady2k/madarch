@@ -22,6 +22,7 @@
  * error, one message per error, whole.
  */
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { withSpanSync } from '../obs/trace.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ownRepository, porcelainStatus, runGit, sameFolder, type GitEnv } from './git.js';
@@ -64,7 +65,7 @@ function whyNotAFolderName(name: unknown): string | null {
 /** Puts a failed rename back as it was; the failure, when there is one, is the caller's to report. */
 function putRenameBack(from: string, to: string, manifest: string, gitEnv?: GitEnv): string | undefined {
   try {
-    writeFileSync(join(from, MANIFEST_FILE), manifest);
+    withSpanSync('fs.write', { 'file.path': join(from, MANIFEST_FILE), 'file.bytes': Buffer.byteLength(manifest) }, () => writeFileSync(join(from, MANIFEST_FILE), manifest));
     runGit(from, ['reset', '--quiet', '--', MANIFEST_FILE], gitEnv);
     renameSync(from, to);
     return undefined;
@@ -118,7 +119,7 @@ export function renameProduct(options: { folder?: string; name?: string; gitEnv?
   try {
     renameSync(folder, target);
     moved = true;
-    writeFileSync(join(target, MANIFEST_FILE), manifestNamed(manifest, wanted));
+    withSpanSync('fs.write', { 'file.path': join(target, MANIFEST_FILE), 'file.bytes': Buffer.byteLength(manifestNamed(manifest, wanted)) }, () => writeFileSync(join(target, MANIFEST_FILE), manifestNamed(manifest, wanted)));
     const add = runGit(target, ['add', '--', MANIFEST_FILE], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${target}: ${add.output}`);
     const commit = runGit(target, ['commit', '--quiet', '-m', `Name the product ${wanted}`], options.gitEnv);
@@ -210,7 +211,7 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
       continue;
     }
     if (existsSync(target)) {
-      if (!statSync(target).isDirectory()) {
+      if (!withSpanSync('fs.stat', { 'file.path': target }, () => statSync(target)).isDirectory()) {
         reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `${target} is not a folder: a checkout is a folder, and that name is taken by something else` });
         continue;
       }
@@ -236,7 +237,7 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
       continue;
     }
     try {
-      mkdirSync(reposFolder, { recursive: true });
+      withSpanSync('fs.mkdir', { 'file.path': reposFolder }, () => mkdirSync(reposFolder, { recursive: true }));
     } catch (error) {
       reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `the folder ${reposFolder} could not be created: ${(error as Error).message}` });
       continue;
@@ -280,12 +281,12 @@ type PreparedConnection =
 /** Writes a whole file by renaming a complete sibling into place. */
 function writeFileAtomically(file: string, content: string): void {
   const temporary = `${file}.madarch-${randomUUID()}.tmp`;
-  const mode = statSync(file).mode & 0o777;
+  const mode = withSpanSync('fs.stat', { 'file.path': file }, () => statSync(file)).mode & 0o777;
   try {
-    writeFileSync(temporary, content, { flag: 'wx', mode });
+    withSpanSync('fs.write', { 'file.path': temporary, 'file.bytes': Buffer.byteLength(content) }, () => writeFileSync(temporary, content, { flag: 'wx', mode }));
     renameSync(temporary, file);
   } finally {
-    rmSync(temporary, { force: true });
+    withSpanSync('fs.remove', { 'file.path': temporary }, () => rmSync(temporary, { force: true }));
   }
 }
 
@@ -403,7 +404,7 @@ export function whereAmI(options: { folder?: string; gitEnv?: GitEnv } = {}): Wh
   const start = resolve(options.folder === undefined ? '.' : options.folder);
   let isFolder = false;
   try {
-    isFolder = statSync(start).isDirectory();
+    isFolder = withSpanSync('fs.stat', { 'file.path': start }, () => statSync(start)).isDirectory();
   } catch {
     // Not there at all: said below, in the same words.
   }
@@ -563,10 +564,13 @@ export function createDirectoryLink(
 
 /** Hashes a checkout's names, file bytes, modes and symlink targets in code-point order. */
 function directoryDigest(root: string): string {
+  return withSpanSync('checkout.hash', { 'file.path': root }, (span) => {
+    let files = 0;
   const digest = createHash('sha256');
   const walk = (folder: string, relative: string): void => {
     const entries = readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (const entry of entries) {
+      files += 1;
       const path = join(folder, entry.name);
       const name = relative === '' ? entry.name : `${relative}/${entry.name}`;
       const info = lstatSync(path);
@@ -585,7 +589,9 @@ function directoryDigest(root: string): string {
     }
   };
   walk(root, '');
+  span.setAttribute('checkout.files', files);
   return digest.digest('hex');
+  });
 }
 
 /** The Git state that a cross-device copy must retain before the source is moved aside. */
@@ -629,7 +635,7 @@ function prepareMove(source: string, target: string, gitEnv?: GitEnv): PreparedC
     return { mode: 'move', kind: 'copied', source, backup };
   } catch (error) {
     let cleanup: string | undefined;
-    try { rmSync(target, { recursive: true, force: true }); }
+    try { withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true })))))))); }
     catch (removeError) { cleanup = `the incomplete copy at ${target} could not be removed: ${(removeError as Error).message}`; }
     throw new Error(cleanup === undefined ? (error as Error).message : `${(error as Error).message}; ${cleanup}`);
   }
@@ -639,14 +645,14 @@ function prepareMove(source: string, target: string, gitEnv?: GitEnv): PreparedC
 function rollbackConnection(prepared: PreparedConnection, target: string, gitEnv?: GitEnv): string | undefined {
   try {
     if (prepared.mode === 'link') unlinkSync(target);
-    else if (prepared.mode === 'clone') rmSync(target, { recursive: true, force: true });
+    else if (prepared.mode === 'clone') withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true }))))))));
     else if (prepared.kind === 'renamed') renameSync(target, prepared.source);
     else if (prepared.kind === 'worktree') {
       const moved = runGit(target, ['worktree', 'move', target, prepared.source], gitEnv);
       if (!moved.ok) throw new Error(moved.output);
     } else {
       renameSync(prepared.backup, prepared.source);
-      rmSync(target, { recursive: true, force: true });
+      withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true }))))))));
     }
     return undefined;
   } catch (error) {
@@ -658,7 +664,7 @@ function rollbackConnection(prepared: PreparedConnection, target: string, gitEnv
 function finishMove(prepared: PreparedConnection): string | undefined {
   if (prepared.mode !== 'move' || prepared.kind !== 'copied') return undefined;
   try {
-    rmSync(prepared.backup, { recursive: true });
+    withSpanSync('fs.remove', { 'file.path': prepared.backup }, () => rmSync(prepared.backup, { recursive: true }));
     return undefined;
   } catch (error) {
     return `${prepared.backup}: ${(error as Error).message}`;
@@ -730,7 +736,7 @@ export function repoAddLife(options: {
   const target = join(place.folder, 'repos', name!);
   try {
     if (pathExists(target)) return refused2([`folder: ${place.folder}`], `the destination ${target} already exists: it is left alone`);
-    mkdirSync(dirname(target), { recursive: true });
+    withSpanSync('fs.mkdir', { 'file.path': dirname(target) }, () => mkdirSync(dirname(target), { recursive: true }));
   } catch (error) {
     return failed1([`folder: ${place.folder}`], `the destination ${target} could not be prepared: ${(error as Error).message}`);
   }
@@ -744,7 +750,7 @@ export function repoAddLife(options: {
       const cloned = runGit(place.folder, args);
       if (!cloned.ok) {
         let cleanup: string | undefined;
-        try { rmSync(target, { recursive: true, force: true }); }
+        try { withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true })))))))); }
         catch (removeError) { cleanup = `the incomplete clone at ${target} could not be removed: ${(removeError as Error).message}`; }
         return failed1([`folder: ${place.folder}`], `git clone failed for ${url} into ${target}: ${cloned.output}${cleanup === undefined ? '' : `; ${cleanup}`}`);
       }
@@ -812,7 +818,7 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
 /** Starts a product, linking the code checkout when present through the same manifest operation as `repo add`. */
 export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string; language?: 'en' | 'ru' }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
-  if (!top.ok || !readdirSync(resolve(top.output)).some((entry) => entry !== '.git')) {
+  if (!top.ok || !withSpanSync('fs.readdir', { 'file.path': resolve(top.output) }, (span) => { const answer = readdirSync(resolve(top.output)); span.setAttribute('file.entries', answer.length); return answer; }).some((entry) => entry !== '.git')) {
     const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }), ...(options.language === undefined ? {} : { language: options.language }) });
     if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
     return done([`folder: ${draft.folder}`, `id: ${draft.id}`, `name: ${draft.name}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`]);
@@ -824,7 +830,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   // lives in the products home or carries the generated constitution, even
   // after it is moved elsewhere. Other commands retain whereAmI's contract.
   let maintained = false;
-  try { maintained = readFileSync(join(source, 'AGENTS.md'), 'utf8').includes('<!-- product:maintained -->'); } catch { /* no generated constitution */ }
+  try { maintained = withSpanSync('fs.read', { 'file.path': join(source, 'AGENTS.md') }, (span) => { const answer = readFileSync(join(source, 'AGENTS.md'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; }).includes('<!-- product:maintained -->'); } catch { /* no generated constitution */ }
   const managed = sameFolder(dirname(source), products) || maintained;
   if (current.outcome === 'refused' && managed) return refused2([], current.message);
   if (current.outcome === 'product' && managed) { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already a product: ${current.product}; nothing changed`]); }
@@ -832,7 +838,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   const name = basename(source);
   // A link is represented by the product manifest and its repos/<name> link; find it in the configured home.
   try {
-    for (const candidate of readdirSync(products).sort(byCodePoint)) {
+    for (const candidate of withSpanSync('fs.readdir', { 'file.path': products }, (span) => { const answer = readdirSync(products); span.setAttribute('file.entries', answer.length); return answer; }).sort(byCodePoint)) {
       const productFolderPath = join(products, candidate);
       const productRead = readProduct(productFolderPath);
       if (!productRead.ok) continue;
@@ -852,7 +858,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   const url = remote.ok ? remote.output : undefined;
   const linked = repoAddLife({ name, ...(url === undefined ? {} : { url }), source, mode: 'link', folder: draft.folder, cwd: draft.folder });
   if (linked.exit !== 0) {
-    rmSync(draft.folder, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': draft.folder }, () => rmSync(draft.folder, { recursive: true, force: true }));
     return linked;
   }
   return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`, ...linked.prints.filter((fact) => !fact.startsWith('folder: '))] };
@@ -863,14 +869,14 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
   if (wanted === '' ) return refused2([], 'no url was given: a product is cloned from the repository it is pushed to');
   if (wanted.startsWith('-')) return refused2([], `the url "${wanted}" begins with "-", which a command line reads as an option: write the url itself`);
   const home = productsHome(options.env, options.home);
-  if (existsSync(home) && !statSync(home).isDirectory()) return refused2([], `the products home ${home} is a file, not a folder: the clone goes under the home`);
+  if (existsSync(home) && !withSpanSync('fs.stat', { 'file.path': home }, () => statSync(home)).isDirectory()) return refused2([], `the products home ${home} is a file, not a folder: the clone goes under the home`);
   const name = folderNameOf(wanted);
   if (name === '') return refused2([], `the url "${wanted}" names no folder: its last path segment is the product's folder`);
   const target = join(home, name);
   if (existsSync(target)) {
     return refused2([], `the folder ${target} is in the way: a product's name is the folder it lives in, and that name is taken`);
   }
-  mkdirSync(home, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': home }, () => mkdirSync(home, { recursive: true }));
   // The clone is a git run like the lifecycle's others (the loader variables
   // stripped, this module's own git being the runner): a clone made inside
   // another repository's environment reaches the products home, never that
@@ -878,12 +884,12 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
   const clone = runGit(home, ['clone', '--quiet', wanted, target]);
   if (!clone.ok) {
     // A refused clone leaves nothing: git's own partial copies are cleared.
-    rmSync(target, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true }))))))));
     return failed1([], `git clone failed for ${wanted} into ${target}: ${clone.output}`);
   }
   const read = readProduct(target);
   if (!read.ok) {
-    rmSync(target, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true }))))))));
     return refused2([], refusalText(read));
   }
   const prints = [`folder: ${target}`, `id: ${read.product.id}`, `name: ${read.product.name}`];
@@ -892,7 +898,7 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
     if (bootstrapped.outcome === 'refused') {
       // A refused clone leaves nothing behind, whoever refused: the folder was
       // this command's to make, so it is this command's to take away.
-      rmSync(target, { recursive: true, force: true });
+      withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => withSpanSync('fs.remove', { 'file.path': target }, () => rmSync(target, { recursive: true, force: true }))))))));
       return refused2([], refusalText(bootstrapped));
     }
     const reported = reportLines(target, bootstrapped.repos, 'clone');

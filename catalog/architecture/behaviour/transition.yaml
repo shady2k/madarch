@@ -25,7 +25,8 @@ fields:
       document states it.
 key: []
 derives-from:
-- code.symbol
+- state-event
+- state
 member:
   relation: partOf
   direction: out

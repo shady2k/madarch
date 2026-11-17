@@ -46,7 +46,7 @@ export function KindsSection({ context }: { readonly context: SectionContext }):
               <TableCell>
                 {address === undefined
                   ? <Text>{String(row.many)}</Text>
-                  : <TextLink href={context.base + address} onClick={follow(context.open, context.base + address)}>{String(row.many)}</TextLink>}
+                  : <TextLink href={context.base + address} {...follow(context.open, context.base + address)}>{String(row.many)}</TextLink>}
               </TableCell>
               <TableCell>{formatValue(Number(row.count), 'number', context.language)}</TableCell>
             </TableRow>

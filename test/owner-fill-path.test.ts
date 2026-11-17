@@ -184,7 +184,7 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if (all.totalCount === 0) throw new Error('the graph holds no code file');
     const file = all.edges[0]!.node;
     if (!files.includes(file.path)) throw new Error(`the file ${file.path} is no file of the repositories`);
-    const one = await graphql(`query ($id: ID!) { entity(id: $id) { kind label ... on CodeFile { path } } }`, { id: file.id });
+    const one = await graphql(`query ($id: ID!) { entity(id: $id) { kind label ... on KindCodeFile { path } } }`, { id: file.id });
     if (one['entity']?.path !== file.path) throw new Error(`the file page answered ${JSON.stringify(one['entity'])}, not the path ${file.path}`);
     const page = await fetch(`${address}/e/code.file/${encodeURIComponent(file.id)}`);
     if (page.status !== 200) throw new Error(`the file page answered ${String(page.status)}: ${await page.text()}`);

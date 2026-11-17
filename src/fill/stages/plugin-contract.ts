@@ -14,8 +14,9 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { KindsManifest } from '../../product/manifest/kinds.js';
-import { planFillDeclarations } from '../../plugin/fill-declarations.js';
+import { deferredEdgesOf, pageTemplateKind, type KindsManifest } from '../../product/manifest/kinds.js';
+import { cataloguePageTemplate } from '../../knowledge/page-template-kind.js';
+import { fillKindsOf, planFillDeclarations } from '../../plugin/fill-declarations.js';
 import { inheritProtectedContract } from '../../graph/system-contract.js';
 
 /**
@@ -39,7 +40,11 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
     if (fields.length === 0 && base === undefined) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
-    vertex.push({ ...base, ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : base!.capability });
+    vertex.push({ ...base, ...(kind.duplicateSubjectEdge===undefined?{}:{duplicateSubjectEdge:kind.duplicateSubjectEdge}), ...(kind.semantics==='term'?{duplicateSubjectRequired:true}:{}), ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : base!.capability });
+  }
+  if (pageTemplateKind(manifest) === undefined) {
+    const fallback = cataloguePageTemplate();
+    if (!vertex.some(kind => kind.name === fallback.name)) vertex.push(fallback.vertex);
   }
   return inheritProtectedContract({ vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) }, {
     vertex: [...manifest.kinds.values()].flatMap(kind => kind.systemBase === undefined ? [] : [kind.systemBase]),
@@ -54,7 +59,9 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
  */
 function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
   const edges: EdgeContract[] = [];
+  const deferred = new Set(deferredEdgesOf(manifest));
   for (const edge of [...(manifest.edges?.values() ?? [])].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
+    if (deferred.has(edge)) continue;
     // Every declared edge kind has its table (owner's rule, 2026-11-13): a plugin's contract supplies the attributes it
     // fills, and an edge no plugin fills keeps the attributes its own declaration names.
     const plugin = edge.capability === undefined ? undefined : manifest.plugins?.get(edge.capability);
@@ -88,7 +95,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
   const plan = planFillDeclarations({
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: fillKindsOf(manifest),
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
     selectedKinds: [],
   });

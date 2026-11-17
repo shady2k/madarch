@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { CATALOG_KINDS, CATALOG_KIND_FILES, CATALOG_RAW_KINDS, type CatalogKindData } from './catalog-starter.js';
@@ -8,6 +9,8 @@ import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
+import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
+import { withAssertionContract } from '../graph/system-contract.js';
 
 /**
  * The starter set `madarch init --template everything` writes into a product (decision 0029): the
@@ -57,11 +60,13 @@ function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Re
     };
     return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
   }));
+  // Protected graph kinds exist independently of the product's catalogue selection.
+  const endpoints = new Set([...names, ...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), ...withAssertionContract({ vertex: [], edge: [], dictionary: [] }).vertex.map((kind) => kind.name)]);
   // A partial product declares only its retained relation endpoints, including the kinds its semantic roles name.
   const edges = CATALOG_METADATA.edges?.map((edge) => ({
     ...edge,
-    from: edge.from.filter((name) => name === 'any' || names.has(name)),
-    to: edge.to.filter((name) => name === 'any' || names.has(name)),
+    from: edge.from.filter((name) => name === 'any' || endpoints.has(name)),
+    to: edge.to.filter((name) => name === 'any' || endpoints.has(name)),
   })).filter((edge) => edge.from.length > 0 && edge.to.length > 0);
   const semanticBindings = Object.fromEntries(Object.entries(CATALOG_METADATA['semantic-bindings'] ?? {})
     .filter(([, binding]) => names.has(binding.kind) && Object.values(binding.edges ?? {}).every((role) => {
@@ -222,24 +227,26 @@ export function seedStarterSet(productFolder: string, templateId: string = DEFAU
   const files = templates === undefined && template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
   const written: string[] = [];
   const root = realpathSync(productFolder);
-  for (const starter of files) {
-    const target = join(productFolder, starter.path);
-    if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
-    // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
-    let ancestor = dirname(target);
-    while (!existsSync(ancestor)) ancestor = dirname(ancestor);
-    const real = realpathSync(ancestor);
-    if (real !== root && !real.startsWith(`${root}${sep}`)) {
-      throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+  withSpanSync('seed.write', { 'file.path': productFolder, 'seed.files': files.length }, () => {
+    for (const starter of files) {
+      const target = join(productFolder, starter.path);
+      if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
+      // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
+      let ancestor = dirname(target);
+      while (!existsSync(ancestor)) ancestor = dirname(ancestor);
+      const real = realpathSync(ancestor);
+      if (real !== root && !real.startsWith(`${root}${sep}`)) {
+        throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+      }
+      try {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
+      } catch (error) {
+        throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
+      }
+      written.push(starter.path);
     }
-    try {
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
-    } catch (error) {
-      throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
-    }
-    written.push(starter.path);
-  }
+  });
   return written;
 }
 

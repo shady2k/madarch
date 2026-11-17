@@ -49,6 +49,7 @@ key:
 - method
 - path
 derives-from:
+- code.service
 - code.symbol
 sequence: route
 labels:

@@ -32,7 +32,7 @@ export function sanitizeRepositoryUrl(remote: string): string {
 }
 
 /** Copy objects, not a live checkout or a host Git RPC; resolve every revision before the plugin receives it. */
-export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string) {
+export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string, options: { readonly unconfined?: boolean } = {}) {
   const filesystemInputs: { name: string; folder: string }[] = [];
   const repositories: { repository: string; root: string; commit: string; url?: string; defaultBranch?: string }[] = [];
   for (const [index, pin] of pins.entries()) {
@@ -47,7 +47,7 @@ export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], wo
     const address = remote === '' ? undefined : sanitizeRepositoryUrl(remote);
     if (address !== undefined) await git(['--git-dir', folder, 'config', 'remote.origin.url', address]);
     filesystemInputs.push({ name, folder });
-    repositories.push({ repository: pin.id, root: sandboxInputPath(name, filesystemInputSnapshotPath(workRoot, name)), commit,
+    repositories.push({ repository: pin.id, root: sandboxInputPath(name, filesystemInputSnapshotPath(workRoot, name), options.unconfined === true ? { MADARCH_PLUGIN_SANDBOX: 'off' } : process.env), commit,
       ...(address === undefined ? {} : { url: address }),
       ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) });
   }
@@ -64,21 +64,21 @@ export function createRunRepositoryInputs() {
   let root: string | undefined;
   let held: ReturnType<typeof prepareRepositoryInputs> | undefined;
   return {
-    async prepare(pins: readonly RepositoryPin[], workRoot: string): ReturnType<typeof prepareRepositoryInputs> {
+    async prepare(pins: readonly RepositoryPin[], workRoot: string, options: { readonly unconfined?: boolean } = {}): ReturnType<typeof prepareRepositoryInputs> {
       if (closed) throw new Error('repository input: this run has closed its repository inputs');
       const requested = JSON.stringify(pins);
       if (signature !== undefined && signature !== requested) throw new Error('repository input: repository pins changed within one run');
       signature = requested;
       held ??= (async () => {
         root = await mkdtemp(join(tmpdir(), 'madarch-run-repositories-'));
-        return await prepareRepositoryInputs(pins, root);
+        return await prepareRepositoryInputs(pins, root, options);
       })();
       const prepared = await held;
       return {
         filesystemInputs: prepared.filesystemInputs,
         repositories: prepared.repositories.map((repository, index) => ({
           ...repository,
-          root: sandboxInputPath(prepared.filesystemInputs[index]!.name, filesystemInputSnapshotPath(workRoot, prepared.filesystemInputs[index]!.name)),
+          root: sandboxInputPath(prepared.filesystemInputs[index]!.name, filesystemInputSnapshotPath(workRoot, prepared.filesystemInputs[index]!.name), options.unconfined === true ? { MADARCH_PLUGIN_SANDBOX: 'off' } : process.env),
         })),
       };
     },
@@ -86,7 +86,7 @@ export function createRunRepositoryInputs() {
       closed = true;
       // A failed preparation can still have created part of its private directory.
       await held?.catch(() => undefined);
-      if (root !== undefined) await rm(root, { recursive: true, force: true });
+      if (root !== undefined) await withSpan('fs.remove', { 'file.path': root }, async () => await rm(root!, { recursive: true, force: true }));
     },
   };
 }

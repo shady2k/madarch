@@ -14,10 +14,12 @@ relation-constraints:
   - hasPart
   - implements
   - refines
+  - feature.contains
   in:
   - partOf
   - refines
   - realises
+  - feature.contains
 template-policy: page
 source: graph
 fields:
@@ -44,6 +46,16 @@ fields:
   nullable: true
   binding:
     agent: Where the feature stands, as the work kinds keep it.
+- name: priority
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: queue_position
+  type: integer
+  nullable: true
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.
 key:
 - name
 labels:
@@ -56,3 +68,5 @@ labels:
 description:
   en: A feature is a service the product gives its users, described by the need it meets. User stories and requirements break the feature into what has to be built.
   ru: Возможность — услуга, которую продукт даёт своим пользователям, описанная через потребность, которую она закрывает. Истории пользователя и требования делят её на то, что нужно построить.
+derives-from:
+- epic

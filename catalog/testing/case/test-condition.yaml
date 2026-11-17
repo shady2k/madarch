@@ -24,3 +24,5 @@ labels:
 description:
   en: A test condition names one aspect that should be checked, such as a discount applied above a limit or a failure answered with an error. It is written before the cases, so the cases can cover it deliberately.
   ru: 'Условие тестирования называет один аспект, который следует проверить: скидку выше предела или отказ, на который отвечают ошибкой. Его пишут до тестов, чтобы те покрывали его намеренно.'
+derives-from:
+- test-basis

@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A test basis is the source a tester reads to decide what must be checked: a requirement, a user story, a design, a regulation or the code. Every test condition should point back to the basis that asked for it.'
   ru: 'Основа тестирования — источник, по которому проверяющий решает, что надо проверить: требование, история пользователя, проект, правило закона или код. Каждое условие тестирования должно указывать на основу, которая его потребовала.'
+derives-from:
+- doc.requirement
+- user-story

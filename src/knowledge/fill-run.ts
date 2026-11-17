@@ -1,3 +1,4 @@
+import { withSpan, withSpanSync } from '../obs/trace.js';
 /**
  * One product's knowledge store, filled by the one orchestrator (decision 0033,
  * item 1): the wiki's fill button and `madarch fill` start the static fill here,
@@ -19,6 +20,7 @@
 import { mkdirSync } from 'node:fs';
 import { basename } from 'node:path';
 import { runFill } from '../fill/run.js';
+import { fillIsolation } from '../plugin/sandbox-probe.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
@@ -92,6 +94,12 @@ export interface KnowledgeFillOptions {
   readonly storeFolder: string;
   /** The run's id; the caller names it, so a second press of one moment is one run. */
   readonly runId: string;
+  /**
+   * The run's own job, when the caller claimed one: the fill-run job whose claim is the run's lock (decision 0039,
+   * item 12). `madarch --role fill` claims it before starting the run and settles it after; a run a person's own
+   * process drives claims none.
+   */
+  readonly claim?: { readonly queue: string; readonly job: NonNullable<Awaited<ReturnType<typeof import('../fill/run-jobs.js').claimFillRun>>> };
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
@@ -103,6 +111,8 @@ export interface KnowledgeFillOptions {
   readonly pluginAgent?: PluginAgentOptions | null;
   /** Maximum reported tokens shared by every plugin agent in this run. */
   readonly tokenCap?: number;
+  /** This machine and its person chose to run plugins without isolation; read from the machine when left out. */
+  readonly unconfined?: boolean;
   /** Adapter discovery and credential environment; the process environment when omitted. */
   readonly env?: DraftEnv;
   /**
@@ -211,7 +221,7 @@ export async function finishKnowledgeStore(owner: StoreOwner, declared?: Readonl
   // The tables a run wrote have no statistics until something reads enough of them or autovacuum arrives. A repository
   // page of a few thousand commits planned its history aggregate from estimates off by two orders of magnitude (measured:
   // 1 078 ms against 3.7 ms after ANALYZE, madarch-64o5.3). A store that cannot analyze still answers from its estimates.
-  if (analyze) await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
+  if (analyze) await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ANALYZE') }, async () => await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE'))).catch(() => undefined);
   return { pins };
 
 }
@@ -224,7 +234,7 @@ export async function finishKnowledgeStore(owner: StoreOwner, declared?: Readonl
  * pins are read from.
  */
 export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise<KnowledgeFillRun> {
-  mkdirSync(options.storeFolder, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': options.storeFolder }, () => mkdirSync(options.storeFolder, { recursive: true }));
   const owner = options.database;
   await owner.ready;
   const database:FillStateDatabase={transaction:owner.transaction.bind(owner),graphContract:withAssertionContract(await readPinnedGraphContract(options.productFolder))};
@@ -257,17 +267,20 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
         const pluginAgent = options.pluginAgent === undefined ? configuredPluginAgent(options.storeFolder, options.env ?? process.env) : options.pluginAgent ?? undefined;
+        const isolation = options.unconfined === undefined ? await fillIsolation(options.env ?? process.env) : { unconfined: options.unconfined };
         const result = await runFill({
           product: options.productFolder,
           database: owner,
           ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }),
           runId: options.runId,
+          ...(options.claim === undefined ? {} : { claim: options.claim }),
           home: options.storeFolder,
           workers: options.workers ?? 16,
           ...(options.language === undefined ? {} : { language: options.language }),
           ...(options.targets === undefined ? {} : { targets: options.targets }),
           ...(pluginAgent === undefined ? {} : { pluginAgent }),
           ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }),
+          ...(isolation.unconfined ? { unconfined: true } : {}),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to

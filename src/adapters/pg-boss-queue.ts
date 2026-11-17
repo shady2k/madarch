@@ -80,7 +80,7 @@ export interface PgBossQueueOptions {
 function transactionDatabase(transaction: OuterTransaction): Db {
   return {
     executeSql: async (text: string, values?: unknown[]) => {
-      const { rows } = await transaction.query(text, values);
+      const { rows } = await withSpan('db.pg-boss-queue.transactionDatabase', { 'db.system': 'postgres' }, async () => await transaction.query(text, values));
       return { rows };
     },
   };
@@ -220,7 +220,7 @@ class PgBossQueue implements QueueService {
     }
     // pg-boss owns batch selection. Sort the returned rows deterministically;
     // equal creation instants do not imply a separate enqueue-order mechanism.
-    const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true });
+    const jobs = await withSpan('queue.claim', { 'madarch.queue': request.queue }, async () => await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true }));
     return jobs
       .slice()
       .sort((left, right) => right.priority - left.priority || left.createdOn.getTime() - right.createdOn.getTime() || byCodePoint(left.id, right.id))
@@ -337,6 +337,15 @@ class PgBossQueue implements QueueService {
       retriesSpent: job.sourceRetryCount ?? 0,
       deadLetteredAt: job.createdOn.getTime(),
     };
+  }
+
+  async job<Output = unknown>(queue: string, id: string): Promise<{ readonly state: 'created' | 'retry' | 'active' | 'completed' | 'cancelled' | 'failed'; readonly output?: Output } | null> {
+    return await withSpan('queue.job.read', { 'madarch.queue': queue }, async () => {
+      const held = await this.boss.getJobById<object>(queue, id);
+      if (held === null) return null;
+      const output = (held as { output?: unknown }).output;
+      return { state: held.state, ...(output === null || output === undefined ? {} : { output: output as Output }) };
+    });
   }
 
   async stop(): Promise<void> {

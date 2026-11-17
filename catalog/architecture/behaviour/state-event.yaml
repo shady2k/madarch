@@ -31,7 +31,7 @@ fields:
 key:
 - name
 derives-from:
-- code.symbol
+- domain-event
 labels:
   en:
     one: Event

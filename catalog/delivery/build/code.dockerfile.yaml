@@ -39,6 +39,7 @@ fields:
 key: []
 derives-from:
 - code.file
+- product-profile
 labels:
   en:
     one: Dockerfile
@@ -54,3 +55,9 @@ key-edges:
 - role: code.dockerfile-file
   edge: code.dockerfile-file
   side: from
+applicability:
+  dependencies: []
+  markers:
+  - '**/Dockerfile'
+  - '**/Dockerfile.*'
+  profile: deployment

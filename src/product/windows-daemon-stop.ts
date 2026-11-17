@@ -1,4 +1,5 @@
 /** Windows terminates processes for SIGTERM, so the stopper itself must release their stores. */
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -28,7 +29,7 @@ export function applicationProcessTree(pid: number, processes: readonly WindowsP
 function processes(): WindowsProcess[] | undefined {
   const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress';
   for (const program of ['powershell', 'pwsh']) {
-    const result = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+    const result = withSpanSync('process.run', { 'process.command': program, 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => { const answer = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
     if (result.error || result.status !== 0) continue;
     try {
       const value = JSON.parse(result.stdout);
@@ -42,7 +43,7 @@ function processes(): WindowsProcess[] | undefined {
 /** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
 function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
   const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
-  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+  const answer = withSpanSync('process.run', { 'process.command': 'powershell', 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => { const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
   if (answer.error !== undefined || answer.status !== 0) return undefined;
   try {
     const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
@@ -111,7 +112,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(tree.map((pid) => snapshot.find((row) => row.pid === pid) ?? { pid }))}`);
   const root = knowledgeRootOf(state.home);
   const listStores = reads.storeFolders ?? ((): string[] | Error => {
-    try { return readdirSync(root).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
+    try { return withSpanSync('fs.readdir', { 'file.path': root }, (span) => { const held = readdirSync(root); span.setAttribute('file.entries', held.length); return held; }).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       return error instanceof Error ? error : new Error(String(error));
@@ -134,10 +135,10 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   // and the termination is caught by the look after the tree is gone, and a refusal here says what failed and lets the
   // stop go on.
   const before = look('before the kill');
-  const stores = (before ?? []).map((folder) => capture(folder));
+  const stores = withSpanSync('stores.capture', { 'file.path': root, 'stores.count': before?.length ?? 0 }, () => (before ?? []).map((folder) => capture(folder)));
   const deadline = Date.now() + 5_000; // The existing daemon TERM + KILL budget, shared by process checks.
   const taskkill = reads.taskkill ?? ((pid: number, timeoutMs: number, subtree: boolean) =>
-    spawnSync('taskkill', ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)], { encoding: 'utf8', timeout: timeoutMs }));
+    withSpanSync('process.run', { 'process.command': 'taskkill', 'process.args': ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)] }, (span) => { const answer = spawnSync('taskkill', ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)], { encoding: 'utf8', timeout: timeoutMs }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; }));
   // Children before parents: Windows recycles a process id as soon as its holder ends, so a tree walked from the top
   // can wait on an id that already names something else.
   for (const pid of [...tree].reverse()) {
@@ -186,7 +187,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
         console.error(`Windows stop: the store ${store.folder} is still being prepared and the process list could not be read, so it is left as it stands and this stop fails`);
         return false;
       }
-      for (const holder of found) (reads.endProcess ?? ((pid: number) => { spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 }); }))(holder.pid);
+      for (const holder of found) (reads.endProcess ?? ((pid: number) => { withSpanSync('process.run', { 'process.command': 'taskkill', 'process.args': ['/F', '/PID', String(pid)] }, (span) => { const answer = spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; }); }))(holder.pid);
       const remaining = holders() ?? found;
       if (remaining.length > 0) {
         console.error(`Windows stop: the store ${store.folder} is still being prepared and ${remaining.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} still name it, so this stop fails and the folder is left as it stands`);
@@ -205,7 +206,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
       return false;
     }
     const ok = reads.stopStore ? reads.stopStore(pgCtl, store.folder) : (() => {
-      const result = spawnSync(pgCtl, ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+      const result = withSpanSync('process.run', { 'process.command': pgCtl, 'process.args': ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'] }, (span) => { const answer = spawnSync(pgCtl, ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
       if (result.error || result.status !== 0) console.error(`Windows stop: pg_ctl stop of ${store.folder} exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
       return !result.error && result.status === 0;
     })();

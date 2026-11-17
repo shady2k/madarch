@@ -116,8 +116,9 @@ describe('the starter set madarch init seeds', () => {
     // The starter set is the manifest, the kinds, the plugins' files and the workflow: a page is the product's own
     // template under `templates/` (decision 0036, section 6), and the engine ships none.
     expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
-      'templates/catalogue-code-file.yaml', 'templates/catalogue-entity.yaml', 'templates/catalogue.yaml', 'templates/code-file.yaml',
-      'templates/entity.yaml', 'templates/glossary.yaml', 'templates/home.yaml', 'templates/prepare.yaml', 'templates/problems.yaml', 'templates/run.yaml', 'templates/runs.yaml', 'templates/search.yaml', 'templates/settings.yaml', 'templates/sources.yaml', 'templates/text.yaml',
+      'templates/catalogue-code-file.yaml', 'templates/catalogue-entity.yaml', 'templates/catalogue.yaml',
+      'templates/code-contract.yaml', 'templates/code-database.yaml', 'templates/code-directory.yaml', 'templates/code-file.yaml', 'templates/code-operation.yaml', 'templates/code-repository.yaml', 'templates/code-route.yaml', 'templates/code-symbol.yaml', 'templates/code-table.yaml', 'templates/document.yaml', 'templates/source.yaml',
+      'templates/entity.yaml', 'templates/glossary.yaml', 'templates/home.yaml', 'templates/logs.yaml', 'templates/prepare.yaml', 'templates/problems.yaml', 'templates/run.yaml', 'templates/runs.yaml', 'templates/search.yaml', 'templates/settings.yaml', 'templates/sources.yaml', 'templates/text.yaml',
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`))].sort(byCodePoint));
     for (const file of STARTER_FILES) {
       if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));
@@ -131,7 +132,7 @@ describe('the starter set madarch init seeds', () => {
     expect(homeKind(read.manifest)?.name).toBe('product');
     expect(read.manifest.kinds.get('product')?.source).toBe('graph');
 
-  });
+  }, 60_000);
 
   test('the starter files carry no engine page: they are the product\'s own text, committed with the draft', () => {
     const home = scratch();

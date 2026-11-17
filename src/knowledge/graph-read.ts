@@ -321,8 +321,7 @@ export class GraphReader {
 
   private async generatedEntities(decl:GeneratedKindRead, records:readonly import('../graph/records.js').AssertionRecord[]):Promise<GraphEntity[]> {
     if (records.length === 0) return [];
-    const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };
-    return records.map(row=>{
+    const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };    return records.map(row=>{
       const properties:Record<string,unknown>={...row.key,...row.values};
       delete properties['$exists'];
       const keyValues=decl.key.map(f=>String(row.key[f]??''));
@@ -423,7 +422,7 @@ export class GraphReader {
     const total = Number(membership.rows[0]!.total);
     const identities = membership.rows.filter((row): row is typeof row & { id: number; uid: string; key: Record<string, unknown> } => row.id !== null).slice(0,options.limit);
     if (identities.length === 0) return { rows: [], next: null, total };
-    const records = await readKindAssertions(tx,'vertex',decl.kind,fields,{ validAt, identities, repositoryKinds: this.repositoryKinds(decl.kind) });
+    const records = await readKindAssertions(tx,'vertex',decl.kind,fields,{ validAt, identities, ...(this.contract === undefined ? {} : { contract: this.contract }), repositoryKinds: this.repositoryKinds(decl.kind) });
     const rows = await this.generatedEntities(decl,records);
     rows.sort((a,b) => byCodePoint(a.key,b.key));
     return { rows, next: membership.rows.length > options.limit ? rows.at(-1)!.key : null, total };
@@ -435,8 +434,8 @@ export class GraphReader {
   }
   private async entitiesOfIds(tx:OuterTransaction,ids:readonly string[],scope:string|null=this.scope??null,localIds=false):Promise<Map<string,GraphEntity>> {
     if (ids.length === 0) return new Map();
-    const identities = await tx.query<{ id: number; uid: string; kind: string }>(
-      `SELECT n.id,n.uid::text,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE ${localIds ? 'n.id=ANY($1::bigint[])' : 'n.uid=ANY($1::uuid[])'}`, [ids]);
+    const identities = await withSpan('graph.entity.identities', {}, async () => await tx.query<{ id: number; uid: string; kind: string }>(
+      `SELECT n.id,n.uid::text,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE ${localIds ? 'n.id=ANY($1::bigint[])' : 'n.uid=ANY($1::uuid[])'}`, [ids]));
     const entities: GraphEntity[] = [];
     for (const kind of new Set(identities.rows.map(row => row.kind))) {
       const decl = this.generatedKind(kind);
@@ -454,12 +453,11 @@ export class GraphReader {
     if (graph === undefined) return { total: 0, rows: [] };
     const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
     return await this.run(async (tx) => {
-      const found = await tx.query<{ id: string; other: string; discriminator: string }>(
+      const found = await withSpan('graph.edge.identities', {}, async () => await tx.query<{ id: string; other: string; discriminator: string }>(
         `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN entity k ON k.id = e.entity_id
          WHERE k.name = $1 AND e.${self} IN (SELECT id FROM node WHERE uid=ANY($2::uuid[])) ORDER BY e.${far}, e.id`,
         [graph.kind, entity.nodeIds],
-      );
-      const edgeRecords = await this.records(tx, 'edge', graph.kind, this.generatedEdges?.get(graph.kind)?.columns ?? [], found.rows.map(edge => Number(edge.id)));
+      ));      const edgeRecords = await this.records(tx, 'edge', graph.kind, this.generatedEdges?.get(graph.kind)?.columns ?? [], found.rows.map(edge => Number(edge.id)));
       const active = new Set(edgeRecords.map(edge => String(edge.id)));
       const properties = new Map(edgeRecords.map(edge => [String(edge.id), Object.fromEntries(Object.entries(edge.values).filter(([property]) => property !== '$exists'))]));
       found.rows = found.rows.filter(e=>active.has(e.id));

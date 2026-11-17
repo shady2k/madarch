@@ -4,6 +4,7 @@ import { byCodePoint } from '../model/order.js';
 
 export interface AssertionRow {
   readonly id: string;
+  readonly originalSubjectUid?:string;
   readonly subject: { readonly type: 'vertex'; readonly uid: string } | { readonly type: 'edge'; readonly id: string; readonly kind: string; readonly from: string; readonly to: string };
   readonly property: string;
   readonly context: number;
@@ -65,7 +66,7 @@ function instant(value: string): number {
 }
 
 export function assertionStreamKey(row: AssertionRow): string {
-  return JSON.stringify([row.subject.type, row.subject.type === 'vertex' ? row.subject.uid : row.subject.id, row.property, row.language, row.source]);
+  return JSON.stringify([row.subject.type, row.subject.type === 'vertex' ? row.subject.uid : row.subject.id, row.property, row.language, row.source,row.originalSubjectUid??null]);
 }
 
 function newerRecorded(left: AssertionRow, right: AssertionRow): number {

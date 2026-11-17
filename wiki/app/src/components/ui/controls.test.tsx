@@ -65,19 +65,37 @@ test('invalid fields retain accessible names and error descriptions', async () =
   expect(container.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('required');
 });
 
-
-test('filter Select keeps the native selection, accessible name and disabled state', async () => {
-  const { Select } = await import('./select.js');
-  const container = mount();
-  const changes: string[] = [];
-  await act(async () => { root!.render(<Select variant="filter" aria-label="Area" value="all" options={[{ value: 'all', label: 'All' }, { value: 'code', label: 'Code' }]} onChange={(event) => changes.push(event.target.value)} />); });
-  const select = container.querySelector('select')!;
-  expect(select.getAttribute('aria-label')).toBe('Area');
-  expect(select.value).toBe('all');
-  expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
-  await act(async () => { select.value = 'code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-  expect(changes).toEqual(['code']);
-  await act(async () => { root!.render(<Select className="mt-1 w-full max-w-96" aria-label="Model" disabled options={[]} />); });
-  expect(container.querySelector('select')?.disabled).toBe(true);
-  expect(container.querySelector('svg')).toBeNull();
+test('the kit menu names the empty choice and reports it back (madarch-64o5.88)', async () => {
+  // The kit's one-choice control is ChoiceMenu: a caller may name `''` — "no choice", a saved default — as an option,
+  // and the menu reports the same empty string back when it is chosen again.
+  const { ChoiceMenu } = await import('./choice-menu.js');
+  const chosen: string[] = [];
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  const { createElement } = await import('react');
+  await act(async () => {
+    root!.render(createElement(ChoiceMenu, { label: 'Agent', testId: 'kit-menu', value: '', options: [{ value: '', label: 'None' }, { value: 'claude-code', label: 'Claude Code' }], onChange: (next: string) => { chosen.push(next); } }));
+  });
+  const trigger = host.querySelector('[data-testid="kit-menu"]') as HTMLElement;
+  expect(trigger).not.toBeNull();
+  // The empty value stands as the chosen item, not as a missing value.
+  expect(trigger.textContent).toContain('None');
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const other = document.querySelector('[data-testid="kit-menu-claude-code"]') as HTMLElement | null;
+  expect(other).not.toBeNull();
+  await act(async () => { other!.click(); });
+  expect(chosen).toEqual(['claude-code']);
+  // And back to the empty choice: a caller hears `''`.
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const none = document.querySelector('[data-testid="kit-menu-"]') as HTMLElement | null;
+  expect(none).not.toBeNull();
+  await act(async () => { none!.click(); });
+  expect(chosen[chosen.length - 1]).toBe('');
 });

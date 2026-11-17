@@ -89,3 +89,6 @@ key-edges:
 - role: code.test-case-file
   edge: code.test-case-file
   side: from
+derives-from:
+- code.file
+- test-condition

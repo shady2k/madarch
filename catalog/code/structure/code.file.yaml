@@ -103,11 +103,6 @@ fields:
   nullable: true
   producers:
   - disk
-- name: content
-  type: text
-  nullable: true
-  producers:
-  - disk
 - name: language
   type: text
   nullable: true
@@ -146,6 +141,11 @@ fields:
   nullable: true
   producers:
   - git
+# The file text is read by its repository edge, path and immutable blob (decision 0037).
+file-text:
+  repository: code.file-repository
+  path: path
+  blob: blob
 key:
 - path
 classes:
@@ -236,7 +236,6 @@ description:
   en: 'A file is a named unit of content in a repository: for example a source file, a configuration file, a document or an image. Its path places it in a folder, and its content is what a person or a program reads or runs.'
   ru: 'Файл — именованная единица содержимого в репозитории: например, исходный код, настройки, документ или изображение. Путь указывает его место в папках, а содержимое читает человек или программа.'
 derives-from:
-- code.repository
 - code.directory
 
 key-edges:

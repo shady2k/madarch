@@ -8,7 +8,8 @@
  * A closure no release carries may run here and only here: validation that
  * publishes nothing (decision 0035, item 4).
  */
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import type { PluginVertexResult, PluginEdgeResult, PluginGraphOwnFactsResult } from './protocol.js';
 import { PluginHost, type GraphAnswerer, type HostLimits, type UnitOutcome } from './host.js';
 import { PluginFactsApplyRequest, type PluginContractDeclaration, type PluginUnitRequest } from './protocol.js';
 import { Value } from 'typebox/value';
@@ -30,6 +31,9 @@ export interface ConformanceReport {
 }
 
 export interface ConformanceOptions {
+  /** Validate source reconciliation as well as the lifecycle (0039 items 18–19). */
+  readonly reconciliationUnit?: PluginUnitRequest;
+  readonly readBlob?: ConstructorParameters<typeof PluginHost>[0]['readBlob'];
   readonly pluginFolder: string;
   /** The repository the probe unit is read from, bound read-only; the plugin's own folder when absent. */
   readonly repository?: string;
@@ -53,6 +57,7 @@ export interface ConformanceOptions {
 
 /** The kit's graph: no file vertex, and no value of one. */
 const EMPTY_GRAPH: GraphAnswerer = {
+  ownFacts: async () => ({ vertices: [], edges: [] }),
   files: async () => [],
   value: async (kind, _key, field) => { throw new Error(`the conformance kit's graph holds no ${JSON.stringify(kind)} to read ${JSON.stringify(field)} from: it validates the protocol, not the facts`); },
 };
@@ -74,7 +79,7 @@ export function probeUnit(contract: PluginContractDeclaration, unitId = 'conform
 /** One outcome said in the kit's words: what it held, or the cause that stopped it. */
 export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
   if (outcome.state === 'extracted') {
-    const end = outcome.result.end.state === 'complete' ? 'complete' : `partial (${outcome.result.end.cause})`;
+    const end = outcome.result.end.state === 'partial' ? `partial (${outcome.result.end.cause})` : outcome.result.end.state;
     return { ok: true, text: `unit ${outcome.unitId}: ${end}, ${String(outcome.durationMs)} ms` };
   }
   return { ok: false, text: `unit ${outcome.unitId}: not extracted, ${outcome.cause.code}: ${outcome.cause.message}${outcome.stderr.file === '' ? '' : ` (log ${outcome.stderr.file})`}` };
@@ -139,6 +144,7 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
         return { validation: true, key };
       } },
       graph: options.graph ?? EMPTY_GRAPH,
+      ...(options.readBlob === undefined ? {} : { readBlob: options.readBlob }),
     });
     session = await host.open();
     declaration = session.declared.outputs;
@@ -175,5 +181,98 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
   } finally {
     await session.close();
   }
+  if (options.reconciliationUnit !== undefined) {
+    const reconciliation = await checkReconciliationConformance({ ...options, unit: options.reconciliationUnit });
+    lines.push(...reconciliation.lines);
+  }
   return { lines, ok: lines.every((line) => line.ok) };
+}
+
+/**
+ * Decision 0039 items 18–19: exercise a real source reader and the SDK's three
+ * differences, without publishing. The source must hold at least three vertices.
+ * Earlier own facts hold one absent item, one stale value, and all
+ * other facts unchanged. The next pass must write exactly add, remove, update.
+ */
+export async function checkReconciliationConformance(options: ConformanceOptions & { readonly unit: PluginUnitRequest }): Promise<ConformanceReport> {
+  const lines: ConformanceLine[] = [];
+  let current: PluginGraphOwnFactsResult = { vertices: [], edges: [] };
+  let applied: { operation: 'add' | 'update' | 'remove'; vertex?: PluginVertexResult; edge?: PluginEdgeResult; evidence?: PluginVertexResult['evidence'] }[] = [];
+  const identityKey = (fact: PluginVertexResult): string => JSON.stringify([fact.kind, fact.key, fact.keyEdges ?? {}]);
+  const location = `${resolve(options.pluginFolder, 'plugin.json')}:1`;
+  const graph: GraphAnswerer = {
+    ...(options.graph ?? EMPTY_GRAPH),
+    ownFacts: async () => current,
+  };
+  let session;
+  try {
+    session = await new PluginHost({
+      pluginFolder: options.pluginFolder, repository: options.repository ?? options.pluginFolder,
+      workRoot: join(options.workRoot, 'reconciliation'), trust: 'validation', graph,
+      ...(options.readBlob === undefined ? {} : { readBlob: options.readBlob }),
+      operations: { apply: async (_unitId, _key, operation) => {
+        for (const vertex of operation.vertices ?? []) applied.push({ operation: current.vertices.some(held => identityKey(held) === identityKey(vertex)) ? 'update' : 'add', vertex, evidence: vertex.evidence });
+        for (const edge of operation.edges ?? []) applied.push({ operation: current.edges.some(held => held.kind === edge.kind && JSON.stringify([held.from, held.to, held.discriminator ?? '']) === JSON.stringify([edge.from, edge.to, edge.discriminator ?? ''])) ? 'update' : 'add', edge, evidence: edge.evidence });
+        for (const vertex of operation.removals ?? []) applied.push({ operation: 'remove', vertex, evidence: vertex.evidence });
+        for (const edge of operation.edgeRemovals ?? []) applied.push({ operation: 'remove', edge, evidence: edge.evidence });
+        return { accepted: true };
+      } },
+      ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.limits === undefined ? {} : { limits: options.limits }),
+      ...(options.agent === undefined ? {} : { agent: options.agent }),
+    }).open();
+    const first = await session.runUnit({ ...options.unit, unitId: 'reconciliation-source' });
+    if (first.state !== 'extracted') throw new Error(`${first.cause.code}: ${first.cause.message}`);
+    if (first.result.end.state === 'partial') throw new Error(`source is partial: ${first.result.end.cause}`);
+    if (first.result.end.state === 'inapplicable') throw new Error(`source is inapplicable: ${first.result.end.searched}`);
+    const initial = applied;
+    if (initial.some(write => write.operation !== 'add')) throw new Error('an empty graph must receive only additions');
+    const vertices = initial.flatMap(write => write.vertex === undefined ? [] : [write.vertex]);
+    const edges = initial.flatMap(write => write.edge === undefined ? [] : [write.edge]);
+    if (vertices.length < 3) throw new Error(`source fixture must produce at least three vertices, got ${String(vertices.length)}`);
+    const added = vertices[0]!;
+    const changedVertex = vertices.slice(1).find(vertex => Object.keys(vertex.values ?? {}).length > 0);
+    const changedEdge = changedVertex === undefined ? edges.find(edge => Object.keys(edge.values ?? {}).length > 0) : undefined;
+    const changed = changedVertex ?? changedEdge;
+    if (changed === undefined) throw new Error('source fixture needs a fact with values to exercise an update');
+    const staleValues = { ...changed.values };
+    const field = Object.keys(staleValues).sort(byCodePoint)[0]!;
+    const value = staleValues[field];
+    staleValues[field] = typeof value === 'number' ? value + 1 : typeof value === 'boolean' ? !value : typeof value === 'string' ? `${value}-stale` : 'stale-conformance-value';
+    const removed: PluginVertexResult = {
+      ...vertices[2]!, key: Object.fromEntries(Object.entries(vertices[2]!.key).map(([key, value], at) => [key, at === 0 ? 'removed-conformance-item' : value])),
+    };
+    current = {
+      vertices: [...vertices.slice(1).map(vertex => vertex === changedVertex ? { ...vertex, values: staleValues } : vertex), removed],
+      edges: edges.map(edge => edge === changedEdge ? { ...edge, values: staleValues } : edge),
+    };
+    applied = [];
+    const second = await session.runUnit({ ...options.unit, unitId: 'reconciliation-differences' });
+    if (second.state !== 'extracted') throw new Error(`${second.cause.code}: ${second.cause.message}`);
+    if (second.result.end.state === 'partial') throw new Error(`source is partial: ${second.result.end.cause}`);
+    if (second.result.end.state === 'inapplicable') throw new Error(`source is inapplicable: ${second.result.end.searched}`);
+    const writes = applied;
+    const identity = (fact: unknown): string => {
+      const held = fact as Record<string, unknown>;
+      return JSON.stringify(Object.fromEntries(Object.entries(held).filter(([field]) => field !== 'evidence' && field !== 'values').sort(([a], [b]) => byCodePoint(a, b))));
+    };
+    const expected = [{ operation: 'add', fact: added }, { operation: 'remove', fact: removed }, { operation: 'update', fact: changed }];
+    if (writes.length !== 3 || expected.some(wanted => !writes.some(write => write.operation === wanted.operation && identity(write.vertex ?? write.edge) === identity(wanted.fact)))) {
+      throw new Error(`expected exactly add/remove/update for the fixture items; got ${JSON.stringify(writes)}`);
+    }
+    const update = writes.find(write => write.operation === 'update')!;
+    if (JSON.stringify((update.vertex ?? update.edge)?.values) !== JSON.stringify(changed.values)) throw new Error('the update does not restore the source values');
+    for (const write of writes) {
+      const fact = write.vertex ?? write.edge!;
+      const declaration = write.vertex === undefined ? session.declared.outputs.edges.find(kind => kind.kind === fact.kind) : session.declared.outputs.vertices.find(kind => kind.kind === fact.kind);
+      const requiredProof = declaration?.fields?.some(field => field.evidence === true && Object.hasOwn(fact.values ?? {}, field.name)) ?? false;
+      if (requiredProof && write.evidence === undefined) throw new Error(`difference for ${fact.kind} has no evidence for an evidence-required field`);
+    }
+    lines.push({ ok: true, text: `${location}: reconciliation: source added, removed and changed facts yield exactly three writes; unchanged facts yield none` });
+  } catch (error) {
+    lines.push({ ok: false, text: `${location}: reconciliation: ${(error as Error).message}` });
+  } finally {
+    await session?.close();
+  }
+  return { lines, ok: lines.every(line => line.ok) };
 }

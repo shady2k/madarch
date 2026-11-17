@@ -448,7 +448,7 @@ test('manifest planning retains explicit support dependencies without agent synt
     plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })]),
     general(['File', 'Blob']),
   ]);
-  const plan = planManifestFill(manifest, '/product', ['Summary'], true);
+  const plan = planManifestFill(manifest, '/product', ['Summary', 'Blob'], true);
   expect(plan.errors).toEqual([]);
   expect(plan.unitPredecessors('general', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
   expect(plan.outputs.get('general')?.has('Blob')).toBe(false);
@@ -471,4 +471,22 @@ test('support source reads take priority over other selected owners and otherwis
     expect((error as { line: number }).line).toBeGreaterThan(1);
     expect((error as Error).message).toContain('disk:File, imports:Import');
   }
+});
+
+
+test('a forward-filtered agent source read does not leave its support read unscoped', () => {
+  const manifest = manifestOf([
+    kind('Repository'), kind('File', ['title'], ['Repository']), kind('Directory'), kind('Blob'),
+  ], [
+    plugin('disk', [
+      output('File', '*', { support: { vertices: ['Blob'], edges: [] } }),
+      output('Directory', '*', { support: { vertices: ['Blob'], edges: [] } }),
+    ]),
+    general(['File', 'Blob']),
+  ]);
+  const plan = planManifestFill(manifest, '/product', ['Repository'], true);
+  expect(plan.errors).toEqual([]);
+  expect(plan.readsFor('general', 'Repository')).toEqual([]);
+  expect(plan.unitPredecessors('general', 'Repository')).toEqual([]);
+  expect(plan.selectedKinds).toEqual(['Repository']);
 });
