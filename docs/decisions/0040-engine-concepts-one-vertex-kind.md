@@ -1,6 +1,6 @@
 # 0040. One vertex kind for each engine concept: kind, workflow, relation
 
-Status: proposed — the owner's choice is pending (decision note on ALX-12; review ALX-153)
+Status: accepted — option A, the owner's choice of 2026-11-17 06:43 UTC (decision note on ALX-12; review ALX-153)
 Date: 2026-11-17
 Task: madarch-64o5.74 (finding madarch-ninm)
 
@@ -84,6 +84,34 @@ requires.** Raw keys disappear from pages. «Вид», «Рабочий проц
 связи» still list empty catalogue kinds beside the published records. After
 lasting data, any later merge is a migration of every product.
 
+## Decision
+
+Option A. The owner, 2026-11-17 06:43 UTC, after the history was walked
+through with him on ALX-12: «Ну да, получается так. Если у нас граф
+предварительно заполняется нашими системными видами, то ниоткуда из других
+мест они добавляться не должны. Более того, никакая сущность из каталога не
+может добавлять системные виды. да»
+
+- For each engine concept — a kind, a workflow with its stages, a relation —
+  exactly one stored kind exists, owned and written by the engine at start;
+  the wiki's lists «Вид», «Рабочий процесс», «Тип связи» read it.
+- The catalogue's three kinds (`catalog/common/schema/kind.yaml`,
+  `workflow.yaml`, `link-type.yaml`) stop being kinds of their own; the
+  engine's system `kind` and `manifest.kind` (and their workflow and relation
+  counterparts) become one stored kind per concept. The relation keeps its
+  definition-to-end edges, re-targeted to the engine's record, with an
+  explicit representation of an `any` end before the JSON fields go; the
+  second label set of `manifest.depends-on` goes.
+- No other place adds an engine concept: no catalogue entity, product
+  manifest, plugin or agent declares or writes a kind, workflow, stage or
+  relation definition of its own. What the catalogue may still do is the
+  item 9 clarification's extension of an engine kind — labels, descriptions,
+  nullable fields, optional edges — which adds no stored kind and no vertex.
+- Order: inside the foundation stage, after the cutover stack lands and the
+  acceptance test `.148` is green, before lasting data; concept by concept —
+  kind, then workflow, then relation — each checked on its own. Graph-core
+  work, so the strong model.
+
 ## Recommendation
 
 A. It applies the rule the owner already accepted, removes the doubled lists
@@ -101,8 +129,15 @@ prerequisite, the removal of the catalogue's stage (`1987a1ba4`), is in the
 stack head `1020478ba`; a static read of that tree finds no catalogue vertex
 or edge under a protected name and no catalogue edge to a protected vertex.
 The rule is enabled against that tree, and its first run is the evidence.
-The rule refusing a second declaration of a concept (a catalogue kind that is
-not an `extends` of the engine's) follows only after the owner chooses A.
+
+With A chosen, the rule gains its second half, enabled with the first
+concept's change (kind) and widened with each later one: the catalogue
+declares no vertex kind for an engine concept — a kind whose subject is
+kinds, workflows, workflow stages or relation definitions — other than an
+`extends` of the engine's kind that adds no stored kind of its own. Violation
+scenario: a catalogue file `kind.yaml` declaring its own stored kind «Вид»
+with agent acquisition fails the check, naming the file, line and the engine
+kind it duplicates.
 
 ## Reversibility
 
