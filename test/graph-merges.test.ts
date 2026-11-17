@@ -167,7 +167,8 @@ test('0039.32 allocations respect recorded snapshots and inherited contexts',asy
 
 test('0039.32 disputes on both members follow membership and split by immutable assertion subjects',async()=>{
  const f=await fixture();try{
- const {reconcileDisputes,listDisputeSlots}=await import('../src/graph/disputes.js');
+ const {reconcileDisputes}=await import('../src/graph/disputes.js');
+ const {listDisputeSlots}=await import('../src/graph/dispute-read.js');
  await f.execute(f.r,async tx=>{
  await publishGraphDrafts(tx,contract,{vertices:['one','two'].map(name=>({kind:'sample',key:{name},values:{note:'alternative '+name},producer:'fixture',producerVersion:'1'})),removals:[]});
  await reconcileDisputes(tx,contract);

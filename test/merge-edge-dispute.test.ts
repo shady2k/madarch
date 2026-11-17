@@ -5,7 +5,8 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { newUid } from '../src/graph/uid.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
-import { listDisputeSlots, reconcileDisputes } from '../src/graph/disputes.js';
+import { reconcileDisputes } from '../src/graph/disputes.js';
+import { listDisputeSlots } from '../src/graph/dispute-read.js';
 import { SQL_TRANSACTION_KINDS } from '../src/sql-driver.js';
 
 const contract: GraphContract = withAssertionContract({

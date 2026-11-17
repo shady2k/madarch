@@ -718,9 +718,10 @@ describe('the GraphQL executor', () => {
     const kinds = new Map(declared.kinds);
     kinds.set('demo.repository', { ...kinds.get('demo.repository')!, title: 'unpublished-title' });
     const withoutTitle: KindsManifest = { ...declared, kinds };
+    const held = await owner.transaction('snapshot', (tx) => readTemplatesOf(tx, manifest));
     const counted = countingOwner();
     const label = await counted.owner.transaction('snapshot', async (tx) => {
-      const read = new ReadContext(tx, withoutTitle, publishedManifestOf(withoutTitle), folder, 'en', 'fixture', readProductTemplates(folder));
+      const read = new ReadContext(tx, withoutTitle, publishedManifestOf(withoutTitle), folder, 'en', 'fixture', held.templates, held.files, held.bodies, held.findings);
       return await read.resolve(
         { nodeId, uid: repositoryId, kind: 'demo.repository', key: { name: 'Not the canonical name' }, typeName: 'DemoRepository' },
         {}, read, { parentType: { name: 'DemoRepository' }, fieldName: 'label' } as never,

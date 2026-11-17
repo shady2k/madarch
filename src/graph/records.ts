@@ -202,9 +202,7 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
       const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
       for (const record of records) {
         const active = new Set(record.activeSources);
-        const slots = selectAssertionSlots(record.assertions, selector);
-        const ids = new Set([...slots.values()].flatMap(slot => slot.candidates).filter(assertion => active.has(assertion.source)).map(assertion => assertion.id));
-        const assertions = record.assertions.filter(assertion => ids.has(assertion.id) && assertion.evidence.length > 0);
+        const assertions = record.assertions.filter(assertion => assertion.active && active.has(assertion.source) && assertion.evidence.length > 0);
         if (assertions.length === 0) continue;
         const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
           `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid

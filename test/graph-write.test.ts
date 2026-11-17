@@ -367,6 +367,6 @@ test('bulk repeated edges keep shared endpoints, discriminators, typed values an
     const repeated = await owner.run(tx => tx.query<{ uid: string; discriminator: string }>("SELECT e.uid::text, e.discriminator FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='fixture.links' ORDER BY e.discriminator"));
     expect(repeated.rows).toEqual(identities.rows);
     const now = new Date().toISOString();
-    expect([...selectAssertionSlots(await read(), { validAt: now, recordedAt: now, contexts: [1] }).values()]).toHaveLength(6);
+    expect((await owner.run(tx => loadAssertions(tx, 'edge', 'fixture.links', ['$exists', 'weight'], undefined, { validAt: now, recordedAt: now, contexts: [1] }))).filter(row => row.selected)).toHaveLength(6);
   });
 });

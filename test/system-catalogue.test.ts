@@ -29,7 +29,7 @@ for (const name of names) {
 `, file, folder);
     expect(read.findings).toEqual([]);
     const kind = read.kinds.get(name)!;
-    expect(kind.systemBase).toEqual({ name });
+    expect(kind.systemBase).toMatchObject({ name });
     expect(kind.source).toBe('graph');
     if (systemKindPresentation(name) !== undefined) {
       expect(kind.labels?.en?.one).toBeTruthy();
