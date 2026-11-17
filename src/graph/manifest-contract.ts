@@ -15,7 +15,8 @@ export const MANIFEST_CONTRACT: GraphContract = {
   vertex: [...MANIFEST_CATEGORIES.map<VertexContract>((category) => ({
     name: `manifest.${category}`, table: generatedTableName(`manifest.${category}`, 'vertex'),
     key: ['name'], capability: 'manifest',
-    fields: [{ name: 'name', type: 'text' }, { name: 'declaration', type: 'text' }],
+    fields: [{ name: 'name', type: 'text' }, { name: 'declaration', type: 'text' },
+      ...(category === 'catalogue' ? [{ name: 'publication_fingerprint', type: 'text' as const, nullable: true }] : [])],
   })), WORKFLOW_STAGE], edge: [
     { name: WORKFLOW_STAGE.keyEdges![0]!.edge, table: generatedTableName(WORKFLOW_STAGE.keyEdges![0]!.edge, 'edge'),
       from: [WORKFLOW_STAGE.name], to: ['manifest.workflow'], repeats: false, cardinality: { from: 'many', to: 'one' },

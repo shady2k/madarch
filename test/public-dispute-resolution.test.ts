@@ -140,8 +140,8 @@ test('public MCP resolution authenticates person, refuses stale values, replays 
     await publishValidatedManifests(owner, manifests);
     const { writeProductEntity } = await import('../src/graph/start-entity.js');
     const startEntity = { kind: 'demo.repository', key: { name: 'fixture-product' }, values: {}, evidence: [] };
-    await writeProductEntity(owner, startEntity);
-    await writeProductEntity(owner, startEntity);
+    await owner.transaction('write', tx => writeProductEntity(tx, startEntity));
+    await owner.transaction('write', tx => writeProductEntity(tx, startEntity));
     await installSystemSources(owner, declared);
     await registerSystemSource(owner, declared, { type: 'plugin', installationKey: 'post-resolution-plugin', scope: 'fixture', version: '1', principalUid: installedPerson.uid });
     const { installAgentSession } = await import('../src/graph/system-installation.js');

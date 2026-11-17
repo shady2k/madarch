@@ -141,3 +141,76 @@ The full-catalogue performance gate remains blocked: an instrumented baseline fi
 ### ALX-101 parent-scoped starter identity correction
 
 The previous starter comparison excluded every draft with key edges unless it belonged to manifest metadata. Starter entries therefore rewrote all six assertions and their parent assertion. The comparison now resolves parent-scoped identity through the existing entity reference resolver. The renamed value-set regression reproduces 6 -> 12 vertex-subject rows and 1 -> 2 edge-subject rows before the fix; after the fix publication returns zero and both counts stay unchanged. Full-catalogue timing and committed-copy verification are recorded in the delivery report, not assumed from this focused test. No test deadline or fixture was reduced.
+
+### ALX-174 publication fingerprint transaction correction (not accepted)
+
+The publication fingerprint is written in the same READ COMMITTED transaction
+as declarations and the startup page. Its fast path reads under the graph
+write lock; source scope is checked against the store product identity. Current
+publication reads retain PostgreSQL timestamp precision. The glossary defines
+the invariant. Manifest authority is deferred to ALX-175.
+
+The held recovery test is unchanged and now passes. Abort-after-declarations,
+abort-after-page, and queued different declarations/pages are covered. Manual
+mutations moving the mark outside the transaction and reading it before the
+lock both fail the targeted cases. Independent gpt-6.1-terra review found two
+issues (timestamp precision and page-coherence coverage), both corrected.
+
+This increment is **not accepted**: full-starter runs exceeded the unchanged
+300-second limit on two retries, the full publication suite has timeout
+failures, and stop-databases has six daemon-start failures. Static checks pass
+with architecture 874/874 and no new debt. Smaller fast-path reads are bounded
+and equal (2 statements, 51 rows, zero writes/constraints), but final
+full-starter equality has not been established. Detailed commands, wall times,
+EXPLAIN and limits are in the ALX-174 hand-in report.
+
+### Quiet-node rerun of ALX-174 acceptance
+
+The earlier publication and full-starter timeout blockers are cleared without
+code changes or relaxed limits: manifest-publication is 33/0 in 239.62 s;
+catalog-any-growth is 7/0 in 257.74 s, with its full-starter case at 235.92 s
+under 300 s. Full-starter and larger-store repeats both use 2 statements and
+51 rows with no writes or immediate constraint checks, and unchanged graph
+sizes within each repeat. EXPLAIN ANALYZE BUFFERS for both final statements
+is retained in the hand-in evidence. Static architecture remains 874/874.
+
+Acceptance remains blocked by stop-databases: 10/6 in 140.42 s, with the same
+six failures on base c068ddb46 (10/6 in 134.25 s). All six fail alone under
+unchanged bounds as well. They fail daemon startup at 8 s or the serve-address
+wait at 20 s, not the outer 120 s case limit. This increment does not introduce
+those failures, but does not waive them. See the hand-in report for each test
+name, measured time, base comparison and evidence path. No task is closed.
+
+
+### ALX-215 review corrections for publication fingerprint E
+
+The single-waiter regression queues A behind a holder that publishes B and
+checks that waiter's declarations, product page, publication fingerprint and
+result before another publication can repair its state. Removing the explicit
+publication read cutoffs fails with `Expected: "B" / Received: "A"`; the
+production cutoffs are restored. AssertionSqlSelector now exposes
+`currentStatement: true`, used by the startup fingerprint read instead of
+rewriting SQL text. Its behavior test checks transaction time, statement time
+and explicit cutoffs. The startup page already uses explicit cutoffs.
+
+The sandbox rerun passes manifest publication (34 tests, 196 assertions),
+assertion reads (6 tests, 30 assertions) and catalogue growth (7 tests,
+111 assertions). The full-starter repeat case has observed sandbox times of 232.67 s,
+251.19 s (latest focused rerun), 258.70 s (lead's focused rerun) and 281.17 s
+(lead's full-file run) on this box: range 232.67–281.17 s, with worst observed
+headroom of 18.83 s under the unchanged 300 s bound. The latest focused run
+passes with 51/51 reads (1 test, 38 assertions).
+
+Known fragility for the lead's decision: the lead's first full-file run on
+`a73af0e2e` failed exact read equality at
+`test/catalog-any-growth.test.ts:133`: Expected 51 / Received 55, case
+281.17 s (whole file: 7 tests, about 305 s). The focused rerun passed 51/51
+at 258.70 s. The lead captured `readPublicationFingerprint` SQL with a stub
+executor on `729c2b6` and `a73af0e2e`; the strings are byte-identical (empty
+diff). This is evidence that the fragility is not caused by this change;
+exact read equality is sensitive to plan and visibility-map state. The
+assertion is not relaxed and no behavior is changed.
+
+Static checks pass with architecture 874/874 and no new debt. This is review
+correction evidence, not stage acceptance; the pre-existing stop-databases
+failures remain outside this increment.

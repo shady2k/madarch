@@ -31,6 +31,14 @@ declares 520. Every entity is of exactly one kind (the file
 graph, a catalogue entity (ru: сущность каталога), with its own page.
 _Avoid_: entity type, type (outside the GraphQL schema)
 
+**Publication fingerprint**:
+A mark on the product's manifest catalogue that identifies the semantic inputs
+of a completed publication: declarations, snapshots, starter values, contract,
+product page, publication revision and engine version. It is a claim about the
+graph, not just a hash of files. The mark is written in the same transaction as
+every change it certifies. The fast path reads it under the same graph write
+lock. One transaction is one publication generation.
+
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
 relations, zones, data categories, data entities, scenarios, environments and
