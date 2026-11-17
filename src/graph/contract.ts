@@ -47,7 +47,12 @@ export interface FieldContract {
   readonly schema?: JsonSchema;
   /** Whether the column admits null; a new column of a new table is NOT NULL unless this is true. */
   readonly nullable?: boolean;
-
+  /**
+   * Whether a read names its subject by this field's value (`madarch-64o5.74`): the generator indexes the
+   * field's value table, so a subject is found by its name through the assertions that state it and never by
+   * reading every subject of the kind.
+   */
+  readonly lookup?: boolean;
 }
 
 /** A dictionary holds each value once, with its own natural key. */

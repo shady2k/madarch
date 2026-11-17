@@ -209,12 +209,12 @@ test('a repository-free fill completion invalidates the store revision without a
 
     await createRun(owner, { runId: 'repository-free', product: 'empty-product', at: NOW });
     const before = await readStoreStamp(owner);
-    expect(await hasSuccessfulFill(owner)).toBe(false);
+    expect(await hasSuccessfulFill(owner, 'empty-product')).toBe(false);
     // A fill can finish after its final publication. No node, operation or publication changes here.
     await advanceRun(owner,{runId:'repository-free',event:{type:'plan',configuration:'digest',at:NOW+1}});
     await advanceRun(owner,{runId:'repository-free',event:{type:'start',stages:1,at:NOW+2}});
     await advanceRun(owner,{runId:'repository-free',event:{type:'complete',evidence:settled,at:NOW+3}});
-    expect(await hasSuccessfulFill(owner)).toBe(true);
+    expect(await hasSuccessfulFill(owner, 'empty-product')).toBe(true);
     const after = await readStoreStamp(owner);
     expect(after).not.toBe(before);
     expect(await readStoreStamp(owner)).toBe(after);

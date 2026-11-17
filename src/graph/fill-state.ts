@@ -2,7 +2,7 @@
 import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import { EMPTY_CONTRACT, type EdgeDraft, type EntityRefDraft, type GraphContract } from './contract.js';
+import { EMPTY_CONTRACT, assertionValueTableName, type EdgeDraft, type EntityRefDraft, type GraphContract } from './contract.js';
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { startupBinding } from './manifest-publication.js';
@@ -69,6 +69,7 @@ export type StoreStep<Record, State extends string> =
 
 
 const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
+type Identity = { readonly id: number; readonly uid: string; readonly key: Readonly<Record<string, unknown>> };
 /** A transaction must see assertions it just wrote after its transaction timestamp. */
 async function readGraphRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], subjectUids?: readonly string[]): Promise<AssertionRecord[]> {
   return await withSpan('graph.fill.records', {}, async () => {
@@ -76,12 +77,69 @@ async function readGraphRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: 
     return await readAssertions(tx,sort,kind,fields,{validAt:clock,recordedAt:clock,...(subjectUids===undefined?{}:{subjectUids})});
   });
 }
+/** The records of subjects already named, read without a pass over their kind. */
+export async function readRecordsIn(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], ids: readonly number[]): Promise<AssertionRecord[]> {
+  if (ids.length === 0) return [];
+  return await withSpan('graph.fill.records', {}, async () => {
+    const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+    const held = (await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT id::text AS id,uid::text AS uid,key FROM node WHERE id=ANY($1::bigint[])`, [ids])).rows;
+    const identities: Identity[] = held.map(row => ({ id: Number(row.id), uid: row.uid, key: row.key }));
+    return await readAssertions(tx,sort,kind,fields,{validAt:clock,recordedAt:clock,identities});
+  });
+}
+/**
+ * The subjects a lookup field's value names: value table → assertion → subject (decision 0039, item 25). The
+ * value tables are read by their primary key, and a lookup field's value column carries the generated index,
+ * so the walk meets the assertions that state this value and no other subject of the kind.
+ */
+export async function readSubjectsByValueIn(tx: SqlExecutor, kind: string, field: string, value: unknown): Promise<Identity[]> {
+  const table = assertionValueTableName(kind, 'vertex', field);
+  const held = await withSpan('graph.fill.lookup', { 'graph.kind': kind }, async () => await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT n.id::text AS id,n.uid::text AS uid,n.key
+    FROM "${table}" v
+    JOIN assertion_vertex_subject s ON s.assertion_id=v.assertion_id
+    JOIN edge e ON e.id=s.subject_edge_id
+    JOIN node n ON n.id=e.to_node
+    WHERE v.value=$1`, [value]));
+  return held.rows.map(row => ({ id: Number(row.id), uid: row.uid, key: row.key }));
+}
+/** The records of a kind whose lookup field states this value, as the field's current stream reads them. */
+async function readNamedRecords(tx: SqlExecutor, kind: keyof typeof namedFields, field: string, value: unknown): Promise<AssertionRecord[]> {
+  return await withSpan('graph.fill.lookup', {}, async () => {
+    const subjects = await readSubjectsByValueIn(tx, kind, field, value);
+    if (subjects.length === 0) return [];
+    const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+    return await readAssertions(tx, 'vertex', kind, namedFields[kind]!, { validAt: clock, recordedAt: clock, identities: subjects });
+  });
+}
+/** The node named by a uid, the first step of a read that starts from one node. */
+export async function readNodeIdIn(tx: SqlExecutor, uid: string): Promise<number | undefined> {
+  return await withSpan('graph.fill.node', {}, async () => {
+    const held = (await tx.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`, [uid])).rows[0];
+    return held === undefined ? undefined : Number(held.id);
+  });
+}
+/** Unit records by node id, with the fields every unit read holds; no id names every unit (a request without a subject). */
+export async function readUnitsIn(tx: SqlExecutor, ids?: readonly number[]): Promise<AssertionRecord[]> {
+  return ids === undefined ? await rows(tx, 'unit') : await readRecordsIn(tx, 'vertex', 'system.unit', fields.unit, ids);
+}
+/** An edge kind's rows met at one end: its own ends, never a pass over the kind. */
+export async function edgeRowsIn(tx: SqlExecutor, relation: string, end: 'from' | 'to', ids: readonly number[]): Promise<{ readonly id: number; readonly from: number; readonly to: number }[]> {
+  if (ids.length === 0) return [];
+  return await withSpan('graph.fill.edges', { 'graph.kind': relation }, async () => {
+    const held = await tx.query<{id:string;from_node:string;to_node:string}>(`SELECT e.id::text AS id,e.from_node::text AS from_node,e.to_node::text AS to_node
+      FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.${end === 'from' ? 'from_node' : 'to_node'}=ANY($2::bigint[]) ORDER BY e.id`, [relation, ids]);
+    return held.rows.map(row => ({ id: Number(row.id), from: Number(row.from_node), to: Number(row.to_node) }));
+  });
+}
 
 const fields = {
   chain: ['product_name', 'state', 'updated_at'],
   run: ['run_name', 'product_name', 'state', 'planning_epoch', 'planning_closed', 'has_selection', 'created_at', 'updated_at'],
-  unit: ['unit_name', 'product_name', 'stage_name', 'scope', 'generation', 'state', 'inputs_digest', 'fence', 'attempt', 'retries_left', 'retry_at', 'replacement_generation', 'skipped_because', 'published_at', 'stale_at', 'updated_at'],
+  unit: ['unit_name', 'product_name', 'stage_name', 'scope', 'generation', 'state', 'inputs_digest', 'fence', 'attempt', 'retries_left', 'retry_at', 'replacement_generation', 'skipped_because', 'published_at', 'stale_at', 'updated_at',
+    'produced_kind', 'producer', 'outcome', 'produced', 'reason', 'producer_version'],
 } as const;
+/** The field list of each kind a name is looked up in, keyed by the contract's kind name. */
+const namedFields: Readonly<Record<string, readonly string[]>> = { 'system.chain': fields.chain, 'system.run': fields.run, 'system.unit': fields.unit };
 const number = (value: unknown): number => Number(value);
 const optionalNumber = (value: unknown): number | null => value == null ? null : number(value);
 const text = (value: unknown): string => String(value);
@@ -122,17 +180,23 @@ export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string
   await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
 }
 async function rows(tx: SqlExecutor, kind: keyof typeof fields, subjectUids?: readonly string[]): Promise<AssertionRecord[]> { return await readGraphRecords(tx, 'vertex', `system.${kind}`, fields[kind],subjectUids); }
+/** The run a name states: value → assertions → subject, then the subject's current record (0039.25). */
 async function runNode(tx: SqlExecutor, runId: string): Promise<AssertionRecord | undefined> {
-  const identity=(await readGraphRecords(tx,'vertex','system.run',['run_name'])).find(row=>row.values['run_name']===runId);
-  return identity===undefined?undefined:(await rows(tx,'run',[identity.uid]))[0];
+  return (await readNamedRecords(tx, 'system.run', 'run_name', runId)).find(row => row.values['run_name'] === runId);
 }
+/** The unit a name (and optionally a generation) states, in the generation that is not replaced. */
 async function unitNode(tx: SqlExecutor, unitId: string, generation?: number): Promise<AssertionRecord | undefined> {
-  const candidates = (await readGraphRecords(tx,'vertex','system.unit',['unit_name','generation'])).filter(row => row.values['unit_name'] === unitId && (generation === undefined || number(row.values['generation']) === generation));
-  const replaced = generation === undefined ? new Set((await readGraphRecords(tx,'edge','system.unit-replacement',[])).map(link => link.from)) : new Set<number | undefined>();
+  const candidates = (await readNamedRecords(tx, 'system.unit', 'unit_name', unitId)).filter(row => generation === undefined || number(row.values['generation']) === generation);
+  // A replacement closes a generation: the link is written once and never withdrawn (`system.unit-replacement`).
+  const replaced = generation === undefined && candidates.length > 0
+    ? new Set((await edgeRowsIn(tx, 'system.unit-replacement', 'from', candidates.map(row => row.id))).map(edge => edge.from))
+    : new Set<number>();
   const current = candidates.filter(row => !replaced.has(row.id));
   if(current.length > 1) raise(`graph system.unit: ambiguous generation of ${unitId}`);
-  return current[0]===undefined?undefined:(await rows(tx,'unit',[current[0].uid]))[0];
+  return current[0];
 }
+/** The run's own record, by its name: what a read that starts from a run begins with. */
+export async function readRunNodeIn(tx: SqlExecutor, runId: string): Promise<AssertionRecord | undefined> { return await runNode(tx, runId); }
 /** Serialize admission with graph operations before taking the owning run identity lock. */
 export async function lockFillScope(tx: SqlExecutor, runId: string): Promise<void> {
   return await withSpan('graph.fill.lock', {}, async () => {
@@ -149,17 +213,18 @@ function chainRecord(row: AssertionRecord, activeRunId: string | null): ChainRec
   return {product: text(row.values['product_name']), state: requireState(CHAIN_STATES, row.values['state'], 'system.chain', row.uid), context: {activeRunId}, updatedAt: number(row.values['updated_at'])};
 }
 async function readChainIn(tx: SqlExecutor, product: string): Promise<{node: AssertionRecord; record: ChainRecord} | null> {
-  const node = (await rows(tx, 'chain')).find(row => row.values['product_name'] === product);
+  const node = (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product);
   if (!node) return null;
-  const active = (await readGraphRecords(tx, 'edge', 'system.chain-active-run', [])).find(row => row.from === node.id);
-  const run = active === undefined ? undefined : (await rows(tx,'run')).find(row => row.id === active.to);
+  // The chain's own edges: the run it follows, and the runs it has made.
+  const active = await withSpan('graph.fill.activeRun', {}, async () => (await tx.query<{to_node:string}>(`SELECT e.to_node::text AS to_node FROM edge e JOIN entity k ON k.id=e.entity_id
+    WHERE k.name='system.chain-active-run' AND e.from_node=$1::bigint AND graph_edge_active(e.id,k.name,1) ORDER BY e.id LIMIT 1`, [node.id])).rows[0]);
+  const run = active === undefined ? undefined : (await readRecordsIn(tx, 'vertex', 'system.run', ['run_name'], [Number(active.to_node)]))[0];
   return {node, record: chainRecord(node, run === undefined ? null : text(run.values['run_name']))};
 }
 async function selection(tx: SqlExecutor, run: AssertionRecord): Promise<RunSelection | undefined> {
   if (run.values['has_selection'] !== true) return undefined;
-  const edges = await readGraphRecords(tx, 'edge', 'system.run-selection-run', []);
-  const ids = new Set(edges.filter(e => e.to === run.id).map(e => e.from));
-  const entries = (await readGraphRecords(tx, 'vertex', 'system.run-selection', ['role','position','name','group_name','plugin_name','stage_unit_name'])).filter(row => ids.has(row.id)).sort((a,b) => number(a.values['position']) - number(b.values['position']));
+  const edges = await edgeRowsIn(tx, 'system.run-selection-run', 'to', [run.id]);
+  const entries = (await readRecordsIn(tx, 'vertex', 'system.run-selection', ['role','position','name','group_name','plugin_name','stage_unit_name'], edges.map(edge => edge.from))).sort((a,b) => number(a.values['position']) - number(b.values['position']));
   return {
     selected: entries.filter(row => row.values['role'] === 'selected').map(row => text(row.values['name'])),
     order: entries.filter(row => row.values['role'] === 'order').map(row => text(row.values['name'])),
@@ -170,14 +235,14 @@ async function selection(tx: SqlExecutor, run: AssertionRecord): Promise<RunSele
 async function runRecord(tx: SqlExecutor, row: AssertionRecord): Promise<RunRecord> {
   const v = row.values, selected = await selection(tx, row);
   const context: RunContext = {planningEpoch: number(v['planning_epoch']), planningClosed: v['planning_closed'] === true, ...(selected === undefined ? {} : {selection:selected})};
-  return {runId: text(v['run_name']), product: text(v['product_name']), state: requireState(RUN_STATES,v['state'],'system.run',row.uid), context, createdAt:number(v['created_at']),updatedAt:number(v['updated_at'])};
+  return {runId: text(v['run_name']), product: text(v['product_name']), state: requireState(RUN_STATES,v['state'],'system.run',row.uid), context, createdAt:number(v.created_at),updatedAt:number(v['updated_at'])};
 }
 async function unitRecord(tx: SqlExecutor, row: AssertionRecord): Promise<UnitRecord> {
-  const links = await readGraphRecords(tx, 'edge', 'system.unit-run', []);
-  const run = (await rows(tx,'run')).find(run => run.id === links.find(link => link.from === row.id)?.to);
+  const link = (await edgeRowsIn(tx, 'system.unit-run', 'from', [row.id]))[0];
+  const run = link === undefined ? undefined : (await readRecordsIn(tx, 'vertex', 'system.run', ['run_name'], [link.to]))[0];
   if (!run) raise(`graph system.unit, vertex ${row.uid}: no owning run`);
   const v = row.values, generation = number(v['generation']);
-  return {unitId:text(v['unit_name']),product:text(v['product_name']),runId:text(run.values['run_name']),stageId:text(v['stage_name']),scopeKey:text(v['scope']),generation,
+  return {unitId:text(v['unit_name']),product:text(v['product_name']),runId:text(run.values['run_name']),stageId:text(v['stage_name']),scopeKey:text(v.scope),generation,
     state:requireState(UNIT_STATES,v['state'],'system.unit',row.uid),inputsDigest:text(v['inputs_digest']),
     context:{generation,fence:number(v['fence']),attempt:number(v['attempt']),retriesLeft:number(v['retries_left']),retryAt:optionalNumber(v['retry_at']),replacedBy:optionalNumber(v['replacement_generation']),skippedBecause:v['skipped_because']==null?null:text(v['skipped_because'])},
     publishedAt:optionalNumber(v['published_at']),staleAt:optionalNumber(v['stale_at']),updatedAt:number(v['updated_at'])};
@@ -209,9 +274,13 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
     const current = await readChainIn(tx,options.product); if (!current) raise(`graph system.chain: no chain for ${options.product}`);
     const step=chainMachine.step(current.record,options.event); if(!step.ok)return {ok:false,record:current.record,refusal:step.refusal} as const;
     await putFillVertexIn(tx,'system.chain',current.node.uid,{state:step.state,updated_at:options.event.at});
-    const previous=(await readGraphRecords(tx,'edge','system.chain-active-run',[])).filter(e=>e.from===current.node.id);
     await bind(tx);
-    for(const held of previous){const target=(await rows(tx,'run')).find(r=>r.id===held.to)!;await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edgeRemovals:[{...fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)}]});}
+    // The chain's own edges: the run it followed, and the runs it has made.
+    for(const held of await edgeRowsIn(tx,'system.chain-active-run','from',[current.node.id])){
+      const target=(await readRecordsIn(tx,'vertex','system.run',['run_name'],[held.to]))[0];
+      if(target===undefined)raise(`graph system.run: no run at the chain's active edge ${String(held.to)}`);
+      await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edgeRemovals:[{...fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)}]});
+    }
     if(step.context.activeRunId!==null){const target=await runNode(tx,step.context.activeRunId);if(!target)raise(`graph system.run: no run ${step.context.activeRunId}`);await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)]});}
     await journal(tx,'chain',current.node.uid,step.transition,current.record.state,step.state,options.event.type,options.event.at);
     return {ok:true,record:{...current.record,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
@@ -234,12 +303,21 @@ export async function createRun(database:FillStateDatabase,options:{readonly run
 }
 export async function readRunIn(tx:SqlExecutor,runId:string):Promise<RunRecord|null>{const row=await runNode(tx,runId);return row?await runRecord(tx,row):null;}
 export async function readRun(database:FillStateSnapshotDatabase,runId:string):Promise<RunRecord|null>{return await snapshotRun(here(),database,`readRun(${runId})`,tx=>readRunIn(tx,runId));}
-async function runRecords(tx:SqlExecutor):Promise<RunRecord[]>{return await Promise.all((await rows(tx,'run')).map(row=>runRecord(tx,row)));}
+/** A product's runs, from its chain: the chain names its runs by its own edges (0039.25). */
+async function productRuns(tx: SqlExecutor, product: string): Promise<RunRecord[]> {
+  const chain = (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product);
+  if (chain === undefined) return [];
+  const edges = await edgeRowsIn(tx, 'system.chain-run', 'from', [chain.id]);
+  const runs = await readRecordsIn(tx, 'vertex', 'system.run', fields.run, edges.map(edge => edge.to));
+  return await Promise.all(runs.filter(row => row.values['product_name'] === product).map(row => runRecord(tx, row)));
+}
 const newest=(a:RunRecord,b:RunRecord):number=>b.createdAt-a.createdAt||byCodePoint(b.runId,a.runId);
-export async function readRuns(database:FillStateSnapshotDatabase,product:string):Promise<readonly RunRecord[]>{return await snapshotRun(here(),database,`readRuns(${product})`,async tx=>(await runRecords(tx)).filter(r=>r.product===product).sort(newest));}
+export async function readRuns(database:FillStateSnapshotDatabase,product:string):Promise<readonly RunRecord[]>{return await snapshotRun(here(),database,`readRuns(${product})`,async tx=>(await productRuns(tx,product)).sort(newest));}
 export async function readLatestRun(database:FillStateSnapshotDatabase,product:string):Promise<RunRecord|null>{return (await readRuns(database,product))[0]??null;}
-export async function readLiveRun(database:FillStateSnapshotDatabase):Promise<RunRecord|null>{return await snapshotRun(here(),database,'readLiveRun',async tx=>(await runRecords(tx)).filter(r=>['created','planning','running','pausing','cancelling'].includes(r.state)).sort(newest)[0]??null);}
-export async function hasSuccessfulFill(database:FillStateSnapshotDatabase):Promise<boolean>{return await snapshotRun(here(),database,'hasSuccessfulFill',async tx=>(await rows(tx,'run')).some(r=>r.values['state']==='succeeded'));}
+const LIVE_RUN_STATES: readonly RunState[] = ['created','planning','running','pausing','cancelling'];
+export async function readLiveRun(database:FillStateSnapshotDatabase,product:string):Promise<RunRecord|null>{return await snapshotRun(here(),database,'readLiveRun',async tx=>(await productRuns(tx,product)).filter(r=>LIVE_RUN_STATES.includes(r.state)).sort(newest)[0]??null);}
+/** Whether a run of this product has ever succeeded: the chain's runs, never every run of the store. */
+export async function hasSuccessfulFill(database:FillStateSnapshotDatabase,product:string):Promise<boolean>{return await snapshotRun(here(),database,'hasSuccessfulFill',async tx=>(await productRuns(tx,product)).some(r=>r.state==='succeeded'));}
 export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await withSpan('graph.fill.stamp', {}, async () => await snapshotRun(here(),database,'readStoreStamp',async tx=>{const result=await tx.query<{stamp:string}>("SELECT coalesce(max(recorded_sequence)::text,'-') AS stamp FROM assertion");return result.rows[0]?.stamp??'-';}));}
 export async function advanceRun(database:FillStateDatabase,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState}):Promise<StoreStep<RunRecord,RunState>>{
   const at=here();return await run(at,database,`advanceRun(${options.runId})`,async tx=>{
@@ -266,15 +344,32 @@ export async function readUnitIn(tx:SqlExecutor,unitId:string):Promise<UnitRecor
 export async function readUnitGenerationIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitRecord|null>{const node=await unitNode(tx,unitId,generation);return node?await unitRecord(tx,node):null;}
 export async function readUnit(database:FillStateSnapshotDatabase,unitId:string):Promise<UnitRecord|null>{return await snapshotRun(here(),database,`readUnit(${unitId})`,tx=>readUnitIn(tx,unitId));}
 export async function readUnitGeneration(database:FillStateSnapshotDatabase,unitId:string,generation:number):Promise<UnitRecord|null>{return await snapshotRun(here(),database,`readUnitGeneration(${unitId}/${generation})`,tx=>readUnitGenerationIn(tx,unitId,generation));}
-async function allUnitRecords(tx:SqlExecutor,currentOnly:boolean):Promise<UnitRecord[]>{
-  const all=await rows(tx,'unit');
-  const replaced = currentOnly ? new Set((await readGraphRecords(tx,'edge','system.unit-replacement',[])).map(link=>link.from)) : new Set<number | undefined>();
+async function recordsOfUnits(tx:SqlExecutor,ids:readonly number[],currentOnly:boolean):Promise<UnitRecord[]>{
+  const all=await readRecordsIn(tx,'vertex','system.unit',fields.unit,ids);
+  // A replacement closes a generation: the link is written once and never withdrawn (`system.unit-replacement`).
+  const replaced = currentOnly && all.length > 0 ? new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from)) : new Set<number>();
   return (await Promise.all(all.filter(row=>!replaced.has(row.id)).map(row=>unitRecord(tx,row)))).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
 }
-export async function readRunUnitsIn(tx:SqlExecutor,runId:string,currentOnly=true):Promise<readonly UnitRecord[]>{return (await allUnitRecords(tx,currentOnly)).filter(r=>r.runId===runId);}
+/** A run's units, from the run: its own `system.unit-run` edges name them. */
+export async function readRunUnitsIn(tx:SqlExecutor,runId:string,currentOnly=true):Promise<readonly UnitRecord[]>{
+  const run = await runNode(tx, runId); if (run === undefined) return [];
+  return await recordsOfUnits(tx, (await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from), currentOnly);
+}
 export async function readRunUnits(database:FillStateSnapshotDatabase,runId:string):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readRunUnits(${runId})`,tx=>readRunUnitsIn(tx,runId));}
 export async function readRunUnitHistory(database:FillStateSnapshotDatabase,runId:string):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readRunUnitHistory(${runId})`,tx=>readRunUnitsIn(tx,runId,false));}
-export async function readProductUnits(database:FillStateSnapshotDatabase,options:{readonly product:string;readonly state:UnitState}):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readProductUnits(${options.product})`,async tx=>(await allUnitRecords(tx,true)).filter(r=>r.product===options.product&&r.state===options.state));}
+/**
+ * A product's units in one state. No subject names this set — the product's units are not one node's edges —
+ * so it reads the kind; it is not on the fill service's poll path (madarch-64o5.74 leaves `prepare-store.ts:40`
+ * and the whole-kind product reads aside).
+ */
+export async function readProductUnits(database:FillStateSnapshotDatabase,options:{readonly product:string;readonly state:UnitState}):Promise<readonly UnitRecord[]>{
+  return await snapshotRun(here(),database,`readProductUnits(${options.product})`,async tx=>{
+    const all=await rows(tx,'unit');
+    const replaced=new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from));
+    const current=all.filter(row=>!replaced.has(row.id));
+    return (await Promise.all(current.map(row=>unitRecord(tx,row)))).filter(r=>r.product===options.product&&r.state===options.state).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  });
+}
 export async function advanceUnitIn(tx:SqlExecutor,options:{readonly unitId:string;readonly event:UnitAdvanceEvent},context?:GraphWriteContext):Promise<StoreStep<UnitRecord,UnitState>>{
   await acquireGraphWriteLock(tx);
   const node=await unitNode(tx,options.unitId);if(!node)raise(`graph system.unit: no unit ${options.unitId}`);

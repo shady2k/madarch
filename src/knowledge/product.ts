@@ -320,13 +320,13 @@ export class KnowledgeProduct {
       const owner: DatabaseOwner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.options.productFolder);
-      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
+      const identity = this.product();
+      if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner, identity.name))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
       if (read.manifest.findings.length > 0) {
         const first = read.manifest.findings[0]!;
         throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
       }
-      const identity = this.product();
-      if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const writing = action === 'create' || action === 'update' || action === 'delete';
       const by = writing ? await localIdentity(this.folder, { ...process.env, ...this.options.env }) : undefined;
 
@@ -356,9 +356,9 @@ export class KnowledgeProduct {
       const owner: DatabaseOwner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.folder);
-      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const identity = this.product();
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner, identity.name))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
       const result = await importAuthored(this.folder, authoredImportHost(owner, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'authored-import')), read.manifest, identity.name, `person:${by.name} <${by.email}>`);
       this.generation += 1;
@@ -1748,7 +1748,7 @@ export class KnowledgeProduct {
     try {
       const owner: DatabaseOwner = await this.open();
       if (await authoredHistoryPresent(owner)) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
-      if (await readLiveRun(owner) !== null) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
+      if (await readLiveRun(owner, product.name) !== null) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
       const manifests = validateProductManifests(product.folder);
       if (!manifests.ok) return { ok: false, message: manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n') };
       const contract = withManifestContract(manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest));
@@ -2014,7 +2014,7 @@ export class KnowledgeProduct {
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: await hasSuccessfulFill(this.reader!.owner),
+      filled: await hasSuccessfulFill(this.reader!.owner, product.name),
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
       fill: { ...fill, ...(run === null ? {} : { run }) },
       writer: this.writerOf(),

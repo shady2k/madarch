@@ -45,6 +45,8 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
     }
     const checks: string[] = [];
     const names: string[] = [];
+    // A lookup field is read by value: its value table is indexed so a name finds its subjects, never a whole kind.
+    const lookups: string[] = [];
     for (const sort of ['vertex','edge'] as const) {
       for (const kind of contract[sort]) {
         await tx.query(`INSERT INTO entity(name,sort,repeats,discriminator) VALUES($1,$2,$3,$4)
@@ -54,6 +56,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         for (const field of fields) {
           const table = assertionValueTableName(kind.name,sort,field.name);
           names.push(table);
+          if (field.lookup === true) lookups.push(table);
           await tx.query(`CREATE TABLE IF NOT EXISTS "${table}" (assertion_id bigint PRIMARY KEY REFERENCES assertion(assertion_id), value ${sqlType(field)}${field.nullable === true ? '' : ' NOT NULL'})`);
           await installTrigger(tx, table, 'immutable', 'graph_immutable', 27, false,
         `CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_immutable()`);
@@ -229,6 +232,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         END LOOP;
         RETURN NULL;
       END $$`);
+    for (const table of lookups) await tx.query(`CREATE INDEX IF NOT EXISTS "${table}_lookup" ON "${table}"(value)`);
     const keyTables = contract.vertex.flatMap(kind => kind.key.map(name => assertionValueTableName(kind.name,'vertex',name)));
     for (const table of ['node','assertion','assertion_vertex_subject',...keyTables]) {
       await installTrigger(tx, table, 'immutable_key', 'graph_key_check', 5, true,

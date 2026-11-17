@@ -11,6 +11,7 @@ import { loadAssertions } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { readKindAssertions } from './records.js';
+import { edgeRowsIn, readRunNodeIn } from './fill-state.js';
 import { withSpan } from '../obs/trace.js';
 
 /** Reconstruct parent-key references from active graph edges, never scalar names. */
@@ -151,15 +152,15 @@ export interface PartitionReference {
 }
 
 async function completedSnapshot(tx: SqlExecutor, runId: string, unitId: string, generation?: number, stageScope?: string): Promise<PluginSnapshot> {
-  const runs = await readKindAssertions(tx, 'vertex', 'system.run', ['run_name']);
-  const run = runs.filter(row => row.values['run_name'] === runId);
-  if (run.length !== 1) throw new Error(`${import.meta.path}:136: expected one graph run ${runId}, found ${run.length}`);
-  const relations = await readKindAssertions(tx, 'edge', 'system.unit-run', []);
-  const inherited = await readKindAssertions(tx, 'edge', 'system.run-inherited-unit', []);
-  const ids = new Set([...relations.filter(edge => edge.to === run[0]!.id).map(edge => edge.from), ...inherited.filter(edge => edge.from === run[0]!.id).map(edge => edge.to)]);
-  const units = await readKindAssertions(tx, 'vertex', 'system.unit', ['unit_name', 'state', 'scope', 'generation']);
-  const matches = units.filter(unit => ids.has(unit.id)
-    && (stageScope === undefined ? unit.values['unit_name'] === unitId : unit.values['scope'] === stageScope)
+  // From the run: its own name, its own units and the units it inherited (0039.25).
+  const run = await readRunNodeIn(tx, runId);
+  if (run === undefined) throw new Error(`${import.meta.path}:136: expected one graph run ${runId}, found 0`);
+  const relations = await edgeRowsIn(tx, 'system.unit-run', 'to', [run.id]);
+  const inherited = await edgeRowsIn(tx, 'system.run-inherited-unit', 'from', [run.id]);
+  const ids = new Set([...relations.map(edge => edge.from), ...inherited.map(edge => edge.to)]);
+  const members = await readKindAssertions(tx, 'vertex', 'system.unit', ['unit_name', 'state', 'scope', 'generation'], { subjectIds: [...ids] });
+  const matches = members.filter(unit =>
+    (stageScope === undefined ? unit.values['unit_name'] === unitId : unit.values['scope'] === stageScope)
     && (generation === undefined || unit.values['generation'] === generation)
     && unit.values['state'] === 'published');
   if (matches.length !== 1) throw new Error(`${import.meta.path}:141: expected one completed graph unit ${runId}/${unitId}, found ${matches.length}`);
@@ -181,17 +182,17 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
     const contract = graphContractOf(manifest);
     const declaration = contract.vertex.find(vertex => vertex.name === kind);
     if (declaration === undefined) throw new Error(`${import.meta.path}:163: snapshot kind ${kind} is undeclared`);
-    const parentEdges = await readKindAssertions(tx, 'edge', 'system.unit-parent', [], snapshot);
-    const unitNodes = await tx.query<{ id: number; uid: string }>(`SELECT n.id,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.unit'`);
-    const units = new Set([snapshot.unitUid]);
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const edge of parentEdges) {
-        const parent = unitNodes.rows.find(unit => Number(unit.id) === edge.to)?.uid;
-        const child = unitNodes.rows.find(unit => Number(unit.id) === edge.from)?.uid;
-        if (parent !== undefined && child !== undefined && units.has(parent) && !units.has(child)) { units.add(child); changed = true; }
-      }
-    }
+    // One recursive walk of the sealed children from the snapshot's unit, never a read of every unit.
+    const root = (await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid=$1::uuid', [snapshot.unitUid])).rows[0];
+    const units = new Set<string>(root === undefined ? [] : (await tx.query<{ uid: string }>(`WITH RECURSIVE tree(id) AS (
+      SELECT $1::bigint
+      UNION
+      SELECT e.from_node FROM tree parent JOIN edge e ON e.to_node=parent.id
+        JOIN entity k ON k.id=e.entity_id AND k.name='system.unit-parent'
+        JOIN node child ON child.id=e.from_node
+        JOIN entity ck ON ck.id=child.entity_id AND ck.name='system.unit'
+      WHERE graph_edge_active(e.id,k.name,1)
+    ) SELECT n.uid::text AS uid FROM tree JOIN node n ON n.id=tree.id`, [root.id])).rows.map(row => row.uid));
     const assertions = await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)], undefined, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1], unitUids: [...units] });
     const selected = assertions.filter(assertion => assertion.selected === true);
     const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
