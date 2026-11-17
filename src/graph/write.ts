@@ -104,12 +104,15 @@ function permitted(binding:WriteCapability,kind:string,property:string,retract=f
     throw new Error(`${WHERE}:30: FORBIDDEN_SOURCE: ${kind}.${property}; create an evidenced question instead of changing another source`);
 }
 async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Promise<string>{
+ return await withSpan('graph.write.entityId',{},async()=>{
  const cache=await immutableLookups(executor),key=sort+':'+kind;
  const known=cache.kinds.get(key);if(known!==undefined)return known;
  const row=(await executor.query<{id:string}>(`SELECT id::text AS id FROM entity WHERE name=$1 AND sort=$2`,[kind,sort])).rows[0];
  if(!row)throw new Error(`${WHERE}:35: UNKNOWN_KIND ${kind}`);cache.kinds.set(key,row.id);return row.id;
+ });
 }
 async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ return await withSpan('graph.write.identity',{},async()=>{
  const cache=await immutableLookups(executor),known=cache.vertices.get(uid);
  if(known!==undefined){
   if(known.kind!==kind||!sameValue(known.key,key)||known.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
@@ -124,6 +127,7 @@ async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly
  await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[row.id]);
  if(!cache.vertices.has(uid))cache.vertices.set(uid,{...row,uid,key:row.key as Record<string,unknown>,parents:[]});
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
+ });
 }
 /** Installation declares principal/source/operation identities through this same writer. */
 export async function bootstrapWriteIdentity(executor:SqlExecutor,kind:string,uid:string,productUid:string,context=1):Promise<void>{
@@ -206,6 +210,7 @@ export async function activateBoundIdentities(executor:SqlExecutor,declared:Grap
 }
 function edgeUid(kind:string,fromUid:string,toUid:string,discriminator:string):string{return keyUid(keyUid('madarch.catalogue.kind',[kind]),[fromUid,toUid,discriminator]);}
 async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,discriminator:string,context:number):Promise<string>{
+ return await withSpan('graph.write.putEdge',{},async()=>{
  const kindId=await entityId(executor,kind,'edge');
  const nodes=new Map<string,string>();
  const missing=[...new Set([from,to])].filter(id=>!nodes.has(id));
@@ -213,6 +218,7 @@ async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,di
  const uid=edgeUid(kind,nodes.get(from)!,nodes.get(to)!,discriminator);
  const made=await executor.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) VALUES($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5,$6) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[uid,kindId,from,to,discriminator,context]);
  return made.rows[0]?.id??(await executor.query<{id:string}>(`SELECT id::text AS id FROM edge WHERE uid=$1::uuid`,[uid])).rows[0]!.id;
+ });
 }
 export interface AssertionInput {
  readonly sort:'vertex'|'edge'; readonly kind:string; readonly subjectId:string; readonly property:string;
@@ -237,6 +243,7 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
  return (await admitAssertionInputs(executor,declared,[input],context))[0]!;
 }
 async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,inputs:AssertionInput[],context:number):Promise<string[]>{
+ return await withSpan('graph.write.admitAssertionInputs',{},async()=>{
  const contract=withAssertionContract(declared),binding=requireWriteCapability(executor);const version=checkBinding(binding,contract,context);
  await acquireGraphWriteLock(executor);
  const {entities,instant}=await immutableCatalogue(executor,contract);
@@ -263,6 +270,7 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
  await checkBatchScope(executor,contract,binding,subjectNodes,[],context);
  const assertions=await insertBatchAssertions(executor,{contract,version},inputs,nodes,entities,binding,context,instant);
  return assertions.map(input=>input.uid);
+ });
 }
 export interface GraphDrafts {readonly vertices:readonly VertexDraft[];readonly removals:readonly VertexRemovalDraft[];readonly edges?:readonly EdgeDraft[];readonly edgeRemovals?:readonly EdgeRemovalDraft[]}
 interface BatchNode extends Record<string,unknown> {id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;parents:{kind:string;uid:string;edge:string;direction:string}[]}
@@ -274,6 +282,7 @@ interface BatchAssertion extends AssertionInput {uid:string;id?:string;repeat?:b
  * → removals. Within a phase, reject the first draft in input order.
  * Admit at one instant and keep database work set based (0039.25–29). */
 async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,drafts:GraphDrafts,context:number):Promise<number>{
+ return await withSpan('graph.write.publishBatch',{},async()=>{
  const {contract,version}=prepared,binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
  if(drafts.vertices.length===0&&(drafts.edges?.length??0)===0){await acquireGraphWriteLock(executor);return 0;}
  const kinds=new Map(contract.vertex.map(kind=>[kind.name,kind]));
@@ -406,12 +415,16 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   cache.vertices.set(node.uid,{...node,parents:parents.length?parents:node.parents});
  }
  return written;
+ });
 }
 async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number,nodes:Map<string,BatchNode>):Promise<void>{
+ return await withSpan('graph.write.checkBatchActivity',{},async()=>{
  const inactive=(await executor.query<{uid:string}>(`SELECT input.uid::text FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text) WHERE NOT graph_vertex_active(input.id,input.kind,$2::bigint)`,[JSON.stringify([...needActive.values()].map(input=>({...input,id:nodes.get(input.uid)!.id}))),context])).rows;
  if(inactive.length){const missing=new Set(inactive.map(node=>node.uid));const first=[...needActive.values()].find(node=>missing.has(node.uid))!;throw new Error(`${WHERE}:73: ${first.error} ${first.kind} ${first.uid}`);}
+ });
 }
 async function checkBatchScope(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,subjectNodes:string[],plannedEdges:string[],context:number):Promise<void>{
+ return await withSpan('graph.write.checkBatchScope',{},async()=>{
  const scope=(await executor.query<{id:string}>(`WITH RECURSIVE members(subject,id) AS (
  SELECT id,id FROM unnest($4::bigint[]) x(id) WHERE $1::uuid<>$5::uuid AND $3::bigint>0 UNION
  SELECT m.subject,link.id FROM members m CROSS JOIN LATERAL (
@@ -425,9 +438,11 @@ async function checkBatchScope(executor:SqlExecutor,contract:GraphContract,bindi
  ) link
  ) SELECT id::text FROM unnest($4::bigint[]) subject(id) WHERE $1::uuid<>$5::uuid AND NOT EXISTS(SELECT 1 FROM members m JOIN node n ON n.id=m.id WHERE m.subject=subject.id AND n.uid=$1::uuid)`,[binding.scope,JSON.stringify(contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({edge:role.edge,direction:role.direction})))),context,[...new Set(subjectNodes)],binding.productUid,plannedEdges])).rows;
  if(scope.length)throw new Error(`${WHERE}:128: SOURCE_FORBIDDEN assertion outside authenticated scope`);
+ });
 }
 
 async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContract,plans:AssertionInput[],nodes:Map<string,BatchNode>,entities:Map<string,string>,binding:WriteCapability,context:number,instant:number):Promise<BatchAssertion[]>{
+ return await withSpan('graph.write.insertBatchAssertions',{},async()=>{
  const {contract}=prepared;
  const nodeIds=new Map([...nodes.values()].map(node=>[node.id,node]));
  const assertions:BatchAssertion[]=plans.map(input=>{
@@ -552,6 +567,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,x.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint,discriminator text) ON CONFLICT DO NOTHING`,[JSON.stringify(extraEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
  for(const [key,values] of immutableValues)if(!cache.values.has(key)&&values.length&&values.every(value=>sameValue(value,values[0])))cache.values.set(key,values[0]);
  return assertions;
+ });
 }
 
 export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphContract,drafts:GraphDrafts,context=1,_options:Record<string,unknown>={}):Promise<number>{
@@ -576,11 +592,13 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  });
 }
 async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<void>{
+ return await withSpan('graph.write.retractPropertyStreams',{},async()=>{
  const binding=requireWriteCapability(executor);
  const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
  const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
  const languages=(await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context])).rows;
  await admitAssertionInputs(executor,contract,(languages.length?languages:[{language:null}]).map(({language})=>({sort,kind,subjectId,property,operation:'retract',language,evidence})),context);
+ });
 }
 export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
  return await withSpan('graph.vertex.retract',{},async()=>{
