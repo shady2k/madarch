@@ -1,13 +1,14 @@
+import { createHash } from 'node:crypto';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { manifestDeclaration, withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
-import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { validateProductManifests, publishValidatedManifests, readPublishedManifest, publicationFingerprint } from '../src/graph/manifest-publication.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
@@ -20,6 +21,7 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { personBinding } from '../src/graph/system-installation.js';
 import { activateGraphProducer, bindGraphProducer, registerGraphPrincipal } from '../src/graph/producer-binding.js';
 import { newUid } from '../src/graph/uid.js';
+import { writeContractOf } from '../src/graph/graph-writes.js';
 import { publicationCounts } from './publication-counts.js';
 
 
@@ -41,8 +43,200 @@ test('ALX-132 counter: unchanged catalogue is a bounded read with no writer', as
   } finally { await owner.close(); }
 }, 30_000);
 
+test('ALX-132 repeat reads are exactly equal with 200 foreign product vertices', async () => {
+  const folder = fixture();
+  const foreign = { name: 'fixture.foreign', table: generatedTableName('fixture.foreign', 'vertex'), capability: 'fixture',
+    key: ['name'], fields: [{ name: 'name', type: 'text' as const }, { name: 'value', type: 'text' as const }] };
+  const contract = withManifestContract({ ...EMPTY_CONTRACT, vertex: [foreign] });
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    const read = validateProductManifests(folder);
+    if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+    await publishValidatedManifests(owner, read.value, contract);
+    const before = await publicationCounts(owner, measured => publishValidatedManifests(measured, read.value!, contract));
+    await owner.transaction('write', async tx => {
+      const { contract: installed } = await startupBinding(tx, contract, 'foreign');
+      await publishGraphDrafts(tx, installed, { vertices: Array.from({ length: 200 }, (_, index) => ({
+        kind: foreign.name, key: { name: String(index) }, values: { value: 'foreign' }, producer: 'foreign', producerVersion: '1',
+      })), removals: [] });
+    });
+    const after = await publicationCounts(owner, measured => publishValidatedManifests(measured, read.value!, contract));
+    console.log('ALX-132 foreign equality', JSON.stringify({ before, after }));
+    expect(before.result).toBe(0);
+    expect(after.result).toBe(0);
+    expect(after.writes).toBe(0);
+    expect(after.reads).toBe(before.reads);
+  } finally { await owner.close(); }
+}, 60_000);
+
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+function publicationFixture() {
+  const folder = fixture();
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  return read.value;
+}
+
+for (const input of ['vertices', 'snapshots', 'starterValues', 'edges', 'contract'] as const) {
+  test(`ALX-132 invalidation: ${input}`, async () => {
+    const validated = publicationFixture();
+    const valueKind = { name: 'fixture.value', table: generatedTableName('fixture.value', 'vertex'), capability: 'fixture', key: ['name'],
+      fields: [{ name: 'name', type: 'text' as const }, { name: 'label', type: 'text' as const }] };
+    const contract = withManifestContract({ ...EMPTY_CONTRACT, vertex: [valueKind] });
+    const starter = { kind: valueKind.name, key: { name: 'one' }, values: { label: 'old' }, producer: 'manifest', producerVersion: '1' };
+    const initial = { ...validated, starterValues: [starter] };
+    const owner = await createTestDatabaseOwner({ graphContract: contract });
+    try {
+      await publishValidatedManifests(owner, initial, contract);
+      let changed = initial;
+      let authored = contract;
+      if (input === 'vertices') changed = { ...initial, vertices: initial.vertices.map(draft => draft.kind === 'manifest.kind' ? { ...draft, values: { declaration: '{"changed":true}' } } : draft) };
+      if (input === 'snapshots') changed = { ...initial, snapshots: initial.snapshots.map((draft, index) => index === 0 ? { ...draft, key: { ...draft.key, digest: createHash('sha256').update('changed snapshot').digest('hex') }, values: { ...draft.values, content: 'changed snapshot' } } : draft) };
+      if (input === 'starterValues') changed = { ...initial, starterValues: [{ ...starter, values: { label: 'new' } }] };
+      if (input === 'edges') changed = { ...initial, edges: [{ kind: 'manifest.depends-on', from: { kind: 'manifest.kind', key: { name: 'term' } }, to: { kind: 'manifest.kind', key: { name: 'term' } }, values: { declaration: 'changed edge' }, producer: 'manifest', producerVersion: '1' }] };
+      if (input === 'contract') authored = { ...contract, vertex: contract.vertex.map(kind => kind.name === valueKind.name ? { ...kind, fields: kind.fields.map(field => field.name === 'label' ? { ...field, nullable: true } : field) } : kind) };
+      const before = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']));
+      expect(await publishValidatedManifests(owner, changed, authored)).toBeGreaterThan(0);
+      if (input === 'vertices') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).toBe('{"changed":true}');
+      if (input === 'snapshots') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content']))).some(row => row.values['content'] === 'changed snapshot')).toBe(true);
+      if (input === 'starterValues') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'])))[0]!.values['label']).toBe('new');
+      if (input === 'edges') expect((await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.depends-on', ['declaration'])))[0]!.values['declaration']).toBe('changed edge');
+      if (input === 'contract') {
+        const after = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']));
+        expect(after[0]!.values['publication_fingerprint']).not.toBe(before[0]!.values['publication_fingerprint']);
+      }
+      expect(await publishValidatedManifests(owner, changed, authored)).toBe(0);
+    } finally { await owner.close(); }
+  }, 60_000);
+}
+
+test('ALX-132 publication revision and engine version change the fingerprint', () => {
+  const validated = publicationFixture();
+  const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
+  const original = publicationFingerprint(validated, contract, null, 1, '1.0.0');
+  expect(publicationFingerprint(validated, contract, null, 2, '1.0.0')).not.toBe(original);
+  expect(publicationFingerprint(validated, contract, null, 1, '2.0.0')).not.toBe(original);
+});
+
+
+test('ALX-132 reset republishes the catalogue and marks the new graph', async () => {
+  const validated = publicationFixture();
+  const contract = withManifestContract(EMPTY_CONTRACT);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await publishValidatedManifests(owner, validated);
+    await prepareTestStore(owner, { contract, reset: true });
+    expect(await publishValidatedManifests(owner, validated)).toBeGreaterThan(0);
+    expect((await owner.run(tx => readPublishedManifest(tx)))!.kinds.has('term')).toBe(true);
+    expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!.values['publication_fingerprint']).toBeDefined();
+  } finally { await owner.close(); }
+}, 60_000);
+
+test('ALX-132 a foreign fingerprint cannot authorize the manifest fast path', async () => {
+  const validated = publicationFixture();
+  const contract = withManifestContract(EMPTY_CONTRACT);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const fingerprint = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!.values['publication_fingerprint'];
+    // Trusted startup can install another source with broad host authority; producer text is not authority.
+    await owner.transaction('write', async tx => {
+      const { contract: installed } = await startupBinding(tx, contract, 'foreign');
+      await publishGraphDrafts(tx, installed, { vertices: [{ kind: 'manifest.catalogue', key: { name: 'product' },
+        values: { publication_fingerprint: fingerprint }, selectedFields: ['publication_fingerprint'], producer: 'foreign', producerVersion: '1' }], removals: [] });
+    });
+    expect(await publishValidatedManifests(owner, validated)).toBeGreaterThan(0);
+    const catalogue = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!;
+    const selected = catalogue.selectedAssertions.find(a => a.property === 'publication_fingerprint')!;
+    const source = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'plugin', ['installation']))).find(row => row.uid === selected.source)!;
+    expect(source.values['installation']).toBe(JSON.stringify(['system-engine', 'foreign']));
+    // The writer reuses manifest's identical older assertion; foreign selection must still force the next full pass.
+    expect(await publishValidatedManifests(owner, validated)).toBeGreaterThan(0);
+    expect((await owner.run(tx => readPublishedManifest(tx)))!.kinds.has('term')).toBe(true);
+  } finally { await owner.close(); }
+}, 60_000);
+
+for (const interrupt of ['inside declarations', 'after declarations'] as const) {
+  test(`ALX-132 rollback: ${interrupt}`, async () => {
+    const initial = publicationFixture();
+    const changed = { ...initial, vertices: initial.vertices.map(draft => draft.kind === 'manifest.kind' ? { ...draft, values: { declaration: '{"interrupted":true}' } } : draft) };
+    const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+    try {
+      await publishValidatedManifests(owner, initial);
+      const marker = async () => (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!.values['publication_fingerprint'];
+      const before = await marker();
+      const controller = new AbortController();
+      const interrupted: typeof owner = { ...owner, transaction: async (kind, body, options) => {
+        const result = await owner.transaction(kind, async tx => {
+          const result = await body(tx);
+          if (interrupt === 'inside declarations') throw new Error('injected rollback');
+          return result;
+        }, options);
+        controller.abort(new Error('injected interruption after commit'));
+        return result;
+      } };
+      await expect(publishValidatedManifests(interrupted, changed, undefined, controller.signal)).rejects.toThrow('injected');
+      expect(await marker()).toBe(before);
+      expect(await publishValidatedManifests(owner, changed)).toBeGreaterThan(0);
+      expect(await marker()).not.toBe(before);
+      expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).toBe('{"interrupted":true}');
+      expect(await publishValidatedManifests(owner, changed)).toBe(0);
+    } finally { await owner.close(); }
+  }, 60_000);
+}
+
+
+test('ALX-132 product name invalidates the page and its evidence is catalogue snapshots', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: before\n');
+  writeFolderManifest(folder, `kinds:
+  product:
+    source: graph
+    title: title
+    key: [slug]
+    fields:
+      - { name: slug, type: text, producers: [start] }
+      - { name: title, type: text, producers: [start] }
+`);
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const contract = writeContractOf(read.value.manifest);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await publishValidatedManifests(owner, read.value);
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: after\n');
+    expect(await publishValidatedManifests(owner, read.value)).toBeGreaterThan(0);
+    const page = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'product', ['title'])))[0]!;
+    expect(page.values['title']).toBe('after');
+    const title = page.selectedAssertions.find(assertion => assertion.property === 'title')!;
+    const snapshots = await owner.run(tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content']));
+    expect(title.evidence.length).toBeGreaterThan(0);
+    expect(title.evidence.every(uid => snapshots.some(snapshot => snapshot.uid === uid))).toBe(true);
+    expect(await publishValidatedManifests(owner, read.value)).toBe(0);
+  } finally { await owner.close(); }
+}, 60_000);
+
+
+test('ALX-132 interrupted B followed by A cannot reuse the stale A marker', async () => {
+  const initial = publicationFixture();
+  const changed = { ...initial, vertices: initial.vertices.map(draft => draft.kind === 'manifest.kind' ? { ...draft, values: { declaration: '{"interrupted":true}' } } : draft) };
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, initial);
+    const controller = new AbortController();
+    const interrupted: typeof owner = { ...owner, transaction: async (kind, body, options) => {
+      const result = await owner.transaction(kind, body, options);
+      controller.abort(new Error('injected interruption after commit'));
+      return result;
+    } };
+    await expect(publishValidatedManifests(interrupted, changed, undefined, controller.signal)).rejects.toThrow('injected');
+    expect(await publishValidatedManifests(owner, initial)).toBeGreaterThan(0);
+    expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).not.toBe('{"interrupted":true}');
+  } finally { await owner.close(); }
+}, 60_000);
+
 function fixture(): string {
   const folder = mkdtempSync(join(root, 'product-'));
   mkdirSync(join(folder, 'madarch'));

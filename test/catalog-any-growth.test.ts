@@ -110,8 +110,8 @@ test('publishing the same full starter catalogue again writes no declarations', 
     expect(counts.after).toEqual(counts.before);
     expect(counts.writes).toBe(0);
     expect(counts.constraints).toBe(0);
-    expect(counts.statements).toBeLessThanOrEqual(5);
-    expect(counts.reads).toBeLessThanOrEqual(500);
+    expect(counts.statements).toBeLessThanOrEqual(3);
+    expect(counts.reads).toBeLessThanOrEqual(200);
   } finally { await owner?.close(); rmSync(root, { recursive: true, force: true }); }
 }, 300_000); // Measured 146.08 s to CONTRACT_CONFLICT on 2026-11-16; publication remains blocked.
 

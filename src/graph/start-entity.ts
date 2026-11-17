@@ -11,21 +11,11 @@ import { bindStartupWriter, readPublishedManifest } from './manifest-publication
 import { publishGraphDrafts } from './write.js';
 import type { KeyValueDraft, VertexRemovalDraft } from './contract.js';
 import type { ProductEntity } from '../product/manifest.js';
-import { readStartupAssertions } from './startup-read.js';
-import { canonicalJson } from '../model/canonical.js';
 
 /** States the product's own page: its name, as the manifest states it now. */
 export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEntity | undefined): Promise<void> {
   if (entity === undefined) return;
   await withSpan('graph.startEntity', {}, async () => await owner.transaction('write', async (tx) => {
-    const existing = await readStartupAssertions(tx, entity.kind, ['$exists', ...Object.keys(entity.values)]);
-    const plugins = await readStartupAssertions(tx, 'plugin', ['installation']);
-    const source = plugins.find(plugin => plugin.assertions.some(assertion => assertion.property === 'installation' &&
-      assertion.value === JSON.stringify(['system-engine', 'start'])))?.uid;
-    const active = existing.filter(row => row.assertions.some(assertion => assertion.property === '$exists' && assertion.value === true));
-    if (source !== undefined && active.length === 1 && canonicalJson(active[0]!.key) === canonicalJson(entity.key) &&
-      Object.entries({ '$exists': true, ...entity.values }).every(([property, value]) =>
-        active[0]!.assertions.some(assertion => assertion.property === property && assertion.source === source && canonicalJson(assertion.value) === canonicalJson(value)))) return;
     const manifest = await readPublishedManifest(tx);
     if (manifest === undefined) throw new Error(`${import.meta.path}:22: the startup page requires a published manifest`);
     const contract = await bindStartupWriter(tx, writeContractOf(manifest), 'start');

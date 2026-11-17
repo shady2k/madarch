@@ -1,33 +1,38 @@
-/** Bounded startup reads: only the named subjects and properties, with the ordinary assertion selection rules. */
+/** Subject-first startup read, using the ordinary item 25 assertion selection. */
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { assertionSelectionSql } from './assertion-read.js';
+import { SYSTEM_CONTRACT } from './system-contract.js';
 import { assertionValueTableName } from './contract.js';
 
-export async function readStartupAssertions(tx: SqlExecutor, kind: string, properties: readonly string[], key?: Readonly<Record<string, unknown>>) {
+export async function readPublicationFingerprint(tx: SqlExecutor): Promise<string | undefined> {
   return await withSpan('graph.startup.read', {}, async () => {
-  const subjects = `SELECT n.id,n.uid::text,n.key FROM node n
-    WHERE n.entity_id=(SELECT id FROM entity WHERE name=$1 AND sort='node') ${key === undefined ? '' : 'AND n.key=$3::jsonb'}`;
-  const values = properties.map(property => {
-    const literal = "'" + property.replaceAll("'", "''") + "'";
-    return `SELECT to_jsonb(value) AS value FROM "${assertionValueTableName(kind, 'vertex', property)}" WHERE assertion_id=a.assertion_id AND a.property=${literal}`;
-  }).join(' UNION ALL ');
-  const raw = `SELECT 0 AS request_index,se.to_node AS subject_id,a.property,a.language,an.uid::text AS id,
-    a.context_id,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence,
-    source.uid::text AS source,v.value
-    FROM (${subjects}) wanted
-    CROSS JOIN LATERAL (SELECT e.from_node,e.to_node FROM edge e WHERE e.to_node=wanted.id
-      AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0) se
-    JOIN assertion a ON a.assertion_id=se.from_node
-    JOIN node an ON an.id=a.assertion_id
-    CROSS JOIN LATERAL (${values}) v
-    JOIN edge lineage ON lineage.from_node=a.assertion_id AND lineage.entity_id=(SELECT id FROM entity WHERE name='system.assertion-source')
-    JOIN node source ON source.id=lineage.to_node
-    WHERE a.property=ANY($2::text[])`;
-  const rows = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; assertions: { property: string; source: string; value: unknown }[] }>(
-    `SELECT subject.id,subject.uid,subject.key,coalesce(jsonb_agg(jsonb_build_object('property',chosen.property,'source',chosen.source,'value',chosen.value)) FILTER (WHERE chosen.selected),'[]'::jsonb) AS assertions
-     FROM (${subjects}) subject LEFT JOIN (${assertionSelectionSql(raw)}) chosen ON chosen.subject_id=subject.id
-     GROUP BY subject.id,subject.uid,subject.key`, [kind, properties, ...(key === undefined ? [] : [JSON.stringify(key)])]);
-  return rows.rows;
+    // An ordered index seek avoids scanning the small kind dictionary once per lineage step.
+    const kindId = (name: string) => `(SELECT id FROM (SELECT id,name FROM entity WHERE name>='${name}' ORDER BY name LIMIT 1) found WHERE name='${name}')`;
+    const subjectKind = kindId('system.assertion-subject');
+    const sourceKind = kindId('system.assertion-source');
+    const assertions = (subject: string, kind: string, properties: readonly string[]) => {
+      const values = properties.map(property => `SELECT to_jsonb(value) AS value FROM "${assertionValueTableName(kind, 'vertex', property)}" WHERE assertion_id=a.assertion_id AND a.property='${property}' OFFSET 0`).map(sql => `(${sql})`).join(' UNION ALL ');
+      return `SELECT 0 AS request_index,se.to_node AS subject_id,a.property,a.language,an.uid::text AS id,
+        a.context_id,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence,source.uid::text AS source,v.value
+        FROM LATERAL (SELECT e.from_node,e.to_node FROM edge e WHERE e.to_node=${subject}
+          AND e.entity_id=${subjectKind} OFFSET 0) se
+        CROSS JOIN LATERAL (SELECT * FROM assertion WHERE assertion_id=se.from_node AND property IN (${properties.map(p => `'${p}'`).join(',')}) OFFSET 0) a
+        CROSS JOIN LATERAL (${values}) v
+        CROSS JOIN LATERAL (SELECT uid FROM node WHERE id=a.assertion_id OFFSET 0) an
+        CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE from_node=a.assertion_id AND entity_id=${sourceKind} OFFSET 0) lineage
+        CROSS JOIN LATERAL (SELECT uid FROM node WHERE id=lineage.to_node OFFSET 0) source`;
+    };
+    const marker = assertionSelectionSql(`SELECT raw.* FROM (SELECT id FROM node WHERE entity_id=${kindId('manifest.catalogue')} AND key='{"name":"product"}'::jsonb OFFSET 0) catalogue
+      CROSS JOIN LATERAL (${assertions('catalogue.id', 'manifest.catalogue', ['publication_fingerprint'])}) raw`);
+    const installation = assertionSelectionSql(assertions('producer.id', 'plugin', SYSTEM_CONTRACT.vertex.find(kind => kind.name === 'plugin')!.fields.map(field => field.name)));
+    const rows = await tx.query<{ fingerprint: string }>(`SELECT marker.value #>> '{}' AS fingerprint FROM (${marker}) marker
+      CROSS JOIN LATERAL (SELECT id,identity_scope FROM node WHERE uid=marker.source::uuid OFFSET 0) producer
+      CROSS JOIN LATERAL (SELECT
+        bool_or(selected AND property='installation' AND value=to_jsonb($1::text)) AS manifest,
+        bool_or(selected AND property='scope' AND value=to_jsonb(producer.identity_scope::text)) AS scoped
+        FROM (${installation}) current_source OFFSET 0) installed
+      WHERE marker.selected AND installed.manifest AND installed.scoped`, [JSON.stringify(['system-engine', 'manifest'])]);
+    return rows.rows[0]?.fingerprint;
   });
 }
