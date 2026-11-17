@@ -106,6 +106,26 @@ async function acceptWhatIsFound(root: string, rules: readonly ArchitectureRule[
 }
 
 describe('the architecture check', () => {
+  for (const loop of [true, false]) test(`graph-definition ${loop ? 'trigger loop proves' : 'outside loop retains'} core table literals`, async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: context', '    type: text']);
+      writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+        'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS context (id bigint)`];',
+        ...(loop ? [
+          'export function generate() {',
+          "  for (const table of ['context']) {",
+          '    const statement = `CREATE TRIGGER dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+          '  }',
+          '}',
+        ] : ["export const unrelated = 'context';"]),
+      ]);
+      expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual(loop ? [] : [
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 2, symbol: 'context' },
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('I/O in a span callback retains its enclosing function through SWC argument wrappers', async () => {
     const root = fixtureProject();
     writeModule(root, 'src/callbacks.ts', [

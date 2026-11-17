@@ -2,7 +2,6 @@
 import { sha256Hex } from '../../graph/digest.js';
 import type { GraphContract } from '../../graph/contract.js';
 import { endpointKindNames, assertionValueTableName, type FieldContract } from '../../graph/contract.js';
-import { validateValueContracts } from '../../graph/value-validation.js';
 import { withAssertionContract } from '../../graph/system-contract.js';
 
 export const SCHEMA_REVISION = 9;
@@ -151,7 +150,6 @@ export function generateContractStatements(declared: GraphContract) {
     const compare = (a: {name:string}, b: {name:string}) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
     const inherited = withAssertionContract(declared);
     const contract = {...inherited, vertex:[...inherited.vertex].sort(compare),edge:[...inherited.edge].sort(compare)};
-    validateValueContracts(contract);
     const statements: string[] = [];
     const triggers: ContractTrigger[] = [];
     const entities: {name:string;sort:string;repeats:boolean;discriminator:string|null}[] = [];
@@ -212,25 +210,24 @@ export function generateContractStatements(declared: GraphContract) {
             WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`}
           ), current_stream AS (
             SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value,valid_from,recorded_sequence FROM visible
-            WHERE depth=nearest AND valid_from<=snapshot_at AND (valid_to IS NULL OR valid_to>snapshot_at)
+            WHERE depth=nearest AND date_trunc('milliseconds',valid_from)<=snapshot_at AND (valid_to IS NULL OR date_trunc('milliseconds',valid_to)>snapshot_at)
             ORDER BY subject_id,source_id,recorded_sequence DESC
           ), candidates AS (SELECT DISTINCT ON (subject_id) * FROM current_stream WHERE operation='assert' ORDER BY subject_id,valid_from DESC,recorded_sequence DESC,assertion_uid DESC)
           SELECT subject_id FROM candidates WHERE value=TRUE;`;
         return `WHEN ${literal(kind.name)} THEN
-          snapshot_at := instant;
+          snapshot_at := date_trunc('milliseconds',clock_timestamp());
           IF wanted_subject IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
-      statements.push(`DROP FUNCTION IF EXISTS graph_${sort}_active_ids(text,bigint,bigint)`);
-      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp()) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
+      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
         DECLARE snapshot_at timestamptz; BEGIN CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
       statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active(subject bigint,kind text,ctx bigint) RETURNS boolean LANGUAGE sql AS $$
-        SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject,transaction_timestamp()) active(id) WHERE active.id=subject)
+        SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject) active(id) WHERE active.id=subject)
       $$`);
     }
     const relationChecks: string[] = [];
     const relationKinds = contract.edge.filter(kind => kind.capability !== 'system');
-    const vertexKinds = [...new Set(relationKinds.flatMap(kind => [...endpointKindNames(kind.from, contract.vertex), ...endpointKindNames(kind.to, contract.vertex)]))];
     if (relationKinds.length > 0) {
+      const vertexKinds = [...new Set(relationKinds.flatMap(kind => [...endpointKindNames(kind.from, contract.vertex), ...endpointKindNames(kind.to, contract.vertex)]))];
       const failures: string[] = [];
       const refusals: string[] = [];
       for (const [index, kind] of relationKinds.entries()) {
@@ -240,7 +237,7 @@ export function generateContractStatements(declared: GraphContract) {
         const endpointCode = index * 2 + 1;
         const cardinalityCode = endpointCode + 1;
         failures.push(`WHEN EXISTS(
-          SELECT 1 FROM active_edges e WHERE e.id=ANY(checked_edges) AND e.kind=${edgeKind} AND (
+          SELECT 1 FROM active_edges e WHERE e.kind=${edgeKind} AND (
             NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
             OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
         for (const [direction, ends, bound] of [['from',from,kind.cardinality.to],['to',to,kind.cardinality.from]] as const) {
@@ -254,101 +251,29 @@ export function generateContractStatements(declared: GraphContract) {
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
       }
-      relationChecks.push(`
-      SELECT coalesce(array_agg(DISTINCT subject), '{}') INTO changed_vertices FROM (
-        SELECT n.id AS subject FROM (SELECT * FROM node WHERE id>=node_lower OFFSET 0) n JOIN entity k ON k.id=n.entity_id
-          WHERE k.name=ANY(vertex_kinds)
-        UNION SELECT attachment.to_node FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
-          JOIN edge attachment ON attachment.id=s.subject_edge_id
-          JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
-          WHERE s.assertion_id>=node_lower AND k.name=ANY(vertex_kinds)
-      ) changed;
-      SELECT coalesce(array_agg(DISTINCT subject), '{}') INTO changed_edges FROM (
-        SELECT e.id AS subject FROM (SELECT * FROM edge WHERE id>=edge_lower OFFSET 0) e JOIN entity k ON k.id=e.entity_id
-          WHERE k.name=ANY(edge_kinds)
-        UNION SELECT s.edge_id FROM (SELECT * FROM assertion_edge_subject WHERE assertion_id>=node_lower OFFSET 0) s JOIN edge e ON e.id=s.edge_id
-          JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id>=node_lower AND k.name=ANY(edge_kinds)
-      ) changed;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_edges FROM (
-        SELECT unnest(changed_edges) AS id
-        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
-          JOIN entity k ON k.id=e.entity_id WHERE k.name=ANY(edge_kinds)
-        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE to_node=v.id OFFSET 0) e
-          JOIN entity k ON k.id=e.entity_id WHERE k.name=ANY(edge_kinds)
-      ) checked;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_vertices FROM (
-        SELECT unnest(changed_vertices) AS id
-        UNION SELECT e.from_node FROM unnest(checked_edges) v(id) JOIN edge e ON e.id=v.id
-        UNION SELECT e.to_node FROM unnest(checked_edges) v(id) JOIN edge e ON e.id=v.id
-      ) checked;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO counted_edges FROM (
-        SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
-          JOIN entity k ON k.id=e.entity_id WHERE k.name=ANY(edge_kinds)
-        UNION SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE to_node=v.id OFFSET 0) e
-          JOIN entity k ON k.id=e.entity_id WHERE k.name=ANY(edge_kinds)
-      ) counted;
-      SELECT coalesce(array_agg(DISTINCT assertion_id),'{}') INTO checked_assertions FROM (
-        SELECT s.assertion_id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT id FROM edge WHERE to_node=v.id OFFSET 0) e
-          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
-        UNION SELECT s.assertion_id FROM unnest(counted_edges) e(id) CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=e.id OFFSET 0) s
-      ) checked;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_contexts FROM (
-        WITH RECURSIVE affected(id) AS (
-          SELECT c.id FROM context c WHERE c.id>=context_lower
-          UNION SELECT a.context_id FROM unnest(checked_assertions) s(id) JOIN assertion a ON a.assertion_id=s.id WHERE a.assertion_id>=node_lower
-          UNION SELECT c.id FROM context c JOIN affected p ON c.parent=p.id
-        ) SELECT id FROM affected
-      ) contexts;
-      FOR instant IN
-        WITH intervals AS MATERIALIZED (
-          SELECT a.valid_from AS lo,a.valid_to AS hi FROM unnest(checked_assertions) s(id) JOIN assertion a ON a.assertion_id=s.id WHERE a.assertion_id>=node_lower
-        ), boundaries AS (
-          SELECT lo AS at FROM intervals UNION SELECT hi FROM intervals WHERE hi IS NOT NULL
-          UNION SELECT boundary.at FROM unnest(checked_assertions) s(id) JOIN assertion a ON a.assertion_id=s.id
-            CROSS JOIN LATERAL (VALUES (a.valid_from),(a.valid_to)) boundary(at)
-            WHERE boundary.at IS NOT NULL AND EXISTS(SELECT 1 FROM intervals i WHERE boundary.at>=i.lo AND (i.hi IS NULL OR boundary.at<=i.hi))
-        ) SELECT DISTINCT at FROM boundaries ORDER BY at
-      LOOP
-WITH active_edges AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.from_node,e.to_node FROM unnest(checked_contexts) ctx(id)
-        CROSS JOIN unnest(counted_edges) candidate(id)
-        CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=candidate.id OFFSET 0) e JOIN entity k ON k.id=e.entity_id
-        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant) active(id)
+      relationChecks.push(`WITH active_edges AS MATERIALIZED (
+        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.from_node,e.to_node FROM context ctx
+        CROSS JOIN (VALUES ${relationKinds.map(kind => `(${literal(kind.name)})`).join(',')}) k(name)
+        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id) active(id)
+        JOIN edge e ON e.id=active.id
       ), active_vertices AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,n.id FROM unnest(checked_contexts) ctx(id)
-        CROSS JOIN unnest(checked_vertices) candidate(id)
-        CROSS JOIN LATERAL (SELECT * FROM node WHERE id=candidate.id OFFSET 0) n JOIN entity k ON k.id=n.entity_id
-        CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id,n.id,instant) active(id)
+        SELECT ctx.id AS context_id,k.name AS kind,active.id FROM context ctx
+        CROSS JOIN (VALUES ${vertexKinds.map(name => `(${literal(name)})`).join(',')}) k(name)
+        CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id) active(id)
       ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
-      ${refusals.join('\n')}
-      END LOOP;`);
+      ${refusals.join('\n')}`);
     }
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        IF TG_TABLE_NAME IN ('node','edge','context') THEN
-          IF nullif(current_setting('madarch.graph_' || TG_TABLE_NAME || '_lower',true),'') IS NULL THEN
-            PERFORM set_config('madarch.graph_' || TG_TABLE_NAME || '_lower',NEW.id::text,true);
-          END IF;
-        END IF;
         PERFORM set_config('madarch.graph_revision',(coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')::bigint+1)::text,true);
         RETURN NEW;
       END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE revision text; violation integer;
-        node_lower bigint := coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807);
-        edge_lower bigint := coalesce(nullif(current_setting('madarch.graph_edge_lower',true),'')::bigint,9223372036854775807);
-        context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
-        changed_vertices bigint[]; changed_edges bigint[]; checked_edges bigint[]; checked_vertices bigint[];
-        counted_edges bigint[]; checked_assertions bigint[]; checked_contexts bigint[]; instant timestamptz;
-        vertex_kinds text[] := ARRAY[${vertexKinds.map(literal).join(',')}]::text[];
-        edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
+      DECLARE revision text; violation integer; BEGIN
       revision := current_setting('madarch.graph_revision',true);
       IF current_setting('madarch.checked_graph_revision',true)=revision THEN RETURN NULL; END IF;
       ${relationChecks.join('\n')}
       PERFORM set_config('madarch.checked_graph_revision',revision,true);
-      PERFORM set_config('madarch.graph_node_lower','',true);
-      PERFORM set_config('madarch.graph_edge_lower','',true);
-      PERFORM set_config('madarch.graph_context_lower','',true);
       RETURN NULL; END $$`);
     for (const table of ['node','edge','assertion','context','assertion_vertex_subject','assertion_edge_subject',...names]) {
       trigger(table, 'graph_relations_dirty', 'graph_relations_dirty', 7, false,
@@ -433,14 +358,20 @@ WITH active_edges AS MATERIALIZED (
     return {contract, statements, triggers, entities, entityStatement};
 }
 
+const schemaStamps = new WeakMap<GraphContract, string>();
+
 /** Canonical declarations and every generated statement define a prepared schema. */
 export function graphSchemaStamp(contract: GraphContract): string {
+  const cached = schemaStamps.get(contract);
+  if (cached !== undefined) return cached;
   const generated = generateContractStatements(contract);
   const declaration = JSON.stringify(generated.contract, (_key, value: unknown) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
     const object = value as Record<string, unknown>;
     return Object.fromEntries(Object.keys(object).sort().map(key => [key, object[key]]));
   });
-  return sha256Hex(new TextEncoder().encode([String(SCHEMA_REVISION), ...SCHEMA, declaration,
+  const stamp = sha256Hex(new TextEncoder().encode([String(SCHEMA_REVISION), ...SCHEMA, declaration,
     ...generated.statements, ...generated.triggers.map(trigger => trigger.statement), generated.entityStatement].join('\n')));
+  schemaStamps.set(contract, stamp);
+  return stamp;
 }

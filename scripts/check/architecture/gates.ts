@@ -1497,9 +1497,9 @@ function loopResultLiteral(module: GateModule, node: Node): boolean {
 
 /** Trigger targets come from the same storage schema's CREATE TABLE declarations. */
 function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
-  if (module.file === 'src/adapters/schemas/graph-contract.ts') {
-    const parents = enclosing(module, node);
-    const loop = parents.find(entry => entry['type'] === 'ForOfStatement');
+  const parents = enclosing(module, node);
+  const loop = parents.find(entry => entry['type'] === 'ForOfStatement');
+  if (TABLE_SOURCES.includes(module.file) && loop !== undefined) {
     if (parents[0]?.['type'] !== 'ArrayExpression' || loop?.['right'] !== parents[0]) return false;
     const variable = nodesOf(loop['left'] as Node).find(entry => entry['type'] === 'VariableDeclarator');
     const binding = variable?.['id'] as Node | undefined;
@@ -1514,7 +1514,7 @@ function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<st
       && [...String(entry['cooked']).matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(/gu)].some(match => match[1] === stringValue(node)));
   }
   if (module.file !== 'src/adapters/schemas/graph-definition.ts') return false;
-  const parents = enclosing(module, node), array = parents[0], member = parents[1], call = parents[2];
+  const array = parents[0], member = parents[1], call = parents[2];
   if (array?.['type'] !== 'ArrayExpression' || member?.['type'] !== 'MemberExpression' || !named(member['property'], 'map') || call?.['type'] !== 'CallExpression') return false;
   const schema = parents.find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SCHEMA')
     && enclosing(module, entry).some(parent => parent['type'] === 'ExportDeclaration'));
