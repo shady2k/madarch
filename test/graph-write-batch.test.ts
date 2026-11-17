@@ -95,7 +95,7 @@ async function measureStore(size:number,scoped:boolean){
    await tx.query('SET LOCAL enable_seqscan = off');
    // Server counters cover graph identities, attachments, headers and typed values,
    // but not the catalogue or authentication setup outside this invocation.
-   const stats=async()=> (await tx.query<{reads:string;inserted:string}>(`SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::text AS reads,coalesce(sum(n_tup_ins) FILTER(WHERE relname='assertion'),0)::text AS inserted FROM pg_stat_xact_user_tables WHERE relname IN ('node','edge','assertion','assertion_vertex_subject','assertion_edge_subject') OR relname LIKE 'av_%'`)).rows[0]!;
+   const stats=async()=> (await tx.query<{reads:string;inserted:string}>(`SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::text AS reads,coalesce(sum(n_tup_ins) FILTER(WHERE relname='assertion'),0)::text AS inserted FROM pg_stat_xact_user_tables WHERE relname IN ('node','edge','assertion','assertion_vertex_subject','assertion_edge_subject') OR relname ~ '^a_[0-9a-f]{32}$'`)).rows[0]!;
    const before=await stats();const query=tx.query.bind(tx);let statements=0;
    tx.query=async(sql,values)=>{statements++;return query(sql,values);};
    try{await publishGraphDrafts(tx,graph,publish([...Array.from({length:10},(_,i)=>file(size+i)),...Array.from({length:10},(_,i)=>file(i))]));}finally{tx.query=query;}
@@ -112,3 +112,25 @@ for(const scoped of [false,true])test(`ALX-142: store reads stay equal for 50 an
  expect(small.inserted).toBe(60);expect(large.inserted).toBe(60);
  expect(large.statements).toBe(small.statements);expect(large.reads).toBe(small.reads);
 },120000);
+
+test('ALX-142: fixed admission phases name the first failing draft within each phase and roll back',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer},{...snapshot,values:{content},...producer}],removals:[]}));
+  const ids=await owner.transaction('write',async tx=>{await publishGraphDrafts(tx,contract,{vertices:Array.from({length:5},(_,i)=>({kind:'batch.file',key:{path:`error-${i+1}`},keyEdges:{repository},...producer})),removals:[]});return Promise.all(Array.from({length:5},(_,i)=>ensureVertex(tx,contract,{kind:'batch.file',key:{path:`error-${i+1}`},keyEdges:{repository}})));});
+  const counts=()=>owner.run(async tx=>(await tx.query(`SELECT (SELECT count(*) FROM node)::text AS nodes,(SELECT count(*) FROM edge)::text AS edges,(SELECT count(*) FROM assertion)::text AS assertions`)).rows);
+  const file=(i:number):VertexDraft=>({kind:'batch.file',uid:ids[i-1]!.uid,key:{path:`error-${i}`},keyEdges:{repository},values:{size:i},...producer});
+  const evidence={...file(2),evidence:[{target:snapshot,locator:{start:0,end:content.length+1}}]};
+  const absent=(i:number):VertexDraft=>({...file(i),evidence:[{target:{...snapshot,key:{digest:'missing'}},locator:{}}]});
+  const cases=[
+   {vertices:[file(1),evidence,absent(3),{...file(4),values:{size:'x' as unknown as number}},file(5)],code:'TYPE_MISMATCH',index:4},
+   {vertices:[file(1),evidence,absent(3),file(5)],code:'MISSING_ENDPOINT',index:3},
+   {vertices:[file(1),evidence,file(5)],code:'EVIDENCE_INVALID',index:2},
+   {vertices:[file(1),absent(2),file(3),absent(4),file(5)],code:'MISSING_ENDPOINT',index:2},
+  ];
+  for(const scenario of cases){const before=await counts();let error='';try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:scenario.vertices,removals:[]}));}catch(cause){error=String(cause);}
+   console.log('ALX-142 phase error',scenario.code,scenario.index,error);
+   expect(await counts()).toEqual(before);expect(error).toContain(scenario.code);expect(error).toContain('batch.file');expect(error).toContain(ids[scenario.index-1]!.uid);
+  }
+ }finally{await owner.close();}
+},30000);
