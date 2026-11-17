@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { requireSchema } from '../src/adapters/store-readiness.js';
-import { createTestDatabaseOwner, TEST_SERVER_VARIABLE } from './test-database.js';
+import { createTestDatabaseOwner, TEST_SERVER_VARIABLE, waitForTestDatabaseDrops } from './test-database.js';
 
 // Capture at module load: a helper called inside a case must not supply startup.
 const socketBeforeCases = process.env[TEST_SERVER_VARIABLE];
@@ -33,6 +33,8 @@ test('fresh database owners are prepared and isolate data and schema changes', a
     const own = await first.run((tx) => tx.query<{ value: string }>('SELECT value FROM case_only'));
     expect(own.rows).toEqual([{ value: 'first' }]);
   } finally { await first.close(); }
+  // The drops are the run's, queued by the teardowns: the queue is what reports them (`test-database-contract-template.test.ts`).
+  await waitForTestDatabaseDrops();
   for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close', 'database-drop']) {
     expect(phases.get(phase)).toBeGreaterThanOrEqual(0);
   }

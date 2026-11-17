@@ -154,6 +154,45 @@ export interface TestDatabaseOptions {
   readonly socket?: string;
 }
 
+/**
+ * The drops the run owes, one lane for all of them (ALX-119). `DROP DATABASE` is
+ * not free: PostgreSQL checkpoints the whole cluster and flushes every dirty
+ * buffer before it removes the database, so the drop of one case's database
+ * writes the pages of every other database and waits for their `fsync` —
+ * measured on this box with `log_checkpoints = on`: 1.2 s on a quiet cluster
+ * (1 464 buffers, sync 1.12 s) and 8.4 s with 240 MB of them (16 246 buffers,
+ * sync 7.74 s), each naming an `immediate force wait` checkpoint. A case's
+ * teardown therefore enqueues its drop and returns, and the run waits for the
+ * lane once, before it stops the server (`test/run-scratch.ts`).
+ */
+let dropLane: Promise<void> = Promise.resolve();
+let dropsOwed = 0;
+
+/** Enqueues one database's drop behind every drop the run already owes. */
+function queueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
+  dropsOwed += 1;
+  dropLane = dropLane.then(async () => {
+    const start = performance.now();
+    timing?.('database-drop-start', 0);
+    try {
+      await dropDatabase(socketDir, database);
+    } finally {
+      timing?.('database-drop', performance.now() - start);
+      dropsOwed -= 1;
+    }
+  }).catch(() => undefined);
+}
+
+/** Waits for every drop the run owes: the preload does this before it stops the run's server. */
+export async function waitForTestDatabaseDrops(): Promise<void> {
+  await dropLane;
+}
+
+/** How many drops the run still owes: a case that closed its owner leaves one until the lane reaches it. */
+export function pendingTestDatabaseDrops(): number {
+  return dropsOwed;
+}
+
 /** A fresh database the run's server holds for one case, dropped when its owner closes. */
 async function dropDatabase(socketDir: string, database: string): Promise<void> {
   const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
@@ -223,15 +262,8 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
         const closeStart = performance.now();
         await owner.close();
         options.timing?.('database-owner-close', performance.now() - closeStart);
-        if (own) {
-          const dropStart = performance.now();
-          options.timing?.('database-drop-start', 0);
-          try {
-            await dropDatabase(socketDir, database);
-          } finally {
-            options.timing?.('database-drop', performance.now() - dropStart);
-          }
-        }
+        // The drop is the run's, not the case's: it leaves the teardown at once and the lane pays it.
+        if (own) queueTestDatabaseDrop(socketDir, database, options.timing);
       })();
       // A close a case provokes on purpose (from inside the owner's own
       // transaction, say) rejects; this handler keeps that rejection from

@@ -185,6 +185,9 @@ async function installEndOfRun(): Promise<void> {
       // The roles first (a signalled role gives its stores up on its own), then the run's server, then every other
       // server a case started inside this run's own scratch, whichever file started it: a run leaves none.
       await stopRolesUnder(stateOf().scratch.folder);
+      // The drops the run owes (`test/test-database.ts`): a `DROP DATABASE` checkpoints the whole cluster, so a
+      // case queues it, and this is where the run pays for them — before the server they run on is stopped.
+      await (await import('./test-database.js')).waitForTestDatabaseDrops();
       await stopRunPostgres();
       await stopServersUnder(stateOf().scratch.folder);
     } catch {
