@@ -57,6 +57,26 @@ const CONTRACT_TEMPLATE_PREFIX = 'template_madarch_';
 
 /** One prepared template per contract of the run, by the server's socket folder and the template's name. */
 const contractTemplates = new Map<string, Promise<void>>();
+
+/**
+ * A failure a case injects into the next preparation of a contract template,
+ * once, after the template's database is made and before its schema is
+ * installed (`test-database-template-readiness.test.ts`): the shape of a
+ * transient SQL failure halfway through a preparation. Never set outside a test.
+ */
+let templateFailure: Error | undefined;
+
+/** Makes the next contract template preparation fail after its database exists, once. */
+export function failNextContractTemplatePreparation(error: Error): void {
+  templateFailure = error;
+}
+
+/** Throws the case's injected failure, if it stands, at the point of preparation after the database is made. */
+function throwInjectedTemplateFailure(): void {
+  const held = templateFailure;
+  templateFailure = undefined;
+  if (held !== undefined) throw held;
+}
 let templateReady: Promise<void> | undefined;
 
 /** How many databases this process has made, so two cases of one file never share a name. */
@@ -143,6 +163,7 @@ async function prepareContractTemplate(declared: GraphContract | undefined, sock
       timing?.('contract-template-preparation-start', 0);
       const owner = await createDatabaseOwner({ cluster: { socketDir }, database: name });
       try {
+        throwInjectedTemplateFailure();
         await prepareStore(owner, declared === undefined ? {} : { contract: declared });
       } finally {
         await owner.close();
