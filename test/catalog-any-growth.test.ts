@@ -132,7 +132,7 @@ test('publishing the same full starter catalogue again writes no declarations', 
     expect(larger.statements).toBeLessThanOrEqual(3);
     expect(larger.reads).toBe(counts.reads);
   } finally { await owner?.close(); rmSync(root, { recursive: true, force: true }); }
-}, 300_000); // Measured 232.67 s on 2026-11-17 through the plugin sandbox; 300 s leaves 67.33 s headroom.
+}, 300_000); // Observed 232.67–281.17 s on this box through the plugin sandbox; worst observed headroom under 300 s is 18.83 s.
 
 function endpointFixture(folder: string, from: string, to: string): string {
   mkdirSync(join(folder, 'madarch'));

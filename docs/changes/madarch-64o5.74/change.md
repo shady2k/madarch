@@ -195,7 +195,22 @@ and explicit cutoffs. The startup page already uses explicit cutoffs.
 
 The sandbox rerun passes manifest publication (34 tests, 196 assertions),
 assertion reads (6 tests, 30 assertions) and catalogue growth (7 tests,
-111 assertions). The full-starter repeat case takes 232.67 s under its
-unchanged 300 s bound. Static checks pass with architecture 874/874 and no
-new debt. This is review correction evidence, not stage acceptance; the
-pre-existing stop-databases failures remain outside this increment.
+111 assertions). The full-starter repeat case has observed sandbox times of 232.67 s,
+251.19 s (latest focused rerun), 258.70 s (lead's focused rerun) and 281.17 s
+(lead's full-file run) on this box: range 232.67–281.17 s, with worst observed
+headroom of 18.83 s under the unchanged 300 s bound. The latest focused run
+passes with 51/51 reads (1 test, 38 assertions).
+
+Known fragility for the lead's decision: the lead's first full-file run on
+`a73af0e2e` failed exact read equality at
+`test/catalog-any-growth.test.ts:133`: Expected 51 / Received 55, case
+281.17 s (whole file: 7 tests, about 305 s). The focused rerun passed 51/51
+at 258.70 s. The lead captured `readPublicationFingerprint` SQL with a stub
+executor on `729c2b6` and `a73af0e2e`; the strings are byte-identical (empty
+diff). This is evidence that the fragility is not caused by this change;
+exact read equality is sensitive to plan and visibility-map state. The
+assertion is not relaxed and no behavior is changed.
+
+Static checks pass with architecture 874/874 and no new debt. This is review
+correction evidence, not stage acceptance; the pre-existing stop-databases
+failures remain outside this increment.
