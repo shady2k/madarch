@@ -67,7 +67,10 @@ test('publishes complete metadata and declaration evidence without repository co
     const grounds = await owner.run(tx => loadAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
     expect(grounds.at(-1)!.evidence).toEqual(kind.evidence);
     const changedLocators = await owner.run(tx => tx.query<{ discriminator: string }>(`SELECT e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [grounds.at(-1)!.id]));
-    expect(JSON.parse(changedLocators.rows[0]!.discriminator).locator).toMatchObject({ lineStart: 2, lineEnd: 2 });
+    // 0039 item 25 / ALX-102 §3: unchanged values retain the assertion and append the new pass's evidence.
+    expect(grounds.at(-1)!.id).toBe(kind.id);
+    expect(changedLocators.rows.map(row => JSON.parse(row.discriminator).locator).sort((a, b) => a.lineStart - b.lineStart))
+      .toEqual([1, 2].map(line => ({ digest: JSON.parse(locators.rows[0]!.discriminator).locator.digest, lineStart: line, lineEnd: line })));
     expect(await publishValidatedManifests(owner, regrounded)).toBe(0);
     const edited = { ...regrounded, vertices: regrounded.vertices.map((one) => one.kind === 'manifest.kind' ? { ...one, values: { declaration: JSON.stringify({ ...JSON.parse(String(one.values!['declaration'])), title: 'Changed title' }) } } : one) };
     expect(await publishValidatedManifests(owner, edited)).toBeGreaterThan(0);

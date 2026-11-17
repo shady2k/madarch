@@ -348,8 +348,10 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
         if (selected === undefined || JSON.stringify(selected.value) !== JSON.stringify(value)) return false;
         const evidence = await tx.query<{ uid: string; discriminator: string }>(`SELECT t.uid::text,e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [selected.id]);
         const actual = evidence.rows.map(row => JSON.stringify([row.uid, JSON.parse(row.discriminator)]));
-        const canonical = (values: string[]) => values.map(value => JSON.stringify(JSON.parse(value), (_key, held) => held !== null && typeof held === 'object' && !Array.isArray(held) ? Object.fromEntries(Object.entries(held).sort(([a], [b]) => byCodePoint(a, b))) : held)).sort();
-        if (JSON.stringify(canonical(actual)) !== JSON.stringify(canonical(expectedEvidence))) return false;
+        // Item 25 retains earlier passes' evidence on a reused assertion. This pass needs its own attachments present,
+        // not the historical attachments absent.
+        const attached = new Set(actual.map(value => canonicalJson(JSON.parse(value))));
+        if (expectedEvidence.some(value => !attached.has(canonicalJson(JSON.parse(value))))) return false;
       }
       return true;
     };
