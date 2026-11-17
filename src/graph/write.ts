@@ -253,7 +253,7 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
   INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES(${identityKind},$1::uuid,'{}'::jsonb,${identityScope},$4) RETURNING id
  ), header AS (
   INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
-  SELECT id,$2,$3,$4,coalesce($5::timestamptz,clock_timestamp()),$6::timestamptz,$7 FROM identity RETURNING assertion_id
+  SELECT id,$2,$3,$4,coalesce($5::timestamptz,transaction_timestamp()),$6::timestamptz,$7 FROM identity RETURNING assertion_id
  ), structural_edges AS (
   INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
   SELECT identities.uid,identities.kind,header.assertion_id,identities.target,'',$4 FROM header
