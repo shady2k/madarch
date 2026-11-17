@@ -391,6 +391,7 @@ export class GraphReader {
    * the cursor, the search is a position over them, and the opinions of the page's vertices are loaded afterwards.
    */
   private async generatedPage(tx:OuterTransaction,decl:GeneratedKindRead,options:{q?:string;after?:string;limit:number}):Promise<{rows:GraphEntity[];next:string|null;total:number}> {
+    return await withSpan('graph.read.generatedPage',{},async()=>{
     const validAt = await this.validAt();
     const fields = decl.columns.filter(field => !decl.key.includes(field));
     const membershipFields = fields.filter(field => ['label', 'name', 'subject'].includes(field));
@@ -426,6 +427,7 @@ export class GraphReader {
     const rows = await this.generatedEntities(decl,records);
     rows.sort((a,b) => byCodePoint(a.key,b.key));
     return { rows, next: membership.rows.length > options.limit ? rows.at(-1)!.key : null, total };
+    });
   }
   private async generatedOfKinds(tx:OuterTransaction,kinds:readonly GeneratedKindRead[]):Promise<GraphEntity[]> {
     const entities:GraphEntity[]=[];

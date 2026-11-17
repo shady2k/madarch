@@ -54,6 +54,7 @@ async function immutableLookups(executor:SqlExecutor):Promise<ImmutableLookups>{
  return pending;
 }
 async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):Promise<{entities:Map<string,string>;instant:number}>{
+ return await withSpan('graph.write.immutableCatalogue',{},async()=>{
  const cache=await immutableLookups(executor);
  const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
  const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT transaction_timestamp()::text AS instant':'SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity')).rows;
@@ -61,6 +62,7 @@ async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):P
  const entities=new Map<string,string>();
  for(const name of [...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)]){const id=cache.kinds.get(name);if(id!==undefined)entities.set(name,id);}
  return {entities,instant:Date.parse(rows[0]!.instant)};
+ });
 }
 
 /** Serialize graph operations before any identity or queue locks. */

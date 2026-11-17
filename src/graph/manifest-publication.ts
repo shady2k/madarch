@@ -327,7 +327,7 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     await publishGraphDrafts(tx, publicationContract, { vertices: [{ ...catalogue,
       values: { publication_fingerprint: fingerprint }, selectedFields: ['publication_fingerprint'],
     }], removals: [] }, 1, { author: 'manifest' });
-    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    await withSpan('graph.manifest.constraints',{},async()=>await tx.query('SET CONSTRAINTS ALL IMMEDIATE'));
     signal?.throwIfAborted();
     return declarations + 1;
   });
