@@ -92,43 +92,39 @@ export const SYSTEM_CONTRACT: GraphContract = {
 export function withSystemContract(contract: GraphContract): GraphContract {
   return inheritProtectedContract(contract, SYSTEM_CONTRACT);
 }
-function inheritProtectedContract(contract: GraphContract, baseContract: GraphContract): GraphContract {
-  for (const sort of ['vertex', 'edge'] as const) {
-    for (const supplied of contract[sort]) {
-      const system = baseContract[sort].find((kind) => kind.name === supplied.name);
-      if (system !== undefined && ('key' in supplied && 'key' in system && JSON.stringify(supplied.key) !== JSON.stringify(system.key))) {
-        throw new Error(`${import.meta.path}:1: product cannot replace protected system ${sort} kind ${supplied.name} with a natural key`);
-      }
-      if (system !== undefined && sort === 'edge' && JSON.stringify(supplied) !== JSON.stringify(system)) {
-        throw new Error(`${import.meta.path}:1: product cannot replace protected system edge kind ${supplied.name}`);
-      }
-      if (system !== undefined && (supplied.table !== system.table || supplied.capability !== system.capability)) {
-        throw new Error(`${import.meta.path}:1: product cannot replace protected system ${sort} storage or producer ${supplied.name}`);
-      }
-      if (system !== undefined && sort === 'vertex' && ['keyEdges', 'evidence', 'identity', 'checks', 'indexes'].some(property => {
-        const field = property as keyof VertexContract;
-        return field in supplied && JSON.stringify((supplied as VertexContract)[field]) !== JSON.stringify((system as VertexContract)[field]);
-      })) {
-        throw new Error(`${import.meta.path}:1: product cannot replace protected system vertex identity or constraints ${supplied.name}`);
+export function inheritProtectedContract(contract: GraphContract, baseContract: GraphContract): GraphContract {
+  function inherit<T extends VertexContract | EdgeContract>(supplied: T | undefined, base: T): T {
+    if (supplied === undefined) return base;
+    const { fields: _fields, ...identity } = base;
+    if ('labels' in identity) delete identity.labels;
+    const extension = supplied as unknown as Record<string, unknown>;
+    for (const [property, value] of Object.entries(identity)) {
+      if ((property in extension || ['table', 'capability', 'key', 'from', 'to', 'cardinality', 'repeats'].includes(property)) && JSON.stringify(extension[property]) !== JSON.stringify(value)) {
+        throw new Error(`${import.meta.path}:1: product cannot replace protected system ${'key' in base ? 'vertex' : 'edge'} identity or constraints ${base.name}.${property}`);
       }
     }
-  }
-  const vertex = baseContract.vertex.map((system) => {
-    const supplied = contract.vertex.find((kind) => kind.name === system.name);
-    if (supplied === undefined) return system;
+    for (const property of Object.keys(extension)) {
+      if (!(property in base) && property !== 'fields' && property !== 'labels') {
+        throw new Error(`${import.meta.path}:1: product cannot add protected system identity or constraints ${base.name}.${property}`);
+      }
+    }
     for (const field of supplied.fields) {
-      const base = system.fields.find((held) => held.name === field.name);
-      if (base !== undefined && ((['type', 'nullable', 'valueType', 'schema'] as const).some((property) => JSON.stringify(base[property]) !== JSON.stringify(field[property])))) {
-        throw new Error(`${import.meta.path}:1: product cannot replace protected field ${system.name}.${field.name}`);
+      const held = base.fields.find(one => one.name === field.name);
+      if (held !== undefined && (['type', 'nullable', 'valueType', 'schema'] as const).some(property => JSON.stringify(held[property]) !== JSON.stringify(field[property]))) {
+        throw new Error(`${import.meta.path}:1: product cannot replace protected field ${base.name}.${field.name}`);
       }
-      if (base === undefined && field.nullable !== true) {
-        throw new Error(`${import.meta.path}:1: inherited system extension ${system.name}.${field.name} must be nullable`);
+      if (held === undefined && field.nullable !== true) {
+        throw new Error(`${import.meta.path}:1: inherited system extension ${base.name}.${field.name} must be nullable`);
       }
     }
-    return { ...system, fields: [...system.fields, ...supplied.fields.filter((field) => !system.fields.some((held) => held.name === field.name))] };
-  });
-  return { ...contract, vertex: [...contract.vertex.filter((kind) => !baseContract.vertex.some((system) => system.name === kind.name)), ...vertex],
-    edge: [...contract.edge.filter((kind) => !baseContract.edge.some((system) => system.name === kind.name)), ...baseContract.edge] };
+    return { ...base, fields: [...base.fields, ...supplied.fields.filter(field => !base.fields.some(held => held.name === field.name))] };
+  }
+  return { ...contract,
+    vertex: [...contract.vertex.filter(kind => !baseContract.vertex.some(base => base.name === kind.name)),
+      ...baseContract.vertex.map(base => inherit(contract.vertex.find(kind => kind.name === base.name), base))],
+    edge: [...contract.edge.filter(kind => !baseContract.edge.some(base => base.name === kind.name)),
+      ...baseContract.edge.map(base => inherit(contract.edge.find(kind => kind.name === base.name), base))],
+  };
 }
 
 /** A product may extend, but never remove or replace these base contracts. */

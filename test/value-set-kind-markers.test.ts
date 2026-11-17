@@ -98,6 +98,16 @@ test('a renamed value-set kind and its renamed fields still publish the starter 
   try {
     await createOneGraphSchema(owner, withManifestContract(graphContractOf(read.value.manifest)));
     await publishValidatedManifests(owner, read.value);
+    const counts = async () => await owner.run(async tx => ({
+      vertices: (await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=n.entity_id WHERE k.name='dictionary-entry'`)).rows[0]!.count,
+      edges: (await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM assertion_edge_subject s JOIN edge e ON e.id=s.edge_id JOIN entity k ON k.id=e.entity_id WHERE k.name='dictionary-entry-set'`)).rows[0]!.count,
+    }));
+    const before = await counts();
+    const repeated = await publishValidatedManifests(owner, read.value);
+    const after = await counts();
+    console.log('STARTER_ASSERTIONS', JSON.stringify({ before, after, repeated }));
+    expect(repeated).toBe(0);
+    expect(after).toEqual(before);
     const contract = graphContractOf(read.value.manifest);
     await owner.transaction('snapshot', async tx => {
       const sets = await readKindAssertions(tx, 'vertex', 'dictionary', ['caption_en', 'caption_ru'], { contract });
