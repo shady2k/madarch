@@ -35,7 +35,8 @@ import type { FillStateDatabase } from '../src/graph/fill-state.js';
 export type TestDatabaseOwner = DatabaseOwner & FillStateDatabase;
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { clusterEndpoint, clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
-import { graphSchemaStamp } from '../src/adapters/schemas/graph-definition.js';
+import { graphSchemaStamp, SCHEMA_REVISION } from '../src/adapters/schemas/graph-definition.js';
+import { hasSchema } from '../src/adapters/store-readiness.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { sha256Hex } from '../src/graph/digest.js';
@@ -134,15 +135,61 @@ async function withServerLock(socketDir: string, key: string, work: () => Promis
 }
 
 /**
+ * The store schemas a prepared template holds, by the names `prepareStore`
+ * stamps them under: the graph's own stamp is the contract's, the others stand
+ * once the module or queue preparation finished.
+ */
+const TEMPLATE_SCHEMAS = ['one-graph', 'one-graph-revision', 'history', 'queue:pgboss', 'agent-usage'] as const;
+
+/**
+ * Whether a database holds a finished preparation of one contract. A row in
+ * `pg_database` proves nothing about it (ALX-134): a preparation interrupted
+ * after the database was made leaves a database without schema, and cloning it
+ * would hand the case an owner that cannot read its store.
+ */
+async function templateHoldsPreparation(socketDir: string, name: string, stamp: string): Promise<boolean> {
+  const owner = await createDatabaseOwner({ cluster: { socketDir }, database: name, connectOnly: true });
+  try {
+    for (const schema of TEMPLATE_SCHEMAS) {
+      const expected = schema === 'one-graph' ? stamp : schema === 'one-graph-revision' ? String(SCHEMA_REVISION) : undefined;
+      if (!await hasSchema(owner, schema, expected)) return false;
+    }
+    return true;
+  } finally {
+    await owner.close().catch(() => undefined);
+  }
+}
+
+/** The name one preparation of a template builds under, before it earns the template's own name. */
+function buildingTemplateName(name: string): string {
+  made += 1;
+  return `${name}_building_${String(process.pid)}_${String(made)}`;
+}
+
+/** Removes a database of the run's server, refusing to pretend it happened: a template's own removal must not be silent. */
+async function dropTemplateDatabase(socketDir: string, database: string): Promise<void> {
+  await clusterQuery(runCluster(socketDir), 'postgres', `DROP DATABASE IF EXISTS ${quotedDatabase(database)} WITH (FORCE)`);
+}
+
+/**
  * Makes the run's template of one contract once, under the server's advisory lock
  * for that template, and answers whether it was there already. A case with an
  * explicit contract clones this template instead of installing the schema: the
  * installation is thousands of statements and a checkpoint-free copy is one
  * (ALX-105, C and H). Closing the owner's pool is part of the preparation —
  * PostgreSQL cannot clone a database another session is connected to.
+ *
+ * Readiness is not the database's existence (ALX-134). A database under the
+ * template's name is cloned only when it holds every schema the preparation
+ * stamps; one that does not is a leftover of a failed preparation and is
+ * dropped. A preparation builds under a name of its own and is renamed to the
+ * template's name only after `prepareStore` succeeded — `ALTER DATABASE ...
+ * RENAME` is atomic — so a later attempt, in this process or another, never
+ * finds a half-built database under the name it would clone.
  */
 async function prepareContractTemplate(declared: GraphContract | undefined, socketDir: string, timing?: TestDatabaseOptions['timing']): Promise<{ name: string; reused: boolean }> {
-  const name = contractTemplateName(contractStamp(declared));
+  const stamp = contractStamp(declared);
+  const name = contractTemplateName(stamp);
   const key = `${socketDir}\n${name}`;
   const existing = contractTemplates.get(key);
   if (existing !== undefined) {
@@ -155,20 +202,37 @@ async function prepareContractTemplate(declared: GraphContract | undefined, sock
     await withServerLock(socketDir, templateLockKey(name), async () => {
       const held = await clusterQuery(runCluster(socketDir), 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [name]);
       if (held.length !== 0) {
-        reused = true;
-        timing?.('template-already-exists', 0);
-        return;
+        if (await templateHoldsPreparation(socketDir, name, stamp)) {
+          reused = true;
+          timing?.('template-already-exists', 0);
+          return;
+        }
+        // A name without a finished preparation is a leftover, not a template: a preparation that failed, or one this
+        // build cannot read, is dropped and made again rather than cloned.
+        timing?.('template-incomplete', 0);
+        await dropTemplateDatabase(socketDir, name);
       }
       const preparationStart = performance.now();
       timing?.('contract-template-preparation-start', 0);
-      const owner = await createDatabaseOwner({ cluster: { socketDir }, database: name });
+      const building = buildingTemplateName(name);
+      const owner = await createDatabaseOwner({ cluster: { socketDir }, database: building });
+      let failure: unknown;
       try {
         throwInjectedTemplateFailure();
         await prepareStore(owner, declared === undefined ? {} : { contract: declared });
+      } catch (error) {
+        failure = error;
       } finally {
-        await owner.close();
+        // The pool must be closed before the rename: PostgreSQL renames no database a session is connected to.
+        await owner.close().catch((error: unknown) => { if (failure === undefined) throw error; });
         timing?.('contract-template-preparation', performance.now() - preparationStart);
       }
+      if (failure !== undefined) {
+        // The caller sees the original error; the half-built database never takes the template's name.
+        await dropTemplateDatabase(socketDir, building).catch(() => undefined);
+        throw failure;
+      }
+      await clusterQuery(runCluster(socketDir), 'postgres', `ALTER DATABASE ${quotedDatabase(building)} RENAME TO ${quotedDatabase(name)}`);
     });
   })();
   contractTemplates.set(key, work);
@@ -267,36 +331,76 @@ export interface TestDatabaseOptions {
 let dropLane: Promise<void> = Promise.resolve();
 let dropsOwed = 0;
 
+/** One drop the lane could not make: the database, the error, and how to retry it. */
+interface FailedDrop {
+  readonly socketDir: string;
+  readonly database: string;
+  readonly error: Error;
+  readonly timing?: TestDatabaseOptions['timing'];
+}
+
+/** Every drop that failed and whose database still stands, in the order the lane met them. */
+let failedDrops: FailedDrop[] = [];
+
 /** Enqueues one database's drop behind every drop the run already owes. */
 function queueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
   dropsOwed += 1;
+  enqueueTestDatabaseDrop(socketDir, database, timing);
+}
+
+/** Puts one owed database's drop in the lane; the owed count belongs to `queueTestDatabaseDrop` and to success alone. */
+function enqueueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
   dropLane = dropLane.then(async () => {
     const start = performance.now();
     timing?.('database-drop-start', 0);
     try {
       await dropDatabase(socketDir, database);
+      failedDrops = failedDrops.filter((failure) => !(failure.socketDir === socketDir && failure.database === database));
+      // Only a database that is gone stops being owed: a failed drop keeps counting (ALX-134).
+      dropsOwed -= 1;
+    } catch (error) {
+      const held = error instanceof Error ? error : new Error(String(error));
+      // Never swallowed: `waitForTestDatabaseDrops` names this database and this error, and the drop stays owed.
+      failedDrops = [...failedDrops.filter((failure) => !(failure.socketDir === socketDir && failure.database === database)), { socketDir, database, error: held, timing }];
     } finally {
       timing?.('database-drop', performance.now() - start);
-      dropsOwed -= 1;
     }
-  }).catch(() => undefined);
+  });
 }
 
-/** Waits for every drop the run owes: the preload does this before it stops the run's server. */
+/**
+ * Waits for every drop the run owes: the preload does this before it stops the
+ * run's server. A drop that failed is retried here, and a drop that fails again
+ * makes this call reject, naming every database that was not dropped and the
+ * error of each — a drain never reports a queue it did not empty (ALX-134). The
+ * databases stay owed, so a later call retries them once their cause is gone.
+ */
 export async function waitForTestDatabaseDrops(): Promise<void> {
+  const retries = failedDrops;
+  failedDrops = [];
+  for (const failure of retries) enqueueTestDatabaseDrop(failure.socketDir, failure.database, failure.timing);
   await dropLane;
+  if (failedDrops.length === 0) return;
+  const named = [...failedDrops].sort((left, right) => (left.database < right.database ? -1 : left.database > right.database ? 1 : 0));
+  const detail = named.map((failure) => `"${failure.database}": ${failure.error.message}`).join('; ');
+  throw new Error(`test/test-database.ts:386: ${String(named.length)} queued database drop${named.length === 1 ? '' : 's'} failed, so ${named.length === 1 ? 'this database still stands' : 'these databases still stand'}: ${detail}`);
 }
 
-/** How many drops the run still owes: a case that closed its owner leaves one until the lane reaches it. */
+/** How many drops the run still owes: a case that closed its owner leaves one until the lane drops its database, and a failed drop keeps its place (ALX-134). */
 export function pendingTestDatabaseDrops(): number {
   return dropsOwed;
 }
 
-/** A fresh database the run's server holds for one case, dropped when its owner closes. */
+/**
+ * A fresh database the run's server holds for one case, dropped when its owner
+ * closes. An error is the queue's to name: swallowing it here made a failed
+ * drop look like a drained queue (ALX-134).
+ */
 async function dropDatabase(socketDir: string, database: string): Promise<void> {
-  const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-  await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${database.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
+  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+  await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS ${quotedDatabase(database)} WITH (FORCE)`);
 }
+
 
 /**
  * The owner a case's store work is given: a fresh, empty database on the run's
