@@ -187,33 +187,34 @@ async function dropTemplateDatabase(socketDir: string, database: string): Promis
  * RENAME` is atomic — so a later attempt, in this process or another, never
  * finds a half-built database under the name it would clone.
  */
-async function prepareContractTemplate(declared: GraphContract | undefined, socketDir: string, timing?: TestDatabaseOptions['timing']): Promise<{ name: string; reused: boolean }> {
+async function prepareContractTemplate(declared: GraphContract | undefined, socketDir: string): Promise<{ name: string; reused: boolean; existing?: boolean; incomplete?: boolean; preparationMs?: number }> {
   const stamp = contractStamp(declared);
   const name = contractTemplateName(stamp);
   const key = `${socketDir}\n${name}`;
   const existing = contractTemplates.get(key);
   if (existing !== undefined) {
-    timing?.('contract-template-reused', 0);
     await existing;
     return { name, reused: true };
   }
   let reused = false;
+  let existingTemplate = false;
+  let incomplete = false;
+  let preparationMs: number | undefined;
   const work = (async () => {
     await withServerLock(socketDir, templateLockKey(name), async () => {
       const held = await clusterQuery(runCluster(socketDir), 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [name]);
       if (held.length !== 0) {
         if (await templateHoldsPreparation(socketDir, name, stamp)) {
           reused = true;
-          timing?.('template-already-exists', 0);
+          existingTemplate = true;
           return;
         }
         // A name without a finished preparation is a leftover, not a template: a preparation that failed, or one this
         // build cannot read, is dropped and made again rather than cloned.
-        timing?.('template-incomplete', 0);
+        incomplete = true;
         await dropTemplateDatabase(socketDir, name);
       }
       const preparationStart = performance.now();
-      timing?.('contract-template-preparation-start', 0);
       const building = buildingTemplateName(name);
       const owner = await createDatabaseOwner({ cluster: { socketDir }, database: building });
       let failure: unknown;
@@ -225,7 +226,7 @@ async function prepareContractTemplate(declared: GraphContract | undefined, sock
       } finally {
         // The pool must be closed before the rename: PostgreSQL renames no database a session is connected to.
         await owner.close().catch((error: unknown) => { if (failure === undefined) throw error; });
-        timing?.('contract-template-preparation', performance.now() - preparationStart);
+        preparationMs = performance.now() - preparationStart;
       }
       if (failure !== undefined) {
         // The caller sees the original error; the half-built database never takes the template's name.
@@ -239,17 +240,17 @@ async function prepareContractTemplate(declared: GraphContract | undefined, sock
   // A preparation that failed is not kept: the next case of the contract tries again instead of inheriting the failure.
   void work.catch(() => { if (contractTemplates.get(key) === work) contractTemplates.delete(key); });
   await work;
-  return { name, reused };
+  return { name, reused, existing: existingTemplate, incomplete, ...(preparationMs === undefined ? {} : { preparationMs }) };
 }
 
 /**
  * Prepares the run's empty-contract template before test cases load. Children on
  * this server reuse the prepared template instead of preparing it again.
  */
-export async function prepareTestDatabaseTemplate(timing?: TestDatabaseOptions['timing']): Promise<void> {
+export async function prepareTestDatabaseTemplate(): Promise<void> {
   templateReady ??= (async () => {
     await ensureRunPostgres();
-    await prepareContractTemplate(undefined, testServerSocket(), timing);
+    await prepareContractTemplate(undefined, testServerSocket());
   })();
   await templateReady;
 }
@@ -302,7 +303,7 @@ export async function testStoreServer(): Promise<{ readonly socketDir: string; r
 
 /** What a case asks the run's server for: a fresh database, or a store folder's own cluster. */
 export interface TestDatabaseOptions {
-  /** Optional diagnostics for a case investigating setup cost. Times are wall-clock milliseconds. */
+  /** Synchronous diagnostics on the case path only. Times are wall-clock milliseconds. */
   readonly timing?: (phase: string, elapsedMs: number) => void;
   readonly graphContract?: GraphContract;
   /** Disable fixture authentication when testing the untrusted write boundary. */
@@ -336,45 +337,27 @@ interface FailedDrop {
   readonly socketDir: string;
   readonly database: string;
   readonly error: Error;
-  readonly timing?: TestDatabaseOptions['timing'];
 }
 
 /** Every drop that failed and whose database still stands, in the order the lane met them. */
 let failedDrops: FailedDrop[] = [];
 
 /** Enqueues one database's drop behind every drop the run already owes. */
-function queueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
+function queueTestDatabaseDrop(socketDir: string, database: string): void {
   dropsOwed += 1;
-  enqueueTestDatabaseDrop(socketDir, database, timing);
+  enqueueTestDatabaseDrop(socketDir, database);
 }
 
-/** Puts one owed database's drop in the lane; the owed count belongs to `queueTestDatabaseDrop` and to success alone. */
-function enqueueTestDatabaseDrop(socketDir: string, database: string, timing?: TestDatabaseOptions['timing']): void {
+/** Puts one owed database's DROP in the lane; only the SQL result decides its debt. */
+function enqueueTestDatabaseDrop(socketDir: string, database: string): void {
   dropLane = dropLane.then(async () => {
-    const start = performance.now();
-    let failure: Error | undefined;
-    try {
-      timing?.('database-drop-start', 0);
-    } catch (error) {
-      failure = error instanceof Error ? error : new Error(String(error));
-    }
     try {
       await dropDatabase(socketDir, database);
     } catch (error) {
-      failure ??= error instanceof Error ? error : new Error(String(error));
-    }
-    try {
-      timing?.('database-drop', performance.now() - start);
-    } catch (error) {
-      failure ??= error instanceof Error ? error : new Error(String(error));
-    }
-    if (failure !== undefined) {
-      // Keep callback failures visible with the database they accompanied; a later drain retries it.
-      failedDrops = [...failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database)), { socketDir, database, error: failure, timing }];
+      failedDrops = [...failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database)), { socketDir, database, error: error as Error }];
       return;
     }
     failedDrops = failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database));
-    // Only a database that is gone stops being owed: a failed drop keeps counting (ALX-134).
     dropsOwed -= 1;
   });
 }
@@ -387,8 +370,7 @@ function enqueueTestDatabaseDrop(socketDir: string, database: string, timing?: T
  */
 export async function waitForTestDatabaseDrops(): Promise<void> {
   const retries = failedDrops;
-  failedDrops = [];
-  for (const failure of retries) enqueueTestDatabaseDrop(failure.socketDir, failure.database, failure.timing);
+  for (const failure of retries) enqueueTestDatabaseDrop(failure.socketDir, failure.database);
   await dropLane;
   if (failedDrops.length === 0) return;
   const named = [...failedDrops].sort((left, right) => (left.database < right.database ? -1 : left.database > right.database ? 1 : 0));
@@ -412,6 +394,16 @@ async function dropDatabase(socketDir: string, database: string): Promise<void> 
 }
 
 
+/** Diagnostics belong to the case, and must finish synchronously on its path. */
+function emitTiming(timing: TestDatabaseOptions['timing'], phase: string, elapsedMs: number): void {
+  const result: unknown = timing?.(phase, elapsedMs);
+  if (result !== null && (typeof result === 'object' || typeof result === 'function') && 'then' in result && typeof result.then === 'function') {
+    void Promise.resolve(result).catch(() => undefined);
+    throw new TypeError(`Timing callback for ${phase} must be synchronous`);
+  }
+}
+
+
 /**
  * The owner a case's store work is given: a fresh, empty database on the run's
  * server, or the store folder the case names. Nothing a case writes outlives it.
@@ -427,9 +419,9 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   }
   // Also support drivers that open a database without the suite's preload.
   const serverStart = performance.now();
-  options.timing?.('server-ready-start', 0);
+  emitTiming(options.timing, 'server-ready-start', 0);
   await ensureRunPostgres();
-  options.timing?.('server-ready', performance.now() - serverStart);
+  emitTiming(options.timing, 'server-ready', performance.now() - serverStart);
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
   // A database the case names is the case's (a store's history database it reopens across seams); one it does not name is
@@ -440,53 +432,69 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   // declares (ALX-105 variant 4): the schema is installed once per contract and a case pays a copy of it. A
   // database the case names, and a server it names, are not the run's to template.
   const clone = own && options.socket === undefined;
-  if (clone) {
-    const templateStart = performance.now();
-    options.timing?.('template-ready-start', 0);
-    const template = await prepareContractTemplate(options.graphContract, socketDir, options.timing);
-    options.timing?.(template.reused ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
-    const cloneStart = performance.now();
-    options.timing?.('database-clone-start', 0);
-    try {
+  let owner: DatabaseOwner | undefined;
+  let created = false;
+  try {
+    if (clone) {
+      const templateStart = performance.now();
+      emitTiming(options.timing, 'template-ready-start', 0);
+      const template = await prepareContractTemplate(options.graphContract, socketDir);
+      if (template.existing) emitTiming(options.timing, 'template-already-exists', 0);
+      else if (template.reused) emitTiming(options.timing, 'contract-template-reused', 0);
+      if (template.incomplete) emitTiming(options.timing, 'template-incomplete', 0);
+      if (template.preparationMs !== undefined) {
+        emitTiming(options.timing, 'contract-template-preparation-start', 0);
+        emitTiming(options.timing, 'contract-template-preparation', template.preparationMs);
+      }
+      emitTiming(options.timing, template.reused ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
+      const cloneStart = performance.now();
+      emitTiming(options.timing, 'database-clone-start', 0);
       await clusterQuery(runCluster(socketDir), 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(template.name)}`);
-    } finally {
-      options.timing?.('database-clone', performance.now() - cloneStart);
+      created = true;
+      emitTiming(options.timing, 'database-clone', performance.now() - cloneStart);
     }
+    const ownerStart = performance.now();
+    emitTiming(options.timing, 'database-owner-open-start', 0);
+    owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+    emitTiming(options.timing, 'database-owner-open', performance.now() - ownerStart);
+    if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
+  } catch (error) {
+    if (owner !== undefined) await owner.close().catch(() => undefined);
+    if (own && (created || owner !== undefined)) queueTestDatabaseDrop(socketDir, database);
+    throw error;
   }
-  const ownerStart = performance.now();
-  options.timing?.('database-owner-open-start', 0);
-  const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
-  options.timing?.('database-owner-open', performance.now() - ownerStart);
-  if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
+  const openedOwner = owner;
   let closed: Promise<void> | undefined;
+  let ownerClosed = false;
   const fixtureOwner:TestDatabaseOwner = {
     graphContract,
-    location: owner.location,
-    ready: owner.ready,
-    allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-    hasVector: owner.hasVector,
-    transaction: (kind, work) => owner.transaction(kind, async tx => {
+    location: openedOwner.location,
+    ready: openedOwner.ready,
+    allowConcurrentSnapshots: openedOwner.allowConcurrentSnapshots,
+    hasVector: openedOwner.hasVector,
+    transaction: (kind, work) => openedOwner.transaction(kind, async tx => {
       if (kind === 'write' && options.authenticated !== false) await bindTestWriteCapability(tx, options.graphContract ?? EMPTY_CONTRACT);
       return await work(tx);
     }),
-    run: (work) => owner.run(work),
-    exec: (text) => owner.exec(text),
+    run: (work) => openedOwner.run(work),
+    exec: (text) => openedOwner.exec(text),
     close: () => {
       closed ??= (async () => {
         const closeStart = performance.now();
-        await owner.close();
-        options.timing?.('database-owner-close', performance.now() - closeStart);
+        await openedOwner.close();
+        ownerClosed = true;
         // The drop is the run's, not the case's: it leaves the teardown at once and the lane pays it.
-        if (own) queueTestDatabaseDrop(socketDir, database, options.timing);
+        if (own) queueTestDatabaseDrop(socketDir, database);
+        emitTiming(options.timing, 'database-owner-close', performance.now() - closeStart);
       })();
       // A close a case provokes on purpose (from inside the owner's own
       // transaction, say) rejects; this handler keeps that rejection from
       // becoming an unhandled one, and the caller still sees it.
-      closed.catch(() => { closed = undefined; });
+      closed.catch(() => { if (!ownerClosed) closed = undefined; });
       return closed;
     },
   };
-  schemaOwners.set(fixtureOwner,owner);
+  schemaOwners.set(fixtureOwner,openedOwner);
   return fixtureOwner;
 }
 

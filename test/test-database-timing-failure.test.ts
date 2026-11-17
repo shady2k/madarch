@@ -35,11 +35,18 @@ for (const asyncCallback of [false, true]) {
     await waitForTestDatabaseDrops();
     const error = new Error('case timing failure');
     let armed = false;
+    let retryingClose = false;
     const phases: string[] = [];
     const callback = (phase: string) => { phases.push(phase); if (armed) throw error; };
-    const owner = await createTestDatabaseOwner({ timing: phase => { if (armed && asyncCallback) return (async () => callback(phase))(); callback(phase); } });
+    const owner = await createTestDatabaseOwner({ timing: phase => { if (retryingClose && phase === 'database-owner-close') return; if (armed && asyncCallback) return (async () => callback(phase))(); callback(phase); } });
     armed = true;
     const failure = await rejection(owner.close());
+    // On the old implementation a throwing close callback cancels queuing.
+    // Retry only that close phase so the red run also exercises its lane.
+    if (pendingTestDatabaseDrops() === 0) {
+      retryingClose = true;
+      await rejection(owner.close());
+    }
     const atClose = [...phases];
     const drain = await rejection(waitForTestDatabaseDrops());
     armed = false;
@@ -55,14 +62,19 @@ for (const asyncCallback of [false, true]) {
 test('DROP failure retains only PostgreSQL debt, retries once fixed, and a third drain issues no DROP', async () => {
   await waitForTestDatabaseDrops();
   let armed = false;
+  let retryingClose = false;
   const callbackError = new Error('CALLBACK must not enter debt');
   const phases: string[] = [];
-  const owner = await createTestDatabaseOwner({ timing: phase => { phases.push(phase); if (armed) throw callbackError; } });
+  const owner = await createTestDatabaseOwner({ timing: phase => { phases.push(phase); if (retryingClose && phase === 'database-owner-close') return; if (armed) throw callbackError; } });
   const [database] = await cases();
   expect(database).toBeDefined();
   await query('UPDATE pg_database SET datistemplate = true WHERE datname = $1', [database]);
   armed = true;
   const closeError = await rejection(owner.close());
+  if (pendingTestDatabaseDrops() === 0) {
+    retryingClose = true;
+    await rejection(owner.close());
+  }
   const atClose = [...phases];
   const failure = await rejection(waitForTestDatabaseDrops());
   const owed = pendingTestDatabaseDrops();

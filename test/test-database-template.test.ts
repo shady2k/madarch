@@ -35,7 +35,7 @@ test('fresh database owners are prepared and isolate data and schema changes', a
   } finally { await first.close(); }
   // The drops are the run's, queued by the teardowns: the queue is what reports them (`test-database-contract-template.test.ts`).
   await waitForTestDatabaseDrops();
-  for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close', 'database-drop']) {
+  for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close']) {
     expect(phases.get(phase)).toBeGreaterThanOrEqual(0);
   }
 });
