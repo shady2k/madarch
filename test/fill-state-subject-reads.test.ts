@@ -227,6 +227,8 @@ describe('the fill service state reads by subject', () => {
           failures.push(`${read.name}: ${(error as Error).message}`);
         }
       }
+      // The assertions are `grown: []` and `failures: []`; `counts` rides in the message only, so a failure names
+      // every read's two numbers.
       const grown = Object.entries(counts).filter(([, [small, large]]) => large > small)
         .map(([name, [small, large]]) => `${name}: ${String(small)} rows in E, ${String(large)} rows in F`);
       expect({ grown, failures, counts }).toEqual({ grown: [], failures: [], counts });
@@ -246,7 +248,9 @@ describe('the fill service state reads by subject', () => {
     try {
       const [five, fifty] = [await measure(e, async (database) => await readRunPublicationCount(database, 'P-run')), await measure(f, async (database) => await readRunPublicationCount(database, 'R-run'))];
       expect(fifty.result).toBe(50);
-      expect({ five: five.statements, fifty: fifty.statements }).toEqual({ five: five.statements, fifty: fifty.statements });
+      // 12 statements for five units and 12 for fifty: the run by name, its unit-run edges, its units, the
+      // operation-unit edges, the operations, and the clock and identity queries. The base made 95 and 815.
+      expect(five.statements, `fifty units make ${String(fifty.statements)} statements, five make ${String(five.statements)}`).toBe(fifty.statements);
     } finally { await e.close(); await f.close(); rmSync(root, { recursive: true, force: true }); }
   }, 120_000);
 });
