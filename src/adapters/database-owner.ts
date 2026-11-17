@@ -314,7 +314,9 @@ class PostgresOwner implements DatabaseOwner {
         const counts: StatementCounts = { select: 0, insert: 0, update: 0, delete: 0, other: 0, rows: 0 };
         let tail: Promise<void> = Promise.resolve();
         let accepting = true;
+        const committed: (() => void)[] = [];
         const counted: OuterTransaction = {
+          afterCommit: work => { committed.push(work); },
           query: <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
             if (!accepting) return Promise.reject(new Error(`the database owner "${this.location}" transaction has ended`));
             if (signal?.aborted === true) return Promise.reject(signal.reason);
@@ -344,6 +346,9 @@ class PostgresOwner implements DatabaseOwner {
         // COMMIT dispatch is the boundary: after it the server may already have kept the write.
         if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
         await this.named(async () => await client.query('COMMIT'));
+        for (const publish of committed) {
+          try { publish(); } catch (error) { span.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
+        }
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);

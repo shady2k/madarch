@@ -25,4 +25,5 @@ export function storeSchemaLockKey(): string {
 }
 
 /** The one statement that takes the store's schema lock inside a transaction the caller already holds. */
-export const SCHEMA_LOCK_SQL = 'SELECT pg_advisory_xact_lock($1::bigint)';
+// Take the graph lock first, including schema revision resets, before the schema lock.
+export const SCHEMA_LOCK_SQL = 'SELECT pg_advisory_xact_lock(739251902::bigint), pg_advisory_xact_lock($1::bigint)';

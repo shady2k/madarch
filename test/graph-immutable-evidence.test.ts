@@ -1,4 +1,5 @@
-import {expect,test} from 'bun:test';
+import {expect,test,spyOn} from 'bun:test';
+import {Client} from 'pg';
 import {createHash} from 'node:crypto';
 import {createTestDatabaseOwner} from './test-database.js';
 import {bindTestWriteCapability} from './write-capability-fixture.js';
@@ -29,5 +30,20 @@ test('0039.31 digest mismatch rolls back the entire operation',async()=>{
  try{
   await expect(owner.transaction('write',async tx=>{await bindTestWriteCapability(tx,graph);await publishGraphDrafts(tx,graph,{vertices:[{...snapshot,key:{digest:'wrong'}}],removals:[]});})).rejects.toThrow('EVIDENCE_INVALID');
   expect(await owner.run(tx=>loadAssertions(tx,'vertex','snapshot',['$exists']))).toHaveLength(0);
+ }finally{await owner.close();}
+},30000);
+
+test('warm immutable content refuses changes with IMMUTABLE_EVIDENCE without an immutable read',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[snapshot],removals:[]}));
+  const statements:string[]=[];const original=Client.prototype.query;
+  const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
+   if(typeof args[0]==='string')statements.push(args[0]);return Reflect.apply(original,this,args);
+  } as typeof original);
+  try{
+   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{...snapshot,values:{content:'changed'}}],removals:[]}))).rejects.toThrow('IMMUTABLE_EVIDENCE');
+  }finally{spy.mockRestore();}
+  expect(statements.filter(sql=>sql.includes('wanted.id::text AS subject'))).toEqual([]);
  }finally{await owner.close();}
 },30000);
