@@ -1,4 +1,3 @@
-extends: system:operation
 id: practice.operation
 extends: system:operation
 purpose: history
