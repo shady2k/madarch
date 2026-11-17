@@ -163,3 +163,20 @@ with architecture 874/874 and no new debt. Smaller fast-path reads are bounded
 and equal (2 statements, 51 rows, zero writes/constraints), but final
 full-starter equality has not been established. Detailed commands, wall times,
 EXPLAIN and limits are in the ALX-174 hand-in report.
+
+### Quiet-node rerun of ALX-174 acceptance
+
+The earlier publication and full-starter timeout blockers are cleared without
+code changes or relaxed limits: manifest-publication is 33/0 in 239.62 s;
+catalog-any-growth is 7/0 in 257.74 s, with its full-starter case at 235.92 s
+under 300 s. Full-starter and larger-store repeats both use 2 statements and
+51 rows with no writes or immediate constraint checks, and unchanged graph
+sizes within each repeat. EXPLAIN ANALYZE BUFFERS for both final statements
+is retained in the hand-in evidence. Static architecture remains 874/874.
+
+Acceptance remains blocked by stop-databases: 10/6 in 140.42 s, with the same
+six failures on base c068ddb46 (10/6 in 134.25 s). All six fail alone under
+unchanged bounds as well. They fail daemon startup at 8 s or the serve-address
+wait at 20 s, not the outer 120 s case limit. This increment does not introduce
+those failures, but does not waive them. See the hand-in report for each test
+name, measured time, base comparison and evidence path. No task is closed.
