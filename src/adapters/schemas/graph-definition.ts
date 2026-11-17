@@ -189,12 +189,16 @@ export function generateContractStatements(declared: GraphContract) {
           ? 'JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge se ON se.id=s.subject_edge_id'
           : 'JOIN assertion_edge_subject s ON s.assertion_id=a.assertion_id';
         const id = sort === 'vertex' ? 'se.to_node' : 's.edge_id';
+        const readerLayers = `WITH RECURSIVE layers AS (
+          SELECT c.id,c.parent,c.parent_recorded_seq,NULL::bigint AS cutoff,0 AS depth FROM context c WHERE c.id=ctx
+          UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,least(l.cutoff,l.parent_recorded_seq),l.depth+1 FROM context c JOIN layers l ON c.id=l.parent
+        )`;
         const layers = `WITH RECURSIVE layers AS (
           SELECT c.id,c.parent,c.parent_recorded_seq,NULL::bigint AS cutoff,0 AS depth FROM unnest(ARRAY[ctx]) root(id) CROSS JOIN LATERAL (SELECT id,parent,parent_recorded_seq FROM context WHERE id=root.id OFFSET 0) c
           UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,least(l.cutoff,l.parent_recorded_seq),l.depth+1 FROM layers l CROSS JOIN LATERAL (SELECT id,parent,parent_recorded_seq FROM context WHERE id=l.parent OFFSET 0) c
         )`;
         if (sort==='vertex' && kind.name==='system.assertion') return `WHEN ${literal(kind.name)} THEN RETURN QUERY
-          ${layers} SELECT a.assertion_id FROM assertion a JOIN layers layer ON layer.id=a.context_id AND (wanted_subject IS NULL OR a.assertion_id=wanted_subject)
+          ${readerLayers} SELECT a.assertion_id FROM assertion a JOIN layers layer ON layer.id=a.context_id AND (wanted_subject IS NULL OR a.assertion_id=wanted_subject)
           AND (layer.cutoff IS NULL OR a.recorded_sequence<=layer.cutoff);`;
         const targetAssertions = sort === 'vertex'
           ? 'SELECT s.assertion_id FROM edge se CROSS JOIN LATERAL (SELECT av.assertion_id FROM assertion_vertex_subject av WHERE av.subject_edge_id=se.id OFFSET 0) s WHERE se.to_node=wanted_subject'
@@ -202,7 +206,7 @@ export function generateContractStatements(declared: GraphContract) {
         const boundedSubject = sort === 'vertex'
           ? 'CROSS JOIN LATERAL (SELECT subject_edge_id FROM assertion_vertex_subject WHERE assertion_id=a.assertion_id OFFSET 0) s CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) se'
           : 'CROSS JOIN LATERAL (SELECT edge_id FROM assertion_edge_subject WHERE assertion_id=a.assertion_id OFFSET 0) s';
-        const activeQuery = (bounded: boolean): string => `          RETURN QUERY ${layers}${bounded ? `, target_assertions AS MATERIALIZED (${targetAssertions})` : ''}, visible AS (
+        const activeQuery = (bounded: boolean): string => `          RETURN QUERY ${bounded ? layers : readerLayers}${bounded ? `, target_assertions AS MATERIALIZED (${targetAssertions})` : ''}, visible AS (
             SELECT ${id} AS subject_id,source.to_node AS source_id,an.uid AS assertion_uid,a.operation,v.value,a.valid_from,a.valid_to,a.recorded_sequence,
               layer.depth,min(layer.depth) OVER (PARTITION BY ${id},source.to_node) AS nearest
             FROM ${bounded ? 'target_assertions target CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id OFFSET 0) a' : 'assertion a'} ${bounded ? boundedSubject + ' CROSS JOIN LATERAL (SELECT uid FROM node WHERE id=a.assertion_id OFFSET 0) an' : subject + ' JOIN node an ON an.id=a.assertion_id'}
@@ -212,17 +216,19 @@ export function generateContractStatements(declared: GraphContract) {
             WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`}
           ), current_stream AS (
             SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value,valid_from,recorded_sequence FROM visible
-            WHERE depth=nearest AND valid_from<=snapshot_at AND (valid_to IS NULL OR valid_to>snapshot_at)
+            WHERE depth=nearest AND ${bounded ? 'valid_from' : "date_trunc('milliseconds',valid_from)"}<=snapshot_at AND (valid_to IS NULL OR ${bounded ? 'valid_to' : "date_trunc('milliseconds',valid_to)"}>snapshot_at)
             ORDER BY subject_id,source_id,recorded_sequence DESC
           ), candidates AS (SELECT DISTINCT ON (subject_id) * FROM current_stream WHERE operation='assert' ORDER BY subject_id,valid_from DESC,recorded_sequence DESC,assertion_uid DESC)
           SELECT subject_id FROM candidates WHERE value=TRUE;`;
         return `WHEN ${literal(kind.name)} THEN
-          snapshot_at := instant;
+          snapshot_at := CASE WHEN wanted_subject IS NULL THEN date_trunc('milliseconds',clock_timestamp()) ELSE instant END;
           IF wanted_subject IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
       statements.push(`DROP FUNCTION IF EXISTS graph_${sort}_active_ids(text,bigint,bigint)`);
-      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp()) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
-        DECLARE snapshot_at timestamptz; source_kind_id bigint; BEGIN SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source'; CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
+      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp(),source_kind_id bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
+        DECLARE snapshot_at timestamptz; BEGIN
+        IF wanted_subject IS NOT NULL AND source_kind_id IS NULL THEN SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source'; END IF;
+        CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
       statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active(subject bigint,kind text,ctx bigint) RETURNS boolean LANGUAGE sql AS $$
         SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject,transaction_timestamp()) active(id) WHERE active.id=subject)
       $$`);
@@ -314,13 +320,13 @@ WITH active_edges AS MATERIALIZED (
         CROSS JOIN unnest(counted_edges) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=candidate.id OFFSET 0) e
         CROSS JOIN LATERAL (SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name) k
-        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant) active(id)
+        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant,source_kind_id) active(id)
       ), active_vertices AS MATERIALIZED (
         SELECT ctx.id AS context_id,k.name AS kind,n.id FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN unnest(checked_vertices) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM node WHERE id=candidate.id OFFSET 0) n
         CROSS JOIN LATERAL (SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name) k
-        CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id,n.id,instant) active(id)
+        CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id,n.id,instant,source_kind_id) active(id)
       ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
       ${refusals.join('\n')}
       END LOOP;`);
@@ -342,11 +348,12 @@ WITH active_edges AS MATERIALIZED (
         context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
         changed_vertices bigint[]; changed_edges bigint[]; checked_edges bigint[]; checked_vertices bigint[];
         counted_edges bigint[]; checked_assertions bigint[]; checked_contexts bigint[]; instant timestamptz;
-        vertex_kind_ids bigint[]; edge_kind_ids bigint[];
+        vertex_kind_ids bigint[]; edge_kind_ids bigint[]; source_kind_id bigint;
         vertex_kinds text[] := ARRAY[${vertexKinds.map(literal).join(',')}]::text[];
         edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
       revision := current_setting('madarch.graph_revision',true);
       IF current_setting('madarch.checked_graph_revision',true)=revision THEN RETURN NULL; END IF;
+      SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source';
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO vertex_kind_ids,vertex_kinds FROM unnest(vertex_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO edge_kind_ids,edge_kinds FROM unnest(edge_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       ${relationChecks.join('\n')}

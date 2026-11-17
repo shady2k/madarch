@@ -42,6 +42,7 @@ async function measuredCheck(size: number, future: boolean, analyzed: boolean): 
     if (analyzed) await owner.exec('ANALYZE');
     return await owner.transaction('write', async tx => {
       await tx.query('SET LOCAL enable_seqscan=off');
+      await tx.query('DISCARD PLANS');
       const interval = future ? { validTo: new Date(Date.now() + 60_000).toISOString() } : {};
       const subject = await tx.query<{ id: string }>("SELECT n.id::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='delta-parent' AND n.key=' {\"name\":\"0\"}'::jsonb");
       await writeAssertion(tx, contract, { sort: 'vertex', kind: 'delta-parent', subjectId: subject.rows[0]!.id,
