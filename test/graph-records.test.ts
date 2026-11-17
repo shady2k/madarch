@@ -23,7 +23,7 @@ import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts } from '../src/graph/write.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import {readKindAssertions} from '../src/graph/records.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
@@ -147,16 +147,85 @@ describe('the two passes over one fixture', () => {
     expect(after.rows).toEqual(before.rows);
   }, 120_000);
 
-  test('0039.25: every tree and history assertion has graph source, author, operation and subject lineage',async()=>{
-    if(owner===undefined)throw new Error('the store was not opened');
-    const assertions=await owner.run(tx=>tx.query<{assertion_id:string;subjects:number;source:number;author:number;operation:number;context_id:number;recorded_at:Date}>(`SELECT a.assertion_id::text,a.context_id,a.recorded_at,
-    ((SELECT count(*) FROM assertion_vertex_subject s WHERE s.assertion_id=a.assertion_id)+(SELECT count(*) FROM assertion_edge_subject s WHERE s.assertion_id=a.assertion_id))::integer AS subjects,
-    (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-source')::integer AS source,
-    (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-author')::integer AS author,
-    (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-operation')::integer AS operation FROM assertion a`));
-    expect(assertions.rows.length).toBeGreaterThan(10);
-    expect(assertions.rows.every(a=>a.subjects===1&&a.source===1&&a.author===1&&a.operation===1&&a.context_id===1&&new Date(a.recorded_at).getTime()>0)).toBe(true);
-  },120000);
+  test('0039.25: every tree and history assertion retains each stating pass and its creator scalars', async () => {
+    const store = await createRecordOwner();
+    try {
+      const passes = [
+        { operation: '019a0000-0000-7000-8000-000000000021', unit: '019a0000-0000-7000-8000-000000000031' },
+        { operation: '019a0000-0000-7000-8000-000000000022', unit: '019a0000-0000-7000-8000-000000000032' },
+      ] as const;
+      const tree = fileRef('src/lineage.ts');
+      const history = { kind: GIT_KINDS.commit, key: { hash: 'a'.repeat(40) } };
+      const drafts = {
+        vertices: [
+          { ...repoRef('lineage'), ...fixtureProducer },
+          { ...tree, values: { content: 'unchanged tree' }, ...fixtureProducer },
+          { ...history, values: { subject: 'unchanged history' }, ...fixtureProducer },
+        ],
+        edges: [
+          { kind: GIT_KINDS.contains, from: repoRef('lineage'), to: tree, ...fixtureProducer },
+          { kind: GIT_KINDS.history, from: repoRef('lineage'), to: history, values: { walk: 0 }, ...fixtureProducer },
+        ],
+        removals: [],
+      };
+      const read = () => store.run(async tx => (await Promise.all([
+        ...recordGraph.vertex.filter(kind => kind.name.startsWith('code.')).map(kind =>
+          loadAssertions(tx, 'vertex', kind.name, ['$exists', ...kind.fields.map(field => field.name)])),
+        ...recordGraph.edge.filter(kind => kind.name.startsWith('code.')).map(kind =>
+          loadAssertions(tx, 'edge', kind.name, ['$exists', ...kind.fields.map(field => field.name)])),
+      ])).flat());
+      const expected = new Map<string, Set<string>>();
+      for (const pass of passes) {
+        await store.transaction('write', async tx => {
+          const binding = await bindTestWriteCapability(tx, recordGraph);
+          await bootstrapWriteIdentity(tx, 'system.operation', pass.operation, binding.productUid);
+          await bootstrapWriteIdentity(tx, 'system.unit', pass.unit, binding.productUid);
+          bindWriteCapability(tx, { ...binding, operationUid: pass.operation, unitUid: pass.unit });
+          await publishGraphDrafts(tx, recordGraph, drafts);
+        });
+        // Both passes state this complete tree/history fixture, including unchanged values.
+        for (const assertion of await read()) {
+          const stated = expected.get(assertion.id) ?? new Set<string>();
+          stated.add(pass.operation);
+          expected.set(assertion.id, stated);
+        }
+      }
+      const assertions = await read();
+      expect(assertions.length, `${import.meta.path}:194: complete tree/history fixture`).toBeGreaterThan(10);
+      expect([...expected.values()].some(operations => operations.size === 2), `${import.meta.path}:195: unchanged assertion must be restated`).toBe(true);
+      const lineage = await store.run(tx => tx.query<{
+        id: string; subjects: number; sources: number; authors: number; contexts: number; context_id: number; recorded_at: Date; operations: string[];
+      }>(`SELECT n.uid::text AS id,a.recorded_at,a.context_id,
+        ((SELECT count(*) FROM assertion_vertex_subject s WHERE s.assertion_id=a.assertion_id)+
+         (SELECT count(*) FROM assertion_edge_subject s WHERE s.assertion_id=a.assertion_id))::integer AS subjects,
+        (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-source')::integer AS sources,
+        (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-author')::integer AS authors,
+        (SELECT count(*) FROM context c WHERE c.id=a.context_id)::integer AS contexts,
+        ARRAY(SELECT target.uid::text FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node
+          WHERE e.from_node=a.assertion_id AND k.name='system.assertion-operation') AS operations
+        FROM assertion a JOIN node n ON n.id=a.assertion_id WHERE n.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]));
+      expect(lineage.rows.length, `${import.meta.path}:207: every assertion has a header`).toBe(assertions.length);
+      for (const row of lineage.rows) {
+        const found = [...new Set(row.operations)].sort();
+        const wanted = [...expected.get(row.id)!].sort();
+        const message = `${import.meta.path}:211: assertion ${row.id}, expected passes ${JSON.stringify(wanted)}, found set ${JSON.stringify(found)}`;
+        expect(row.subjects, message).toBe(1);
+        expect(row.sources, message).toBe(1);
+        expect(row.authors, message).toBe(1);
+        expect([row.contexts, row.context_id], message).toEqual([1, 1]);
+        expect(new Date(row.recorded_at).getTime(), message).toBeGreaterThan(0);
+        expect(row.operations.length, message).toBeGreaterThanOrEqual(1);
+        expect(found, message).toEqual(wanted);
+      }
+      for (const assertion of assertions) {
+        const message = `${import.meta.path}:221: assertion ${assertion.id}, expected creator pass ${passes[0].operation} / unit ${passes[0].unit}, found scalar ${assertion.operationUid} / ${assertion.unit}`;
+        expect(assertion.operationUid, message).toBe(passes[0].operation);
+        expect(assertion.unit, message).toBe(passes[0].unit);
+      }
+    } finally {
+      await store.close();
+    }
+  }, 120_000);
 
   test('a text file\'s bytes stand in ordinary opinions, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

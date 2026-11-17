@@ -91,3 +91,22 @@ Resolutions are ordinary typed assertions from a stable source per principal, se
 Read selection uses recursive context cutoffs, the nearest layer, per-stream newest recorded assertion and newest valid start/sequence in SQL. Equal observations retain their assertion header and append operation, unit and evidence lineage. Pinned children retain their snapshot; unpinned children follow parent writes and reconcile their persisted question state when affected.
 
 Final ALX-39 implementation and validation are reported in `/work/reports/ALX-39.md` and its bundle hand-in; acceptance remains the coordinator’s stage decision. This record does not close the parent atomic cutover task or claim acceptance of unrelated integration failures.
+
+
+### ALX-104 lineage test correction (2026-11-17)
+
+Decision 0039 items 25–26 and amendment item 2 require one operation per
+stating pass, not exactly one operation for an assertion's lifetime. Only the
+record test changes. Its independent tree/history fixture states the same
+vertices and edges in two explicit passes, compares the complete operation
+sets, and reads the creator operation and unit through `loadAssertions`.
+Subject, source, author, context and recorded time checks remain required.
+
+Bounded manual mutations removed reuse lineage and reversed scalar lineage
+order; each made the rewritten case fail, and both production files were
+restored. The final focused case passes (1 test, 102 assertions); static checks
+pass. The full touched file still fails at the unchanged 120-second two-fill
+budget and other cases; the broader `0039.25` filter includes an unrelated
+language-history failure. No deadline or production implementation changes.
+Exact commands and counts are in the ALX-104 hand-in report. No stage
+acceptance or tracker receipt is claimed.
