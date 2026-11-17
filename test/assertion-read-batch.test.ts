@@ -131,3 +131,23 @@ test('explicit recorded fences independently constrain base and branch selection
   });
  } finally {await owner.close();}
 });
+
+test('reused assertions expose evidence targets once and retain distinct locators', async () => {
+ const contract: GraphContract = { ...graph, vertex: [...graph.vertex, { name: 'support', table: generatedTableName('support', 'vertex'), capability: 'fixture', key: ['name'], fields: [{ name: 'name', type: 'text' }], evidence: { immutable: true } }] };
+ const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+ try {
+  await owner.transaction('write', async tx => {
+   await bindTestWriteCapability(tx, contract);
+   await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'support', key: { name: 'document' }, producer: 'fixture', producerVersion: '1' }], removals: [] });
+   for (const line of [1, 2]) {
+    await bindTestWriteCapability(tx, contract);
+    await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'typed', key: { name: 'grounded' }, values: { amount: 1 }, evidence: [{ target: { kind: 'support', key: { name: 'document' } }, locator: { lineStart: line, lineEnd: line } }], producer: 'fixture', producerVersion: '1' }], removals: [] });
+   }
+  });
+  const rows = await owner.run(tx => loadAssertions(tx, 'vertex', 'typed', ['amount']));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.evidence).toHaveLength(1);
+  expect(rows[0]!.evidenceAttachments).toHaveLength(2);
+  expect(rows[0]!.evidenceAttachments.map(attachment => JSON.parse(attachment.locator).locator.lineStart).sort()).toEqual([1, 2]);
+ } finally { await owner.close(); }
+}, 30_000);
