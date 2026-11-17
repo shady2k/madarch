@@ -229,7 +229,7 @@ describe('the architecture check', () => {
     ]);
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
     expect(report.found.filter(one => one.file === 'src/protocol-use.ts').map(one => one.symbol)).toEqual([...words].sort());
-    expect(report.found.some(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toBe(false);
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([]);
     expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'merge')).toBe(false);
     expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'unrelated-type')).toBe(true);
     expect(report.found.some(one => one.file === 'src/graph/evidence-targets.ts' && one.symbol === 'blob')).toBe(false);
@@ -258,6 +258,39 @@ describe('the architecture check', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+
+  test('an unused SQL transaction kind is reported', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: snapshot', '    type: text']);
+    const sqlDriver = ["export type SqlTransactionKind = 'snapshot' | 'write';"];
+    writeModule(root, 'src/sql-driver.ts', sqlDriver);
+    writeModule(root, 'src/adapters/database-owner.ts', ['export interface DatabaseOwner { query(sql: string): Promise<unknown>; }']);
+    writeModule(root, 'src/owner-use.ts', ["import type { DatabaseOwner } from './adapters/database-owner.js';", 'export function unused(owner: DatabaseOwner) { return owner; }']);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
+      { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('an untyped SQL transaction consumer does not establish transaction vocabulary', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: snapshot', '    type: text']);
+    const sqlDriver = ["export type SqlTransactionKind = 'snapshot' | 'write';"];
+    writeModule(root, 'src/sql-driver.ts', sqlDriver);
+    writeModule(root, 'src/adapters/database-owner.ts', [
+      'export interface DatabaseOwner { transaction(kind: string, work: (transaction: unknown) => Promise<unknown>): Promise<unknown>; }',
+    ]);
+    writeModule(root, 'src/owner-use.ts', [
+      "import type { DatabaseOwner } from './adapters/database-owner.js';",
+      "export function invalid(owner: DatabaseOwner) { return owner.transaction('snapshot', async () => {}); }",
+    ]);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
+      { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
 
   test('semantic role literals require the checked projector and document properties require its typed projection', async () => {
     const root = fixtureProject();
