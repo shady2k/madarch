@@ -20,6 +20,26 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { personBinding } from '../src/graph/system-installation.js';
 import { activateGraphProducer, bindGraphProducer, registerGraphPrincipal } from '../src/graph/producer-binding.js';
 import { newUid } from '../src/graph/uid.js';
+import { publicationCounts } from './publication-counts.js';
+
+
+test('ALX-132 counter: unchanged catalogue is a bounded read with no writer', async () => {
+  const folder = fixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    const read = validateProductManifests(folder);
+    if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+    await publishValidatedManifests(owner, read.value);
+    const counts = await publicationCounts(owner, measured => publishValidatedManifests(measured, read.value!));
+    console.log('ALX-132 small repeat', JSON.stringify(counts));
+    expect(counts.result).toBe(0);
+    expect(counts.after).toEqual(counts.before);
+    expect(counts.writes).toBe(0);
+    expect(counts.constraints).toBe(0);
+    expect(counts.statements).toBeLessThanOrEqual(5);
+    expect(counts.reads).toBeLessThanOrEqual(500);
+  } finally { await owner.close(); }
+}, 30_000);
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

@@ -24,7 +24,11 @@ import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
+import { readStartupAssertions } from './startup-read.js';
 import { homeKind } from '../product/manifest/kinds.js';
+
+// Raise this whenever publication logic changes, even when its input and contract stay the same.
+const PUBLICATION_REVISION = 1;
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -285,6 +289,19 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
     const contract = withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest)));
+    const fingerprint = sha256Hex(new TextEncoder().encode(canonicalJson(encode({
+      snapshots: validated.snapshots, vertices: validated.vertices, edges: validated.edges,
+      starterValues: validated.starterValues, contract: graphContractVersion(contract), revision: PUBLICATION_REVISION,
+    }))));
+    // Draft and evidence arrays retain their declared order: evidence indices and workflow positions carry meaning.
+    await acquireGraphWriteLock(tx);
+    const catalogues = await readStartupAssertions(tx, 'manifest.catalogue', ['publication_fingerprint'], { name: 'product' });
+    const previous = catalogues[0]?.assertions.find(assertion => assertion.property === 'publication_fingerprint');
+    if (previous?.value === fingerprint) {
+      const plugins = await readStartupAssertions(tx, 'plugin', ['installation']);
+      if (plugins.some(plugin => plugin.uid === previous.source && plugin.assertions.some(assertion =>
+        assertion.property === 'installation' && assertion.value === JSON.stringify(['system-engine', 'manifest'])))) return 0;
+    }
     const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
@@ -380,6 +397,12 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       for (const draft of validated.starterValues) if (!await unchanged(draft, records.get(draft.kind)!)) changed.push(draft);
       written += await publishGraphDrafts(tx, publicationContract, { vertices: changed, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
+    const catalogue = validated.vertices.find(draft => draft.kind === 'manifest.catalogue' && draft.key['name'] === 'product');
+    if (catalogue === undefined) throw new Error(`${import.meta.path}:441: publication requires the product catalogue`);
+    // The completion marker is last, under the manifest binding and in this transaction, through the sole writer.
+    written += await publishGraphDrafts(tx, publicationContract, { vertices: [{ ...catalogue,
+      values: { publication_fingerprint: fingerprint }, selectedFields: ['publication_fingerprint'],
+    }], removals: [] }, 1, { author: 'manifest' });
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return written;
   }));

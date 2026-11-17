@@ -11,6 +11,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { publicationCounts } from './publication-counts.js';
 
 function validated(folder: string): ValidatedManifests {
   const read = validateProductManifests(folder);
@@ -102,7 +103,15 @@ test('publishing the same full starter catalogue again writes no declarations', 
     expectUniversalDeclarations(first);
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(first.manifest)) });
     expect(await publishValidatedManifests(owner, first)).toBeGreaterThan(0);
-    expect(await publishValidatedManifests(owner, validated(folder))).toBe(0);
+    const repeat = validated(folder);
+    const counts = await publicationCounts(owner, measured => publishValidatedManifests(measured, repeat));
+    console.log('ALX-132 starter repeat', JSON.stringify(counts));
+    expect(counts.result).toBe(0);
+    expect(counts.after).toEqual(counts.before);
+    expect(counts.writes).toBe(0);
+    expect(counts.constraints).toBe(0);
+    expect(counts.statements).toBeLessThanOrEqual(5);
+    expect(counts.reads).toBeLessThanOrEqual(500);
   } finally { await owner?.close(); rmSync(root, { recursive: true, force: true }); }
 }, 300_000); // Measured 146.08 s to CONTRACT_CONFLICT on 2026-11-16; publication remains blocked.
 
