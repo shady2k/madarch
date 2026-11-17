@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { clusterEndpoint } from '../src/adapters/postgres-cluster.js';
 import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
-import { createTestDatabaseOwner, TEST_SERVER_VARIABLE, waitForTestDatabaseDrops } from './test-database.js';
+import { createTestDatabaseOwner, TEST_SERVER_VARIABLE } from './test-database.js';
 
 /** A contract no other file of the run declares, so its template is this case's own first preparation. */
 function probeContract(): GraphContract {
@@ -91,7 +91,6 @@ test('a second database of one explicit contract clones the run template and cre
   } finally {
     await runServerQuery(`ALTER SYSTEM SET log_statement = '${held}'`);
     await runServerQuery('SELECT pg_reload_conf()');
-    await waitForTestDatabaseDrops();
   }
 }, 120_000);
 

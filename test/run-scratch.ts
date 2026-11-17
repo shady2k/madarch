@@ -180,27 +180,17 @@ async function installEndOfRun(): Promise<void> {
    * the sweep — so a run leaves no server behind, not even one finishing its shutdown.
    */
   const endByItself = async (): Promise<void> => {
-    let dropFailure: unknown;
     try {
       const { stopRunPostgres, stopServersUnder, stopRolesUnder } = await import('./run-postgres.js');
       // The roles first (a signalled role gives its stores up on its own), then the run's server, then every other
       // server a case started inside this run's own scratch, whichever file started it: a run leaves none.
       await stopRolesUnder(stateOf().scratch.folder);
-      // The drops the run owes (`test/test-database.ts`): a `DROP DATABASE` checkpoints the whole cluster, so a
-      // case queues it, and this is where the run pays for them — before the server they run on is stopped. A drop
-      // the queue could not make names its database and fails the run here, after the sweep (ALX-134).
-      try {
-        await (await import('./test-database.js')).waitForTestDatabaseDrops();
-      } catch (error) {
-        dropFailure = error;
-      }
       await stopRunPostgres();
       await stopServersUnder(stateOf().scratch.folder);
     } catch {
       // `bun:test` was not there to load, or no server was started: the sweep still removes the folder.
     }
     remove();
-    if (dropFailure !== undefined) throw dropFailure;
   };
   try {
     const { afterAll } = await import('bun:test');

@@ -18,7 +18,6 @@ import {
   createTestDatabaseOwner,
   failNextContractTemplatePreparation,
   TEST_SERVER_VARIABLE,
-  waitForTestDatabaseDrops,
   type TestDatabaseOwner,
 } from './test-database.js';
 
@@ -88,7 +87,6 @@ test('a preparation that failed is prepared again, never cloned as a template', 
     // The second case did not inherit a database: the template was prepared again.
     expect(phases).toContain('contract-template-preparation');
   } finally { await owner.close(); }
-  await waitForTestDatabaseDrops();
 }, 120_000);
 
 test('a database under the template name without the schema is not cloned', async () => {
@@ -107,5 +105,4 @@ test('a database under the template name without the schema is not cloned', asyn
     // The template that took the name is the run's; a test that failed before the case ran leaves this one for the sweep.
     await runServerStatement(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`).catch(() => undefined);
   }
-  await waitForTestDatabaseDrops();
 }, 120_000);

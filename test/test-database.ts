@@ -319,80 +319,24 @@ export interface TestDatabaseOptions {
 }
 
 /**
- * The drops the run owes, one lane for all of them (ALX-119). `DROP DATABASE` is
- * not free: PostgreSQL checkpoints the whole cluster and flushes every dirty
- * buffer before it removes the database, so the drop of one case's database
- * writes the pages of every other database and waits for their `fsync` —
- * measured on this box with `log_checkpoints = on`: 1.2 s on a quiet cluster
- * (1 464 buffers, sync 1.12 s) and 8.4 s with 240 MB of them (16 246 buffers,
- * sync 7.74 s), each naming an `immediate force wait` checkpoint. A case's
- * teardown therefore enqueues its drop and returns, and the run waits for the
- * lane once, before it stops the server (`test/run-scratch.ts`).
- */
-let dropLane: Promise<void> = Promise.resolve();
-let dropsOwed = 0;
-
-/** One drop the lane could not make: the database, the error, and how to retry it. */
-interface FailedDrop {
-  readonly socketDir: string;
-  readonly database: string;
-  readonly error: Error;
-}
-
-/** Every drop that failed and whose database still stands, in the order the lane met them. */
-let failedDrops: FailedDrop[] = [];
-
-/** Enqueues one database's drop behind every drop the run already owes. */
-function queueTestDatabaseDrop(socketDir: string, database: string): void {
-  dropsOwed += 1;
-  enqueueTestDatabaseDrop(socketDir, database);
-}
-
-/** Puts one owed database's DROP in the lane; only the SQL result decides its debt. */
-function enqueueTestDatabaseDrop(socketDir: string, database: string): void {
-  dropLane = dropLane.then(async () => {
-    try {
-      await dropDatabase(socketDir, database);
-    } catch (error) {
-      failedDrops = [...failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database)), { socketDir, database, error: error as Error }];
-      return;
-    }
-    failedDrops = failedDrops.filter((held) => !(held.socketDir === socketDir && held.database === database));
-    dropsOwed -= 1;
-  });
-}
-
-/**
- * Waits for every drop the run owes: the preload does this before it stops the
- * run's server. This call retries failures recorded before it starts; failures
- * first encountered while awaiting the lane are reported without retry. The
- * databases stay owed, so a later call retries them once their cause is gone.
- */
-export async function waitForTestDatabaseDrops(): Promise<void> {
-  const retries = failedDrops;
-  for (const failure of retries) enqueueTestDatabaseDrop(failure.socketDir, failure.database);
-  await dropLane;
-  if (failedDrops.length === 0) return;
-  const named = [...failedDrops].sort((left, right) => (left.database < right.database ? -1 : left.database > right.database ? 1 : 0));
-  const detail = named.map((failure) => `"${failure.database}": ${failure.error.message}`).join('; ');
-  throw new Error(`${String(named.length)} queued database drop${named.length === 1 ? '' : 's'} failed, so ${named.length === 1 ? 'this database still stands' : 'these databases still stand'}: ${detail}`);
-}
-
-/** How many drops the run still owes: a case that closed its owner leaves one until the lane drops its database, and a failed drop keeps its place (ALX-134). */
-export function pendingTestDatabaseDrops(): number {
-  return dropsOwed;
-}
-
-/**
- * A fresh database the run's server holds for one case, dropped when its owner
- * closes. An error is the queue's to name: swallowing it here made a failed
- * drop look like a drained queue (ALX-134).
+ * Removes one database from a server, and does not return before PostgreSQL has
+ * dropped it (ALX-186). `DROP DATABASE` forces a checkpoint of the whole cluster
+ * and flushes every dirty buffer before it removes the directory, so its cost is
+ * the cluster's flush, not the database's size. The run's server is started
+ * without `fsync`, `full_page_writes` and `synchronous_commit` (`test/run-postgres.ts`),
+ * which leaves the flush with no disk sync: measured 35 ms on a quiet cluster and
+ * 115 ms with 240 MB of dirty pages, against 1.2 s and 8.4 s on a durable one
+ * (ALX-119, ALX-186).
  */
 async function dropDatabase(socketDir: string, database: string): Promise<void> {
   const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
   await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS ${quotedDatabase(database)} WITH (FORCE)`);
 }
 
+/** A DROP the server refused: the database by name and the server's own words, so neither is lost (ALX-186, C3). */
+function dropFailure(database: string, error: unknown): Error {
+  return new Error(`test/test-database.ts:1: the database "${database}" was not dropped: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+}
 
 /** Diagnostics belong to the case, and must finish synchronously on its path. */
 function emitTiming(timing: TestDatabaseOptions['timing'], phase: string, elapsedMs: number): void {
@@ -460,12 +404,47 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
   } catch (error) {
     if (owner !== undefined) await owner.close().catch(() => undefined);
-    if (own && (created || owner !== undefined)) queueTestDatabaseDrop(socketDir, database);
+    // The database is dropped here, not queued: the run has no queue any more (ALX-186), and a case's failure must not
+    // leave its database to a step that may never run. The failure is the one to report; a drop that cannot follow it is
+    // attached as its cause and never replaces it (C4).
+    if (own && (created || owner !== undefined)) {
+      try {
+        await dropDatabase(socketDir, database);
+      } catch (dropError) {
+        if (error instanceof Error && error.cause === undefined) (error as Error & { cause?: unknown }).cause = dropFailure(database, dropError);
+      }
+    }
     throw error;
   }
   const openedOwner = owner;
-  let closed: Promise<void> | undefined;
-  let ownerClosed = false;
+  let closeInFlight: Promise<void> | undefined;
+  let settledClose: Promise<void> | undefined;
+  let poolClosed = false;
+  let dropped = false;
+  /** Drops this case's own database on the case path, and does not resolve before the server did it (C2, C3, C5). */
+  const dropOwnDatabase = async (): Promise<void> => {
+    if (dropped) return;
+    const dropStart = performance.now();
+    emitTiming(options.timing, 'database-drop-start', 0);
+    try {
+      await dropDatabase(socketDir, database);
+    } catch (error) {
+      throw dropFailure(database, error);
+    }
+    // Before the callback: a callback that throws for `database-drop` must not make the next close() drop again (C5).
+    dropped = true;
+    emitTiming(options.timing, 'database-drop', performance.now() - dropStart);
+  };
+  /** One close attempt: the pool once, then this case's own database, and no earlier. */
+  const closeAttempt = async (): Promise<void> => {
+    const closeStart = performance.now();
+    if (!poolClosed) {
+      await openedOwner.close();
+      poolClosed = true;
+      emitTiming(options.timing, 'database-owner-close', performance.now() - closeStart);
+    }
+    if (own) await dropOwnDatabase();
+  };
   const fixtureOwner:TestDatabaseOwner = {
     graphContract,
     location: openedOwner.location,
@@ -479,19 +458,20 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     run: (work) => openedOwner.run(work),
     exec: (text) => openedOwner.exec(text),
     close: () => {
-      closed ??= (async () => {
-        const closeStart = performance.now();
-        await openedOwner.close();
-        ownerClosed = true;
-        // The drop is the run's, not the case's: it leaves the teardown at once and the lane pays it.
-        if (own) queueTestDatabaseDrop(socketDir, database);
-        emitTiming(options.timing, 'database-owner-close', performance.now() - closeStart);
-      })();
-      // A close a case provokes on purpose (from inside the owner's own
-      // transaction, say) rejects; this handler keeps that rejection from
-      // becoming an unhandled one, and the caller still sees it.
-      closed.catch(() => { if (!ownerClosed) closed = undefined; });
-      return closed;
+      // Settled once and the same promise after: a close that succeeded is never retried, and one that failed retries
+      // only the work it did not finish — a closed pool is not closed again, and a dropped database is not dropped
+      // again, so a second close() after a failed DROP retries the DROP alone (C3).
+      if (settledClose !== undefined) return settledClose;
+      if (closeInFlight !== undefined) return closeInFlight;
+      const attempt = closeAttempt();
+      closeInFlight = attempt;
+      // A close a case provokes on purpose (from inside the owner's own transaction, say) rejects: this handler keeps
+      // that rejection from becoming an unhandled one, and the caller still sees it through the returned promise.
+      void attempt.then(
+        () => { settledClose = attempt; closeInFlight = undefined; },
+        () => { closeInFlight = undefined; },
+      );
+      return attempt;
     },
   };
   schemaOwners.set(fixtureOwner,openedOwner);
