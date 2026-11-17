@@ -1,8 +1,9 @@
 # 0039. The core graph: references as edges, typed values, one writer, system kinds and assertions per source
 
-Status: proposed (owner decisions and engineering design recorded; implementation remains)
+Status: proposed (owner decisions and engineering design recorded; implementation remains);
+amended 2026-11-16 (items 17, 25, 27 and 31: every judgement at write time)
 Date: 2026-11-15
-Task: madarch-64o5.137
+Task: madarch-64o5.137; amendment madarch-64o5.74
 
 Builds on 0027 (orchestration and pg-boss), 0028 (one graph), 0033 (one writer,
 architecture checks and greenfield replacement), 0034 (identity and generated
@@ -256,6 +257,29 @@ Owner: «это должна быть системная часть, это вс
 растерзание каждый продукт.»
 Reference: madarch-64o5.74, part 4, 17:55; madarch-64o5.114, 11:03 and 18:27.
 
+Clarification (madarch-64o5.74, 2026-11-17, ALX-99): the manifest's own kinds,
+the `manifest.*` vertices and edges of the engine's manifest contract, are
+engine-owned exactly as the system kinds are: the engine writes them when it
+publishes the catalogue and reads them back, so a product can neither delete
+nor redeclare them. Each relation among them has one declaration, in that
+contract; a workflow stage belongs to its workflow through the key edge
+`manifest.workflow-stage-workflow` to `manifest.workflow`, and no catalogue
+edge says it a second time. The catalogue declares no kind or edge under a
+protected name, and no edge that requires a protected vertex to carry it (a
+lower bound above zero on the protected end): engine-written vertices cannot
+satisfy a product's demand, so it can only fail the deferred check. It may
+extend as this item says, with nullable fields and optional edges. Both
+protected contracts, system and manifest, are joined to a product's contract
+by the same inheritance, which refuses a replaced identity instead of
+silently shadowing it. Why: the cutover merge `a699a96a4` declared the stage
+twice, once in the catalogue (`manifest.workflow-stage`, keyed by the edge
+`workflow-stages` from the catalogue kind `workflow`, exactly one per stage)
+and once in the manifest contract (keyed by `manifest.workflow-stage-workflow`).
+Joining the manifest contract replaced the catalogue's vertex by name and
+kept its edge, so every published stage failed `CARDINALITY_INVALID for
+workflow-stages` once publication of the full starter reached the deferred
+checks (ALX-65, `5df3e5c8f`).
+
 ### 10. CREATE TABLE has only the core installation and the manifest generator
 
 Only graph-core installation DDL and the one generator reading the product
@@ -374,17 +398,23 @@ Reference: madarch-64o5.74, part 5d, 18:21; part 5e, 18:26.
 
 The question resolver plugin tries to settle the dispute; what it cannot settle
 goes to a person. A resolution is itself an assertion by the resolver or person,
-pinned to the disputed values. Repeating a value already ruled on changes
-nothing and reopens nothing. A new source value reopens the question and shows
-that the earlier resolution judged old values. This qualifies item 16's normal
-same-source-change rule when that source participates in a resolved dispute.
-The next static pass cannot overwrite a settled answer just by repeating itself.
+written into the disputed property slot in its own **resolution stream** (see
+"Amendment 2026-11-16"): its source is the principal's resolution source, never
+the principal's ordinary source, it is valid from the start of the judged
+segment over the judged scope, and it wins by recorded sequence under item 25's
+ordinary rule. Repeating a value already ruled on creates no assertion, changes
+nothing and reopens nothing. A new source value reopens the question and ends
+the resolution where that value starts, so the earlier resolution visibly
+judged old values. This qualifies item 16's normal same-source-change rule when
+that source participates in a resolved dispute. The next static pass cannot
+overwrite a settled answer just by repeating itself.
 
 Owner: «Если может решить сам… исправляет сам. Если не может, то эскалирует
 человеку»; «Не будет такого, что мы решили спор, а потом статически плагин просто
 перезапишет то, что мы решили?»
 Reference: madarch-64o5.74, part 5d, 18:21 and 18:22 (agreed pin-and-reopen
-mechanism answering the latter question).
+mechanism answering the latter question); the resolution stream and the
+write-time judgement, amendment of 2026-11-16 below.
 
 ### 18. Every writing plugin reconciles add, remove and update through the writer
 
@@ -569,9 +599,30 @@ recorded sequence, then uid in code-point order for a deterministic final tie.
 Recorded-at is explanatory clock time, not a tie breaker dependent on clock
 precision. Future-valid statements do not win today's view. Equal typed values
 agree even when their evidence differs. Different overlapping values are a
-dispute; the selected value remains visible. A pinned resolution takes priority
-only over the candidates it judged (item 27); inheriting contract overlays
-(item 34) are applied before product-value survivorship.
+dispute; the selected value remains visible. A resolution needs no rule of its
+own here: it is an assertion in its resolution stream, valid from the start of
+the judged segment and recorded after every candidate it judged, so it is the
+newest by the rule above; the writer ends or retracts it when the dispute
+changes (item 27). Inheriting contract overlays (item 34) are applied before
+product-value survivorship.
+
+Every judgement is made by the one writer at write time, in the transaction of
+the write that causes it: whether values dispute, opening and reopening a
+question, writing, ending and retracting a resolution, and evidence validity.
+A read judges nothing. It applies only the two rules of this item — the last
+recorded statement within each source stream, then the newest across streams —
+at its context, valid time and recorded cutoff, in SQL over these tables; a
+pinned branch reads its base at the pin's recorded cutoff (0034 item 8). The
+"requires clarification" badge is the subject's link to an open question, read
+at the same cutoffs as the value; a question's state is an assertion history on
+the question vertex, not a mutable flag. No table, column, mark or stored
+pointer holds a chosen or current value, and no assertion header is ever
+updated to say it was superseded.
+
+A statement equal to its stream's current one — the same typed value over the
+same valid interval — creates no assertion header. The writer attaches the new
+pass and its evidence to the existing assertion as lineage and marks it seen
+for the scan's completeness (item 26).
 
 Contexts still follow 0034's pinned parent layers. Resolve the nearest layer
 for each source/property stream before selecting time and survivorship; an
@@ -631,12 +682,32 @@ collision is never treated as agreement.
 
 The resolution vertex links the exact immutable assertions judged and records
 their candidate fingerprints, chosen value, valid scope, rationale, evidence
-and resolver/person principal. It does not rewrite source statements. Repeating
-the same candidate with a new pass/evidence link still matches the resolution.
-An evidence withdrawal or invalidity affecting the justification reopens it;
-merely adding corroboration does not. A new source, changed value, retraction
-or changed valid scope outside the pin reopens the same question with the old
-resolution marked historical. A resolution superseding one records that edge.
+and resolver/person principal, and links the resolution assertion it caused
+the writer to write (item 17). It does not rewrite source statements. The
+fingerprints are the writer's, matched when a write arrives; a read never
+matches them. Repeating the same candidate with a new pass/evidence link still
+matches the resolution and creates no assertion (item 25). Merely adding
+corroboration changes nothing. A resolution superseding one records that edge.
+
+What ends a resolution is written by the writer in the same transaction as its
+cause, into the resolution stream, and the question's state records the reopening:
+
+- A new source, changed value or retraction for the slot whose valid-from lies
+  inside the judged segment ends the resolution at that valid-from; before it
+  the principal's judgement still stands.
+- Such a change valid at or before the segment's start (retroactive), or a
+  withdrawal or invalidity of the resolution's justifying evidence (item 31),
+  retracts the resolution over its whole judged scope.
+- Evidence that is only stale — historically valid, no longer supported at the
+  current revision (item 31) — keeps the resolution, with a problem linked to
+  it and reconciliation by its source.
+
+Every recorded cutoff before the ending still shows the resolution. A layer
+statement disputing a resolution inherited from the base opens the question in
+that layer's context. A pinned branch never sees a base resolution or reopening
+recorded after its pin. A base write that changes a dispute updates, in the
+same transaction, the question state of unpinned child working layers that
+hold their own statement for that slot.
 
 An authorised resolver may settle when its evidence supports a definite answer
 and all writer constraints hold; uncertainty produces a person-facing open
@@ -660,6 +731,46 @@ Every individual source assertion still has valid endpoints and types. A
 missing required relation refuses the whole transaction. A source may not
 retract the last required edge unless it replaces it or retires the child in
 the same operation. A partial unit never means a partially valid entity.
+
+Clarification (2026-11-17, madarch-64o5.74): the transaction's final effective
+graph is checked where the transaction changed it. Every earlier state was
+admitted by the same rules, so a deferred check validates the subjects whose
+effective statements the transaction changed (the vertices and edges it
+asserted, retracted or created, with their new parents) and what those changes
+can break: the endpoint kinds of each changed edge, the edges incident to a
+changed vertex, and the cardinality of every vertex at either end of a changed
+edge of a bounded kind, in each context that reads the changed layer. The rules,
+their one generated SQL source and the refusals stay as they are; only the
+input narrows to the change. A check whose cost grows with the whole store
+rather than with the change is a defect: a fill would then cost the number of
+its transactions times the size of the graph. Why: on the stage branch a forced
+check recomputed every active vertex and edge of every relation kind in every
+context, and one such check took up to 18 s on a starter product with a
+three-file repository (ALX-98, `fill-states`).
+
+Clarification (2026-11-17, madarch-64o5.74, ALX-107): the rules of this item
+hold at every valid-time instant, not only at the transaction's own instant,
+following SQL:2011 application-time integrity (PostgreSQL 18 temporal keys and
+`PERIOD` foreign keys). Valid intervals make the active graph change without a
+transaction when a bound passes, so the premise above, that every earlier state
+was admitted, holds only if each write is checked across the valid time it
+changes. The deferred check therefore evaluates the same rules for the same
+changed subjects at each instant where their effective graph can change inside
+a changed interval: the start and the end of every valid interval the
+transaction wrote or retracted, and every valid-from or valid-to of the checked
+subjects' assertions that falls inside such an interval. Between two of these
+instants nothing the check reads changes, so they suffice; the instants come
+from the checked subjects only, so the cost still grows with the change. A
+write is refused only for what it wrote: a bound that ends a vertex or a
+required edge while a dependent edge stays open is refused unless the same
+transaction ends or replaces the dependent edges at that bound, as for the
+retraction of a last required edge, and an edge may not be valid where its
+endpoint is not. The passing of time never refuses a later, unrelated
+transaction and never leaves a reader a relation that became invalid by expiry.
+A valid-from the writer supplies by default is one acceptance instant per
+transaction (`transaction_timestamp()`), not a clock reading per statement, so
+the statements of one create share their start. Kinds with the `system`
+capability stay outside this relation check, as before.
 
 A manifest declares ordered scalar key fields, key-edge roles and for each
 parent deletion either `restrict` or `cascade`; omission refuses the manifest.
@@ -806,7 +917,10 @@ An ended assertion's old evidence is not tested against today's tree. A span
 whose digest contradicts its immutable target is invalid evidence and a refused
 new write; later discovered corruption marks the existing statement and any
 resolution depending on it as problematic. Reads expose historical validity,
-current applicability and availability separately.
+current applicability and availability separately. For a resolution's own
+justifying evidence the writer acts at once (item 27): withdrawn or invalid
+evidence retracts the resolution over its judged scope; stale evidence keeps it
+with the problem linked.
 
 ### 32. Merge follows the resolver rule and has a reversible journal
 
@@ -1054,18 +1168,131 @@ flowchart TD
   C -->|yes| Q["Open question: entity, disputed values, evidence"]
   Q --> B["Page: newest value, requires clarification, question link"]
   Q --> R["Question resolver plugin"]
-  R -->|can settle| S["Resolution assertion pinned to disputed values"]
+  R -->|can settle| S["Resolution assertion in its own stream, from the segment's start"]
   R -->|cannot settle| P["Person"]
   P --> S
   S --> N{"Next source pass"}
-  N -->|repeats ruled-on value| K["Keep resolution; no reopen"]
-  N -->|new value| Q
+  N -->|repeats ruled-on value| K["No new assertion: lineage and seen mark; resolution holds"]
+  N -->|new value inside the segment| E["Resolution ended at its valid-from"]
+  N -->|retroactive value or invalid evidence| X["Resolution retracted over its scope"]
+  E --> Q
+  X --> Q
 ```
 
-The final arrow reopens the question with the old resolution marked as applying
-to old values. A later new value can reopen a settled dispute even when it came
-from the same source; normal source changes outside a settled dispute need no
-question merely for being changes.
+Every box after the first is written by the writer at write time; a page reads
+only item 25's per-stream and newest rules. Ending or retracting the resolution
+reopens the question, and older recorded cutoffs still show the resolution as
+applying to old values. A later new value can reopen a settled dispute even
+when it came from the same source; normal source changes outside a settled
+dispute need no question merely for being changes.
+
+## Amendment 2026-11-16: every judgement at write time
+
+Task: madarch-64o5.74. Amends items 17, 25, 27 and 31; the text of those items
+above already reads as amended.
+
+### Context and problem
+
+The implementation of item 25 judged at read time: every page and list read all
+of a slot's assertions, matched resolutions' candidate fingerprints and checked
+their evidence in TypeScript (`src/graph/assertion-selection.ts`,
+`src/graph/disputes.ts`), so the database could not answer "page 3 of a kind
+and its total" by itself, and a list read the whole kind. A transaction-local
+preparation that materialised the selection before reading
+(`refreshDisputeSelection`, `graph_dispute_selection`) only moved the judgement
+earlier in the same read. Item 25 said the current view is derived; it did not
+say when.
+
+Owner, 2026-11-16 16:42 UTC: «Так, кажется здесь есть архитектурная проблема.
+Мнения не должны рассчитывать онлайн.» On a proposed table of current values,
+16:49 UTC: «Новая таблица только ради хранения консолидированного мнения - это
+тоже неверно. Должен быть другой способ.» On the decision below, 17:03 UTC:
+«Да, согласен».
+
+### Considered options
+
+- **Judge at read time, in SQL.** The selection rewritten as a query. Rejected:
+  still a judgement on every read, and the rule then lives in two places.
+- **Judge at read time, prepared first.** The TypeScript selection fills a
+  scratch projection inside the read transaction, then the page reads it.
+  Rejected: the same judgement on every read; the list test would have been
+  weakened to "two queries plus preparation".
+- **A generated table of current values per kind, kept by the writer.**
+  Rejected by the owner: a second copy of what the assertions already hold.
+- **One table or graph link "this assertion is chosen" per slot, or a
+  "superseded since" column on the assertion header with a unique "one current
+  per slot" index.** Rejected: a stored pointer or mark is the same
+  consolidated copy in another form; a column on the header updates an
+  append-only row and itself needs history for as-of reads; and a slot
+  legitimately has several current assertions, one per source, language and
+  context (item 16).
+- **A resolution is an assertion in its own stream; the writer judges.** Chosen.
+
+### Decision
+
+The writer makes every judgement at write time; a read applies only item 25's
+per-stream and newest rules in one SQL query over the existing assertion
+tables, at its context, valid time and recorded cutoff.
+
+1. A resolution is an assertion in the disputed slot, in a resolution stream:
+   its source is the principal's resolution source, a source vertex of that
+   person or resolver with the role `resolution`, distinct from the principal's
+   ordinary source (item 26), so the stream key of item 25 is unchanged. Only
+   the writer's `resolve` operation writes to it. It is valid from the start of
+   the judged segment over the judged scope and wins by recorded sequence.
+2. A statement equal to its stream's current one creates no assertion header,
+   for every source, the losing candidate included; the pass and evidence attach
+   as lineage and a seen mark. Otherwise a repeat would be recorded after the
+   resolution and win.
+3. The writer ends a resolution at the valid-from of a changed value inside the
+   judged segment; retracts it over the whole judged scope for a retroactive
+   change or for withdrawn or invalid justifying evidence; keeps it, with a
+   problem and reconciliation, for stale evidence (items 27 and 31).
+4. A question's state is history on the question vertex; the badge is read at
+   the value's cutoffs.
+5. A pinned branch reads its base at the pin's cutoff; unpinned child working
+   layers holding their own statement for the slot have their question state
+   updated in the base write's transaction.
+
+### What this forbids
+
+- A table, column, mark, unique index or stored pointer naming the chosen or
+  current assertion, and any update of an assertion header.
+- Any judgement on a read path: read code (`src/knowledge/**`, the GraphQL
+  layer, MCP) imports neither `src/graph/disputes.ts` nor
+  `src/graph/assertion-selection.ts`. The TypeScript selection on reads,
+  read-time fingerprint matching and `refreshDisputeSelection` with
+  `graph_dispute_selection` are deleted, not kept beside the SQL rule.
+- A resolution written into the principal's ordinary stream, so that ending it
+  would also end the principal's own edit.
+
+### Checks
+
+- Architecture rule (0033 item 4): `src/knowledge/**`, the GraphQL layer and MCP
+  must not import `src/graph/disputes.ts` or `src/graph/assertion-selection.ts`.
+- Scenario tests: the losing source repeats its value — the resolution holds;
+  another source brings a new value inside the segment — it is shown, the
+  question reopens, the resolution ends at its valid-from; a retroactive value —
+  the resolution is retracted over its scope; the winning source retracts — the
+  resolution ends and the question is open; the resolution's evidence is
+  withdrawn or invalid — retracted over its scope; its evidence is stale — the
+  resolution holds with a problem; a person edited the field and later resolved
+  the dispute — the edit survives the resolution's end; an as-of read inside the
+  segment at recorded cutoffs before and after the resolution; a base resolution
+  after a fork is invisible in the pinned branch.
+- A kind's list page reads in exactly two queries (membership with total, then
+  the page's records), and its query plan is measured on a large kind: the
+  count of queries alone does not prove the work inside them is small.
+
+### Consequences
+
+Reads become a fixed SQL rule the database can page, sort and filter by; the
+writer carries all dispute logic and its tests. Storage cost per value is
+unchanged; repeats no longer add assertions. The resolution's explanation
+(judged candidates, fingerprints, rationale, evidence) stays on the resolution
+vertex. Revisit if the measured plan of the newest rule on a large kind cannot
+be made fast with indexes on the subject attachment and the assertion slot;
+come back with the numbers before adding any stored projection.
 
 ## Consequences
 
@@ -1134,7 +1361,9 @@ madarch-64o5.74 (15:35–18:30, core walk parts 1–6 and follow-ups),
 madarch-64o5.137 (18:35, 19:23–19:31), madarch-64o5.120 (18:27),
 madarch-64o5.114 (10:49–19:31), madarch-64o5.143 (19:27),
 madarch-64o5.140 (18:30, 19:28, 19:36) and madarch-64o5.144
-(19:09–19:25), all 2026-11-15, including the supplied later-decision transcript.
+(19:09–19:25), all 2026-11-15, including the supplied later-decision transcript;
+the amendment of 2026-11-16 follows his comments of 16:42, 16:49 and 17:03 UTC
+in the stage thread for madarch-64o5.74 (Multica ALX-12).
 Quoted Russian is preserved; the surrounding record is English. Where only an
 English summary was supplied, it is not presented as a verbatim Russian quote.
 Engineering choices in items 24–34 are this task's recorded design, not words
