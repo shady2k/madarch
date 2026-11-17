@@ -2,7 +2,7 @@
 import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {type GraphContract,type VertexDraft,type EdgeDraft} from '../src/graph/contract.js';
-import {publishGraphDrafts,ensureVertex} from '../src/graph/write.js';
+import {publishGraphDrafts,ensureVertex,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
 import {createTestDatabaseOwner} from './test-database.js';
 
@@ -77,3 +77,38 @@ test('ALX-117: JSON null remains a typed JSON value and batch headers share admi
   expect(times.rows).toEqual([{starts:'1'}]);
  }finally{await owner.close();}
 },30000);
+
+async function measureStore(size:number,scoped:boolean){
+ const graph:GraphContract={...contract,vertex:contract.vertex.map(kind=>kind.name==='batch.snapshot'?{...kind,keyEdges:[{role:'repository',edge:'batch.snapshot-parent',direction:'from' as const,onDelete:'restrict' as const}]}:kind),edge:[...contract.edge,{name:'batch.snapshot-parent',from:['batch.snapshot'],to:['batch.repository'],fields:[],repeats:false,cardinality:{from:'many',to:'one'},labels,capability:'fixture'}]};
+ const support={...snapshot,keyEdges:{repository}};
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ try{
+  const uid=await owner.transaction('write',async tx=>{
+   await publishGraphDrafts(tx,graph,{vertices:[{...repository,...producer},{...support,values:{content},...producer}],removals:[]});
+   return (await ensureVertex(tx,graph,repository)).uid;
+  });
+  const file=(i:number):VertexDraft=>({kind:'batch.file',key:{path:`file-${i}`},keyEdges:{repository},values:{text:`[[uid:${uid}]]`,size:i},evidence:[{target:support,locator:{start:0,end:content.length}}],...producer});
+  const publish=(vertices:VertexDraft[])=>({vertices,edges:vertices.map(from=>({kind:'batch.related',from,to:repository,...producer})),removals:[]});
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,publish(Array.from({length:size},(_,i)=>file(i)))));
+  return await owner.transaction('write',async tx=>{
+   if(scoped)bindWriteCapability(tx,{...requireWriteCapability(tx),scope:uid});
+   await tx.query('SET LOCAL enable_seqscan = off');
+   // Server counters cover graph identities, attachments, headers and typed values,
+   // but not the catalogue or authentication setup outside this invocation.
+   const stats=async()=> (await tx.query<{reads:string;inserted:string}>(`SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::text AS reads,coalesce(sum(n_tup_ins) FILTER(WHERE relname='assertion'),0)::text AS inserted FROM pg_stat_xact_user_tables WHERE relname IN ('node','edge','assertion','assertion_vertex_subject','assertion_edge_subject') OR relname LIKE 'av_%'`)).rows[0]!;
+   const before=await stats();const query=tx.query.bind(tx);let statements=0;
+   tx.query=async(sql,values)=>{statements++;return query(sql,values);};
+   try{await publishGraphDrafts(tx,graph,publish([...Array.from({length:10},(_,i)=>file(size+i)),...Array.from({length:10},(_,i)=>file(i))]));}finally{tx.query=query;}
+   const after=await stats();
+   return {reads:Number(after.reads)-Number(before.reads),statements,inserted:Number(after.inserted)-Number(before.inserted)};
+  });
+ }finally{await owner.close();}
+}
+for(const scoped of [false,true])test(`ALX-142: store reads stay equal for 50 and 500 files, scoped=${scoped}`,async()=>{
+ const small=await measureStore(50,scoped),large=await measureStore(500,scoped);
+ console.log('ALX-142 store counters',JSON.stringify({scoped,small,large}));
+ expect(small.statements).toBeGreaterThanOrEqual(15);expect(large.statements).toBeGreaterThanOrEqual(15);
+ // Ten fresh files: existence, path, text, size, parent and related edge.
+ expect(small.inserted).toBe(60);expect(large.inserted).toBe(60);
+ expect(large.statements).toBe(small.statements);expect(large.reads).toBe(small.reads);
+},120000);
