@@ -105,7 +105,6 @@ test('a renamed value-set kind and its renamed fields still publish the starter 
     const before = await counts();
     const repeated = await publishValidatedManifests(owner, read.value);
     const after = await counts();
-    console.log('STARTER_ASSERTIONS', JSON.stringify({ before, after, repeated }));
     expect(repeated).toBe(0);
     expect(after).toEqual(before);
     const contract = graphContractOf(read.value.manifest);
