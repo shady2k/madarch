@@ -216,21 +216,21 @@ export function generateContractStatements(declared: GraphContract) {
             WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`}
           ), current_stream AS (
             SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value,valid_from,recorded_sequence FROM visible
-            WHERE depth=nearest AND ${bounded ? 'valid_from' : "date_trunc('milliseconds',valid_from)"}<=snapshot_at AND (valid_to IS NULL OR ${bounded ? 'valid_to' : "date_trunc('milliseconds',valid_to)"}>snapshot_at)
+            WHERE depth=nearest AND ${bounded ? "valid_from<snapshot_at+interval '1 millisecond'" : "date_trunc('milliseconds',valid_from)<=snapshot_at"} AND (valid_to IS NULL OR ${bounded ? "valid_to>=snapshot_at+interval '1 millisecond'" : "date_trunc('milliseconds',valid_to)>snapshot_at"})
             ORDER BY subject_id,source_id,recorded_sequence DESC
           ), candidates AS (SELECT DISTINCT ON (subject_id) * FROM current_stream WHERE operation='assert' ORDER BY subject_id,valid_from DESC,recorded_sequence DESC,assertion_uid DESC)
           SELECT subject_id FROM candidates WHERE value=TRUE;`;
         return `WHEN ${literal(kind.name)} THEN
-          snapshot_at := CASE WHEN wanted_subject IS NULL THEN date_trunc('milliseconds',clock_timestamp()) ELSE instant END;
+          snapshot_at := date_trunc('milliseconds',coalesce(instant,clock_timestamp()));
           IF wanted_subject IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
       statements.push(`DROP FUNCTION IF EXISTS graph_${sort}_active_ids(text,bigint,bigint)`);
-      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp(),source_kind_id bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
+      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT NULL,source_kind_id bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
         DECLARE snapshot_at timestamptz; BEGIN
         IF wanted_subject IS NOT NULL AND source_kind_id IS NULL THEN SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source'; END IF;
         CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
       statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active(subject bigint,kind text,ctx bigint) RETURNS boolean LANGUAGE sql AS $$
-        SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject,transaction_timestamp()) active(id) WHERE active.id=subject)
+        SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject) active(id) WHERE active.id=subject)
       $$`);
     }
     const relationChecks: string[] = [];
