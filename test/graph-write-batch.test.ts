@@ -145,8 +145,29 @@ test('ALX-142: scalar admission uses the transaction instant and handles retract
    await tx.query('SELECT pg_sleep(0.02)');
    const second=await writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'$exists',operation:'assert',value:false});
    const retraction=await writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'$exists',operation:'retract'});
-   const rows=await tx.query<{uid:string;operation:string;same:boolean}>(`SELECT n.uid::text,a.operation,a.valid_from=transaction_timestamp() AS same FROM assertion a JOIN node n ON n.id=a.assertion_id WHERE n.uid=ANY($1::uuid[]) ORDER BY a.recorded_sequence`,[[first,second,retraction]]);
+   const rows=await tx.query<{uid:string;operation:string;same:boolean}>(`SELECT n.uid::text,a.operation,a.valid_from=date_trunc('milliseconds',transaction_timestamp()) AS same FROM assertion a JOIN node n ON n.id=a.assertion_id WHERE n.uid=ANY($1::uuid[]) ORDER BY a.recorded_sequence`,[[first,second,retraction]]);
    expect(rows.rows.filter(row=>row.uid!==first).map(row=>({operation:row.operation,same:row.same}))).toEqual([{operation:'assert',same:true},{operation:'retract',same:true}]);
   });
+ }finally{await owner.close();}
+},30000);
+
+
+test('ALX-142: scalar evidence keeps locator and target admission checks',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer},{...snapshot,values:{content},...producer}],removals:[]}));
+  for(const evidence of [{target:snapshot,locator:{start:-1,end:0}},{target:snapshot,locator:{start:2,end:1}},{target:repository,locator:{}}]){
+   await expect(owner.transaction('write',async tx=>{
+    const subject=await ensureVertex(tx,contract,repository);
+    return writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'$exists',operation:'assert',value:true,evidence:[evidence]});
+   })).rejects.toThrow('EVIDENCE_INVALID');
+  }
+ }finally{await owner.close();}
+},30000);
+
+test('ALX-142: malformed mentions retain their structured refusal',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try{
+  await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'bad-mention'},keyEdges:{repository},values:{text:'[[uid:bad]]'},...producer}],removals:[]}))).rejects.toMatchObject({code:'SCHEMA_INVALID',retryable:false,actual:'[[uid:bad]]'});
  }finally{await owner.close();}
 },30000);
