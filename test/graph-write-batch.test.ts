@@ -2,7 +2,7 @@
 import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {type GraphContract,type VertexDraft,type EdgeDraft} from '../src/graph/contract.js';
-import {publishGraphDrafts,ensureVertex,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
+import {publishGraphDrafts,ensureVertex,writeAssertion,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
 import {createTestDatabaseOwner} from './test-database.js';
 
@@ -132,5 +132,21 @@ test('ALX-142: fixed admission phases name the first failing draft within each p
    console.log('ALX-142 phase error',scenario.code,scenario.index,error);
    expect(await counts()).toEqual(before);expect(error).toContain(scenario.code);expect(error).toContain('batch.file');expect(error).toContain(ids[scenario.index-1]!.uid);
   }
+ }finally{await owner.close();}
+},30000);
+
+test('ALX-142: scalar admission uses the transaction instant and handles retraction through the same stream',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer}],removals:[]}));
+  await owner.transaction('write',async tx=>{
+   const subject=await ensureVertex(tx,contract,repository);
+   const first=await writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'name',operation:'assert',value:'example'});
+   await tx.query('SELECT pg_sleep(0.02)');
+   const second=await writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'$exists',operation:'assert',value:false});
+   const retraction=await writeAssertion(tx,contract,{sort:'vertex',kind:repository.kind,subjectId:subject.nodeId,property:'$exists',operation:'retract'});
+   const rows=await tx.query<{uid:string;operation:string;same:boolean}>(`SELECT n.uid::text,a.operation,a.valid_from=transaction_timestamp() AS same FROM assertion a JOIN node n ON n.id=a.assertion_id WHERE n.uid=ANY($1::uuid[]) ORDER BY a.recorded_sequence`,[[first,second,retraction]]);
+   expect(rows.rows.filter(row=>row.uid!==first).map(row=>({operation:row.operation,same:row.same}))).toEqual([{operation:'assert',same:true},{operation:'retract',same:true}]);
+  });
  }finally{await owner.close();}
 },30000);
