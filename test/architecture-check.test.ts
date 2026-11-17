@@ -126,6 +126,24 @@ describe('the architecture check', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  test('a trigger name interpolation does not prove the loop table is its target', async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: node', '    type: text']);
+      writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+        'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS node (id bigint)`];',
+        'export function generate() {',
+        "  for (const table of ['node']) {",
+        '    const statement = `CREATE TRIGGER ${table} BEFORE INSERT ON context FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+        '  }',
+        '}',
+      ]);
+      expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 3, symbol: 'node' },
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('I/O in a span callback retains its enclosing function through SWC argument wrappers', async () => {
     const root = fixtureProject();
     writeModule(root, 'src/callbacks.ts', [

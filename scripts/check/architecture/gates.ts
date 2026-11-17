@@ -1504,9 +1504,16 @@ function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<st
     const variable = nodesOf(loop['left'] as Node).find(entry => entry['type'] === 'VariableDeclarator');
     const binding = variable?.['id'] as Node | undefined;
     if (binding?.['type'] !== 'Identifier') return false;
-    const trigger = nodesOf(loop['body'] as Node).some(entry => entry['type'] === 'TemplateLiteral'
-      && /CREATE (?:OR REPLACE |CONSTRAINT )?TRIGGER /u.test(String((entry['quasis'] as Node[])[0]?.['cooked']))
-      && (entry['expressions'] as Node[]).some(expression => named(expression, String(binding['value'])) && expression['ctxt'] === binding['ctxt']));
+    const trigger = nodesOf(loop['body'] as Node).some(entry => {
+      if (entry['type'] !== 'TemplateLiteral') return false;
+      const quasis = entry['quasis'] as Node[];
+      return (entry['expressions'] as Node[]).some((expression, index) => {
+        const prefix = quasis.slice(0, index + 1).map(quasi => String(quasi['cooked'])).join('${expression}');
+        const target = /CREATE (?:OR REPLACE |CONSTRAINT )?TRIGGER \S+ (?:BEFORE|AFTER|INSTEAD OF) (?:INSERT|UPDATE(?: OF [\w, ]+)?|DELETE|TRUNCATE)(?: OR (?:INSERT|UPDATE|DELETE|TRUNCATE))* ON ("?)$/u.exec(prefix);
+        return target !== null && String(quasis[index + 1]?.['cooked']).startsWith(`${target[1]} `)
+          && named(expression, String(binding['value'])) && expression['ctxt'] === binding['ctxt'];
+      });
+    });
     const definition = modules.get('src/adapters/schemas/graph-definition.ts');
     const schema = definition === undefined ? undefined : nodesOf(definition.tree).find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SCHEMA')
       && enclosing(definition, entry).some(parent => parent['type'] === 'ExportDeclaration'));

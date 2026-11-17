@@ -122,7 +122,8 @@ export const SCHEMA: readonly string[] = [
       RETURN NULL;
     END $$`,
   ...['assertion','assertion_vertex_subject','assertion_edge_subject'].map(table =>
-    `CREATE CONSTRAINT TRIGGER subject_attachment AFTER INSERT ON ${table} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_subject_check()`),
+    `DROP TRIGGER IF EXISTS subject_attachment ON ${table};
+     CREATE CONSTRAINT TRIGGER subject_attachment AFTER INSERT ON ${table} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_subject_check()`),
 ];
 
 function sqlType(field: FieldContract): string {
@@ -360,10 +361,23 @@ export function generateContractStatements(declared: GraphContract) {
 
 const schemaStamps = new WeakMap<GraphContract, string>();
 
+/** An identity cache is safe only while the declaration cannot change. */
+function freezeContract(value: object, seen = new WeakSet<object>()): void {
+  if (seen.has(value)) return;
+  seen.add(value);
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+    if ('value' in descriptor && descriptor.value !== null && typeof descriptor.value === 'object') {
+      freezeContract(descriptor.value, seen);
+    }
+  }
+  Object.freeze(value);
+}
+
 /** Canonical declarations and every generated statement define a prepared schema. */
 export function graphSchemaStamp(contract: GraphContract): string {
   const cached = schemaStamps.get(contract);
   if (cached !== undefined) return cached;
+  freezeContract(contract);
   const generated = generateContractStatements(contract);
   const declaration = JSON.stringify(generated.contract, (_key, value: unknown) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;

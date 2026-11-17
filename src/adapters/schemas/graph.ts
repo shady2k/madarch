@@ -38,8 +38,9 @@ export async function prepareGraphSchema(owner: DatabaseOwner, declared: GraphCo
       for(const row of tables.rows) if(['k_','e_','a_','d_'].some(prefix=>row.name.startsWith(prefix))) {
         statements.push(`DROP TABLE "${row.name.split('"').join('""')}" CASCADE`);
       }
-      statements.push(...RETIRED_GRAPH_DROP_SQL,'DROP SEQUENCE IF EXISTS opinion_id','DROP SEQUENCE IF EXISTS graph_recorded_seq',...SCHEMA);
+      statements.push(...RETIRED_GRAPH_DROP_SQL,'DROP SEQUENCE IF EXISTS opinion_id','DROP SEQUENCE IF EXISTS graph_recorded_seq');
     }
+    statements.push(...SCHEMA);
     statements.push(`INSERT INTO context(parent,ref,parent_recorded_seq) SELECT NULL,'',NULL WHERE NOT EXISTS(SELECT 1 FROM context WHERE parent IS NULL)`);
     await createContractTablesIn(tx,contract,statements,reset);
     await tx.query(`INSERT INTO madarch_meta.schema_stamp(name,stamp)
