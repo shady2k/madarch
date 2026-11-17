@@ -25,15 +25,15 @@ export async function readPublicationFingerprint(tx: SqlExecutor): Promise<strin
     };
     // A waiting READ COMMITTED publication must include commits made after its transaction began.
     const marker = assertionSelectionSql(`SELECT raw.* FROM (SELECT id FROM node WHERE entity_id=${kindId('manifest.catalogue')} AND key='{"name":"product"}'::jsonb OFFSET 0) catalogue
-      CROSS JOIN LATERAL (${assertions('catalogue.id', 'manifest.catalogue', ['publication_fingerprint'])}) raw`);
-    const installation = assertionSelectionSql(assertions('producer.id', 'plugin', SYSTEM_CONTRACT.vertex.find(kind => kind.name === 'plugin')!.fields.map(field => field.name)));
+      CROSS JOIN LATERAL (${assertions('catalogue.id', 'manifest.catalogue', ['publication_fingerprint'])}) raw`, { currentStatement: true });
+    const installation = assertionSelectionSql(assertions('producer.id', 'plugin', SYSTEM_CONTRACT.vertex.find(kind => kind.name === 'plugin')!.fields.map(field => field.name)), { currentStatement: true });
     const rows = await tx.query<{ fingerprint: string }>(`SELECT marker.value #>> '{}' AS fingerprint FROM (${marker}) marker
       CROSS JOIN LATERAL (SELECT id FROM node WHERE uid=marker.source::uuid OFFSET 0) producer
       CROSS JOIN LATERAL (SELECT
         bool_or(selected AND property='installation' AND value=to_jsonb($1::text)) AS manifest,
         bool_or(selected AND property='scope' AND value=to_jsonb((SELECT uid::text FROM node WHERE entity_id=${kindId('system.product')}))) AS scoped
         FROM (${installation}) current_source OFFSET 0) installed
-      WHERE marker.selected AND installed.manifest AND installed.scoped`.replaceAll('transaction_timestamp()', 'statement_timestamp()'), [JSON.stringify(['system-engine', 'manifest'])]);
+      WHERE marker.selected AND installed.manifest AND installed.scoped`, [JSON.stringify(['system-engine', 'manifest'])]);
     return rows.rows[0]?.fingerprint;
   });
 }

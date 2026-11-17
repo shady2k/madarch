@@ -3,7 +3,7 @@ import {createTestDatabaseOwner} from './test-database.js';
 import {bindTestWriteCapability} from './write-capability-fixture.js';
 import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
 import {pinContext} from '../src/graph/context.js';
-import {loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
+import {assertionSelectionSql,loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
 const graph:GraphContract={vertex:[{name:'typed',table:generatedTableName('typed','vertex'),key:['name'],fields:[{name:'name',type:'text'},{name:'amount',type:'bigint'},{name:'when',type:'timestamp'},{name:'enabled',type:'boolean'},{name:'details',type:'json',schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false}}],capability:'fixture'}],edge:[],dictionary:[]};
 test('assertion property batch preserves native typed values and subject filtering',async()=>{
@@ -150,4 +150,23 @@ test('reused assertions expose evidence targets once and retain distinct locator
   expect(rows[0]!.evidenceAttachments).toHaveLength(2);
   expect(rows[0]!.evidenceAttachments.map(attachment => JSON.parse(attachment.locator).locator.lineStart).sort()).toEqual([1, 2]);
  } finally { await owner.close(); }
+}, 30_000);
+
+test('current statement assertion selection includes values newer than the transaction', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: graph, authenticated: false });
+  try {
+    await owner.transaction('write', async tx => {
+      await tx.query('SELECT pg_sleep(0.01)');
+      const raw = `SELECT 0 AS request_index,1 AS subject_id,'value' AS property,NULL::text AS language,
+        'source' AS source,'assertion' AS id,1 AS context_id,'assert' AS operation,
+        statement_timestamp() AS valid_from,NULL::timestamptz AS valid_to,
+        statement_timestamp() AS recorded_at,1::bigint AS recorded_sequence`;
+      const ordinary = await tx.query<{ selected: boolean }>(assertionSelectionSql(raw));
+      expect(ordinary.rows[0]!.selected).toBe(false);
+      const current = await tx.query<{ selected: boolean }>(assertionSelectionSql(raw, { currentStatement: true }));
+      expect(current.rows[0]!.selected).toBe(true);
+      const pinned = await tx.query<{ selected: boolean }>(assertionSelectionSql(raw, { currentStatement: true, validAt: '2000-01-01T00:00:00Z', recordedAt: '2000-01-01T00:00:00Z' }));
+      expect(pinned.rows[0]!.selected).toBe(false);
+    });
+  } finally { await owner.close(); }
 }, 30_000);

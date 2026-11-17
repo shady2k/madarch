@@ -415,6 +415,66 @@ test('ALX-174 queued publications re-read the mark after the graph lock', async 
   }
 }, 60_000);
 
+test('ALX-215 one queued publication selects declarations after the holder commits', async () => {
+  const fixture = atomicFixture();
+  const { a, contract } = fixture;
+  const bFolder = mkdtempSync(join(root, 'publication-b-'));
+  cpSync(fixture.folder, bFolder, { recursive: true });
+  writeFileSync(join(bFolder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: B\n');
+  const b = { ...fixture.b, folder: bFolder };
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  const locked = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  let holder: Promise<void> | undefined;
+  let publications: Promise<number>[] = [];
+  try {
+    // Seed A; the holder changes declarations, page and mark to B before the waiter proceeds.
+    await publishValidatedManifests(owner, a);
+    holder = owner.transaction('write', async tx => {
+      await acquireGraphWriteLock(tx);
+      locked.resolve();
+      await release.promise;
+      const borrowed: typeof owner = { ...owner, transaction: async (_kind, body) => await body(tx) };
+      await publishValidatedManifests(borrowed, b);
+    });
+    await locked.promise;
+    const queued: typeof owner = { ...owner, transaction: (kind, body, options) => owner.transaction(kind, async tx => {
+      const query = tx.query;
+      let first = true;
+      tx.query = async (sql, values) => {
+        if (first) {
+          first = false;
+          const waiting = query.call(tx, sql, values);
+          entered.resolve();
+          return await waiting as never;
+        }
+        return await query.call(tx, sql, values) as never;
+      };
+      return await body(tx);
+    }, options) };
+    publications = [publishValidatedManifests(queued, a)];
+    await entered.promise;
+    release.resolve();
+    await holder;
+    const results = await Promise.all(publications);
+    const state = await publicationState(owner);
+    expect(state.page[0]!.values['title']).toBe(state.declarations[0]!.values['declaration'] === '{"generation":"B"}' ? 'B' : 'A');
+    expect(results).toHaveLength(1);
+    expect(results[0]).toBeGreaterThan(0);
+    expect(state.declarations[0]!.values['declaration']).toBe(a.vertices.find(draft => draft.kind === 'manifest.kind')!.values!['declaration']);
+    expect(state.page[0]!.values['title']).toBe('A');
+    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(a, withAssertionContract(withManifestContract(contract)), { kind: 'product', key: { slug: 'stable-id' }, values: { title: 'A' } }));
+    expect(await publishValidatedManifests(owner, a)).toBe(0);
+    expect(await publishValidatedManifests(owner, b)).toBeGreaterThan(0);
+    expect((await publicationState(owner)).page[0]!.values['title']).toBe('B');
+  } finally {
+    release.resolve();
+    await Promise.allSettled([...(holder === undefined ? [] : [holder]), ...publications]);
+    await owner.close();
+  }
+}, 60_000);
+
 function fixture(): string {
   const folder = mkdtempSync(join(root, 'product-'));
   mkdirSync(join(folder, 'madarch'));

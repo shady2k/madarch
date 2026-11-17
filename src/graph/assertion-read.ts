@@ -19,6 +19,7 @@ export interface AssertionRow {
 
 export interface AssertionSqlSelector {
   readonly unitUids?: readonly string[];
+  readonly currentStatement?: boolean;
   readonly validAt?: string;
   readonly recordedAt?: string;
   readonly contexts?: readonly number[];
@@ -31,8 +32,9 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
   for (const at of [selector.validAt, selector.recordedAt]) if (at !== undefined && !Number.isFinite(Date.parse(at))) throw new Error(`${import.meta.path}:37: invalid temporal selector ${JSON.stringify(at)}`);
   const contexts = selector.contexts ?? [1];
   if (contexts.length === 0 || contexts.some(id => !Number.isSafeInteger(id))) throw new Error(`${import.meta.path}:39: invalid context selector`);
-  const valid = selector.validAt === undefined ? 'transaction_timestamp()' : `${quote(selector.validAt)}::timestamptz`;
-  const recorded = selector.recordedAt === undefined ? 'transaction_timestamp()' : `${quote(selector.recordedAt)}::timestamptz`;
+  const currentTime = selector.currentStatement === true ? 'statement_timestamp()' : 'transaction_timestamp()';
+  const valid = selector.validAt === undefined ? currentTime : `${quote(selector.validAt)}::timestamptz`;
+  const recorded = selector.recordedAt === undefined ? currentTime : `${quote(selector.recordedAt)}::timestamptz`;
   const fences = Object.entries(selector.contextRecordedThrough ?? {}).filter(([,seq]) => seq !== null).map(([id,seq]) => {
     if (!Number.isSafeInteger(Number(id)) || BigInt(seq!) < 0n) throw new Error(`${import.meta.path}:44: invalid context recorded cutoff`);
     return `(r.context_id<>${Number(id)} OR r.recorded_sequence::bigint<=${BigInt(seq!)})`;

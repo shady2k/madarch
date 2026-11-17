@@ -180,3 +180,22 @@ unchanged bounds as well. They fail daemon startup at 8 s or the serve-address
 wait at 20 s, not the outer 120 s case limit. This increment does not introduce
 those failures, but does not waive them. See the hand-in report for each test
 name, measured time, base comparison and evidence path. No task is closed.
+
+
+### ALX-215 review corrections for publication fingerprint E
+
+The single-waiter regression queues A behind a holder that publishes B and
+checks that waiter's declarations, product page, publication fingerprint and
+result before another publication can repair its state. Removing the explicit
+publication read cutoffs fails with `Expected: "B" / Received: "A"`; the
+production cutoffs are restored. AssertionSqlSelector now exposes
+`currentStatement: true`, used by the startup fingerprint read instead of
+rewriting SQL text. Its behavior test checks transaction time, statement time
+and explicit cutoffs. The startup page already uses explicit cutoffs.
+
+The sandbox rerun passes manifest publication (34 tests, 196 assertions),
+assertion reads (6 tests, 30 assertions) and catalogue growth (7 tests,
+111 assertions). The full-starter repeat case takes 232.67 s under its
+unchanged 300 s bound. Static checks pass with architecture 874/874 and no
+new debt. This is review correction evidence, not stage acceptance; the
+pre-existing stop-databases failures remain outside this increment.
