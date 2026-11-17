@@ -215,6 +215,36 @@ in the intended model, the text an agent read to write an element, an
 interface, a relation or a data entity: a file, its lines, and the commit and
 blob it was read at.
 
+**Assertion** (ru: мнение):
+One source's value for one property of a vertex or an edge — its existence
+included — over a valid-time interval, with its language, layer, recorded time,
+source and evidence; itself a vertex of the graph, append-only, never updated
+(decision 0039, items 14 and 25). A property may hold several at once.
+_Avoid_: opinion record, claim (a document's statement), fact (a plugin's
+statement of the earlier model)
+
+**Source stream** (ru: поток источника):
+The history of one source's assertions for one slot: subject, property,
+language, layer and source. Within it the last recorded assertion wins; across
+streams the newest wins (decision 0039, item 25).
+
+**Dispute** (ru: спор):
+Different source streams holding different values for the same slot over
+overlapping valid time; the writer opens an open question for it at write time.
+
+**Resolution** (ru: решение спора):
+A resolver's or person's judgement of a dispute: a resolution vertex with the
+judged assertions, rationale and evidence, and the assertion it writes into the
+disputed slot in the resolution stream.
+_Avoid_: answer (closes an open question of the earlier model), pin
+
+**Resolution stream** (ru: поток решений):
+The source stream of a principal's resolution source — a source with the role
+`resolution`, distinct from that principal's ordinary source — so a resolution
+never replaces or ends the principal's own edits. Only the writer writes to it:
+from the judged segment's start, ended or retracted when the dispute changes
+(decision 0039, amendment 2026-11-16).
+
 **Stale**:
 Said of evidence or a claim whose file has changed since the blob it names; the
 text read then may no longer say what was written from it.
