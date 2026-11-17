@@ -346,7 +346,9 @@ class PostgresOwner implements DatabaseOwner {
         // COMMIT dispatch is the boundary: after it the server may already have kept the write.
         if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
         await this.named(async () => await client.query('COMMIT'));
-        for (const publish of committed) publish();
+        for (const publish of committed) {
+          try { publish(); } catch (error) { span.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
+        }
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);

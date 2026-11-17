@@ -1,5 +1,6 @@
 /** The sole graph writer: immutable, typed assertions (0039 items 14,25,26,28). */
 import {createHash} from 'node:crypto';
+import {CommittedLookups,TransactionLookups} from './immutable-lookups.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
@@ -18,34 +19,33 @@ interface ImmutableVertex extends Record<string,unknown> {
  parents:{kind:string;uid:string;edge:string;direction:string}[];
 }
 interface ImmutableLookups {
- kinds:Map<string,string>;
- vertices:Map<string,ImmutableVertex>;
- values:Map<string,unknown>;
+ kinds:TransactionLookups<string>;
+ vertices:TransactionLookups<ImmutableVertex>;
+ values:TransactionLookups<unknown>;
 }
-// Database incarnation and schema installation are separate: template clones
-// share relation OIDs/stamps, while a reinstall can keep the database OID.
-const databaseLookups=new Map<string,ImmutableLookups>();
+// Retain at most eight installations. Content is bounded by both bytes and slots.
+const databaseLookups=new Map<string,{kinds:CommittedLookups<string>;vertices:CommittedLookups<ImmutableVertex>;values:CommittedLookups<unknown>}>();
 const transactionLookups=new WeakMap<SqlExecutor,Promise<ImmutableLookups>>();
 async function immutableLookups(executor:SqlExecutor):Promise<ImmutableLookups>{
  let pending=transactionLookups.get(executor);
  if(pending===undefined){
   pending=withSpan('graph.immutable-lookups',{},async()=>{
+   await acquireGraphWriteLock(executor);
    const {identity}=(await executor.query<{identity:string}>(`SELECT jsonb_build_array(
     (SELECT system_identifier::text FROM pg_control_system()),
     (SELECT oid::text FROM pg_database WHERE datname=current_database()),
     'entity'::regclass::oid::text,
     (SELECT jsonb_agg(jsonb_build_array(name,stamp,created_at::text,xmin::text) ORDER BY name COLLATE "C") FROM madarch_meta.schema_stamp WHERE name IN ('one-graph','one-graph-revision','graph-reset'))
    )::text AS identity`)).rows[0]!;
-   const shared=databaseLookups.get(identity);
-   const local:ImmutableLookups={kinds:new Map(shared?.kinds),vertices:new Map(shared?.vertices),values:new Map(shared?.values)};
-   const publish=()=>{
-    const target=databaseLookups.get(identity)??{kinds:new Map(),vertices:new Map(),values:new Map()};
-    for(const [key,value] of local.kinds)target.kinds.set(key,value);
-    for(const [key,value] of local.vertices)target.vertices.set(key,structuredClone(value));
-    for(const [key,value] of local.values)target.values.set(key,structuredClone(value));
-    databaseLookups.set(identity,target);
+   const shared=databaseLookups.get(identity)??{
+    kinds:new CommittedLookups<string>(4096,1024*1024),
+    vertices:new CommittedLookups<ImmutableVertex>(100000,32*1024*1024),
+    values:new CommittedLookups<unknown>(4096,8*1024*1024)
    };
-   executor.afterCommit?.(publish);
+   databaseLookups.delete(identity);databaseLookups.set(identity,shared);
+   if(databaseLookups.size>8)databaseLookups.delete(databaseLookups.keys().next().value!);
+   const local={kinds:new TransactionLookups(shared.kinds),vertices:new TransactionLookups(shared.vertices),values:new TransactionLookups(shared.values)};
+   executor.afterCommit?.(()=>{local.kinds.publish();local.vertices.publish();local.values.publish();});
    return local;
   });
   transactionLookups.set(executor,pending);
@@ -57,7 +57,9 @@ async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):P
  const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
  const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT transaction_timestamp()::text AS instant':'SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity')).rows;
  for(const row of rows)if(row.id!==undefined)cache.kinds.set(row.sort+':'+row.name,row.id);
- return {entities:cache.kinds,instant:Date.parse(rows[0]!.instant)};
+ const entities=new Map<string,string>();
+ for(const name of [...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)]){const id=cache.kinds.get(name);if(id!==undefined)entities.set(name,id);}
+ return {entities,instant:Date.parse(rows[0]!.instant)};
 }
 
 /** Serialize graph operations before any identity or queue locks. */
@@ -108,7 +110,8 @@ async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly
  const cache=await immutableLookups(executor),known=cache.vertices.get(uid);
  if(known!==undefined){
   if(known.kind!==kind||!sameValue(known.key,key)||known.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
-  await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[known.id]);
+  const rows=(await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM node WHERE id=$1::bigint FOR UPDATE',[known.id])).rows;
+  if(rows.length!==1||rows[0]!.id!==known.id||rows[0]!.uid!==uid)throw new Error(`${WHERE}:111: UID_IDENTITY_CONFLICT cached identity ${uid}`);
   return {nodeId:known.id,uid,created:false,revived:false};
  }
  const kindId=await entityId(executor,kind,'node');
@@ -116,7 +119,7 @@ async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly
  const row=made.rows[0]??(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
  if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
  await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[row.id]);
- if(!cache.vertices.has(uid))cache.vertices.set(uid,{...row,uid,key:structuredClone(row.key) as Record<string,unknown>,parents:[]});
+ if(!cache.vertices.has(uid))cache.vertices.set(uid,{...row,uid,key:row.key as Record<string,unknown>,parents:[]});
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
 }
 /** Installation declares principal/source/operation identities through this same writer. */
@@ -315,9 +318,14 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   SELECT e.from_node AS id FROM edge e WHERE role.direction='to' AND e.entity_id=ek.id AND e.to_node=n.id
  ) link JOIN node parent ON parent.id=link.id JOIN entity pk ON pk.id=parent.entity_id
  WHERE role.kind=k.name),'[]'::jsonb) AS parents
- FROM wanted w CROSS JOIN LATERAL (SELECT n.* FROM node n WHERE n.uid=w.uid OFFSET 0) n JOIN entity k ON k.id=n.entity_id`,[missing,JSON.stringify(keyRoles)])).rows:(await executor.query<BatchNode>('SELECT id::text,uid::text FROM node WHERE id=ANY($1::bigint[])',[ [...requested].map(uid=>cache.vertices.get(uid)!.id) ])).rows.map(row=>cache.vertices.get(row.uid)!);
+ FROM wanted w CROSS JOIN LATERAL (SELECT n.* FROM node n WHERE n.uid=w.uid OFFSET 0) n JOIN entity k ON k.id=n.entity_id`,[missing,JSON.stringify(keyRoles)])).rows:(await executor.query<BatchNode>('SELECT id::text,uid::text FROM node WHERE id=ANY($1::bigint[])',[ [...requested].map(uid=>cache.vertices.get(uid)!.id) ])).rows;
+ if(!missing.length){
+  if(existing.length!==requested.size||existing.some(row=>!requested.has(row.uid)||cache.vertices.get(row.uid)?.id!==row.id)||new Set(existing.map(row=>row.uid)).size!==requested.size)throw new Error(`${WHERE}:320: UID_IDENTITY_CONFLICT cached batch identities`);
+  for(let i=0;i<existing.length;i++)existing[i]=cache.vertices.get(existing[i]!.uid)!;
+ }
  for(const node of existing)cache.vertices.set(node.uid,node);
- const nodes=new Map([...cache.vertices].filter(([uid])=>requested.has(uid)));
+ const nodes=new Map<string,BatchNode>();
+ for(const uid of requested){const node=cache.vertices.get(uid);if(node!==undefined)nodes.set(uid,node);}
  for(const node of existing)nodes.set(node.uid,node);
  const includeParents=(node:ImmutableVertex):void=>{for(const parent of node.parents){if(nodes.has(parent.uid))continue;const held=cache.vertices.get(parent.uid);if(held){nodes.set(parent.uid,held);includeParents(held);}}};
  for(const node of nodes.values())includeParents(node);
@@ -347,6 +355,7 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
 
  const unknownBirths=births.filter(birth=>!nodes.has(birth.uid));
  const locked=(await executor.query<BatchNode>(unknownBirths.length?`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`:`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[unknownBirths.length?births.map(b=>b.uid):births.map(b=>nodes.get(b.uid)!.id)])).rows;
+ if(locked.length!==births.length||locked.some(node=>!birthByUid.has(node.uid)||(!unknownBirths.length&&nodes.get(node.uid)?.id!==node.id))||new Set(locked.map(node=>node.uid)).size!==births.length)throw new Error(`${WHERE}:366: UID_IDENTITY_CONFLICT locked batch identities`);
  for(const node of locked)nodes.set(node.uid,{...node,parents:nodes.get(node.uid)?.parents??[]});
  for(const birth of births){const held=nodes.get(birth.uid);if(!held||held.kind!==birth.kind||held.scope!==birth.scope||!sameValue(held.key,birth.key))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${birth.uid}`);}
  const activeBirths=new Set(drafts.vertices.flatMap((draft,index)=>(draft.validFrom===undefined||Date.parse(draft.validFrom)<=instant)&&(draft.validTo==null||Date.parse(draft.validTo)>instant)?[vertexUids[index]!]:[]));
@@ -461,8 +470,9 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  const immutable=immutableParts.length?(await executor.query<{subject:string;property:string;value:unknown;sequence:string}>(immutableParts.join(' UNION ALL '))).rows:[];
  const immutableValues=new Map<string,unknown[]>();const content=new Map<string,{value:unknown;sequence:bigint}>();
  for(const row of immutable){const key=JSON.stringify([row.subject,row.property]);const values=immutableValues.get(key)??[];values.push(row.value);immutableValues.set(key,values);const prior=content.get(key);if(!prior||BigInt(row.sequence)>prior.sequence)content.set(key,{value:row.value,sequence:BigInt(row.sequence)});}
- for(const [key,value] of cache.values){
-  if(!immutableValues.has(key)){immutableValues.set(key,[value]);content.set(key,{value,sequence:0n});}
+ for(const slot of immutableTables.values())for(const id of slot.ids){
+  const key=JSON.stringify([id,slot.property]),value=cache.values.get(key);
+  if(value!==undefined&&!immutableValues.has(key)){immutableValues.set(key,[value]);content.set(key,{value,sequence:0n});}
  }
  let sequence=streamRows.reduce((max,row)=>BigInt(row.recorded_sequence)>max?BigInt(row.recorded_sequence):max,0n);
  for(const input of assertions){
@@ -537,7 +547,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   for(const mention of input.mentions){const target=lineageNode(mention.uid);const discriminator=JSON.stringify({path:mention.path,start:mention.start,end:mention.end});const kind='system.assertion-mentions';extraEdges.push({uid:edgeUid(kind,input.uid,target.uid,discriminator),kind:entities.get('edge:'+kind)!,from:input.id!,to:target.id,discriminator});}
  }
  await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,x.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint,discriminator text) ON CONFLICT DO NOTHING`,[JSON.stringify(extraEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
- for(const [key,values] of immutableValues)if(values.length&&values.every(value=>sameValue(value,values[0])))cache.values.set(key,structuredClone(values[0]));
+ for(const [key,values] of immutableValues)if(!cache.values.has(key)&&values.length&&values.every(value=>sameValue(value,values[0])))cache.values.set(key,values[0]);
  return assertions;
 }
 
