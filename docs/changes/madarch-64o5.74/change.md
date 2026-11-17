@@ -141,3 +141,25 @@ The full-catalogue performance gate remains blocked: an instrumented baseline fi
 ### ALX-101 parent-scoped starter identity correction
 
 The previous starter comparison excluded every draft with key edges unless it belonged to manifest metadata. Starter entries therefore rewrote all six assertions and their parent assertion. The comparison now resolves parent-scoped identity through the existing entity reference resolver. The renamed value-set regression reproduces 6 -> 12 vertex-subject rows and 1 -> 2 edge-subject rows before the fix; after the fix publication returns zero and both counts stay unchanged. Full-catalogue timing and committed-copy verification are recorded in the delivery report, not assumed from this focused test. No test deadline or fixture was reduced.
+
+### ALX-174 publication fingerprint transaction correction (not accepted)
+
+The publication fingerprint is written in the same READ COMMITTED transaction
+as declarations and the startup page. Its fast path reads under the graph
+write lock; source scope is checked against the store product identity. Current
+publication reads retain PostgreSQL timestamp precision. The glossary defines
+the invariant. Manifest authority is deferred to ALX-175.
+
+The held recovery test is unchanged and now passes. Abort-after-declarations,
+abort-after-page, and queued different declarations/pages are covered. Manual
+mutations moving the mark outside the transaction and reading it before the
+lock both fail the targeted cases. Independent gpt-6.1-terra review found two
+issues (timestamp precision and page-coherence coverage), both corrected.
+
+This increment is **not accepted**: full-starter runs exceeded the unchanged
+300-second limit on two retries, the full publication suite has timeout
+failures, and stop-databases has six daemon-start failures. Static checks pass
+with architecture 874/874 and no new debt. Smaller fast-path reads are bounded
+and equal (2 statements, 51 rows, zero writes/constraints), but final
+full-starter equality has not been established. Detailed commands, wall times,
+EXPLAIN and limits are in the ALX-174 hand-in report.

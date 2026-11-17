@@ -12,6 +12,9 @@ import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { publicationCounts } from './publication-counts.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { sha256Hex } from '../src/graph/digest.js';
 
 function validated(folder: string): ValidatedManifests {
   const read = validateProductManifests(folder);
@@ -112,6 +115,22 @@ test('publishing the same full starter catalogue again writes no declarations', 
     expect(counts.constraints).toBe(0);
     expect(counts.statements).toBeLessThanOrEqual(3);
     expect(counts.reads).toBeLessThanOrEqual(200);
+    await owner.transaction('write', async tx => {
+      const { contract } = await startupBinding(tx, withManifestContract(graphContractOf(first.manifest)), 'foreign');
+      await publishGraphDrafts(tx, contract, { vertices: Array.from({ length: 200 }, (_, i) => {
+        const content = `foreign snapshot ${i}`;
+        return { kind: 'system.content-snapshot', key: { digest: sha256Hex(new TextEncoder().encode(content)) }, values: { content }, producer: 'foreign', producerVersion: '1' };
+      }), removals: [] });
+    });
+    const larger = await publicationCounts(owner, measured => publishValidatedManifests(measured, repeat));
+    console.log('ALX-174 larger starter repeat', JSON.stringify(larger));
+    expect(larger.result).toBe(0);
+    expect(larger.after).toEqual(larger.before);
+    expect(larger.before.nodes).toBeGreaterThan(counts.before.nodes);
+    expect(larger.writes).toBe(0);
+    expect(larger.constraints).toBe(0);
+    expect(larger.statements).toBeLessThanOrEqual(3);
+    expect(larger.reads).toBe(counts.reads);
   } finally { await owner?.close(); rmSync(root, { recursive: true, force: true }); }
 }, 300_000); // Measured 146.08 s to CONTRACT_CONFLICT on 2026-11-16; publication remains blocked.
 

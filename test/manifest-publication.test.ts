@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { manifestDeclaration, withManifestContract } from '../src/graph/manifest-contract.js';
-import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
+import { EMPTY_CONTRACT, generatedTableName, assertionValueTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest, publicationFingerprint } from '../src/graph/manifest-publication.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
@@ -16,13 +16,14 @@ import { graphqlSchemaOf } from '../src/graphql/schema.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
-import { bindWriteCapability, publishGraphDrafts } from '../src/graph/write.js';
+import { acquireGraphWriteLock, bindWriteCapability, publishGraphDrafts } from '../src/graph/write.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { personBinding } from '../src/graph/system-installation.js';
 import { activateGraphProducer, bindGraphProducer, registerGraphPrincipal } from '../src/graph/producer-binding.js';
 import { newUid } from '../src/graph/uid.js';
 import { writeContractOf } from '../src/graph/graph-writes.js';
 import { publicationCounts } from './publication-counts.js';
+import { readPublicationFingerprint } from '../src/graph/startup-read.js';
 
 
 test('ALX-132 counter: unchanged catalogue is a bounded read with no writer', async () => {
@@ -106,6 +107,7 @@ for (const input of ['vertices', 'snapshots', 'starterValues', 'edges', 'contrac
       if (input === 'contract') {
         const after = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']));
         expect(after[0]!.values['publication_fingerprint']).not.toBe(before[0]!.values['publication_fingerprint']);
+        expect(after[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(changed, withAssertionContract(withManifestContract(authored)), null));
       }
       expect(await publishValidatedManifests(owner, changed, authored)).toBe(0);
     } finally { await owner.close(); }
@@ -178,8 +180,14 @@ for (const interrupt of ['inside declarations', 'after declarations'] as const) 
         return result;
       } };
       await expect(publishValidatedManifests(interrupted, changed, undefined, controller.signal)).rejects.toThrow('injected');
-      expect(await marker()).toBe(before);
-      expect(await publishValidatedManifests(owner, changed)).toBeGreaterThan(0);
+      if (interrupt === 'inside declarations') {
+        expect(await marker()).toBe(before);
+        expect(await publishValidatedManifests(owner, changed)).toBeGreaterThan(0);
+      } else {
+        // The one commit includes B's declarations and its mark, even if cancellation arrives after commit.
+        expect(await marker()).not.toBe(before);
+        expect(await publishValidatedManifests(owner, changed)).toBe(0);
+      }
       expect(await marker()).not.toBe(before);
       expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).toBe('{"interrupted":true}');
       expect(await publishValidatedManifests(owner, changed)).toBe(0);
@@ -235,6 +243,176 @@ test('ALX-132 interrupted B followed by A cannot reuse the stale A marker', asyn
     expect(await publishValidatedManifests(owner, initial)).toBeGreaterThan(0);
     expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).not.toBe('{"interrupted":true}');
   } finally { await owner.close(); }
+}, 60_000);
+
+
+test('ALX-174 mark scope must name the store product, not its source identity scope', async () => {
+  const validated = publicationFixture();
+  const contract = withManifestContract(EMPTY_CONTRACT);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const source = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'plugin', ['installation'])))
+      .find(row => row.values['installation'] === JSON.stringify(['system-engine', 'manifest']))!;
+    const foreignScope = newUid();
+    await owner.transaction('write', async tx => {
+      // Corrupt both historical scope and identity scope to model the reviewed malformed store.
+      await tx.query('SET LOCAL session_replication_role = replica');
+      await tx.query('UPDATE node SET identity_scope=$1::uuid WHERE uid=$2::uuid', [foreignScope, source.uid]);
+      const scope = assertionValueTableName('plugin', 'vertex', 'scope');
+      await tx.query(`UPDATE "${scope}" SET value=$1 WHERE assertion_id IN (SELECT a.assertion_id FROM assertion a JOIN edge e ON e.from_node=a.assertion_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=e.entity_id WHERE n.uid=$2::uuid AND k.name='system.assertion-subject' AND a.property='scope')`, [foreignScope, source.uid]);
+    });
+    expect(await owner.run(tx => readPublicationFingerprint(tx))).toBeUndefined();
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
+  const validated = publicationFixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT), authenticated: false });
+  try {
+    await owner.transaction('write', async tx => {
+      const query = tx.query;
+      const cutoffs: string[] = [];
+      tx.query = async (sql, values) => {
+        const result = await query.call(tx, sql, values);
+        if (sql === 'SELECT clock_timestamp()::text AS now') {
+          const cutoff = (result.rows[0] as { now: string }).now;
+          // PostgreSQL's text timestamp keeps the microseconds the JS Date conversion drops.
+          cutoffs.push(cutoff);
+        }
+        if (sql.includes('WITH RECURSIVE context_path') && !sql.startsWith('SELECT marker.value') && cutoffs.length > 0) {
+          expect(sql).toContain(cutoffs.at(-1)!);
+        }
+        return result as never;
+      };
+      const first = await startupBinding(tx, withManifestContract(EMPTY_CONTRACT), 'manifest');
+      const second = await startupBinding(tx, withManifestContract(EMPTY_CONTRACT), 'manifest');
+      expect(second.binding.sourceUid).toBe(first.binding.sourceUid);
+      const borrowed: typeof owner = { ...owner, transaction: async (_kind, body) => await body(tx) };
+      expect(await publishValidatedManifests(borrowed, validated)).toBeGreaterThan(0);
+      expect(cutoffs.length).toBeGreaterThan(2);
+    });
+  } finally { await owner.close(); }
+}, 30_000);
+
+function atomicFixture() {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: A\n');
+  writeFolderManifest(folder, `kinds:
+  product:
+    source: graph
+    title: title
+    key: [slug]
+    fields:
+      - { name: slug, type: text, producers: [start] }
+      - { name: title, type: text, producers: [start] }
+`);
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const a = read.value;
+  const b = { ...a, vertices: a.vertices.map(draft => draft.kind === 'manifest.kind' ? { ...draft, values: { declaration: '{"generation":"B"}' } } : draft) };
+  return { folder, a, b, contract: writeContractOf(a.manifest) };
+}
+
+async function publicationState(owner: Parameters<typeof publishValidatedManifests>[0]) {
+  return await owner.run(async tx => ({
+    declarations: await readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']),
+    page: await readKindAssertions(tx, 'vertex', 'product', ['title']),
+    mark: await readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']),
+    sizes: (await tx.query('SELECT (SELECT count(*) FROM node) AS nodes,(SELECT count(*) FROM edge) AS edges,(SELECT count(*) FROM assertion) AS assertions')).rows,
+  }));
+}
+
+for (const boundary of [2, 3]) {
+  test(`ALX-174 abort inside publication after ${boundary === 2 ? 'declarations' : 'page'}`, async () => {
+    const { folder, a, b, contract } = atomicFixture();
+    const owner = await createTestDatabaseOwner({ graphContract: contract });
+    try {
+      await publishValidatedManifests(owner, a);
+      const before = await publicationState(owner);
+      writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: B\n');
+      const controller = new AbortController();
+      let bindings = 0;
+      const interrupted: typeof owner = { ...owner, transaction: (kind, body, options) => owner.transaction(kind, async tx => {
+        const query = tx.query;
+        tx.query = async (sql, values) => {
+          // Each startup binding first looks up the installation's single product.
+          if (sql.includes("WHERE k.name='system.product' ORDER BY n.uid") && ++bindings === boundary) {
+            controller.abort(new Error('injected boundary abort'));
+            controller.signal.throwIfAborted();
+          }
+          return await query.call(tx, sql, values) as never;
+        };
+        return await body(tx);
+      }, options) };
+      await expect(publishValidatedManifests(interrupted, b, undefined, controller.signal)).rejects.toThrow('injected');
+      expect(await publicationState(owner)).toEqual(before);
+      expect(await publishValidatedManifests(owner, b)).toBeGreaterThan(0);
+      const after = await publicationState(owner);
+      expect(after.declarations[0]!.values['declaration']).toBe('{"generation":"B"}');
+      expect(after.page[0]!.values['title']).toBe('B');
+      expect(after.mark[0]!.values['publication_fingerprint']).not.toBe(before.mark[0]!.values['publication_fingerprint']);
+      expect(await publishValidatedManifests(owner, b)).toBe(0);
+    } finally { await owner.close(); }
+  }, 60_000);
+}
+
+test('ALX-174 queued publications re-read the mark after the graph lock', async () => {
+  const fixture = atomicFixture();
+  const { a, contract } = fixture;
+  const bFolder = mkdtempSync(join(root, 'publication-b-'));
+  cpSync(fixture.folder, bFolder, { recursive: true });
+  writeFileSync(join(bFolder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: B\n');
+  const b = { ...fixture.b, folder: bFolder };
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  const locked = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  let holder: Promise<void> | undefined;
+  let publications: Promise<number>[] = [];
+  try {
+    // Seed A; the holder changes declarations, page and mark to B before the waiters proceed.
+    await publishValidatedManifests(owner, a);
+    holder = owner.transaction('write', async tx => {
+      await acquireGraphWriteLock(tx);
+      locked.resolve();
+      await release.promise;
+      const borrowed: typeof owner = { ...owner, transaction: async (_kind, body) => await body(tx) };
+      await publishValidatedManifests(borrowed, b);
+    });
+    await locked.promise;
+    const queued = (index: number): typeof owner => ({ ...owner, transaction: (kind, body, options) => owner.transaction(kind, async tx => {
+      const query = tx.query;
+      let first = true;
+      tx.query = async (sql, values) => {
+        if (first) {
+          first = false;
+          const waiting = query.call(tx, sql, values);
+          entered[index]!.resolve();
+          return await waiting as never;
+        }
+        return await query.call(tx, sql, values) as never;
+      };
+      return await body(tx);
+    }, options) });
+    publications = [publishValidatedManifests(queued(0), a), publishValidatedManifests(queued(1), b)];
+    await Promise.all(entered.map(one => one.promise));
+    release.resolve();
+    await holder;
+    const results = await Promise.all(publications);
+    const state = await publicationState(owner);
+    const last = state.declarations[0]!.values['declaration'] === '{"generation":"B"}' ? b : a;
+    const title = last === b ? 'B' : 'A';
+    expect(state.page[0]!.values['title']).toBe(title);
+    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(last, withAssertionContract(withManifestContract(contract)), { kind: 'product', key: { slug: 'stable-id' }, values: { title } }));
+    expect(results[0]).toBeGreaterThan(0);
+    expect(await publishValidatedManifests(owner, last)).toBe(0);
+    expect(await publishValidatedManifests(owner, last === a ? b : a)).toBeGreaterThan(0);
+  } finally {
+    release.resolve();
+    await Promise.allSettled([...(holder === undefined ? [] : [holder]), ...publications]);
+    await owner.close();
+  }
 }, 60_000);
 
 function fixture(): string {
