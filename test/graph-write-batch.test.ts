@@ -46,7 +46,7 @@ test('ALX-117: 10 and 100 evidenced files have constant publication statements, 
  console.log('ALX-117 counters',JSON.stringify({ten,hundred}));
  // Phase bound: lock + catalogue + identities/parents + node insert + ordered lock (5),
  // edge insert/read (2), endpoint activity (1), scope (1), streams (1), immutable
- // values/content (2), assertion CTE (1), six typed value tables (6), repeat
+ // values/content (1), assertion CTE (1), seven typed value tables (7), repeat
  // lineage (1), evidence/mentions insert (1). Total 21; no array slicing allowance.
  expect(ten.first).toBeLessThanOrEqual(21);
  expect(hundred.first).toBe(ten.first);
@@ -63,5 +63,17 @@ test('ALX-117: a later assertion in one batch wins the slot in recorded order',a
   const rows=await owner.run(tx=>loadAssertions(tx,'vertex','batch.file',['text'],undefined,{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}));
   expect(rows.map(row=>row.value)).toEqual(['first','last']);
   expect(rows.find(row=>row.selected)?.value).toBe('last');
+ }finally{await owner.close();}
+},30000);
+
+test('ALX-117: JSON null remains a typed JSON value and batch headers share admission time',async()=>{
+ const graph:GraphContract={vertex:[{name:'batch.json',table:'unused_json',key:['name'],fields:[{name:'name',type:'text'},{name:'payload',type:'json',nullable:true,schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:['object','null']}}],capability:'fixture'}],edge:[],dictionary:[]};
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{kind:'batch.json',key:{name:'one'},values:{payload:null},...producer},{kind:'batch.json',key:{name:'two'},values:{payload:{a:1}},...producer}],removals:[]}));
+  const rows=await owner.run(tx=>loadAssertions(tx,'vertex','batch.json',['payload']));
+  expect(rows.map(row=>row.value)).toEqual([null,{a:1}]);
+  const times=await owner.run(tx=>tx.query<{starts:string}>(`SELECT count(DISTINCT a.valid_from)::text AS starts FROM assertion a JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge e ON e.id=s.subject_edge_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=n.entity_id WHERE k.name='batch.json'`));
+  expect(times.rows).toEqual([{starts:'1'}]);
  }finally{await owner.close();}
 },30000);
