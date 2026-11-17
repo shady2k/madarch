@@ -1497,16 +1497,23 @@ function loopResultLiteral(module: GateModule, node: Node): boolean {
 
 /** Trigger targets come from the same storage schema's CREATE TABLE declarations. */
 function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
-  if (module.file === 'src/adapters/schemas/graph-contract.ts') {
-    const parents = enclosing(module, node);
-    const loop = parents.find(entry => entry['type'] === 'ForOfStatement');
+  const parents = enclosing(module, node);
+  const loop = parents.find(entry => entry['type'] === 'ForOfStatement');
+  if (TABLE_SOURCES.includes(module.file) && loop !== undefined) {
     if (parents[0]?.['type'] !== 'ArrayExpression' || loop?.['right'] !== parents[0]) return false;
     const variable = nodesOf(loop['left'] as Node).find(entry => entry['type'] === 'VariableDeclarator');
     const binding = variable?.['id'] as Node | undefined;
     if (binding?.['type'] !== 'Identifier') return false;
-    const trigger = nodesOf(loop['body'] as Node).some(entry => entry['type'] === 'TemplateLiteral'
-      && /CREATE (?:OR REPLACE |CONSTRAINT )?TRIGGER /u.test(String((entry['quasis'] as Node[])[0]?.['cooked']))
-      && (entry['expressions'] as Node[]).some(expression => named(expression, String(binding['value'])) && expression['ctxt'] === binding['ctxt']));
+    const trigger = nodesOf(loop['body'] as Node).some(entry => {
+      if (entry['type'] !== 'TemplateLiteral') return false;
+      const quasis = entry['quasis'] as Node[];
+      return (entry['expressions'] as Node[]).some((expression, index) => {
+        const prefix = quasis.slice(0, index + 1).map(quasi => String(quasi['cooked'])).join('${expression}');
+        const target = /CREATE\s+(?:OR\s+REPLACE\s+|CONSTRAINT\s+)?TRIGGER\s+\S+\s+(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE(?:\s+OF\s+[\w,\s]+)?|DELETE|TRUNCATE)(?:\s+OR\s+(?:INSERT|UPDATE|DELETE|TRUNCATE))*\s+ON\s+("?)$/u.exec(prefix);
+        return target !== null && new RegExp(`^${target[1]}\\s`, 'u').test(String(quasis[index + 1]?.['cooked']))
+          && named(expression, String(binding['value'])) && expression['ctxt'] === binding['ctxt'];
+      });
+    });
     const definition = modules.get('src/adapters/schemas/graph-definition.ts');
     const schema = definition === undefined ? undefined : nodesOf(definition.tree).find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SCHEMA')
       && enclosing(definition, entry).some(parent => parent['type'] === 'ExportDeclaration'));
@@ -1514,7 +1521,7 @@ function graphSchemaTableLiteral(module: GateModule, node: Node, modules: Map<st
       && [...String(entry['cooked']).matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(/gu)].some(match => match[1] === stringValue(node)));
   }
   if (module.file !== 'src/adapters/schemas/graph-definition.ts') return false;
-  const parents = enclosing(module, node), array = parents[0], member = parents[1], call = parents[2];
+  const array = parents[0], member = parents[1], call = parents[2];
   if (array?.['type'] !== 'ArrayExpression' || member?.['type'] !== 'MemberExpression' || !named(member['property'], 'map') || call?.['type'] !== 'CallExpression') return false;
   const schema = parents.find(entry => entry['type'] === 'VariableDeclarator' && named(entry['id'], 'SCHEMA')
     && enclosing(module, entry).some(parent => parent['type'] === 'ExportDeclaration'));

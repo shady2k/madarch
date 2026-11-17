@@ -7,7 +7,7 @@ import { EMPTY_CONTRACT, assertionValueTableName, type GraphContract } from './c
 import { withAssertionContract } from './system-contract.js';
 export async function createOneGraphSchema(owner:DatabaseOwner,declared:GraphContract=EMPTY_CONTRACT):Promise<{reset:boolean}>{
  return await withSpan('graph.schema.require',{},async()=>{
- const contract=withAssertionContract(declared);await requireSchema(owner,'one-graph',graphSchemaStamp(contract));
+ const contract=withAssertionContract(declared);await requireSchema(owner,'one-graph',graphSchemaStamp(declared));
  const tables=['entity','context','node','edge','assertion','assertion_vertex_subject','assertion_edge_subject'];
  for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort])for(const property of ['$exists',...kind.fields.filter(f=>!('key' in kind&&kind.key.includes(f.name))).map(f=>f.name)])tables.push(assertionValueTableName(kind.name,sort,property));
  await owner.transaction('snapshot',async tx=>{
