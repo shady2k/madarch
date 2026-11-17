@@ -684,6 +684,22 @@ missing required relation refuses the whole transaction. A source may not
 retract the last required edge unless it replaces it or retires the child in
 the same operation. A partial unit never means a partially valid entity.
 
+Clarification (2026-11-17, madarch-64o5.74): the transaction's final effective
+graph is checked where the transaction changed it. Every earlier state was
+admitted by the same rules, so a deferred check validates the subjects whose
+effective statements the transaction changed (the vertices and edges it
+asserted, retracted or created, with their new parents) and what those changes
+can break: the endpoint kinds of each changed edge, the edges incident to a
+changed vertex, and the cardinality of every vertex at either end of a changed
+edge of a bounded kind, in each context that reads the changed layer. The rules,
+their one generated SQL source and the refusals stay as they are; only the
+input narrows to the change. A check whose cost grows with the whole store
+rather than with the change is a defect: a fill would then cost the number of
+its transactions times the size of the graph. Why: on the stage branch a forced
+check recomputed every active vertex and edge of every relation kind in every
+context, and one such check took up to 18 s on a starter product with a
+three-file repository (ALX-98, `fill-states`).
+
 A manifest declares ordered scalar key fields, key-edge roles and for each
 parent deletion either `restrict` or `cascade`; omission refuses the manifest.
 Key-edge declarations must form a DAG; the manifest checker rejects cycles
