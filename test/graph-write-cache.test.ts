@@ -34,13 +34,14 @@ test('committed identities avoid kind and uid reads in a later whole owner trans
  }finally{await fixture.close();}
 },30000);
 test('a rolled back birth never supplies the later id',async()=>{
- const owner=await createTestDatabaseOwner({graphContract:graph});let abandoned='';
+ const fixture=await createTestDatabaseOwner({graphContract:graph});let abandoned='';
+ const {owner,binding}=await fixture.transaction('write',async tx=>({owner:databaseOwnerOf(tx)!,binding:requireWriteCapability(tx)}));
  try{
-  await expect(owner.transaction('write',async tx=>{abandoned=(await ensureVertex(tx,graph,subject)).nodeId;throw new Error('rollback');})).rejects.toThrow('rollback');
-  const kept=await owner.transaction('write',async tx=>{const made=await ensureVertex(tx,graph,subject);await publishGraphDrafts(tx,graph,{vertices:[draft],removals:[]});return made;});
+  await expect(owner.transaction('write',async tx=>{bindWriteCapability(tx,binding);abandoned=(await ensureVertex(tx,graph,subject)).nodeId;throw new Error('rollback');})).rejects.toThrow('rollback');
+  const kept=await owner.transaction('write',async tx=>{bindWriteCapability(tx,binding);const made=await ensureVertex(tx,graph,subject);await publishGraphDrafts(tx,graph,{vertices:[draft],removals:[]});return made;});
   expect(kept.nodeId).not.toBe(abandoned);
   const stored=await owner.run(tx=>tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[kept.uid]));expect(stored.rows).toEqual([{id:kept.nodeId}]);
- }finally{await owner.close();}
+ }finally{await fixture.close();}
 },30000);
 test('separate databases cannot share local ids',async()=>{
  const a=await createTestDatabaseOwner({graphContract:graph}),b=await createTestDatabaseOwner({graphContract:graph});

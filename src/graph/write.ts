@@ -12,6 +12,54 @@ import { canonicalAssertionValue } from './assertion-selection.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
+
+interface ImmutableVertex extends Record<string,unknown> {
+ id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;
+ parents:{kind:string;uid:string;edge:string;direction:string}[];
+}
+interface ImmutableLookups {
+ kinds:Map<string,string>;
+ vertices:Map<string,ImmutableVertex>;
+ values:Map<string,unknown>;
+}
+// Database incarnation and schema installation are separate: template clones
+// share relation OIDs/stamps, while a reinstall can keep the database OID.
+const databaseLookups=new Map<string,ImmutableLookups>();
+const transactionLookups=new WeakMap<SqlExecutor,Promise<ImmutableLookups>>();
+async function immutableLookups(executor:SqlExecutor):Promise<ImmutableLookups>{
+ let pending=transactionLookups.get(executor);
+ if(pending===undefined){
+  pending=withSpan('graph.immutable-lookups',{},async()=>{
+   const {identity}=(await executor.query<{identity:string}>(`SELECT jsonb_build_array(
+    (SELECT system_identifier::text FROM pg_control_system()),
+    (SELECT oid::text FROM pg_database WHERE datname=current_database()),
+    'entity'::regclass::oid::text,
+    (SELECT jsonb_agg(jsonb_build_array(name,stamp,created_at::text,xmin::text) ORDER BY name COLLATE "C") FROM madarch_meta.schema_stamp WHERE name IN ('one-graph','one-graph-revision','graph-reset'))
+   )::text AS identity`)).rows[0]!;
+   const shared=databaseLookups.get(identity);
+   const local:ImmutableLookups={kinds:new Map(shared?.kinds),vertices:new Map(shared?.vertices),values:new Map(shared?.values)};
+   const publish=()=>{
+    const target=databaseLookups.get(identity)??{kinds:new Map(),vertices:new Map(),values:new Map()};
+    for(const [key,value] of local.kinds)target.kinds.set(key,value);
+    for(const [key,value] of local.vertices)target.vertices.set(key,structuredClone(value));
+    for(const [key,value] of local.values)target.values.set(key,structuredClone(value));
+    databaseLookups.set(identity,target);
+   };
+   executor.afterCommit?.(publish);
+   return local;
+  });
+  transactionLookups.set(executor,pending);
+ }
+ return pending;
+}
+async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):Promise<{entities:Map<string,string>;instant:number}>{
+ const cache=await immutableLookups(executor);
+ const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
+ const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT transaction_timestamp()::text AS instant':'SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity')).rows;
+ for(const row of rows)if(row.id!==undefined)cache.kinds.set(row.sort+':'+row.name,row.id);
+ return {entities:cache.kinds,instant:Date.parse(rows[0]!.instant)};
+}
+
 /** Serialize graph operations before any identity or queue locks. */
 export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]);}
 export interface WriteCapability {
@@ -51,14 +99,24 @@ function permitted(binding:WriteCapability,kind:string,property:string,retract=f
     throw new Error(`${WHERE}:30: FORBIDDEN_SOURCE: ${kind}.${property}; create an evidenced question instead of changing another source`);
 }
 async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Promise<string>{
+ const cache=await immutableLookups(executor),key=sort+':'+kind;
+ const known=cache.kinds.get(key);if(known!==undefined)return known;
  const row=(await executor.query<{id:string}>(`SELECT id::text AS id FROM entity WHERE name=$1 AND sort=$2`,[kind,sort])).rows[0];
- if(!row)throw new Error(`${WHERE}:35: UNKNOWN_KIND ${kind}`);return row.id;
+ if(!row)throw new Error(`${WHERE}:35: UNKNOWN_KIND ${kind}`);cache.kinds.set(key,row.id);return row.id;
 }
 async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ const cache=await immutableLookups(executor),known=cache.vertices.get(uid);
+ if(known!==undefined){
+  if(known.kind!==kind||!sameValue(known.key,key)||known.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+  await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[known.id]);
+  return {nodeId:known.id,uid,created:false,revived:false};
+ }
  const kindId=await entityId(executor,kind,'node');
  const made=await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id,$6::text AS kind,key,identity_scope::text AS scope`,[kindId,uid,JSON.stringify(key),scope,context,kind]);
  const row=made.rows[0]??(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
  if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+ await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[row.id]);
+ if(!cache.vertices.has(uid))cache.vertices.set(uid,{...row,uid,key:structuredClone(row.key) as Record<string,unknown>,parents:[]});
  return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
 }
 /** Installation declares principal/source/operation identities through this same writer. */
@@ -126,6 +184,8 @@ async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContrac
  const keyEdges=await Promise.all((kind.keyEdges??[]).map(async role=>({role,parent:await endpoint(executor,contract,draft.keyEdges![role.role]!,context)})));
  const made=await identity(executor,kind.name,uid,key,kind.identity?.namespace??(keyEdges.length===1?keyEdges[0]!.parent.uid:keyEdges.length?keyUid('madarch.parent-scope',keyEdges.flatMap(edge=>[edge.role.role,edge.parent.uid])):binding.productUid),context);
  for(const {role,parent} of keyEdges){const edge=contract.edge.find(e=>e.name===role.edge);if(!edge)throw new Error(`${WHERE}:85: UNKNOWN_KEY_EDGE ${role.edge}`);const from=role.direction==='from'?made.nodeId:parent.id;const to=role.direction==='from'?parent.id:made.nodeId;await putEdge(executor,edge.name,from,to,'',context);}
+ const cache=await immutableLookups(executor),node=cache.vertices.get(uid)!;
+ cache.vertices.set(uid,{...node,parents:keyEdges.map(({role,parent})=>({kind:draft.keyEdges![role.role]!.kind,uid:parent.uid,edge:role.edge,direction:role.direction}))});
  return made;
  });
 }
@@ -173,8 +233,7 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
 async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,inputs:AssertionInput[],context:number):Promise<string[]>{
  const contract=withAssertionContract(declared),binding=requireWriteCapability(executor);const version=checkBinding(binding,contract,context);
  await acquireGraphWriteLock(executor);
- const catalogue=await executor.query<{id:string;name:string;sort:string;instant:string}>('SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity');
- const entities=new Map(catalogue.rows.map(row=>[row.sort+':'+row.name,row.id]));const instant=Date.parse(catalogue.rows[0]!.instant);
+ const {entities,instant}=await immutableCatalogue(executor,contract);
  const references=new Map<EvidenceDraft,string>();
  for(const input of inputs)for(const evidence of input.evidence??[]){
   validateEvidenceLocator(evidence.locator??{});
@@ -194,7 +253,7 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
   for(const mention of input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${input.kind} ${mention.uid}`);needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:'TARGET_MISSING'});}
   for(const evidence of input.evidence??[]){const uid=references.get(evidence)!,node=nodes.get(uid);if(!node||node.kind!==evidence.target.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind} ${uid}`);needActive.set(uid,{uid,kind:node.kind,error:'MISSING_ENDPOINT'});}
  }
- await checkBatchActivity(executor,needActive,context);
+ await checkBatchActivity(executor,needActive,context,nodes);
  await checkBatchScope(executor,contract,binding,subjectNodes,[],context);
  const assertions=await insertBatchAssertions(executor,{contract,version},inputs,nodes,entities,binding,context,instant);
  return assertions.map(input=>input.uid);
@@ -226,10 +285,17 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  const requested=new Set<string>([...vertexUids,binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid)]);
  for(const ref of references)requested.add(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined?ref.uid:await refUid(executor,contract,ref,context));
  await acquireGraphWriteLock(executor);
- const catalogue=await executor.query<{id:string;name:string;sort:string;instant:string}>('SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity');
- const entities=new Map(catalogue.rows.map(row=>[row.sort+':'+row.name,row.id]));const instant=Date.parse(catalogue.rows[0]!.instant);
+ const {entities,instant}=await immutableCatalogue(executor,contract);
  const keyRoles=contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({kind:kind.name,edge:role.edge,direction:role.direction})));
- const existing=(await executor.query<BatchNode>(`WITH RECURSIVE wanted(uid) AS (
+ const cache=await immutableLookups(executor);
+ const complete=(uid:string,visited=new Set<string>()):boolean=>{
+  if(visited.has(uid))return true;visited.add(uid);
+  const node=cache.vertices.get(uid);return node!==undefined&&node.parents.every(parent=>complete(parent.uid,visited));
+ };
+ const missing=[...requested].filter(uid=>!complete(uid));
+ // On a complete hit, verify the cached ids still exist without resolving
+ // UIDs again. Keep the batch's fixed read shape for fresh and repeat writes.
+ const existing=missing.length?(await executor.query<BatchNode>(`WITH RECURSIVE wanted(uid) AS (
   SELECT unnest($1::uuid[]) UNION
   SELECT parent.uid FROM wanted w CROSS JOIN LATERAL (SELECT child.* FROM node child WHERE child.uid=w.uid OFFSET 0) child JOIN entity ck ON ck.id=child.entity_id
   JOIN jsonb_to_recordset($2::jsonb) role(kind text,edge text,direction text) ON role.kind=ck.name
@@ -249,8 +315,12 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   SELECT e.from_node AS id FROM edge e WHERE role.direction='to' AND e.entity_id=ek.id AND e.to_node=n.id
  ) link JOIN node parent ON parent.id=link.id JOIN entity pk ON pk.id=parent.entity_id
  WHERE role.kind=k.name),'[]'::jsonb) AS parents
- FROM wanted w CROSS JOIN LATERAL (SELECT n.* FROM node n WHERE n.uid=w.uid OFFSET 0) n JOIN entity k ON k.id=n.entity_id`,[[...requested],JSON.stringify(keyRoles)])).rows;
- const nodes=new Map(existing.map(node=>[node.uid,node]));
+ FROM wanted w CROSS JOIN LATERAL (SELECT n.* FROM node n WHERE n.uid=w.uid OFFSET 0) n JOIN entity k ON k.id=n.entity_id`,[missing,JSON.stringify(keyRoles)])).rows:(await executor.query<BatchNode>('SELECT id::text,uid::text FROM node WHERE id=ANY($1::bigint[])',[ [...requested].map(uid=>cache.vertices.get(uid)!.id) ])).rows.map(row=>cache.vertices.get(row.uid)!);
+ for(const node of existing)cache.vertices.set(node.uid,node);
+ const nodes=new Map([...cache.vertices].filter(([uid])=>requested.has(uid)));
+ for(const node of existing)nodes.set(node.uid,node);
+ const includeParents=(node:ImmutableVertex):void=>{for(const parent of node.parents){if(nodes.has(parent.uid))continue;const held=cache.vertices.get(parent.uid);if(held){nodes.set(parent.uid,held);includeParents(held);}}};
+ for(const node of nodes.values())includeParents(node);
  const resolvedRef=(ref:EntityRefDraft,visited:readonly string[]=[]):EntityRefDraft=>{
   if(ref.uid===undefined||Object.keys(ref.key).length>0||ref.keyEdges!==undefined)return ref;
   const held=nodes.get(ref.uid);if(!held||held.kind!==ref.kind)throw new Error(`${WHERE}:74: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
@@ -275,7 +345,8 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  SELECT k.id,input.uid,input.key,input.scope,$5::bigint FROM unnest($1::uuid[],$2::text[],$3::jsonb[],$4::uuid[]) WITH ORDINALITY input(uid,kind,key,scope,ord)
  JOIN entity k ON k.name=input.kind AND k.sort='node' ORDER BY input.ord ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[births.map(b=>b.uid),births.map(b=>b.kind),births.map(b=>JSON.stringify(b.key)),births.map(b=>b.scope),context]);
 
- const locked=(await executor.query<BatchNode>(`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`,[births.map(b=>b.uid)])).rows;
+ const unknownBirths=births.filter(birth=>!nodes.has(birth.uid));
+ const locked=(await executor.query<BatchNode>(unknownBirths.length?`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`:`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[unknownBirths.length?births.map(b=>b.uid):births.map(b=>nodes.get(b.uid)!.id)])).rows;
  for(const node of locked)nodes.set(node.uid,{...node,parents:nodes.get(node.uid)?.parents??[]});
  for(const birth of births){const held=nodes.get(birth.uid);if(!held||held.kind!==birth.kind||held.scope!==birth.scope||!sameValue(held.key,birth.key))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${birth.uid}`);}
  const activeBirths=new Set(drafts.vertices.flatMap((draft,index)=>(draft.validFrom===undefined||Date.parse(draft.validFrom)<=instant)&&(draft.validTo==null||Date.parse(draft.validTo)>instant)?[vertexUids[index]!]:[]));
@@ -311,14 +382,21 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  const edges=new Map(edgeRows.map(edge=>[edge.uid,edge.id]));
  for(const row of (await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[edgeInputs.map(edge=>edge.uid)])).rows)edges.set(row.uid,row.id);
  for(const plan of plans)if(plan.edgeUid)plan.subjectId=edges.get(plan.edgeUid)!;
- await checkBatchActivity(executor,needActive,context);
+ await checkBatchActivity(executor,needActive,context,nodes);
  const subjectNodes=plans.flatMap(plan=>plan.sort==='vertex'?[plan.subjectId]:edgeInputs.filter(edge=>edges.get(edge.uid)===plan.subjectId).flatMap(edge=>[edge.from,edge.to]));
  await checkBatchScope(executor,contract,binding,subjectNodes,[...edges.values()],context);
  await insertBatchAssertions(executor,prepared,plans,nodes,entities,binding,context,instant);
+ for(const node of nodes.values()){
+  const parents=keyRoles.filter(role=>role.kind===node.kind).flatMap(role=>edgeInputs.filter(edge=>edge.kind===role.edge&&(role.direction==='from'?edge.from:edge.to)===node.id).map(edge=>{
+   const parent=[...nodes.values()].find(candidate=>candidate.id===(role.direction==='from'?edge.to:edge.from))!;
+   return {kind:parent.kind,uid:parent.uid,edge:role.edge,direction:role.direction};
+  }));
+  cache.vertices.set(node.uid,{...node,parents:parents.length?parents:node.parents});
+ }
  return written;
 }
-async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number):Promise<void>{
- const inactive=(await executor.query<{uid:string}>(`SELECT input.uid::text FROM jsonb_to_recordset($1::jsonb) input(uid uuid,kind text) CROSS JOIN LATERAL (SELECT n.id FROM node n WHERE n.uid=input.uid OFFSET 0) n WHERE NOT graph_vertex_active(n.id,input.kind,$2::bigint)`,[JSON.stringify([...needActive.values()]),context])).rows;
+async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number,nodes:Map<string,BatchNode>):Promise<void>{
+ const inactive=(await executor.query<{uid:string}>(`SELECT input.uid::text FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text) WHERE NOT graph_vertex_active(input.id,input.kind,$2::bigint)`,[JSON.stringify([...needActive.values()].map(input=>({...input,id:nodes.get(input.uid)!.id}))),context])).rows;
  if(inactive.length){const missing=new Set(inactive.map(node=>node.uid));const first=[...needActive.values()].find(node=>missing.has(node.uid))!;throw new Error(`${WHERE}:73: ${first.error} ${first.kind} ${first.uid}`);}
 }
 async function checkBatchScope(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,subjectNodes:string[],plannedEdges:string[],context:number):Promise<void>{
@@ -363,11 +441,11 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=subject.assertion_id OFFSET 0) a
  JOIN node n ON n.id=a.assertion_id
  LEFT JOIN "${table}" v ON v.assertion_id=a.assertion_id
- WHERE a.context_id=$2::bigint AND a.property=${literal(slot.property)} AND a.language IS NOT DISTINCT FROM wanted.language AND EXISTS(SELECT 1 FROM edge source WHERE source.from_node=a.assertion_id AND source.entity_id=${entities.get('edge:system.assertion-source')}::bigint AND source.to_node=(SELECT id FROM node WHERE uid=$3::uuid))`);
+ WHERE a.context_id=$2::bigint AND a.property=${literal(slot.property)} AND a.language IS NOT DISTINCT FROM wanted.language AND EXISTS(SELECT 1 FROM edge source WHERE source.from_node=a.assertion_id AND source.entity_id=${entities.get('edge:system.assertion-source')}::bigint AND source.to_node=${nodes.get(binding.sourceUid)!.id}::bigint)`);
  interface StreamRow extends Record<string,unknown> {sort:string;subject:string;property:string;language:string|null;operation:string;valid_from:string;valid_to:string|null;recorded_sequence:string;uid:string;id:string;value:unknown}
  const streams=new Map<string,StreamRow[]>();
  const streamKey=(sort:string,subject:string,property:string,language:string|null)=>JSON.stringify([sort,subject,property,language]);
- const streamRows=(await executor.query<StreamRow>(streamParts.length?streamParts.join(' UNION ALL '):'SELECT NULL WHERE FALSE',[JSON.stringify(assertions.map(input=>({sort:input.sort,kind:input.kind,subject:input.subjectId,property:input.property,language:input.language??null}))),context,binding.sourceUid])).rows;
+ const streamRows=(await executor.query<StreamRow>(streamParts.length?streamParts.join(' UNION ALL '):'SELECT NULL WHERE FALSE',[JSON.stringify(assertions.map(input=>({sort:input.sort,kind:input.kind,subject:input.subjectId,property:input.property,language:input.language??null}))),context])).rows;
  for(const row of streamRows){const key=streamKey(row.sort,row.subject,row.property,row.language);const held=streams.get(key)??[];held.push(row);streams.set(key,held);}
  // Immutable support checks include all history, not just the current source stream.
  const immutableTables=new Map<string,{kind:string;property:string;ids:string[]}>();
@@ -375,13 +453,17 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  for(const input of assertions)if(input.sort==='vertex'&&contract.vertex.find(kind=>kind.name===input.kind)?.evidence?.immutable){const ids=supportIds.get(input.kind)??new Set<string>();ids.add(input.subjectId);supportIds.set(input.kind,ids);}
  for(const input of assertions)for(const evidence of input.evidence??[]){const uid=evidence.target.uid??await refUid(executor,contract,evidence.target,context);const target=nodes.get(uid)!;const ids=supportIds.get(target.kind)??new Set<string>();ids.add(target.id);supportIds.set(target.kind,ids);}
  for(const [name,ids] of supportIds){const kind=contract.vertex.find(kind=>kind.name===name)!;for(const field of [{name:'$exists'},...kind.fields])immutableTables.set(assertionValueTableName(kind.name,'vertex',field.name),{kind:kind.name,property:field.name,ids:[...ids]});}
- const immutableParts=[...immutableTables].map(([table,slot])=>`SELECT wanted.id::text AS subject,${literal(slot.property)}::text AS property,to_jsonb(v.value) AS value,a.recorded_sequence::text AS sequence FROM unnest(ARRAY[${slot.ids.join(',')}]::bigint[]) wanted(id)
+ const cache=await immutableLookups(executor);
+ const immutableParts=[...immutableTables].map(([table,slot])=>[table,{...slot,ids:slot.ids.filter(id=>!cache.values.has(JSON.stringify([id,slot.property])))}] as const).filter(([,slot])=>slot.ids.length>0).map(([table,slot])=>`SELECT wanted.id::text AS subject,${literal(slot.property)}::text AS property,to_jsonb(v.value) AS value,a.recorded_sequence::text AS sequence FROM unnest(ARRAY[${slot.ids.join(',')}]::bigint[]) wanted(id)
  CROSS JOIN LATERAL (SELECT se.id FROM edge se WHERE se.to_node=wanted.id AND se.entity_id=${entities.get('edge:system.assertion-subject')}::bigint OFFSET 0) se
  CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=se.id OFFSET 0) s
  CROSS JOIN LATERAL (SELECT v.value FROM "${table}" v WHERE v.assertion_id=s.assertion_id OFFSET 0) v JOIN assertion a ON a.assertion_id=s.assertion_id`);
- const immutable=(await executor.query<{subject:string;property:string;value:unknown;sequence:string}>(immutableParts.length?immutableParts.join(' UNION ALL '):'SELECT NULL::text AS subject,NULL::text AS property,NULL::jsonb AS value,NULL::text AS sequence WHERE FALSE')).rows;
+ const immutable=immutableParts.length?(await executor.query<{subject:string;property:string;value:unknown;sequence:string}>(immutableParts.join(' UNION ALL '))).rows:[];
  const immutableValues=new Map<string,unknown[]>();const content=new Map<string,{value:unknown;sequence:bigint}>();
  for(const row of immutable){const key=JSON.stringify([row.subject,row.property]);const values=immutableValues.get(key)??[];values.push(row.value);immutableValues.set(key,values);const prior=content.get(key);if(!prior||BigInt(row.sequence)>prior.sequence)content.set(key,{value:row.value,sequence:BigInt(row.sequence)});}
+ for(const [key,value] of cache.values){
+  if(!immutableValues.has(key)){immutableValues.set(key,[value]);content.set(key,{value,sequence:0n});}
+ }
  let sequence=streamRows.reduce((max,row)=>BigInt(row.recorded_sequence)>max?BigInt(row.recorded_sequence):max,0n);
  for(const input of assertions){
   const kind=input.sort==='vertex'?contract.vertex.find(kind=>kind.name===input.kind):undefined;
@@ -455,6 +537,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   for(const mention of input.mentions){const target=lineageNode(mention.uid);const discriminator=JSON.stringify({path:mention.path,start:mention.start,end:mention.end});const kind='system.assertion-mentions';extraEdges.push({uid:edgeUid(kind,input.uid,target.uid,discriminator),kind:entities.get('edge:'+kind)!,from:input.id!,to:target.id,discriminator});}
  }
  await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,x.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint,discriminator text) ON CONFLICT DO NOTHING`,[JSON.stringify(extraEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
+ for(const [key,values] of immutableValues)if(values.length&&values.every(value=>sameValue(value,values[0])))cache.values.set(key,structuredClone(values[0]));
  return assertions;
 }
 
