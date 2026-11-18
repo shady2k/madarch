@@ -22,6 +22,8 @@
  * and the exit are the SDK's.
  */
 
+import { createHash } from 'node:crypto';
+
 /** The protocol version this SDK speaks. */
 export const PROTOCOL_VERSION = 'madarch.plugins/3';
 
@@ -197,6 +199,43 @@ export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: Rec
   compare('vertex', source.vertices ?? [], current.vertices, (vertex) => canonical([vertex.kind, vertex.key, vertex.keyEdges ?? {}]));
   compare('edge', source.edges ?? [], current.edges, (edge) => canonical([edge.kind, edge.from, edge.to, edge.discriminator ?? '']));
   return writes;
+}
+
+// Half the protocol message limit leaves room for the RPC envelope and operation metadata.
+const reconciliationBytes = 512 * 1024;
+const reconciliationFacts = 500;
+function* reconciliationBatches(writes: readonly ReconciliationWrite[]): Generator<FactsOperation> {
+  const phases = ['vertices', 'edges', 'edgeRemovals', 'removals'] as const;
+  const groups: Record<(typeof phases)[number], (VertexResult | EdgeResult | EntityRef)[]> = { vertices: [], edges: [], edgeRemovals: [], removals: [] };
+  for (const write of writes) {
+    if (write.vertex !== undefined) {
+      const vertex = write.vertex;
+      if (write.operation === 'remove') groups.removals.push({ kind: vertex.kind, key: vertex.key, ...(vertex.keyEdges === undefined ? {} : { keyEdges: vertex.keyEdges }), ...(vertex.evidence === undefined ? {} : { evidence: vertex.evidence }) });
+      else groups.vertices.push(vertex);
+    } else groups[write.operation === 'remove' ? 'edgeRemovals' : 'edges'].push(write.edge!);
+  }
+  let batch: Partial<Record<(typeof phases)[number], (VertexResult | EdgeResult | EntityRef)[]>> = {};
+  let count = 0;
+  for (const phase of phases) {
+    // The writer processes vertex removals before edge removals within one operation.
+    if ((phase === 'edgeRemovals' || phase === 'removals') && count > 0) {
+      yield batch as FactsOperation;
+      batch = {};
+      count = 0;
+    }
+    for (const fact of groups[phase]) {
+    const candidate = { ...batch, [phase]: [...(batch[phase] ?? []), fact] };
+    if (count === reconciliationFacts || Buffer.byteLength(JSON.stringify(candidate)) > reconciliationBytes) {
+      if (count > 0) yield batch as FactsOperation;
+      batch = {};
+      count = 0;
+    }
+    (batch[phase] ??= []).push(fact);
+    if (Buffer.byteLength(JSON.stringify(batch)) > reconciliationBytes) throw new Error(`${import.meta.filename}:462: reconciliation fact exceeds 512 KB operation limit`);
+    count++;
+    }
+  }
+  if (count > 0) yield batch as FactsOperation;
 }
 
 /** The unit the host hands a plugin. */
@@ -499,17 +538,12 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const extract = planning ? definition.planOutput : definition.extract;
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
-        let reconciliation = 0;
         const reconcile = async (source: UnitResult, scope: ReconciliationScope): Promise<void> => {
           const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
-          for (const write of reconcileFacts(source, current, scope)) {
-            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:1: reconciliation cancelled for unit ${unit.unitId}`);
-            const vertex = write.vertex;
-            const edge = write.edge;
-            const operation: FactsOperation = vertex !== undefined
-              ? write.operation === 'remove' ? { removals: [{ kind: vertex.kind, key: vertex.key, ...(vertex.keyEdges === undefined ? {} : { keyEdges: vertex.keyEdges }), ...(vertex.evidence === undefined ? {} : { evidence: vertex.evidence }) }] } : { vertices: [vertex] }
-              : write.operation === 'remove' ? { edgeRemovals: [edge!] } : { edges: [edge!] };
-            await askHost('facts.apply', { unitId: unit.unitId, key: `reconcile-${String(reconciliation += 1)}`, operation });
+          for (const operation of reconciliationBatches(reconcileFacts(source, current, scope))) {
+            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:505: reconciliation cancelled for unit ${unit.unitId}`);
+            const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
+            await askHost('facts.apply', { unitId: unit.unitId, key, operation });
           }
         };
         const result = await extract(unit, {

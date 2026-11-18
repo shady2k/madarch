@@ -63,3 +63,13 @@ test('partial reconciliation never applies removals', async () => {
   expect(operations.flatMap(operation => operation.removals ?? [])).toEqual([]);
   expect(operations.flatMap(operation => operation.edgeRemovals ?? [])).toEqual([]);
 });
+
+test('reconciliation batches create vertices before edges and remove edges before vertices', async () => {
+  const existing = {kind:'Probe',key:{id:'old'}};
+  const {outcome,operations}=await run(`return {vertices:[{kind:'Probe',key:{id:'new'}}],edges:[{kind:'link',from:{kind:'Probe',key:{id:'new'}},to:{kind:'Probe',key:{id:'new'}}}],end:{state:'complete'}};`,false,{
+    ...graph, ownFacts:async()=>({vertices:[existing],edges:[{kind:'link',from:existing,to:existing}]}),
+  });
+  expect(outcome.state).toBe('extracted');
+  expect(operations.map(operation=>Object.keys(operation))).toEqual([['vertices','edges'],['edgeRemovals'],['removals']]);
+  expect(operations[2]!.removals).toEqual([existing]);
+});
