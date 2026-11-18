@@ -14,6 +14,7 @@
  * already uses), matched by the specifier as written.
  */
 import { existsSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { cruise, type ICruiseOptions } from 'dependency-cruiser';
@@ -101,7 +102,7 @@ export async function valueImportGraph(root: string, folders: readonly string[])
         written = importStatementsOf(root, source);
         statements.set(source, written);
       }
-      const matches = written.filter((statement) => statement.specifier === dependency.module);
+      const matches = written.filter((statement) => moduleNameOf(statement.specifier) === moduleNameOf(dependency.module));
       const statement = matches.find((candidate) => !candidate.typeOnly) ?? matches[0];
       found.push({ to, specifier: dependency.module, line: statement?.line ?? 1 });
     }
@@ -109,6 +110,11 @@ export async function valueImportGraph(root: string, folders: readonly string[])
     edges.set(source, found);
   }
   return { root, edges, modules };
+}
+
+/** dependency-cruiser may remove node: from built-ins; package names stay exact. */
+function moduleNameOf(specifier: string): string {
+  return specifier.startsWith('node:') && isBuiltin(specifier) ? specifier.slice(5) : specifier;
 }
 
 /** Keep the configured exclusions except alternatives that remove installed-package edges. */

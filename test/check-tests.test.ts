@@ -448,12 +448,16 @@ describe('review regressions', () => {
 
   test('require, dynamic import and re-export diagnostics point to their actual source lines', async () => {
     const root = project({
-      'test/unit/require.test.ts': "// one\n// two\n// three\n// four\n// five\n// six\nexport const held = require('pg');",
+      'test/unit/require.test.ts': "// one\n// two\n// three\n// four\n// five\n// six\nconst { spawnSync } = require('node:child_process');\nexport const held = spawnSync;",
+      'test/unit/static.test.ts': "// one\n// two\nimport { spawnSync } from 'node:child_process';\nexport const held = spawnSync;",
+      'test/unit/unprefixed.test.ts': "// one\n// two\nimport { spawnSync } from 'child_process';\nexport const held = spawnSync;",
+      'test/unit/mixed.test.ts': "import { basename } from 'node:path';\n// keep distinct module names\nimport { spawnSync } from 'node:child_process';\nexport const held = [basename, spawnSync];",
+      'test/unit/net.test.ts': "// one\n// two\nimport net from 'node:net';\nexport const held = net;",
       'test/unit/dynamic.test.ts': "// one\n// two\nexport const held = import('pg');",
       'test/unit/export.test.ts': "// one\nexport { default as held } from 'pg';",
     });
     const problems = await problemsOf(root, 'test-unit-reach');
-    expect(problems).toHaveLength(3);
-    for (const [file, line] of [['require', 7], ['dynamic', 3], ['export', 2]] as const) expect(problems.some((problem) => problem.includes(`${join(root, 'test/unit', `${file}.test.ts`)}:${line}: test-unit-reach:`))).toBe(true);
+    expect(problems).toHaveLength(7);
+    for (const [file, line] of [['require', 7], ['dynamic', 3], ['export', 2], ['static', 3], ['unprefixed', 3], ['net', 3], ['mixed', 3]] as const) expect(problems.some((problem) => problem.includes(`${join(root, 'test/unit', `${file}.test.ts`)}:${line}: test-unit-reach:`))).toBe(true);
   });
 });
