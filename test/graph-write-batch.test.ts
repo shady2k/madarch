@@ -1,5 +1,6 @@
 /** Batch admission counters: decision 0039 items 25–29, ALX-117. */
-import {expect,test} from 'bun:test';
+import {expect,test,spyOn} from 'bun:test';
+import * as crypto from 'node:crypto';
 import {createHash} from 'node:crypto';
 import {type GraphContract,type VertexDraft,type EdgeDraft} from '../src/graph/contract.js';
 import {publishGraphDrafts,ensureVertex,writeAssertion,removeEntity,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
@@ -202,7 +203,6 @@ test('absent key-edge parents name the required role', async () => {
  } finally {await owner.close();}
 },30000);
 
-
 test('removed key-edge parents name the required role', async () => {
  const graph:GraphContract={vertex:[
   {name:'code.repository',table:'unused_repository',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'},
@@ -216,3 +216,36 @@ test('removed key-edge parents name the required role', async () => {
   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{kind:'probe.referrer',key:{path:'x.ts'},keyEdges:{repository:parent},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT probe.referrer.repository');
  } finally {await owner.close();}
 },30000);
+
+test('typed value grouping hashes each slot once rather than each slot times assertions',async()=>{
+ const hashes:number[]=[];
+ for(const count of [10,100]){
+  const owner=await createTestDatabaseOwner({graphContract:contract});
+  try{
+   await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer}],removals:[]}));
+   await owner.transaction('write',async tx=>{
+    const original=crypto.createHash; let tableHashes=0;
+    const spy=spyOn(crypto,'createHash').mockImplementation(((...args:Parameters<typeof crypto.createHash>)=>{if(new Error().stack?.includes('assertionValueTableName'))tableHashes++;return original(...args);}) as typeof crypto.createHash);
+    try{await publishGraphDrafts(tx,contract,{vertices:Array.from({length:count},(_,i)=>({kind:'batch.file',key:{path:`p${i}`},keyEdges:{repository},values:{text:'plain',size:i},...producer})),removals:[]}); hashes.push(tableHashes);}
+    finally{spy.mockRestore();}
+   });
+  }finally{await owner.close();}
+ }
+ console.log('VALUE_HASHES',hashes);
+ expect(hashes[1]).toBe(hashes[0]);
+},60_000);
+
+test('shared evidence content is measured once per admission, retaining code-point bounds',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ const text='😀\n'; const target={kind:'batch.snapshot',key:{digest:createHash('sha256').update(text).digest('hex')}};
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer},{...target,values:{content:text},...producer}],removals:[]}));
+  for(const count of [2,20]){
+   let splits=0;const original=String.prototype.split;
+   const spy=spyOn(String.prototype,'split').mockImplementation((function(this:string,separator:string|RegExp,limit?:number){if(String(this)===text&&separator==='\n')splits++;return Reflect.apply(original,this,[separator,limit]) as string[];}) as typeof original);
+   try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:Array.from({length:count},(_,i)=>({kind:'batch.file',key:{path:`e-${count}-${i}`},keyEdges:{repository},values:{text:'plain'},evidence:[{target,locator:{end:2,lineEnd:2,digest:target.key.digest}}],...producer})),removals:[]}));}finally{spy.mockRestore();}
+   expect(splits).toBe(1);
+  }
+  await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'bad-bound'},keyEdges:{repository},evidence:[{target,locator:{end:3}}],...producer}],removals:[]}))).rejects.toThrow(':154: EVIDENCE_INVALID locator outside immutable content');
+ }finally{await owner.close();}
+},60_000);

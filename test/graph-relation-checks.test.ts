@@ -21,14 +21,16 @@ test('relation checks compute each checked subject and instant active set only o
     await owner.transaction('write', async tx => {
       await publishGraphDrafts(tx, graph, { vertices, edges: [link('required-link'), link('other-link')], removals: [] });
       for (const sort of ['vertex', 'edge']) {
-        await tx.query(`ALTER FUNCTION graph_${sort}_active_ids(text,bigint,bigint,timestamptz,bigint) RENAME TO graph_${sort}_active_ids_uncounted`);
-        await tx.query(`CREATE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp(),source_kind_id bigint DEFAULT NULL)
+        const suffix=sort==='vertex'?'_batch':'';
+        const subjectType=sort==='vertex'?'bigint[]':'bigint';
+        await tx.query(`ALTER FUNCTION graph_${sort}_active_ids${suffix}(text,bigint,${subjectType},timestamptz,bigint) RENAME TO graph_${sort}_active_ids${suffix}_uncounted`);
+        await tx.query(`CREATE FUNCTION graph_${sort}_active_ids${suffix}(kind text,ctx bigint,wanted_subject ${subjectType} DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp(),source_kind_id bigint DEFAULT NULL)
           RETURNS SETOF bigint LANGUAGE plpgsql AS $$ DECLARE calls jsonb; call_key text; BEGIN
           calls := coalesce(nullif(current_setting('madarch.relation_active_calls',true),'')::jsonb,'{}'::jsonb);
-          call_key := '${sort}' || ':' || kind || ':' || ctx || ':' || wanted_subject || ':' || instant;
+          call_key := '${sort}' || ':' || kind || ':' || ctx || ':' || wanted_subject::text || ':' || instant;
           PERFORM set_config('madarch.relation_active_calls',
             (calls || jsonb_build_object(call_key,coalesce((calls->>call_key)::integer,0)+1))::text,true);
-          RETURN QUERY SELECT * FROM graph_${sort}_active_ids_uncounted(kind,ctx,wanted_subject,instant,source_kind_id);
+          RETURN QUERY SELECT * FROM graph_${sort}_active_ids${suffix}_uncounted(kind,ctx,wanted_subject,instant,source_kind_id);
           END $$`);
       }
       await tx.query(`SELECT set_config('madarch.checked_graph_revision','',true)`);
