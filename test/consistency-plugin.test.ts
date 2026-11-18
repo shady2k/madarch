@@ -122,7 +122,7 @@ problems:
   const declared = parseDocument(readFolderManifestText(folder));
   const starter = parseDocument(starterManifestText()).toJS();
   for (const section of ['catalog', 'value-types', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
-  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']) declared.setIn(['kinds', name], starter.kinds[name]);
+  for (const name of ['product', 'product-profile', 'code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
     source: 'graph', key: ['path'], 'key-edges': [{role:'repository',edge:'probe.referrer-repository',side:'from'}],
     // The fixture writes this record itself: its fields are a person's authored write, not a plugin's.
@@ -152,7 +152,7 @@ problems:
   writeFolderManifest(folder, declared.toString());
   // The fixture keeps the kinds its plugins fill and the records it writes itself, and no field nothing fills: the
   // starter kinds it merged last would otherwise carry the agent's field, and the product keeps no agent plugin.
-  useFixturePlugins(folder, ['disk', 'git', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
+  useFixturePlugins(folder, ['disk', 'git', 'fixture-product', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
   return closure;
 }
 

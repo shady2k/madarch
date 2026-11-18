@@ -471,7 +471,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
       const asked = await selectionBody(request);
       if ('bad' in asked) return asked.bad;
-      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly, request.signal);
       return { response: json(200, { plan }) };
     }, true),
     fillSelected: guarded('fill the selected entities', async (request) => {

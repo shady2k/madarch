@@ -421,7 +421,7 @@ test('an empty disk-only tree is available from its successful inventory publica
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty tree'], { cwd: empty });
   const fixture = join(root, 'product-empty-tree');
   makeProduct(fixture, empty, 'empty-tree');
-  useFixturePlugins(fixture, ['disk'], GIT_CONTRACT.vertex.map(kind => kind.name));
+  useFixturePlugins(fixture, ['disk', 'fixture-product'], GIT_CONTRACT.vertex.map(kind => kind.name).filter(name => !['product', 'code.repository', 'code.directory', 'code.file', 'code.gitlink'].includes(name)));
   restrictRepositoryDeclarations(fixture);
   execFileSync('git', ['add', '-A'], { cwd: fixture });
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Only inventory'], { cwd: fixture });
