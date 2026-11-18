@@ -10,7 +10,7 @@ import { semanticBinding } from '../knowledge/semantic-bindings.js';
 import { activeExistenceSql, loadAssertions } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
-import { readKindAssertions } from './records.js';
+import { readKindAssertions, readKindsAssertions } from './records.js';
 import { edgeRowsIn, readRunNodeIn } from './fill-state.js';
 import { withSpan } from '../obs/trace.js';
 
@@ -32,6 +32,54 @@ export async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind
     keyEdges[role.role] = await referenceOf(tx, contract, parent.rows[0].kind, parentId, new Set([...seen, id]), selector);
   }
   return { kind, key: row.key, uid: row.uid, ...(Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
+}
+
+/** Batch the same effective key-edge reads as referenceOf, once per reachable kind. */
+async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[]): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
+  return await withSpan('graph.plugin-turns.referencesOf', {}, async () => {
+    const kinds = new Set<string>();
+    const edgeKinds = new Set<string>();
+    const visit = (name: string): void => {
+      if (kinds.has(name)) return;
+      kinds.add(name);
+      for (const role of contract.vertex.find(vertex => vertex.name === name)?.keyEdges ?? []) {
+        edgeKinds.add(role.edge);
+        const edge = contract.edge.find(edge => edge.name === role.edge)!;
+        for (const parent of role.direction === 'from' ? edge.to : edge.from) visit(parent);
+      }
+    };
+    visit(kind);
+    const names = [...edgeKinds];
+    const batches = names.length === 0 ? [] : await readKindsAssertions(tx, names.map(name => ({ sort: 'edge', kind: name, fields: [] })), { contract });
+    const edges = new Map(names.map((name, index) => [name, batches[index]!]));
+    const nodeIds = [...new Set([...ids, ...batches.flatMap(rows => rows.flatMap(row => [row.from!, row.to!]))])];
+    const nodes = (await tx.query<{ id: number; uid: string; kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT n.id,n.uid::text,n.key,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])`, [nodeIds])).rows;
+    const byId = new Map(nodes.map(node => [Number(node.id), node]));
+    const byEndpoint = new Map<string, import('./records.js').AssertionRecord[]>();
+    for (const [name, rows] of edges) for (const row of rows) for (const side of ['from', 'to'] as const) {
+      const key = `${name}:${side}:${row[side]}`;
+      const held = byEndpoint.get(key);
+      if (held === undefined) byEndpoint.set(key, [row]); else held.push(row);
+    }
+    const build = (name: string, id: number, seen: ReadonlySet<number>): import('./contract.js').EntityRefDraft => {
+      if (seen.has(id)) throw new Error(`${import.meta.path}: key-edge instance cycle at node ${id}`);
+      const node = byId.get(id);
+      if (node === undefined) throw new Error(`${import.meta.path}: missing reference endpoint ${id}`);
+      const vertex = contract.vertex.find(vertex => vertex.name === name);
+      if (vertex === undefined) throw new Error(`${import.meta.path}: undeclared endpoint kind ${name}`);
+      const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
+      for (const role of vertex.keyEdges ?? []) {
+        const links = byEndpoint.get(`${role.edge}:${role.direction}:${id}`) ?? [];
+        if (links.length !== 1) throw new Error(`${import.meta.path}: ${name} ${node.uid} requires exactly one key edge ${role.role}, found ${links.length}`);
+        const parentId = (role.direction === 'from' ? links[0]!.to : links[0]!.from)!;
+        const parent = byId.get(parentId);
+        if (parent === undefined) throw new Error(`${import.meta.path}: missing key endpoint ${parentId}`);
+        keyEdges[role.role] = build(parent.kind, parentId, new Set([...seen, id]));
+      }
+      return { kind: name, key: node.key, uid: node.uid, ...(Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
+    };
+    return new Map(ids.map(id => [id, build(kind, id, new Set())]));
+  });
 }
 
 /** One file vertex of the graph: the repository it stands in and its path from that repository's root. */
@@ -100,14 +148,19 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
   const vertex: VertexContract | undefined = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return [];
   return await withSpan('graph.producerEntities', {}, async () => await owner.transaction('snapshot', async tx => {
-    const rows=await readKindAssertions(tx,'vertex',kind,[],{contract});
-    const uid = sourceUid;
-    return await Promise.all(rows.filter(r => r.activeSources.includes(uid)).map(async r => {
-      const ref = await referenceOf(tx, contract, kind, r.id);
-      const evidence = r.assertions.filter(a => a.source === uid).flatMap(a => a.evidence);
-      const locations = evidence.length === 0 ? [] : (await tx.query<{ path: string }>(`SELECT n.key->>'path' AS path FROM node n WHERE n.uid=ANY($1::uuid[]) AND n.key ? 'path' ORDER BY n.uid`, [evidence])).rows;
-      return { key: r.key as import('../plugin/protocol.js').PluginKeyValues, uid: r.uid, keyEdges: ref.keyEdges ?? {}, path: locations[0]?.path ?? null };
-    }));
+    const hasMerges = (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    // Restrict identities, not the final read's opinions or dispute selection.
+    const existence = await loadAssertions(tx, 'vertex', kind, ['$exists'], undefined, { sourceUids: [sourceUid], projectMergedSubjects: hasMerges });
+    const subjectIds = [...new Set(existence.filter(assertion => assertion.active && assertion.value === true).map(assertion => assertion.subjectId))];
+    const rows = await readKindAssertions(tx, 'vertex', kind, [], { contract, subjectIds });
+    const refs = await referencesOf(tx, contract, kind, rows.map(row => row.id));
+    const evidence = [...new Set(rows.flatMap(row => row.assertions.filter(assertion => assertion.source === sourceUid).flatMap(assertion => assertion.evidence)))];
+    const locations = evidence.length === 0 ? [] : (await tx.query<{ uid: string; path: string }>(`SELECT n.uid::text,n.key->>'path' AS path FROM node n WHERE n.uid=ANY($1::uuid[]) AND n.key ? 'path' ORDER BY n.uid`, [evidence])).rows;
+    const paths = new Map(locations.map(location => [location.uid, location.path]));
+    return rows.filter(row => row.activeSources.includes(sourceUid)).map(row => {
+      const ownEvidence = [...new Set(row.assertions.filter(assertion => assertion.source === sourceUid).flatMap(assertion => assertion.evidence))].sort();
+      return { key: row.key as import('../plugin/protocol.js').PluginKeyValues, uid: row.uid, keyEdges: refs.get(row.id)!.keyEdges ?? {}, path: ownEvidence.map(uid => paths.get(uid)).find(path => path !== undefined) ?? null };
+    });
   }));
 }
 

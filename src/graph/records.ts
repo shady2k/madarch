@@ -58,8 +58,17 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const disputes = disputable ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), { validAt: selector.validAt ?? now!, recordedAt: selector.recordedAt ?? now!, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) }) : [];
     const resolvedAssertionIds = disputes.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
     const loaded = await loadAssertionsBatch(tx, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)), unprojectedProperties: selector.contract?.vertex.find(kind => kind.name === request.kind)?.key ?? [] })), { ...selector, projectMergedSubjects: hasMerges, resolvedAssertionIds });
+    const bySubject = loaded.map(assertions => {
+      const grouped = new Map<number, StoredAssertion[]>();
+      for (const assertion of assertions) {
+        const own = grouped.get(assertion.subjectId);
+        if (own === undefined) grouped.set(assertion.subjectId, [assertion]);
+        else own.push(assertion);
+      }
+      return grouped;
+    });
     return requests.map((request,index) => identities[index]!.flatMap(row => {
-      const own = loaded[index]!.filter(assertion => assertion.subjectId === Number(row.id));
+      const own = bySubject[index]!.get(Number(row.id)) ?? [];
       const chosen = own.filter(assertion => assertion.selected);
       const existence = chosen.filter(assertion => assertion.property === '$exists');
       if (!existence.some(assertion => assertion.value === true)) return [];
