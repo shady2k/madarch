@@ -9,6 +9,7 @@ import { createServer } from 'node:net';
 import { stopDaemon } from '../src/product/daemon.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import type { StarterTemplate } from '../src/knowledge/starter-templates.js';
 import { parseDocument } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -207,14 +208,8 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
     ],
   });
   writeFileSync(path, manifest.toString());
-  // These serving fixtures declare independent documents, not repository children.
-  const catalogPath = join(folder, 'madarch/catalog.yaml');
-  const catalog = parseDocument(readFileSync(catalogPath, 'utf8'));
-  const edges = (catalog.toJSON() as { edges: { name: string }[] }).edges;
-  const parentEdge = edges.findIndex((edge) => edge.name === 'document-repository');
-  if (parentEdge < 0) throw new Error(`${catalogPath}:1: the fixture document parent edge is absent`);
-  catalog.setIn(['edges', parentEdge, 'cardinality', 'from', 'min'], 0);
-  writeFileSync(catalogPath, catalog.toString());
+  // These serving fixtures declare independent documents, not repository children: no repository kind is
+  // declared, and the relaxed declaration above names no such edge.
   const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });
   if (committed.status !== 0) throw new Error(new TextDecoder().decode(committed.stderr));
   preparationOwners.push(await prepareTestProduct(folder, home));
@@ -237,14 +232,25 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   } finally { await owner.close(); }
 }
 
-/** A product folder to serve: its manifest plus docs. */
-function product(base: string, name = 'demo'): string {
+/**
+ * The kinds the two serving cases below declare: the document kind they read and the product it
+ * derives from, and nothing else, so a first `/graphql` publishes only these.
+ */
+const SERVED_KINDS: StarterTemplate = {
+  id: 'served-kinds',
+  title: { en: 'Served kinds', ru: 'Отдаваемые виды' },
+  description: { en: 'The document kind and the product it derives from.', ru: 'Вид документа и продукт, от которого он зависит.' },
+  kinds: ['document', 'product'],
+};
+
+/** A product folder to serve: its manifest plus docs. A `template` replaces the starter set's default kinds. */
+function product(base: string, name = 'demo', template?: StarterTemplate): string {
   const folder = join(base, 'demo');
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
   // A hand-made folder stands as `madarch init` would leave it: its own copy of the starter set.
-  seedStarterSet(folder);
+  seedStarterSet(folder, template?.id, template === undefined ? undefined : [template]);
   gitCheckout(folder);
   return folder;
 }
@@ -439,7 +445,7 @@ describe('madarch serve: an existing product served', () => {
     const built = freshApp(base);
     const builder = injectableBuilder(built, 'ok');
     const opener = injectableOpener('ok');
-    const folder = product(base, 'named');
+    const folder = product(base, 'named', SERVED_KINDS);
     await prepareDocuments(folder, base);
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
@@ -481,7 +487,7 @@ describe('madarch serve: an existing product served', () => {
     const text = await Bun.file(manifest).text();
     writeFileSync(manifest, text.slice(0, text.indexOf('\nrepos:')) + '\n');
     // The example folder stands as the set leaves a product now: it holds its own copy of the starter set.
-    seedStarterSet(setMade);
+    seedStarterSet(setMade, SERVED_KINDS.id, [SERVED_KINDS]);
     gitCheckout(setMade);
     await prepareDocuments(setMade, base);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
