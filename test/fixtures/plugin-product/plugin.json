@@ -1,0 +1,21 @@
+{
+  "name": "fixture-product",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "produces": [
+    {
+      "kind": "product",
+      "fields": [
+        "name",
+        "purpose",
+        "status",
+        "vision"
+      ],
+      "reads": []
+    }
+  ]
+}

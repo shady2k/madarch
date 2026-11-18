@@ -5,7 +5,7 @@ import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fix
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
 import { producerEntities, referenceOf } from '../src/graph/plugin-turns.js';
 import { readKindAssertions } from '../src/graph/records.js';
-import type { GraphContract } from '../src/graph/contract.js';
+import type { EntityRefDraft, GraphContract } from '../src/graph/contract.js';
 
 const contract: GraphContract = { vertex: [
  {name:'sample',table:'unused',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture',keyEdges:[{role:'parent',edge:'sample-parent',direction:'from',onDelete:'restrict'}]},
@@ -13,6 +13,47 @@ const contract: GraphContract = { vertex: [
  {name:'file',table:'unused',evidence:{immutable:true},key:['path'],fields:[{name:'path',type:'text'}],capability:'fixture'},
 ],edge:[{name:'sample-parent',from:['sample'],to:['parent'],fields:[],repeats:false,cardinality:{from:'many',to:'one'},labels:{en:{out:'parent',in:'children'},ru:{out:'parent',in:'children'}},capability:'fixture'}],dictionary:[]};
 const other = '019a0000-0000-7000-8000-000000000003';
+
+test('producer references reconstruct two key-edge levels through an any endpoint', async () => {
+ const nested: GraphContract = {
+  ...contract,
+  vertex: [
+   ...contract.vertex.map(vertex => vertex.name === 'parent' ? {
+    ...vertex, keyEdges: [{ role: 'root', edge: 'root-parent', direction: 'to' as const, onDelete: 'restrict' as const }],
+   } : vertex),
+   {name:'root',table:'unused',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'},
+  ],
+  edge: [
+   {...contract.edge[0]!,to:['any']},
+   {...contract.edge[0]!,name:'root-parent',from:['root'],to:['parent']},
+  ],
+ };
+ const root: EntityRefDraft = {kind:'root',key:{name:'top'}};
+ const parent: EntityRefDraft = {kind:'parent',key:{name:'middle'},keyEdges:{root}};
+ const sample: EntityRefDraft = {kind:'sample',key:{name:'leaf'},keyEdges:{parent}};
+ const owner = await createTestDatabaseOwner({graphContract:nested});
+ try {
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,nested);
+   await publishGraphDrafts(tx,nested,{
+    vertices:[root,parent,sample].map(ref=>({...ref,values:{},producer:'fixture',producerVersion:'1'})),
+    edges:[
+     {kind:'root-parent',from:root,to:parent,producer:'fixture',producerVersion:'1'},
+     {kind:'sample-parent',from:sample,to:parent,producer:'fixture',producerVersion:'1'},
+    ],removals:[],
+   });
+  });
+  const rows = await producerEntities(owner,nested,'sample',TEST_SOURCE_UID);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({key:sample.key,keyEdges:{parent}});
+  const expected = await owner.transaction('snapshot',async tx=>{
+   const held = await readKindAssertions(tx,'vertex','sample',[],{contract:nested});
+   return await referenceOf(tx,nested,'sample',held[0]!.id);
+  });
+  expect(rows[0]!.keyEdges).toEqual(expected.keyEdges!);
+ } finally {await owner.close();}
+},60_000);
+
 
 test('producer reads keep all opinions and evidence but use the same query count for 2 and 200 entities', async () => {
  const owner = await createTestDatabaseOwner({graphContract:contract});

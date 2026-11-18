@@ -5,7 +5,7 @@ import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf, declaredKindReads, declaredEdgeReads } from '../src/fill/stages/plugin-contract.js';
 
-const repositoryKinds = new Set(['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']);
+const repositoryKinds = new Set(['product', 'product-profile', 'code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']);
 
 /** Keep only declarations exercised by repository tests, not the entire starter catalogue. */
 function repositoryDeclarations(text: string): string {
@@ -13,8 +13,8 @@ function repositoryDeclarations(text: string): string {
   const body = document.toJS();
   document.set('kinds', Object.fromEntries(Object.entries(body.kinds).filter(([name]) => repositoryKinds.has(name))));
   for(const [role,binding] of Object.entries(body['semantic-bindings']??{}) as [string,{kind:string}][]) if(!repositoryKinds.has(binding.kind)) document.deleteIn(['semantic-bindings',role]);
-  document.set('plugins', body.plugins.filter((plugin: { id: string }) => ['disk', 'git'].includes(plugin.id)));
-  document.set('edges', body.edges.filter((edge: { capability: string }) => ['disk', 'git'].includes(edge.capability)));
+  document.set('plugins', body.plugins.filter((plugin: { id: string }) => ['disk', 'git', 'fixture-product'].includes(plugin.id)));
+  document.set('edges', body.edges.filter((edge: { name: string; capability: string }) => edge.name === 'profile-product' || ['disk', 'git'].includes(edge.capability)));
   const edges = new Set(document.toJS().edges.map((edge: { name: string }) => edge.name));
   for (const [role, binding] of Object.entries(document.toJS()['semantic-bindings'] ?? {}) as [string, { edges?: Record<string, { kind: string }> }][]) {
     for (const [name, edge] of Object.entries(binding.edges ?? {})) {

@@ -1,0 +1,45 @@
+{
+  "id": "fixture-product",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "product",
+        "key": [
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "name",
+            "example": "name",
+            "required": true
+          },
+          {
+            "name": "purpose",
+            "type": "text",
+            "meaning": "purpose",
+            "example": "purpose",
+            "required": false
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "meaning": "status",
+            "example": "status",
+            "required": false
+          },
+          {
+            "name": "vision",
+            "type": "text",
+            "meaning": "vision",
+            "example": "vision",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "edges": []
+  }
+}

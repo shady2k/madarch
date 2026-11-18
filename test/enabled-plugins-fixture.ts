@@ -1,6 +1,7 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { closureOf } from '../src/plugin/closure.js';
 import { parseDocument } from 'yaml';
 import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 
@@ -161,6 +162,36 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
   writeFolderManifest(folder, manifest.toString());
 }
 
+/** A real deterministic producer for the starter root, so repository fixtures need no model. */
+function seedFixtureProduct(folder: string): void {
+  const relative = 'plugins/fixture-product';
+  const target = join(folder, relative);
+  mkdirSync(target, { recursive: true });
+  for (const name of ['plugin.json', 'contract.json', 'main.ts']) {
+    writeFileSync(join(target, name), readFileSync(join(import.meta.dir, 'fixtures/plugin-product', name)));
+  }
+  const manifest = parseDocument(readFolderManifestText(folder));
+  const plugins = manifest.toJS().plugins ?? [];
+  if (!plugins.some((plugin: { id: string }) => plugin.id === 'fixture-product')) {
+    plugins.push({ id: 'fixture-product', version: 1, path: relative, inputs: [], outputs: ['product'],
+      closure: ['plugin.json', 'contract.json', 'main.ts'].map(name => `${relative}/${name}`) });
+  }
+  manifest.set('plugins', plugins);
+  // Preserve the starter's fields, but bind their fixture values to the producer that actually supplies them.
+  const fields = manifest.toJS().kinds.product.fields as { name: string }[];
+  for (const [index] of fields.entries()) {
+    manifest.deleteIn(['kinds', 'product', 'fields', index, 'binding']);
+    manifest.setIn(['kinds', 'product', 'fields', index, 'producers'], ['fixture-product']);
+  }
+  writeFolderManifest(folder, manifest.toString());
+  const file = join(folder, 'madarch/plugins.lock');
+  const lock = parseDocument(readFileSync(file, 'utf8'));
+  const locked = (lock.toJS().plugins ?? []).filter((plugin: { id: string }) => plugin.id !== 'fixture-product');
+  locked.push({ id: 'fixture-product', version: '1.0.0', path: relative, closure: closureOf(target).hash });
+  lock.set('plugins', locked);
+  writeFileSync(file, lock.toString());
+}
+
 /** Seeds a fresh repository-only fixture with both complete closures, not the everything starter's other plugins. */
 export function seedRepositoryPlugins(folder: string): void {
   const ids = ['disk', 'git'];
@@ -176,7 +207,8 @@ export function seedRepositoryPlugins(folder: string): void {
       writeFileSync(target, file.bytes ?? file.content, { flag: 'wx' });
     }
   }
-  useFixturePlugins(folder, ids);
+  seedFixtureProduct(folder);
+  useFixturePlugins(folder, [...ids, 'fixture-product']);
 }
 
 /** Declares repository fact inputs for fixtures that previously relied on native stages. */
@@ -190,7 +222,7 @@ export function useRepositoryPlugins(folder: string): void {
     manifest.set(key, { ...starter[key], ...(manifest.toJS()[key] ?? {}) });
   }
   const body = manifest.toJS();
-  const repositoryKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
+  const repositoryKinds = ['product', 'product-profile', 'code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
   for (const name of repositoryKinds) {
     const existing = body.kinds?.[name];
     if (existing === undefined || existing.fields === undefined) {
@@ -204,7 +236,7 @@ export function useRepositoryPlugins(folder: string): void {
   manifest.set('plugins', plugins);
   const edges = body.edges ?? [];
   for (const edge of starter.edges ?? []) {
-    if (!edge.name.startsWith('code.') || !['disk', 'git'].includes(edge.capability)) continue;
+    if (edge.name !== 'profile-product' && (!edge.name.startsWith('code.') || !['disk', 'git'].includes(edge.capability))) continue;
     const existing = edges.findIndex((candidate: { name: string }) => candidate.name === edge.name);
     if (existing < 0) edges.push(edge);
     else edges[existing] = { ...edges[existing], ...edge };
@@ -220,5 +252,6 @@ export function useRepositoryPlugins(folder: string): void {
   }
   lock.set('plugins', locked);
   writeFileSync(lockFile, lock.toString());
-  if (!hadManifest) useFixturePlugins(folder, ['disk', 'git']);
+  seedFixtureProduct(folder);
+  if (!hadManifest) useFixturePlugins(folder, ['disk', 'git', 'fixture-product']);
 }

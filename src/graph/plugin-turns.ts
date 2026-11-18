@@ -9,7 +9,7 @@ import type { SqlExecutor } from '../sql-driver.js';
 import { semanticBinding } from '../knowledge/semantic-bindings.js';
 import { activeExistenceSql, loadAssertions } from './assertion-read.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { GraphContract, VertexContract } from './contract.js';
+import { endpointKindNames, type GraphContract, type VertexContract } from './contract.js';
 import { readKindAssertions, readKindsAssertions } from './records.js';
 import { edgeRowsIn, readRunNodeIn } from './fill-state.js';
 import { withSpan } from '../obs/trace.js';
@@ -45,7 +45,7 @@ async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: stri
       for (const role of contract.vertex.find(vertex => vertex.name === name)?.keyEdges ?? []) {
         edgeKinds.add(role.edge);
         const edge = contract.edge.find(edge => edge.name === role.edge)!;
-        for (const parent of role.direction === 'from' ? edge.to : edge.from) visit(parent);
+        for (const parent of endpointKindNames(role.direction === 'from' ? edge.to : edge.from, contract.vertex)) visit(parent);
       }
     };
     visit(kind);
@@ -62,18 +62,18 @@ async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: stri
       if (held === undefined) byEndpoint.set(key, [row]); else held.push(row);
     }
     const build = (name: string, id: number, seen: ReadonlySet<number>): import('./contract.js').EntityRefDraft => {
-      if (seen.has(id)) throw new Error(`${import.meta.path}: key-edge instance cycle at node ${id}`);
+      if (seen.has(id)) throw new Error(`${import.meta.path}:65: key-edge instance cycle at node ${id}`);
       const node = byId.get(id);
-      if (node === undefined) throw new Error(`${import.meta.path}: missing reference endpoint ${id}`);
+      if (node === undefined) throw new Error(`${import.meta.path}:67: missing reference endpoint ${id}`);
       const vertex = contract.vertex.find(vertex => vertex.name === name);
-      if (vertex === undefined) throw new Error(`${import.meta.path}: undeclared endpoint kind ${name}`);
+      if (vertex === undefined) throw new Error(`${import.meta.path}:69: undeclared endpoint kind ${name}`);
       const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
       for (const role of vertex.keyEdges ?? []) {
         const links = byEndpoint.get(`${role.edge}:${role.direction}:${id}`) ?? [];
-        if (links.length !== 1) throw new Error(`${import.meta.path}: ${name} ${node.uid} requires exactly one key edge ${role.role}, found ${links.length}`);
+        if (links.length !== 1) throw new Error(`${import.meta.path}:73: ${name} ${node.uid} requires exactly one key edge ${role.role}, found ${links.length}`);
         const parentId = (role.direction === 'from' ? links[0]!.to : links[0]!.from)!;
         const parent = byId.get(parentId);
-        if (parent === undefined) throw new Error(`${import.meta.path}: missing key endpoint ${parentId}`);
+        if (parent === undefined) throw new Error(`${import.meta.path}:76: missing key endpoint ${parentId}`);
         keyEdges[role.role] = build(parent.kind, parentId, new Set([...seen, id]));
       }
       return { kind: name, key: node.key, uid: node.uid, ...(Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
