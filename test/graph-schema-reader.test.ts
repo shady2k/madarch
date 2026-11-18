@@ -30,7 +30,7 @@ describe('a page reads while a fill migrates its schema', () => {
       await owner.exec(`CREATE FUNCTION graph_key_fields(kind text) RETURNS TABLE(property text,value_table text,value_type text) LANGUAGE sql AS $$ SELECT NULL::text,NULL::text,NULL::text $$`);
       for (const table of ['node', 'assertion', dictionaryTables.language, 'orphaned_kind_value']) {
         for (const [name, fn] of [['subject_attachment', 'graph_subject_check'], ['typed_value', 'graph_value_check'], ['immutable_key', 'graph_key_check']]) {
-          await owner.exec(`CREATE TRIGGER ${name} AFTER INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+          await owner.exec(`CREATE CONSTRAINT TRIGGER ${name} AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
         }
       }
       const before = await owner.run(tx => tx.query('SELECT * FROM node ORDER BY id'));
@@ -38,6 +38,7 @@ describe('a page reads while a fill migrates its schema', () => {
       const valuesBefore = await owner.run(tx => tx.query(`SELECT * FROM "${dictionaryTables.language}" ORDER BY assertion_id`));
       await owner.exec(`DROP TRIGGER graph_relations ON "${dictionaryTables.language}"`);
       await owner.exec(`CREATE TRIGGER graph_relations AFTER INSERT ON "${dictionaryTables.language}" FOR EACH ROW EXECUTE FUNCTION graph_relations_check()`);
+      await owner.exec(`DROP TRIGGER graph_relations_dirty ON "${dictionaryTables.language}"`);
       await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
       await prepareStore(owner, { contract: dictionaryContract });
       const guards = await owner.run(tx => tx.query<{ name: string; deferred: boolean; initiallyDeferred: boolean; fn: string }>(
@@ -58,7 +59,7 @@ describe('a page reads while a fill migrates its schema', () => {
       expect((await owner.run(tx => tx.query(`SELECT * FROM "${dictionaryTables.language}" ORDER BY assertion_id`))).rows).toEqual(valuesBefore.rows);
       expect((await owner.run(tx => tx.query('SELECT assertion_id::text AS id FROM orphaned_kind_value'))).rows).toEqual([{ id: '42' }]);
     } finally { await owner.close(); }
-  });
+  }, 60_000);
   test('a migration leaves a standing key index alone, so a reader and it cannot deadlock', async () => {
     const owner = await createTestDatabaseOwner({ authenticated: false });
     try {

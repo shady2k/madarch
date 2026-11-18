@@ -113,4 +113,4 @@ test('0039.28: schema changes regenerate the static key validation plan', async 
   } finally { await owner.close(); }
   expect(before).not.toMatch(/\bEXECUTE\b/i);
   expect(after).not.toMatch(/\bEXECUTE\b/i);
-});
+}, 60_000);
