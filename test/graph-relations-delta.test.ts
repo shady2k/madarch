@@ -47,7 +47,6 @@ async function measuredCheck(size: number, future: boolean, analyzed: boolean): 
       const subject = await tx.query<{ id: string }>("SELECT n.id::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='delta-parent' AND n.key=' {\"name\":\"0\"}'::jsonb");
       await writeAssertion(tx, contract, { sort: 'vertex', kind: 'delta-parent', subjectId: subject.rows[0]!.id,
         property: '$exists', operation: 'assert', value: true, ...interval });
-      await tx.query('SET CONSTRAINTS subject_attachment, typed_value, immutable_key IMMEDIATE');
       const before = await rowsRead(tx);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
       const after = await rowsRead(tx);
@@ -154,7 +153,7 @@ test('ALX107 refuses a historical edge outside its endpoint interval', async () 
 test('generated delta relation check never selects an entire active kind', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
-    const result = await owner.run(tx => tx.query<{ body: string }>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_relations_check()'::regprocedure"));
+    const result = await owner.run(tx => tx.query<{ body: string }>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_checks_pass()'::regprocedure"));
     const calls = [...result.rows[0]!.body.matchAll(/graph_(?:vertex|edge)_active_ids\(([^()]*)\)/g)];
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) expect(call[1]!.split(',').length).toBeGreaterThanOrEqual(3);
