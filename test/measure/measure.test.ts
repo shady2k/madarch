@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   BASELINE_FACTOR, BASELINES_PATH, DEFAULT_RUNS, median, measure, parseBaselines, readBaselines, type Baselines,
 } from '../support/measure.js';
@@ -91,9 +91,10 @@ describe('the recorded baselines', () => {
   test('follow the shipped JSON schema', () => {
     const schema = JSON.parse(readFileSync(join(import.meta.dir, 'baselines.schema.json'), 'utf8')) as { properties: Record<string, { type?: string; const?: number }> };
     const baselines = readBaselines();
-    expect(schema.properties.schema.const).toBe(baselines.schema);
-    expect(schema.properties.baselines.type).toBe('object');
-    expect(schema.properties.environment.type).toBe('string');
+    expect(BASELINES_PATH.endsWith(join('test', 'measure', 'baselines.json'))).toBe(true);
+    expect(schema.properties.schema!.const).toBe(baselines.schema);
+    expect(schema.properties.baselines!.type).toBe('object');
+    expect(schema.properties.environment!.type).toBe('string');
     expect(typeof baselines.environment).toBe('string');
     expect(typeof baselines.baselines).toBe('object');
     expect(Object.getPrototypeOf(baselines.baselines)).toBeNull();
