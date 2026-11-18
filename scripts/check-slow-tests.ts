@@ -63,6 +63,18 @@ export function growthPaths(slow: SlowList, timings: Timings, base: BaseChanges)
   ])].sort();
 }
 
+/**
+ * Growth includes every addition/changed row, but the blocking pass judges speed
+ * claims only: green slow entries. Red entries claim defects, not stable elapsed
+ * times; nightly summaries judge their outcomes instead of timing bound waits.
+ * Initial adoption has no base manifests: 21 green files (~1347 s), not all 282
+ * evidence paths. Normal PRs measure only their added/changed green claims.
+ */
+export function growthMeasurementPaths(slow: SlowList, timings: Timings, base: BaseChanges): string[] {
+  const green = new Set(slow.files.filter(entry => entry.result === 'green').map(entry => entry.path));
+  return growthPaths(slow, timings, base).filter(path => green.has(path));
+}
+
 export function growthFindings(slow: SlowList, measured: Timings, paths: readonly string[]): string[] {
   const findings: string[] = [];
   for (const path of paths) {
@@ -70,7 +82,9 @@ export function growthFindings(slow: SlowList, measured: Timings, paths: readonl
     const ms = measured.files[path];
     const entry = slow.files.find(entry => entry.path === path);
     if (!Number.isFinite(ms)) findings.push(`${at}: ${path} has no alone-run measurement`);
-    else if (entry && Math.abs(entry.seconds * 1000 - ms!) > 100) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees with the alone-run measurement ${ms}ms`);
+    // A slower run is still slow; reject only speed claims inflated above reality.
+    else if (entry && ms! <= SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees: took ${ms}ms and is not slow (at or below 30000ms)`);
+    else if (entry && entry.seconds * 1000 - ms! > 100) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees with the alone-run measurement ${ms}ms`);
     else if (!entry && ms! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} took ${ms}ms and is not in ${SLOW_LIST}`);
   }
   return findings;
@@ -181,9 +195,8 @@ function main(): void {
   }
   const findings = slowFindings(all, slow, timings, base, readFileSync(SLOW_LIST, 'utf8'));
   if (measureGrowth && base) {
-    // Historical evidence for deleted/moved paths is retained, but cannot be run.
-    const paths = growthPaths(slow, timings, base).filter(path => all.includes(path));
-    console.log(`growth: ${paths.length} files require alone runs (a missing base list counts every entry)`);
+    const paths = growthMeasurementPaths(slow, timings, base).filter(path => all.includes(path));
+    console.log(`growth: ${paths.length} green speed claims require alone runs; red claims are judged nightly`);
     const folder = mkdtempSync(join(tmpdir(), 'madarch-growth-'));
     try {
       for (const [index, path] of paths.entries()) {

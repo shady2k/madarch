@@ -440,13 +440,21 @@ are the repository's installation, and each person's plugin and hooks are theirs
   The stable `test` job is green only when all five shards, the separate checks
   job, the union-of-test-files check and merge-base growth control pass.
   Growth is every added slow entry and every changed single-file evidence row.
-  The blocking `test` job measures each growth file alone, in the sandbox, and
-  compares listed seconds with a 100 ms tolerance. If the merge base has no slow
-  list, every entry is growth: initial adoption pays the full alone-run cost
-  (66 slow entries plus every current evidence row; the initial branch produces
-  282 runnable files, about 177 minutes from committed evidence), never an
-  empty bootstrap exemption. Two historical rows for the moved test paths stay
-  untouched but are not runnable growth items.
+  The blocking `test` job measures only growth paths listed as green, because
+  these claim speed: an alone run must exceed 30 000 ms and must not be more
+  than 100 ms below listed seconds. Slower measurements do not fail: the file
+  remains slow. Committed evidence still compares symmetrically with listed
+  seconds. Red entries claim defects, not stable duration; their bound waits
+  fluctuate, and the nightly summary judges their outcomes instead. It exits 1
+  for a claimed red file that runs green or a claimed green file that runs red.
+  A batch run at or below 30 s marks an exit candidate; only a green single-file
+  confirmation at or below 30 s confirms removal. The initial adoption has no
+  base manifests, so all rows are growth but only 21 green claims are measured
+  in the gate (about 1 347 s of committed evidence), not the 282-file, roughly
+  177-minute serial pass. Normal PRs pay for a handful of added/changed green
+  claims. This owner-directed exception to literal every-entry remeasurement
+  avoids treating known defect bound waits as false speed claims. Evidence for
+  moved paths is deleted as move bookkeeping; the new paths have their own rows.
   Produce a single-file evidence row with the exact command (add `--slow` after
   `test` for an already listed file):
   `scripts/plugin-sandbox-cgroup.sh bun run test --only test/integration/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.

@@ -28,7 +28,6 @@
     "test/catalogue-diagram.test.ts": 22900,
     "test/catalogue-kind-relations.test.ts": 15000,
     "test/changed-pages.test.ts": 6400,
-    "test/check-slow-tests.test.ts": 18750,
     "test/child-stop.test.ts": 7500,
     "test/chromium.test.ts": 6400,
     "test/clean-install.test.ts": 7900,
@@ -236,7 +235,6 @@
     "test/restored-record-templates.test.ts": 29800,
     "test/roles-check.test.ts": 11100,
     "test/roles-two-and-two.test.ts": 7900,
-    "test/run-tests.test.ts": 21590,
     "test/sandbox-probe.test.ts": 6600,
     "test/schema-stamp.test.ts": 66900,
     "test/selective-runtime.test.ts": 7800,
@@ -284,6 +282,7 @@
     "test/writer-russian.test.ts": 8400,
     "test/yaml-position.test.ts": 6700,
     "test/integration/check-slow-tests.test.ts": 13204,
-    "test/e2e/run-tests.test.ts": 13577
+    "test/e2e/run-tests.test.ts": 13577,
+    "test/e2e/summarize-slow-tests.test.ts": 5303
   }
 }
