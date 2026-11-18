@@ -72,11 +72,11 @@ today, by file and line.
 |---|---|
 | 80 related kinds render within 200 ms warm | `test/catalogue-diagram.test.ts:99` (reading at `:91`) |
 | the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:158` (`:133`) |
-| a stopped child ends within 10 s of SIGTERM, and within 10 s and 5 s with held output | `test/child-stop.test.ts:20`, `:34`, `:48` |
+| a child stops within 10 s of SIGTERM; one ignoring SIGTERM stops within 10 s; one holding its output stops within 5 s | `test/child-stop.test.ts:20`, `:34`, `:48` |
 | diagram fold under 5 ms, fold and layout under 400 ms | `test/diagram-budget.test.ts:47`, `:48` |
-| a looping render is cut off under 650 ms and its answer arrives under 1 500 ms | `test/diagram-route.test.ts:255`, `:258` |
+| another diagram answers under 650 ms while a CPU-looping renderer runs, and the looping one's timeout is answered under 1 500 ms | `test/diagram-route.test.ts:255`, `:258` |
 | the static fill's peak per 100 files varies at most 25 % between 100, 200 and 400 files (memory) | `test/fill-static-heap.test.ts:77`, `:78`; `MADARCH_SKIP_PERF` at `:39` |
-| `graphql-executor`: the diagram read of a 2 200 000-character product under 2 s | `test/graphql-executor.test.ts:653` (reading at `:639`) |
+| `graphql-executor`: a diagram read over 1 324 children, bounded to its sample, under 2 s | `test/graphql-executor.test.ts:653` (reading at `:639`) |
 | storing a new version of a 10 000-element model under 5 s | `test/history.test.ts:572`; `MADARCH_SKIP_PERF` at `:553` |
 | an open stands behind another process's start over 300 ms, and a refusal waits at least 300 ms (ordering, not a speed bar) | `test/postgres-cluster-owner.test.ts:203`, `:298` |
 | producer reads keep one query count for 2 and 200 entities; the reading is printed | `test/producer-read.test.ts:27` (arrives with the 0039 stack `64fed185b`; query count at `:45`; no elapsed assertion) |
