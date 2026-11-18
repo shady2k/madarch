@@ -17,6 +17,7 @@ import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
+import type { StarterTemplate } from '../src/knowledge/starter-templates.js';
 import { clusterPaths, openCluster, fallbackSignalAllowed, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
@@ -38,6 +39,19 @@ interface Fixture {
   readonly env: NodeJS.ProcessEnv;
 }
 
+/**
+ * The kinds these cases declare: the directory kind they fill, and the kinds the two plugins that read a repository
+ * write beside it — the repository a directory rests on, the files and links it holds, and that repository's history.
+ * This is the whole set a partial catalogue admits with those plugins, and nothing of the starter set's other 497 kind
+ * files: the cases check the stop of the database server, not the size of the catalogue (madarch-64o5.74).
+ */
+const STOPPED_DATABASES_KINDS: StarterTemplate = {
+  id: 'stopped-databases-kinds',
+  title: { en: 'Stopped databases kinds', ru: 'Виды остановленных баз' },
+  description: { en: 'The code kinds a stop case fills.', ru: 'Виды кода, которые заполняет случай остановки.' },
+  kinds: ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'],
+};
+
 function fixture(): Fixture {
   const base = mkdtempSync(join(root, 'case-'));
   const home = join(base, 'products');
@@ -57,7 +71,9 @@ function fixture(): Fixture {
   execFileSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: code, env: { ...process.env, ...gitEnv(SAMPLE_IDENTITY) } });
   execFileSync('git', ['add', '.'], { cwd: code, env: { ...process.env, ...gitEnv(SAMPLE_IDENTITY) } });
   execFileSync('git', ['commit', '--quiet', '-m', 'code'], { cwd: code, env: { ...process.env, ...gitEnv(SAMPLE_IDENTITY) } });
-  const draft = createDraft({ home, name: 'shop', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+  // A partial catalogue: the daemon validates all of it before its listener, and the full starter set's catalogue
+  // alone outlasts READY_TIMEOUT_MS on the 0039 stack (madarch-64o5.74).
+  const draft = createDraft({ home, name: 'shop', template: STOPPED_DATABASES_KINDS.id, templates: [STOPPED_DATABASES_KINDS], gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   writeFileSync(join(draft.folder, 'workspace.yaml'), manifestWithRepo(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8'), { name: 'code', linked: true }));
   mkdirSync(join(draft.folder, 'repos'), { recursive: true });
