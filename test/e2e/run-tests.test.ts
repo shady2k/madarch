@@ -13,8 +13,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
+import { jsonArrayLocations, jsonValueLine } from '../../scripts/json-lines.js';
 
-const RUNNER = join(import.meta.dir, '..', 'scripts', 'run-tests.ts');
+const RUNNER = join(import.meta.dir, '..', '..', 'scripts', 'run-tests.ts');
 
 const fixture = mkdtempSync(join(tmpdir(), 'madarch-run-tests-'));
 const bin = join(fixture, 'bin');
@@ -53,7 +54,77 @@ function run(...args: string[]) {
   return { status: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString(), called };
 }
 
+test('JSON locations ignore decoy keys, escaped strings and nested punctuation', () => {
+  const source = `{
+ "nested": {"files": [17]}, "note":"files [,] \\"x\\"",
+ "files": [
+ {"label":"test/a.test.ts", "nested":{"path":"wrong"},
+ "pa\\u0074h": "test/a.test.ts", "array":[{}, [1,2]]},
+ null,
+ 17,
+ [true],
+ "escaped\\\\end"
+ ]}`;
+  JSON.parse(source);
+  expect(jsonArrayLocations(source)).toEqual([
+    {entryLine:4,propertyLines:{label:4,nested:4,path:5,array:5}},
+    {entryLine:6,propertyLines:{}}, {entryLine:7,propertyLines:{}},
+    {entryLine:8,propertyLines:{}}, {entryLine:9,propertyLines:{}}
+  ]);
+  expect(jsonArrayLocations('{"files":[]}')).toEqual([]);
+  expect(jsonArrayLocations('{"other":[{}]}')).toEqual([]);
+});
+
+
+test('serialized value locations have a fallback', () => {
+  expect(jsonValueLine('{\n \"key\": \"value\"}', 'value')).toBe(2);
+  expect(jsonValueLine('{}', 'missing')).toBe(1);
+});
+
 describe('the test runner', () => {
+  test('refuses duplicate paths at the second entry line', () => {
+    const manifest = join(fixture, 'test', 'slow-files.json');
+    const original = readFileSync(manifest, 'utf8');
+    try {
+      writeFileSync(manifest, '{"files":[\n {"path":"test/c.test.ts","reason":"green-slow"},\n {"path":"test/c.test.ts","reason":"green-slow"}]}');
+      const result = run();
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain(`${manifest}:3: duplicate slow path test/c.test.ts`);
+      expect(result.called).toEqual([]);
+    } finally { writeFileSync(manifest, original); }
+  });
+
+  test('only refusal names the absolute test path and manifest location', () => {
+    const result = run('--only', 'test/c.test.ts');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`${join(fixture, 'test/c.test.ts')}:1:`);
+  });
+
+  test('single-file timing updates refuse zero or multiple only flags with the right command', () => {
+    const target = '.github/workflows/single-file-timings.json';
+    for (const args of [[], ['--only', 'test/a.test.ts', '--only', 'test/b.test.ts'], ['--only', 'test/a.test.ts', '--only', 'test/a.test.ts']]) {
+      const result = run(...args, '--timings='+target, '--update-timings');
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain(`scripts/plugin-sandbox-cgroup.sh bun run test --only <path> --timings=${target} --update-timings`);
+      expect(result.called).toEqual([]);
+    }
+  });
+
+  test('real Bun single-file timing refresh merges one measurement and preserves other rows', () => {
+    const target = join(fixture, '.github/workflows/single-file-timings.json');
+    mkdirSync(join(fixture, '.github/workflows'), { recursive: true });
+    const original = { version: 1, files: { 'test/a.test.ts': 99999, 'test/b.test.ts': 1234, 'test/c.test.ts': 5678 } };
+    writeFileSync(target, JSON.stringify(original));
+    const result = Bun.spawnSync([process.execPath, RUNNER, '--only', 'test/a.test.ts', '--timings='+target, '--update-timings'], { cwd: fixture, env: { ...process.env, PATH: process.env.PATH }, stdout: 'pipe', stderr: 'pipe' });
+    expect(result.exitCode).toBe(0);
+    const updated = JSON.parse(readFileSync(target, 'utf8'));
+    expect(Object.keys(updated.files).sort()).toEqual(Object.keys(original.files).sort());
+    expect(updated.files['test/b.test.ts']).toBe(1234);
+    expect(updated.files['test/c.test.ts']).toBe(5678);
+    expect(updated.files['test/a.test.ts']).not.toBe(99999);
+    expect(updated.files['test/a.test.ts']).toBeGreaterThanOrEqual(0);
+  });
+
   test('runs every test file except the slow list by default', () => {
     const result = run();
     expect(result.status).toBe(0);

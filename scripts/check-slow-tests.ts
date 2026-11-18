@@ -20,9 +20,11 @@
  * The command exits 1 with every finding printed, 0 when there is none, and 2
  * when an input cannot be read.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { jsonArrayLocations, jsonValueLine } from './json-lines.js';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readSlowList, SLOW_LIST, SLOW_THRESHOLD_SECONDS, testFiles, type SlowList } from './run-tests.js';
 
 export interface Timings {
@@ -34,28 +36,54 @@ export interface Timings {
 }
 export const SINGLE_FILE_EVIDENCE = '.github/workflows/single-file-timings.json';
 
-const USAGE = 'usage: bun scripts/check-slow-tests.ts [--measured <folder of shard-*.json manifests>]';
+const USAGE = 'usage: bun scripts/check-slow-tests.ts [--measured <folder of shard-*.json manifests>] [--growth]';
 
-function fail(message: string): never {
-  console.error(`${join(process.cwd(), SLOW_LIST)}:1: ${message}`);
+function fail(message: string, source = import.meta.path): never {
+  console.error(`${resolve(source)}:1: ${message}`);
   process.exit(2);
 }
 
-export interface BaseChanges { readonly revision: string; readonly changedFiles: readonly string[] }
+export interface BaseChanges { readonly revision: string; readonly changedFiles: readonly string[]; readonly slowPaths?: readonly string[]; readonly evidence?: Readonly<Record<string, number>> }
 
 function location(source: string, text: string, path: string): string {
-  const offset = text.indexOf(JSON.stringify(path));
-  return `${resolve(source)}:${offset < 0 ? 1 : text.slice(0, offset).split('\n').length}`;
+  return `${resolve(source)}:${jsonValueLine(text, path)}`;
+}
+
+
+export function evidenceCommand(path: string, slow = false): string {
+  return `scripts/plugin-sandbox-cgroup.sh bun run test${slow ? ' --slow' : ''} --only ${path} --timings=${SINGLE_FILE_EVIDENCE} --update-timings`;
+}
+
+/** No base manifest means every slow entry is growth, including the initial adoption. */
+export function growthPaths(slow: SlowList, timings: Timings, base: BaseChanges): string[] {
+  const previous = new Set(base.slowPaths ?? []);
+  return [...new Set([
+    ...slow.files.filter(entry => !previous.has(entry.path)).map(entry => entry.path),
+    ...Object.keys(timings.files).filter(path => timings.files[path] !== base.evidence?.[path]),
+  ])].sort();
+}
+
+export function growthFindings(slow: SlowList, measured: Timings, paths: readonly string[]): string[] {
+  const findings: string[] = [];
+  for (const path of paths) {
+    const at = location(measured.source, measured.text ?? '', path);
+    const ms = measured.files[path];
+    const entry = slow.files.find(entry => entry.path === path);
+    if (!Number.isFinite(ms)) findings.push(`${at}: ${path} has no alone-run measurement`);
+    else if (entry && Math.abs(entry.seconds * 1000 - ms!) > 100) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees with the alone-run measurement ${ms}ms`);
+    else if (!entry && ms! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} took ${ms}ms and is not in ${SLOW_LIST}`);
+  }
+  return findings;
 }
 
 /** Inventory repair obligations and compare independent single-file evidence. */
-export function slowFindings(all: readonly string[], slow: SlowList, timings: Timings, base?: BaseChanges): string[] {
+export function slowFindings(all: readonly string[], slow: SlowList, timings: Timings, base?: BaseChanges, slowText = ''): string[] {
   const findings: string[] = [];
   const listed = new Set(slow.files.map(entry => entry.path));
-  const slowText = readFileSync(SLOW_LIST, 'utf8');
+  const slowLines = jsonArrayLocations(slowText);
   const at = (path: string): string => timings.locations?.[path] ?? location(timings.source, timings.text ?? '', path);
-  for (const entry of slow.files) {
-    const here = location(SLOW_LIST, slowText, entry.path);
+  for (const [index, entry] of slow.files.entries()) {
+    const here = `${resolve(SLOW_LIST)}:${slowLines[index]?.entryLine ?? 1}`;
     if (!Number.isFinite(entry.seconds) || entry.seconds <= SLOW_THRESHOLD_SECONDS) findings.push(`${here}: ${entry.path} is listed with ${String(entry.seconds)} s; the slow criterion is more than 30 s`);
     if (!entry.owner || !/^madarch-[a-z0-9]+(?:\.[0-9]+)*$/.test(entry.owner)) findings.push(`${here}: ${entry.path} has no tracked owner task`);
     if (entry.result === 'red' && entry.reason === 'green-slow') findings.push(`${here}: ${entry.path} is red and cannot use reason green-slow`);
@@ -64,8 +92,10 @@ export function slowFindings(all: readonly string[], slow: SlowList, timings: Ti
     const ms = timings.files[entry.path];
     if (timings.kind === 'single-file' && typeof ms === 'number' && Math.abs(entry.seconds * 1000 - ms) > 100) findings.push(`${at(entry.path)}: ${entry.path} listed time ${entry.seconds}s disagrees with the committed measurement ${ms}ms`);
   }
-  if (timings.kind === 'single-file' && base) for (const path of base.changedFiles) {
-    if (!Number.isFinite(timings.files[path])) findings.push(`${at(path)}: ${path} changed since ${base.revision} has no single-file evidence`);
+  if (timings.kind === 'single-file' && base) for (const path of new Set([...base.changedFiles, ...growthPaths(slow, timings, base)])) {
+    if (!Number.isFinite(timings.files[path])) {
+      findings.push(`${at(path)}: ${path} changed since ${base.revision} has no single-file evidence`);
+    }
   }
   const known = new Set(all);
   for (const [path, milliseconds] of Object.entries(timings.files)) {
@@ -83,20 +113,22 @@ export function readTimings(path: string, kind: Timings['kind']): Timings {
     text = readFileSync(path, 'utf8');
     parsed = JSON.parse(text);
   } catch (error) {
-    fail(`cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`cannot read: ${error instanceof Error ? error.message : String(error)}`, path);
   }
   if (parsed === null || typeof parsed !== 'object' || (parsed as { version?: unknown }).version !== 1) {
-    fail(`${path}:1: is not a Bun timings file: version 1 with a files map`);
+    fail(`is not a Bun timings file: version 1 with a files map`, path);
   }
   const files = (parsed as { files?: unknown }).files;
-  if (files === null || typeof files !== 'object' || Array.isArray(files)) fail(`${path}:1: carries no files map`);
+  if (files === null || typeof files !== 'object' || Array.isArray(files)) fail(`carries no files map`, path);
   return { source: resolve(path), kind, text, files: files as Record<string, number> };
 }
 
 /** The union of the shard manifests a CI run uploaded, taking the larger measure of a repeated file. */
 export function readShardTimings(folder: string): Timings {
-  const names = readdirSync(folder).filter((name) => name.endsWith('.json')).sort();
-  if (names.length === 0) fail(`${folder} holds no shard-*.json timing manifest`);
+  let names: string[];
+  try { names = readdirSync(folder).filter(name => name.endsWith('.json')).sort(); }
+  catch (error) { fail(`cannot read shard folder: ${String(error)}`, folder); }
+  if (names.length === 0) fail(`holds no shard-*.json timing manifest`, folder);
   const files: Record<string, number> = {};
   const locations: Record<string, string> = {};
   for (const name of names) {
@@ -114,9 +146,11 @@ export function readShardTimings(folder: string): Timings {
 function main(): void {
   const argv = process.argv.slice(2);
   let measured: string | undefined;
+  let measureGrowth = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
-    if (argument === '--measured') {
+    if (argument === '--growth') measureGrowth = true;
+    else if (argument === '--measured') {
       measured = argv[index + 1];
       if (measured === undefined || measured.startsWith('--')) fail('--measured names the folder of shard-*.json manifests, and none was given');
       index += 1;
@@ -132,13 +166,40 @@ function main(): void {
   const timings = measured === undefined ? readTimings(join(root, SINGLE_FILE_EVIDENCE), 'single-file') : readShardTimings(measured);
   let base: BaseChanges | undefined;
   if (measured === undefined) {
-    const revision = execFileSync('git', ['merge-base', 'origin/main', 'HEAD'], { encoding: 'utf8' }).trim();
-    const changedFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=AM', revision, '--', ':(glob)test/**/*.test.ts'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-    base = { revision, changedFiles };
+    try {
+      const revision = execFileSync('git', ['merge-base', 'origin/main', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      const changedFiles = execFileSync('git', ['diff', '--no-renames', '--name-only', '--diff-filter=AM', revision, '--', ':(glob)test/**/*.test.ts'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+      const baseFile = (path: string): unknown => {
+        const found = spawnSync('git', ['cat-file', '-e', `${revision}:${path}`]);
+        if (found.status !== 0) return undefined;
+        return JSON.parse(execFileSync('git', ['show', `${revision}:${path}`], { encoding: 'utf8' }));
+      };
+      const oldSlow = baseFile(SLOW_LIST) as SlowList | undefined;
+      const oldEvidence = baseFile(SINGLE_FILE_EVIDENCE) as { files: Record<string, number> } | undefined;
+      base = { revision, changedFiles, slowPaths: oldSlow?.files.map(entry => entry.path) ?? [], evidence: oldEvidence?.files ?? {} };
+    } catch (error) { fail(`cannot read git merge base origin/main or its data: ${error instanceof Error ? error.message : String(error)}`); }
   }
-  const findings = slowFindings(all, slow, timings, base);
+  const findings = slowFindings(all, slow, timings, base, readFileSync(SLOW_LIST, 'utf8'));
+  if (measureGrowth && base) {
+    // Historical evidence for deleted/moved paths is retained, but cannot be run.
+    const paths = growthPaths(slow, timings, base).filter(path => all.includes(path));
+    console.log(`growth: ${paths.length} files require alone runs (a missing base list counts every entry)`);
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-growth-'));
+    try {
+      for (const [index, path] of paths.entries()) {
+        const output = join(folder, `${index}.json`);
+        const args = ['bun', 'run', 'test', ...(slow.files.some(entry => entry.path === path) ? ['--slow'] : []), '--only', path, `--timings=${output}`, '--update-timings'];
+        const run = spawnSync('scripts/plugin-sandbox-cgroup.sh', args, { stdio: 'inherit' });
+        if (run.error || run.status === null || !existsSync(output)) findings.push(`${resolve(path)}:1: alone run produced no timing evidence (${run.error?.message ?? run.status})`);
+        else findings.push(...growthFindings(slow, readTimings(output, 'single-file'), [path]));
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  }
   if (findings.length > 0) {
     for (const finding of findings) console.error(finding);
+    if (base) for (const path of new Set([...base.changedFiles, ...growthPaths(slow, timings, base)])) {
+      if (!Number.isFinite(timings.files[path])) console.error(`${resolve(SINGLE_FILE_EVIDENCE)}:1: produce evidence: ${evidenceCommand(path, slow.files.some(entry => entry.path === path))}`);
+    }
     process.exit(1);
   }
   console.log(`slow tests: ${String(slow.files.length)} listed, ${String(Object.keys(timings.files).length)} measured files, no finding`);

@@ -282,6 +282,8 @@
     "test/writer-agent-tools.test.ts": 6100,
     "test/writer-journal.test.ts": 5800,
     "test/writer-russian.test.ts": 8400,
-    "test/yaml-position.test.ts": 6700
+    "test/yaml-position.test.ts": 6700,
+    "test/integration/check-slow-tests.test.ts": 13204,
+    "test/e2e/run-tests.test.ts": 13577
   }
 }

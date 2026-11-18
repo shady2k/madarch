@@ -19,9 +19,11 @@
  * A path in the slow list that is not a test file of this tree exits 2: the list
  * names what exists, and a deleted test does not stay silently excluded.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { jsonArrayLocations } from './json-lines.js';
 
 export const SLOW_LIST = join('test', 'slow-files.json');
 export const SLOW_THRESHOLD_SECONDS = 30;
@@ -47,30 +49,6 @@ export interface SlowList {
 }
 
 const USAGE = 'usage: bun scripts/run-tests.ts [--slow] [--dry-run] [--only <path>] [--shard=<i>/<n>] [bun test flags]';
-
-/** Lines of the array entries, ignoring punctuation inside JSON strings. */
-function entryLines(source: string): number[] {
-  const tokens = [...source.matchAll(/"(?:\\.|[^"\\])*"|[{}[\],:]|[^\s{}[\],:]+/g)];
-  const start = tokens.findIndex((token, index) => token[0] === '"files"' && tokens[index + 1]?.[0] === ':' && tokens[index + 2]?.[0] === '[');
-  const lines: number[] = [];
-  let depth = 1;
-  let next = true;
-  for (const token of tokens.slice(start + 3)) {
-    const text = token[0];
-    if (depth === 1 && text === ']') break;
-    if (depth === 1 && text === ',') {
-      next = true;
-      continue;
-    }
-    if (next) {
-      lines.push(source.slice(0, token.index).split('\n').length);
-      next = false;
-    }
-    if (text === '[' || text === '{') depth += 1;
-    if (text === ']' || text === '}') depth -= 1;
-  }
-  return lines;
-}
 
 /** Every `*.test.ts` under `test/` at any depth, relative and in code point order. */
 export function testFiles(root: string): string[] {
@@ -105,11 +83,14 @@ export function readSlowList(root: string, all: readonly string[]): SlowList {
     fail('the slow list must be an object with a "files" array');
   }
   const list = parsed as SlowList;
-  const lines = entryLines(source);
+  const lines = jsonArrayLocations(source);
   const known = new Set(all);
+  const seen = new Set<string>();
   for (const [index, entry] of list.files.entries()) {
-    const line = lines[index];
+    const line = lines[index]?.entryLine;
     if (entry === null || typeof entry !== 'object' || typeof entry.path !== 'string') fail('every slow entry names a "path"', line);
+    if (seen.has(entry.path)) fail(`duplicate slow path ${entry.path}`, line);
+    seen.add(entry.path);
     if (!known.has(entry.path)) fail(`${entry.path} is in the slow list, but it is not a test file of this tree`, line);
     if (entry.reason !== 'green-slow' && entry.reason !== 'waits-timeout' && entry.reason !== 'red-defect') fail(`${entry.path} names no reason: green-slow, waits-timeout or red-defect`, line);
   }
@@ -152,12 +133,21 @@ function main(): void {
   }
 
   const root = process.cwd();
+  const timingIndex = forwarded.findIndex(argument => argument === '--timings' || argument.startsWith('--timings='));
+  const timingArgument = forwarded[timingIndex];
+  const timingPath = timingArgument === '--timings' ? forwarded[timingIndex + 1] : timingArgument?.slice('--timings='.length);
+  const singleTimings = resolve(root, '.github/workflows/single-file-timings.json');
+  const updateSingle = forwarded.includes('--update-timings') && timingPath !== undefined && resolve(root, timingPath) === singleTimings;
+  if (updateSingle && only.length !== 1) {
+    console.error(`${singleTimings}:1: single-file timings need exactly one --only; run: scripts/plugin-sandbox-cgroup.sh bun run test --only <path> --timings=.github/workflows/single-file-timings.json --update-timings`);
+    process.exit(2);
+  }
   const all = testFiles(root);
   const slow = readSlowList(root, all);
   let files = selectFiles(all, slow, mode);
   for (const path of only) {
     if (!files.includes(path)) {
-      console.error(`run-tests: ${path} is not chosen by the ${mode} run`);
+      console.error(`${resolve(root, path)}:1: is not chosen by the ${mode} run`);
       process.exit(2);
     }
   }
@@ -170,7 +160,28 @@ function main(): void {
     console.error(`run-tests: the ${mode} run selects no test file; nothing ran`);
     return;
   }
-  const result = spawnSync('bun', bunArguments(files, forwarded), { cwd: root, stdio: 'inherit', env: process.env });
+  let measurement: string | undefined;
+  let previous: { files?: Record<string, unknown>; [key: string]: unknown } = {};
+  const args = [...forwarded];
+  if (updateSingle) {
+    if (existsSync(singleTimings)) previous = JSON.parse(readFileSync(singleTimings, 'utf8'));
+    measurement = mkdtempSync(join(tmpdir(), 'madarch-single-timings-'));
+    const target = join(measurement, 'timings.json');
+    if (timingArgument === '--timings') args[timingIndex + 1] = target;
+    else args[timingIndex] = `--timings=${target}`;
+  }
+  const result = spawnSync('bun', bunArguments(files, args), { cwd: root, stdio: 'inherit', env: process.env });
+  if (measurement !== undefined) {
+    try {
+      if (result.status === 0) {
+        const measured = JSON.parse(readFileSync(join(measurement, 'timings.json'), 'utf8'));
+        const path = only[0]!;
+        writeFileSync(singleTimings, JSON.stringify({ ...previous, ...measured, files: { ...previous.files, [path]: measured.files[path] } }, null, 2) + '\n');
+      }
+    } finally {
+      rmSync(measurement, { recursive: true, force: true });
+    }
+  }
   if (result.error !== undefined) {
     console.error(`${SLOW_LIST}:1: bun test did not start: ${result.error.message}`);
     process.exit(2);

@@ -430,11 +430,28 @@ are the repository's installation, and each person's plugin and hooks are theirs
   commit's message skips unfinished work). `.github/workflows/ci.yml` runs
   `bun run test` (every test file `test/slow-files.json` does not name) in five
   `--shard=i/5` jobs balanced by `.github/workflows/test-timings.json`, and a
-  separate non-blocking job runs `bun run test:slow` nightly and on demand;
+  separate non-blocking workflow `.github/workflows/slow-tests.yml` runs
+  `bun run test:slow` nightly and on demand; `.github/workflows/ci.yml` is
+  push-only so a manual slow run cannot satisfy the required `test` status.
+  Slow runs never cancel each other (unique concurrency group, cancel false),
+  and always publish a per-file summary, timings JSON and log artifact;
   refresh the timings with
   `bun run test --timings=.github/workflows/test-timings.json --update-timings`.
   The stable `test` job is green only when all five shards, the separate checks
-  job and the union-of-test-files check pass. The checks job keeps
+  job, the union-of-test-files check and merge-base growth control pass.
+  Growth is every added slow entry and every changed single-file evidence row.
+  The blocking `test` job measures each growth file alone, in the sandbox, and
+  compares listed seconds with a 100 ms tolerance. If the merge base has no slow
+  list, every entry is growth: initial adoption pays the full alone-run cost
+  (66 slow entries plus every current evidence row; the initial branch produces
+  282 runnable files, about 177 minutes from committed evidence), never an
+  empty bootstrap exemption. Two historical rows for the moved test paths stay
+  untouched but are not runnable growth items.
+  Produce a single-file evidence row with the exact command (add `--slow` after
+  `test` for an already listed file):
+  `scripts/plugin-sandbox-cgroup.sh bun run test --only test/integration/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.
+  This target refuses updates without exactly one `--only`; a successful
+  measurement merges only that row and preserves all other rows. The checks job keeps
   `bun install --frozen-lockfile`, `bun run check`, the PostgreSQL service and
   test, `bun run views:check`, `bun run contract:check`, and the wiki app's own
   install, checks, tests and build. Workflow changes run CI so the workflow

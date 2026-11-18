@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseSync } from '@swc/core';
+import { jsonArrayLocations } from './json-lines.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { readSlowList, SLOW_LIST, testFiles, type SlowFile } from './run-tests.js';
@@ -12,9 +13,10 @@ export function excludedFileInventory(root = process.cwd()): ExcludedFile[] {
   const manifest = resolve(root, SLOW_LIST);
   if (!existsSync(manifest)) return [];
   const text = readFileSync(manifest, 'utf8');
-  return readSlowList(root, testFiles(root)).files.map(entry => {
-    const offset = text.indexOf(JSON.stringify(entry.path));
-    return { ...entry, manifest, line: text.slice(0, offset).split('\n').length };
+  const locations = jsonArrayLocations(text);
+  return readSlowList(root, testFiles(root)).files.map((entry, index) => {
+    const location = locations[index]!;
+    return { ...entry, manifest, line: location.propertyLines.path ?? location.entryLine };
   });
 }
 

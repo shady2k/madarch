@@ -2,8 +2,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'bun:test';
-import { readShardTimings, slowFindings, type Timings } from '../scripts/check-slow-tests.js';
-import type { SlowFile, SlowList } from '../scripts/run-tests.js';
+import { evidenceCommand, growthPaths, growthFindings, readShardTimings, slowFindings, type Timings } from '../../scripts/check-slow-tests.js';
+import type { SlowFile, SlowList } from '../../scripts/run-tests.js';
 const path = 'test/a.test.ts';
 const entry: SlowFile = { path, seconds: 31, reason: 'red-defect', result: 'red', owner: 'madarch-x9a7', defect: 'A claim is answered as published.', replacement: 'Assert the restored claim remains pending.', exit: 'Rewrite the file, pass blocking tests, remove this entry.' };
 function list(files: SlowList['files']): SlowList { return { version: 1, measuredOn: 'today', files }; }
@@ -88,4 +88,49 @@ test('shard union retains maximum observation and its source', () => {
     expect(measured.files[path]).toBe(35000);
     expect(measured.locations?.[path]).toBe(`${join(folder, 'a.json')}:1`);
   } finally { rmSync(folder, { recursive: true, force: true }); }
+});
+
+const baseState = { revision: 'abc', changedFiles: [], slowPaths: [path], evidence: { [path]: 31000 } };
+test('added slow entry without added evidence fails and is growth', () => {
+  const base = { ...baseState, slowPaths: [], evidence: {} };
+  expect(growthPaths(list([entry]), evidence, base)).toEqual([path]);
+  expect(slowFindings([path], list([entry]), { ...evidence, files: {} }, base).join()).toContain('no single-file evidence');
+});
+test('changed evidence alone is growth and alone measurement rejects the listed lie', () => {
+  const changed = { ...evidence, files: { [path]: 32000 } };
+  expect(growthPaths(list([entry]), changed, baseState)).toEqual([path]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path]).join()).toContain('6200ms');
+});
+test('entry plus evidence changed together cannot disguise an under-threshold alone run', () => {
+  const base = { ...baseState, slowPaths: [], evidence: { [path]: 6200 } };
+  const growth = growthPaths(list([entry]), evidence, base);
+  expect(growth).toEqual([path]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, growth).join()).toContain('31s');
+});
+test('untouched base entry and evidence are not growth', () => {
+  expect(growthPaths(list([entry]), evidence, baseState)).toEqual([]);
+});
+test('growth measurement requires every requested row and checks unlisted slow files', () => {
+  expect(growthFindings(list([entry]), { ...evidence, files: {} }, [path]).join()).toContain('no alone-run measurement');
+  expect(growthFindings(list([]), evidence, [path]).join()).toContain('not in test/slow-files.json');
+  expect(growthFindings(list([entry]), evidence, [path])).toEqual([]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 31100 } }, [path])).toEqual([]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 31101 } }, [path]).join()).toContain('disagrees');
+});
+
+test('growth set is deduplicated, sorted and includes added entries without a base list', () => {
+  const other = 'test/z.test.ts';
+  expect(growthPaths(list([entry]), { ...evidence, files: { [other]: 4, [path]: 31000 } }, { revision: 'abc', changedFiles: [] })).toEqual([path, other]);
+  expect(growthPaths(list([{ ...entry, path: other }, entry]), evidence, { revision: 'abc', changedFiles: [], evidence: evidence.files })).toEqual([path, other]);
+});
+test('growth checks the matching path, threshold and evidence source location', () => {
+  expect(growthFindings(list([entry]), { ...evidence, files: { 'test/fast.test.ts': 30000 } }, ['test/fast.test.ts'])).toEqual([]);
+  expect(growthFindings(list([]), { ...evidence, files: { [path]: 30000 } }, [path])).toEqual([]);
+  expect(growthFindings(list([]), { ...evidence, files: { [path]: 1 } }, [path])).toEqual([]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path])[0]).toStartWith('/evidence.json:3:');
+});
+
+test('missing-row producer command names the path and slow mode', () => {
+  expect(evidenceCommand(path)).toBe('scripts/plugin-sandbox-cgroup.sh bun run test --only test/a.test.ts --timings=.github/workflows/single-file-timings.json --update-timings');
+  expect(evidenceCommand(path, true)).toBe('scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/a.test.ts --timings=.github/workflows/single-file-timings.json --update-timings');
 });
