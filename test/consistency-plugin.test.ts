@@ -324,6 +324,54 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(await owner.transaction('snapshot',async tx=>(await tx.query('SELECT * FROM assertion ORDER BY recorded_sequence')).rows)).toEqual(before);
   },30_000);
 
+  test('unevidenced pages follow recorded write order, not UUID order, over twenty opinions', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const read = readKinds(product);
+    if (!read.present) throw new Error('manifest absent');
+    const contract = graphContractOf(read.manifest);
+    const bindings = await fixtureBindings(contract);
+    const opinion = { kind: 'probe.opinion', table: generatedTableName('probe.opinion', 'vertex'), producer: 'plugin-consistency', fields: ['second', 'first'], key: ['id'] };
+    for (let repeat = 0; repeat < 20; repeat++) {
+      const key = { id: `write-order-${repeat}` };
+      await owner.transaction('write', async tx => {
+        await activateGraphProducer(tx, contract, bindings.person);
+        await publishGraphDrafts(tx, contract, {
+          vertices: [{ kind: 'probe.opinion', key, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
+          removals: [],
+        }, 1);
+      });
+      await owner.transaction('write', async tx => {
+        const subject = await tx.query<{ id: number }>("SELECT n.id FROM node n JOIN entity e ON e.id=n.entity_id WHERE e.name='probe.opinion' AND n.key=$1::jsonb", [JSON.stringify(key)]);
+        const assertions = await loadAssertions(tx, 'vertex', 'probe.opinion', ['first', 'second'], [Number(subject.rows[0]!.id)]);
+        // Fixture-only identity rewrite: preserve write sequences and force the opposite UUID order.
+        await tx.query('ALTER TABLE node DISABLE TRIGGER immutable');
+        for (const assertion of assertions) {
+          const uid = `${assertion.property === 'first' ? 'ffffffff' : '00000000'}-0000-7000-8000-${String(repeat).padStart(12, '0')}`;
+          await tx.query('UPDATE node SET uid=$1::uuid WHERE uid=$2::uuid', [uid, assertion.id]);
+        }
+        await tx.query('ALTER TABLE node ENABLE TRIGGER immutable');
+        const written = await loadAssertions(tx, 'vertex', 'probe.opinion', ['first', 'second'], [Number(subject.rows[0]!.id)]);
+        written.sort((left, right) => left.recordedSequence < right.recordedSequence ? -1 : left.recordedSequence > right.recordedSequence ? 1 : 0);
+        expect(written.map(row => row.property)).toEqual(['first', 'second']);
+        expect(written[0]!.id > written[1]!.id).toBe(true);
+      });
+      try {
+        const page = await unevidencedAssertions(owner, [opinion], { limit: 1 });
+        expect(page.rows.map(row => row.field)).toEqual(['first']);
+        expect(page.next).toBeDefined();
+        const next = await unevidencedAssertions(owner, [opinion], { after: page.next, limit: 1 });
+        expect(next.rows.map(row => row.field)).toEqual(['second']);
+        expect(next.next).toBeUndefined();
+        expect((await unevidencedAssertions(owner, [opinion])).rows.map(row => row.field)).toEqual(['first', 'second']);
+      } finally {
+        await owner.transaction('write', async tx => {
+          await activateGraphProducer(tx, contract, bindings.person);
+          await removeEntity(tx, contract, { kind: 'probe.opinion', key, producer: 'plugin-consistency' });
+        });
+      }
+    }
+  }, 120_000);
+
   test('an opinion with two evidence-required fields is two pages at limit one, and every key field is emitted', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
