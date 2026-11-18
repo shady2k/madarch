@@ -427,10 +427,12 @@ are the repository's installation, and each person's plugin and hooks are theirs
   owner's public email, then run `sh .shady2k/connect.sh`.
 - **CI:** GitHub Actions on every push of any branch, once (a pull request from
   this repository shows its branch's push run; `[skip ci]` in the pushed
-  commit's message skips unfinished work). `.github/workflows/ci.yml` runs the
-  root suite in five `bun test --shard=i/5` jobs balanced by
-  `.github/workflows/test-timings.json`; refresh the timings with
-  `bun test test/ --timings=.github/workflows/test-timings.json --update-timings`.
+  commit's message skips unfinished work). `.github/workflows/ci.yml` runs
+  `bun run test` (every test file `test/slow-files.json` does not name) in five
+  `--shard=i/5` jobs balanced by `.github/workflows/test-timings.json`, and a
+  separate non-blocking job runs `bun run test:slow` nightly and on demand;
+  refresh the timings with
+  `bun run test --timings=.github/workflows/test-timings.json --update-timings`.
   The stable `test` job is green only when all five shards, the separate checks
   job and the union-of-test-files check pass. The checks job keeps
   `bun install --frozen-lockfile`, `bun run check`, the PostgreSQL service and

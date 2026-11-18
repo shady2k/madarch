@@ -35,10 +35,17 @@ on:
       - '.shady2k/integration.md'
       - '.githooks/**'
       - '*.md'
+  # The slow files (test/slow-files.json) never run on a push. One non-blocking
+  # job takes them nightly and on demand; see the slow-tests job below.
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 jobs:
   test-shard:
     name: test shard ${{ matrix.shard }}
+    # The slow suite's schedule and manual runs do not repeat the blocking suite.
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -78,10 +85,12 @@ jobs:
       # disk, whatever the tests themselves assert.
       - name: Note the home and the temporary folder before the run
         run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
-      # Refresh the full-suite timings locally with:
-      # bun test test/ --timings=.github/workflows/test-timings.json --update-timings
+      # Refresh the timings locally with:
+      # bun run test --timings=.github/workflows/test-timings.json --update-timings
       # Seed with historical durations for balancing; Bun's shard update writes
-      # this shard's measured file list to the artifact copy.
+      # this shard's measured file list to the artifact copy. `bun run test` is
+      # scripts/run-tests.ts: it leaves out every file test/slow-files.json names
+      # and forwards --shard and the timing flags to Bun unchanged.
       - name: Run shard and record its file list
         # Inside the delegated cgroup the step above made: the host moves the plugin's tree into a child of it, which
         # the kernel allows only from inside the subtree. The wrapper also asks for the sandbox cases, so a runner
@@ -89,7 +98,7 @@ jobs:
         run: |
           shard_files="$RUNNER_TEMP/shard-${{ matrix.shard }}.json"
           cp .github/workflows/test-timings.json "$shard_files"
-          scripts/plugin-sandbox-cgroup.sh bun test test/ --shard=${{ matrix.shard }}/5 \
+          scripts/plugin-sandbox-cgroup.sh bun run test --shard=${{ matrix.shard }}/5 \
             --timings="$shard_files" --update-timings
       - name: The run left the home and the temporary folder as it found them
         if: always()
@@ -105,6 +114,7 @@ jobs:
           retention-days: 1
 
   checks:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -183,6 +193,7 @@ jobs:
   # Repair feedback only: this job is deliberately absent from test.needs.
   quarantine:
     name: quarantine
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 60
@@ -216,21 +227,66 @@ jobs:
           path: ${{ runner.temp }}/quarantine-results.json
           if-no-files-found: error
 
+  # The slow files (test/slow-files.json) are off the blocking path. This job runs
+  # them nightly and on demand, and is deliberately absent from test.needs: its
+  # result is reported, but neither waits for the other nor blocks a merge.
+  slow-tests:
+    name: slow tests
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Note the home and the temporary folder before the run
+        run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
+      - name: Run the slow files
+        run: scripts/plugin-sandbox-cgroup.sh bun run test:slow
+      - name: The run left the home and the temporary folder as it found them
+        if: always()
+        run: |
+          node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/after-run.txt"
+          node .shady2k/run-scratch-check.mjs compare "$RUNNER_TEMP/before-run.txt" "$RUNNER_TEMP/after-run.txt"
+
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.
   test:
-    if: always()
+    if: always() && github.event_name == 'push'
     needs: [test-shard, checks]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
       - uses: actions/download-artifact@v8
         with:
           pattern: test-files-*
           path: ${{ runner.temp }}/shard-files
           merge-multiple: true
-      - name: Verify every root test file ran exactly once
-        run: node .shady2k/check-test-shards.mjs "$RUNNER_TEMP/shard-files" 5
+      - name: Verify every blocking test file ran exactly once
+        run: node .shady2k/check-test-shards.mjs "$RUNNER_TEMP/shard-files" 5 --exclude test/slow-files.json
+      # A file the shards measured over 30 seconds must be in test/slow-files.json,
+      # so a new slow test cannot hide in the blocking run: the finding names the
+      # file and its measure.
+      - name: No test over 30 s hides outside the slow list
+        run: bun scripts/check-slow-tests.ts --measured "$RUNNER_TEMP/shard-files"
       - name: Require every shard and CI check to pass
         if: always()
         env:
