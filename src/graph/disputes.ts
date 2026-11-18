@@ -168,7 +168,13 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
   for(const row of rows){const key=JSON.stringify([sort,subject(row),row.property,row.language]);slots.set(key,[...(slots.get(key)??[]),row]);}
  }
  if(slots.size===0)return;
- await internal(tx,contract,async()=>{for(const rows of slots.values()){
+ const anchoredSlots=new Set(anchors.map(row=>JSON.stringify([row.sort,Number(row.subject_id),row.property,row.language])));
+ for(const [key,rows] of slots){
+  const row=rows[0]!;
+  // One source cannot disagree with itself; anchored slots still need evidence revalidation.
+  if(!anchoredSlots.has(JSON.stringify([row.subject.type,row.subjectId,row.property,row.language]))&&new Set(rows.filter(row=>row.operation==='assert').map(row=>row.source)).size<=1)slots.delete(key);
+ }
+ if(slots.size>0)await internal(tx,contract,async()=>{for(const rows of slots.values()){
   const instants=[...new Set([now,...rows.flatMap(row=>[row.validFrom,...(row.validTo===null?[]:[row.validTo])])])];
   for(const validAt of instants){
   const segmentSelectors={...selectors,validAt,recordedAt:(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now};
