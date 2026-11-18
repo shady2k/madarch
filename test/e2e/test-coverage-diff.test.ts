@@ -7,7 +7,7 @@ const script = resolve(import.meta.dir, '../../scripts/test-coverage-diff.ts');
 let folder: string | undefined;
 afterEach(() => { if (folder) rmSync(folder, { recursive: true, force: true }); });
 
-test('integration: coverage CLI preserves comparison and input exit codes', async () => {
+test('end-to-end: coverage CLI preserves comparison and input exit codes', async () => {
   folder = mkdtempSync(join(tmpdir(), 'coverage-cli-'));
   const oldPath = join(folder, 'old.lcov');
   const newPath = join(folder, 'new.lcov');

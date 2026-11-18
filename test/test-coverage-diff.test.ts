@@ -18,6 +18,24 @@ test('coverage loss exits exactly 1 with a full product coordinate', () => {
   expect(result.code).toBe(1);
   expect(result.output).toContain(`${resolve('src/x.ts')}:7: covered before, uncovered now`);
 });
+test('a line present with count zero loses earlier coverage', () => {
+  const result = compare(record('DA:7,1'), record('DA:7,0'));
+  expect(result.code).toBe(1);
+  expect(result.output).toContain(`${resolve('src/x.ts')}:7: covered before, uncovered now`);
+});
+test('a line uncovered in both reports is not a loss', () => {
+  expect(compare(record('DA:2,0'), record('DA:2,0')).code).toBe(0);
+});
+test('allow line zero is refused', () => {
+  const result = compare('', '', '{"allow":[{"file":"src/x.ts","line":0,"reason":"moved"}]}');
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('allow.json')}:1: ${resolve('src/x.ts')}: no positive safe line number`);
+});
+test('a repeated allow entry is refused', () => {
+  const result = compare('', '', '{"allow":[{"file":"src/x.ts","line":7,"reason":"moved"},{"file":"src/x.ts","line":7,"reason":"moved"}]}');
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('allow.json')}:1: ${resolve('src/x.ts')}:7 is named twice`);
+});
 test('a reason permits a loss with exit 0', () => {
   expect(compare(record('DA:7,1'), '', JSON.stringify({ allow: [{ file: 'src/x.ts', line: 7, reason: 'moved' }] })).code).toBe(0);
 });
