@@ -540,7 +540,12 @@ ${text === '' ? '(empty)' : text}` };
           return;
         }
         if (held !== undefined) held.pendingOperations += 1;
-        void this.answerOperation(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause)).finally(() => { if (held !== undefined) held.pendingOperations -= 1; });
+        void this.answerOperation(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause)).finally(() => {
+          if (held === undefined) return;
+          // The host has answered the operation: the unit's silence is measured from here, not from before the wait.
+          held.lastSign = Date.now();
+          held.pendingOperations -= 1;
+        });
         return;
       }
       if (value.method === 'agent.run') {
@@ -937,7 +942,7 @@ ${text === '' ? '(empty)' : text}` };
         this.fail({ code, message: `${WHERE}:1: unit ${held.unitId} passed its ${String(unitBound)} ms ${bound}: the plugin was stopped` });
         return;
       }
-      if (!this.paused && now - held.lastSign >= this.limits.heartbeatMs) {
+      if (!this.paused && held.pendingOperations === 0 && now - held.lastSign >= this.limits.heartbeatMs) {
         held.settle(this.notExtracted(held, { code: 'heartbeat-missed', message: `${WHERE}:1: unit ${held.unitId} heard nothing from the plugin for ${String(now - held.lastSign)} ms, more than the ${String(this.limits.heartbeatMs)} ms it may stay silent: it was recorded as not extracted, and the plugin stopped` }));
         this.fail({ code: 'heartbeat-missed', message: `${WHERE}:1: the plugin stopped sending heartbeats while unit ${held.unitId} ran (${String(now - held.lastSign)} ms of silence): the plugin was stopped` });
         return;

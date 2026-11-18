@@ -244,6 +244,67 @@ describe('the heartbeat', () => {
     expect(outcome.cause.message).toContain(String(LIMITS.heartbeatMs));
   }, 60_000);
 
+  hostTest('a unit waiting for an unanswered facts.apply is not failed for silence', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300 },
+      operations: { async apply() { await Bun.sleep(750); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit(unit('operation-wait'));
+      expect(outcome.state).toBe('extracted');
+      if (outcome.state !== 'extracted') return;
+      expect(outcome.result.end).toEqual({ state: 'complete' });
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('the silence clock starts again when the host answers facts.apply', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 500 },
+      operations: { async apply() { await Bun.sleep(1_200); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit({ unitId: 'operation-then-silence', kind: 'probe', key: { id: 'operation-then-silence', behavior: 'operation-then-silence', silenceMs: 300 } });
+      expect(outcome.state).toBe('extracted');
+      if (outcome.state !== 'extracted') return;
+      expect(outcome.result.end).toEqual({ state: 'complete' });
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('silence longer than the bound after an answered facts.apply still fails the unit', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300 },
+      operations: { async apply() { await Bun.sleep(750); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit({ unitId: 'operation-then-silence', kind: 'probe', key: { id: 'operation-then-silence', behavior: 'operation-then-silence', silenceMs: 900 } });
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state !== 'not-extracted') return;
+      expect(outcome.cause.code).toBe('heartbeat-missed');
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('the unit deadline still bounds a unit waiting for facts.apply', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300, unitMs: 700 },
+      operations: { async apply() { await new Promise(() => undefined); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit(unit('operation-hang'));
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state !== 'not-extracted') return;
+      expect(outcome.cause.code).toBe('unit-timeout');
+      expect(outcome.durationMs).toBeGreaterThanOrEqual(600);
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
   hostTest('a plugin paused longer than the heartbeat deadline does not time out', async () => {
     const session = await open(probeFolder);
     try {
