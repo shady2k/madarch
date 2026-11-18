@@ -988,13 +988,15 @@ export class KnowledgeProduct {
    * fields are the agent's, and which kinds the manifest holds no producer for. The fill route answers it, and a press
    * that names kinds the plan leaves to an agent stops here with the same words.
    */
-  async fillPlan(selected: readonly string[], pluginsOnly = false): Promise<FillPlanView> {
+  async fillPlan(selected: readonly string[], pluginsOnly = false, signal?: AbortSignal): Promise<FillPlanView> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = readKinds(product.folder);
     if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
     const targets = readFillTargets(read.manifest, { entities: selected }, pluginsOnly);
     if (!targets.ok) throw new WikiReadError(targets.message);
+    const publication = await waitForManifestPublication(this.folder, signal);
+    if (publication?.status === 'failed') throw new WikiReadError(`The catalogue could not be published: ${publication.message}`);
     return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly, await storedApplicability(await this.open(), writeContractOf(read.manifest)));
   }
 
