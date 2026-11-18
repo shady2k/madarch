@@ -91,7 +91,7 @@ today, by file and line.
 | process exits with stdout held: `expect(elapsed).toBeLessThan(10_000)` | `test/postgres-cluster-owner.test.ts:615` | measurement needed |
 | foreign PID preparation: `expect(performance.now() - started).toBeLessThan(12_000)` | `test/postgres-cluster-owner.test.ts:637` | measurement needed |
 | ACP install: `expect(Date.now() - started).toBeLessThan(2_500)` | `test/fill-acp-install.test.ts:260` | measurement needed |
-| ignored SIGTERM: `expect(Date.now() - started).toBeGreaterThan(2_000)` before checking stopped process group | `test/fill-acp-install.test.ts:295` | event check: assert kill escalation and process-group exit |
+| ignored SIGTERM: `expect(Date.now() - started).toBeGreaterThan(2_000)` before checking stopped process group | `test/fill-acp-install.test.ts:295` | controlled-timer event check: after SIGTERM, advance to just before `KILL_GRACE_MS` and assert no SIGKILL; advance to the grace deadline and assert SIGKILL; assert the process group has exited before tree removal. Replacing `KILL_GRACE_MS` with 0 must fail this check |
 | PostgreSQL 404: `expect(Date.now() - started).toBeLessThan(10_000)` | `test/postgres-install.test.ts:189` | measurement needed |
 
 The three files under `MADARCH_SKIP_PERF` are this table's rows for

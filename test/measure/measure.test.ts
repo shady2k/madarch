@@ -61,14 +61,25 @@ describe('measure', () => {
       .rejects.toThrow(/test\/measure\/baselines\.json: `a case` took 21 ms as its median of 3 runs, above 2 × 10 ms = 20 ms/u);
   });
 
-  test('holds an absolute limit the owner named and quotes the owner\'s words when the median passes it', async () => {
-    const owner = { ref: 'docs/changes/madarch-64o5.32/capabilities/fill-orchestrator.md:339', quote: 'first answer arrives within 5 seconds and the unchanged second answer within 50 milliseconds' };
-    const within = await measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 400, 0, 400, 0, 400), baselines: recorded(1000), absolute: { ms: 500, source: owner } });
-    expect(within.medianMs).toBe(400);
-    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(1000), absolute: { ms: 500, source: owner } }))
-      .rejects.toThrow(/absolute limit 500 ms.*fill-orchestrator\.md:339.*first answer arrives within 5 seconds/u);
-    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(100), absolute: { ms: 500, source: owner } }))
-      .rejects.toThrow(/absolute limit 500 ms.*fill-orchestrator\.md:339/u);
+  test('holds the quoted first-answer limit and names its source on failure', async () => {
+    const source = { ref: 'docs/changes/madarch-64o5.32/capabilities/fill-orchestrator.md:339', quote: 'first answer arrives within 5 seconds and the unchanged second answer within 50 milliseconds' };
+    const within = await measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 4000, 0, 4000, 0, 4000), baselines: recorded(10_000), absolute: { ms: 5000, source } });
+    expect(within.medianMs).toBe(4000);
+    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 6000, 0, 6000, 0, 6000), baselines: recorded(10_000), absolute: { ms: 5000, source } }))
+      .rejects.toThrow(`absolute limit 5000 ms — source ${source.ref}: “${source.quote}”`);
+  });
+
+  test('reports the absolute limit first when both bounds are exceeded', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-priority-'));
+    try {
+      const path = join(folder, 'limit.md');
+      const quote = 'The fixture case must finish within 500 milliseconds.';
+      writeFileSync(path, quote);
+      await expect(measure(THE_CASE, () => undefined, {
+        runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(100),
+        absolute: { ms: 500, source: { ref: `${path}:1`, quote } },
+      })).rejects.toThrow(`absolute limit 500 ms — source ${path}:1: “${quote}”`);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   test('rejects malformed, zero, placeholder and unresolved source references with their origin', async () => {
@@ -85,6 +96,20 @@ describe('measure', () => {
       .rejects.toThrow(/docs\/x\.md:339: reference `docs\/x\.md:339` from .*measure\.ts/u);
   });
 
+  test('rejects blank quotes and padded placeholders before reading the source', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-quotes-'));
+    try {
+      const path = join(folder, 'source.md');
+      writeFileSync(path, 'limit 500 ms; TODO TBD …   ');
+      for (const quote of [' ', '\t', ' TODO ', ' TBD ', ' … ']) {
+        await expect(measure(THE_CASE, () => undefined, {
+          clock: readings(0, 1, 0, 1, 0, 1), runs: 3, baselines: recorded(10),
+          absolute: { ms: 500, source: { ref: `${path}:1`, quote } },
+        })).rejects.toThrow(`invalid absolute source reference \`${path}:1\``);
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
   test('refuses a case whose baseline was never recorded, naming the file and the case', async () => {
     await expect(measure('a new case', () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10) }))
       .rejects.toThrow(/test\/measure\/baselines\.json: no baseline for `a new case`/u);
@@ -98,7 +123,7 @@ describe('measure', () => {
 
 describe('the recorded baselines', () => {
   test('follow the shipped JSON schema', () => {
-    const schema = JSON.parse(readFileSync(join(import.meta.dir, 'baselines.schema.json'), 'utf8')) as { properties: Record<string, { type?: string; const?: number }> };
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, 'baselines.schema.json'), 'utf8')) as { properties: Record<string, { type?: string; const?: number }>; $defs: { baseline: { properties: { runs: { minimum: number } } } } };
     const baselines = readBaselines();
     expect(BASELINES_PATH.endsWith(join('test', 'measure', 'baselines.json'))).toBe(true);
     expect(schema.properties.schema!.const).toBe(baselines.schema);
@@ -107,6 +132,12 @@ describe('the recorded baselines', () => {
     expect(typeof baselines.environment).toBe('string');
     expect(typeof baselines.baselines).toBe('object');
     expect(Object.getPrototypeOf(baselines.baselines)).toBeNull();
+    const minimum = schema.$defs.baseline.properties.runs.minimum;
+    const fixture = (runs: number) => ({ schema: 1, baselines: { sample: { medianMs: 12, runs } } });
+    for (const runs of [2, 3, 4, minimum - 1, minimum]) {
+      if (runs < minimum) expect(() => parseBaselines(fixture(runs))).toThrow('must be an integer of at least');
+      else expect(parseBaselines(fixture(runs)).baselines['sample']?.runs).toBe(runs);
+    }
   });
 
   test('an empty dictionary is valid on a separate fixture', () => {
@@ -141,7 +172,10 @@ describe('the recorded baselines', () => {
     try {
       const path = resolve(join(folder, 'bad.json'));
       const cases: { text: string; location: string; pointer: string }[] = [
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1e2, "runs": 3 }\n  }', location: `${path}:5:4`, pointer: '/' },
         { text: '{\n  "schema": 1,\n  "baselines": {', location: `${path}:3:17`, pointer: '/' },
+        { text: '{\n  "schema": 1,\n  "a/b": 2,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/a~1b' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": {\n      "a/b": 2\n    }\n  }\n}', location: `${path}:5:7`, pointer: '/baselines/x/a~1b' },
         { text: '[\n  1\n]', location: `${path}:1:1`, pointer: '/' },
         { text: '{\n  "schema": 1,\n  "oops": 2,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/oops' },
         { text: '{\n  "$schema": 42,\n  "schema": 1,\n  "baselines": {}\n}', location: `${path}:2:3`, pointer: '/$schema' },
