@@ -1,10 +1,13 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createKnowledgePart } from '../src/server/knowledge.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { setManifestPublicationState, waitForManifestPublication } from '../src/product/manifest-publication-state.js';
+import { manifestPublicationState, setManifestPublicationState, waitForManifestPublication } from '../src/product/manifest-publication-state.js';
 import { gitEnv } from './git-env.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -37,9 +40,10 @@ process.exit(1);
   const product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot: join(work, 'store'), fillQueued: true, env: { HOME: join(work, 'home'), PATH: work } });
   products.push(product);
   const internals = product as unknown as { open(): Promise<never>; runQueuedFill(): Promise<void> };
+  const realOpen = internals.open.bind(product);
   const open = spyOn(internals, 'open').mockImplementation(async () => { throw new Error('unexpected store open'); });
   const queued = spyOn(internals, 'runQueuedFill').mockResolvedValue(undefined);
-  return { folder: draft.folder, product, open, queued, launched };
+  return { folder: draft.folder, product, open, realOpen, queued, launched };
 }
 
 test('pending and failed status retain the full unfilled shape without opening the store', async () => {
@@ -107,4 +111,65 @@ test('publication wait settles on state transitions and supports cancellation', 
   setManifestPublicationState(folder, { status: 'published' });
   expect(await waiting).toEqual({ status: 'published' });
   expect(await waitForManifestPublication(folder)).toEqual({ status: 'published' });
+});
+
+function selectedPress() {
+  const { folder, product, open, realOpen } = fixture();
+  writeFolderManifest(folder, 'kinds:\n  probe.summary: {description: {en: A summary}, source: graph, derives-from: []}\n');
+  open.mockImplementation(async () => {
+    if (manifestPublicationState(folder)?.status !== 'published') return await realOpen();
+    return { run: async () => [] } as unknown as never;
+  });
+  const started = spyOn(product, 'startFill').mockResolvedValue({ started: true, runId: 'publication-run', fill: { state: 'running' } } as Awaited<ReturnType<KnowledgeProduct['startFill']>>);
+  const part = createKnowledgePart({
+    json: (status, body) => Response.json(body, { status }),
+    refused: (status, error) => ({ response: Response.json({ error }, { status }) }),
+    errorLog: () => undefined,
+  }, product, () => []);
+  const controller = new AbortController();
+  const press = () => part.fillSelected(new Request('http://wiki.test/api/fill-selected', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ selected: ['probe.summary'], pluginsOnly: true }), signal: controller.signal,
+  }));
+  return { folder, product, open, started, controller, press };
+}
+
+test('a selected fill press waits for publication before opening the store and answers 202', async () => {
+  const { folder, open, started, press } = selectedPress();
+  let answered = false;
+  const response = press().then(answer => { answered = true; return answer.response; });
+  await delay(10);
+  expect(answered).toBe(false);
+  expect(open).not.toHaveBeenCalled();
+  expect(started).not.toHaveBeenCalled();
+  setManifestPublicationState(folder, { status: 'published' });
+  expect((await response).status).toBe(202);
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(started).toHaveBeenCalledTimes(1);
+});
+
+test('aborting a selected fill request ends its publication wait without opening or starting', async () => {
+  const { folder, open, started, controller, press } = selectedPress();
+  const response = press();
+  await delay(10);
+  expect(open).not.toHaveBeenCalled();
+  controller.abort();
+  expect((await response).response.status).toBe(500);
+  setManifestPublicationState(folder, { status: 'published' });
+  await delay(0);
+  expect(open).not.toHaveBeenCalled();
+  expect(started).not.toHaveBeenCalled();
+});
+
+test('a selected fill waiting on failed publication answers the same diagnostic as open', async () => {
+  const { folder, open, started, press } = selectedPress();
+  const response = press();
+  await delay(10);
+  expect(open).not.toHaveBeenCalled();
+  setManifestPublicationState(folder, { status: 'failed', message: 'schema rejected' });
+  const answer = (await response).response;
+  expect(answer.status).toBe(500);
+  expect((await answer.json()).error.message).toBe('The catalogue could not be published: schema rejected');
+  expect(open).not.toHaveBeenCalled();
+  expect(started).not.toHaveBeenCalled();
 });
