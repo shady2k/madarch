@@ -52,6 +52,3 @@ description:
     Its identity is the SHA-256 digest of the UTF-8 content.
   ru: Снимок хранит точный текст источника независимо от изменяемого файла. Его идентификатор
     — SHA-256 от содержимого в UTF-8.
-
-derives-from:
-- product
