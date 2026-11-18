@@ -118,3 +118,45 @@ test('parent reconciliation still visits an unpinned child with its own source',
     await owner.close();
   }
 }, 30000);
+
+test('an anchor on a merged-away member still visits a single-source slot', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  const productUid = newUid(), principalUid = newUid(), operationUid = newUid(), sourceUid = newUid();
+  try {
+    await owner.transaction('write', async tx => {
+      for (const [kind, uid] of [['source', sourceUid], ['person', principalUid], ['system.operation', operationUid]]) {
+        await bootstrapWriteIdentity(tx, kind!, uid!, productUid);
+      }
+      bindWriteCapability(tx, { productUid, principalUid, operationUid, sourceUid, context: 1, scope: productUid, contractVersion: graphContractVersion(contract), permissions: [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true })) });
+      const members = ['survivor', 'loser'].map(name => ({ kind: 'sample', key: { name }, producer: 'fixture', producerVersion: '1' }));
+      await publishGraphDrafts(tx, contract, { vertices: members.map(member => ({ ...member, values: { amount: 1 } })), removals: [] });
+      const rows = await loadAssertions(tx, 'vertex', 'sample', ['amount']);
+      const loser = rows.find(row => row.originalSubjectUid !== rows[0]!.originalSubjectUid)!;
+      const question = { kind: 'system.dispute-question', uid: newUid(), key: {} };
+      const merge = { kind: 'system.merge', uid: newUid(), key: {} };
+      const producer = { producer: 'fixture', producerVersion: '1' };
+      await publishGraphDrafts(tx, contract, {
+        vertices: [
+          { ...question, values: { property: 'amount', language: null, segment_from: '2020-01-01T00:00:00Z', segment_to: null, state: 'OPEN' }, ...producer },
+          { ...merge, values: { state: 'ACTIVE', reason: 'Same entity' }, ...producer },
+        ],
+        edges: [
+          { kind: 'system.dispute-anchor', from: question, to: { kind: 'system.assertion', key: {}, uid: loser.id }, ...producer },
+          ...members.map(to => ({ kind: 'system.merge-member', from: merge, to, ...producer })),
+          { kind: 'system.merge-survivor', from: merge, to: members[0]!, ...producer },
+        ], removals: [],
+      });
+      const now = (await tx.query<{ at: string }>('SELECT clock_timestamp()::text AS at')).rows[0]!.at;
+      const projected = await loadAssertions(tx, 'vertex', 'sample', ['amount'], undefined, { projectMergedSubjects: true, validAt: now, recordedAt: now });
+      expect(projected.find(row => row.id === loser.id)!.subjectId).not.toBe(loser.subjectId);
+      let visits = 0;
+      const query = tx.query;
+      tx.query = async <Row extends object>(sql: string, values?: readonly unknown[]) => {
+        if (sql.startsWith('SELECT n.uid::text AS uid FROM edge e') && sql.includes("k.name='system.resolution-assertion'")) visits++;
+        return query<Row>(sql, values);
+      };
+      try { await reconcileDisputes(tx, contract, []); } finally { tx.query = query; }
+      expect(visits).toBeGreaterThan(0);
+    });
+  } finally { await owner.close(); }
+}, 30000);
