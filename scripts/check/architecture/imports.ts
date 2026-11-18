@@ -147,7 +147,7 @@ function dynamicImportsOf(node: unknown): DynamicImport[] {
     if (value === null || typeof value !== 'object') return;
     const held = value as Record<string, unknown>;
     const callee = held['callee'] as Record<string, unknown> | undefined;
-    if (held['type'] === 'CallExpression' && callee !== null && typeof callee === 'object' && callee['type'] === 'Import') {
+    if (held['type'] === 'CallExpression' && callee !== null && typeof callee === 'object' && (callee['type'] === 'Import' || (callee['type'] === 'Identifier' && callee['value'] === 'require'))) {
       const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
       const expression = first?.['expression'] as Record<string, unknown> | undefined;
       const span = held['span'] as { start: number } | undefined;

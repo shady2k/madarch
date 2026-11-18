@@ -34,11 +34,21 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
   const held = new Map<string, ArchitectureViolation>();
   for (const file of modules.modules) {
     if (!isTestCaseFile(file)) continue;
-    for (const statement of importStatementsOf(root, file)) {
-      const target = resolveModuleSpecifier(modules, file, statement.specifier);
-      if (target === null || !isTestCaseFile(target)) continue;
-      const key = `${file}\u0000${target}`;
-      if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file, line: statement.line, symbol: target });
+    const visited = new Set<string>([file]);
+    const pending: string[] = [file];
+    while (pending.length > 0) {
+      const importer = pending.shift()!;
+      for (const statement of importStatementsOf(root, importer)) {
+        const target = resolveModuleSpecifier(modules, importer, statement.specifier);
+        if (target === null) continue;
+        if (isTestCaseFile(target)) {
+          const key = `${file}\u0000${target}`;
+          if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file: importer, line: statement.line, symbol: target });
+        } else if (!visited.has(target)) {
+          visited.add(target);
+          pending.push(target);
+        }
+      }
     }
   }
   return orderedViolations([...held.values()]);

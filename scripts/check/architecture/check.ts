@@ -86,9 +86,9 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
     const modules = moduleSet(root);
     found.push(...(await dependencyRuleViolations(root, rules, modules)));
   }
+  if (rules.includes('no-test-file-imports')) found.push(...testFileImportViolations(root));
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
   if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
-  if (rules.includes('no-test-file-imports')) found.push(...testFileImportViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
   if (rules.includes('schema-preparation-only')) found.push(...await schemaPreparationViolations(root));
   if (rules.includes('starter-data-when-copying')) found.push(...starterDataViolations(root));
