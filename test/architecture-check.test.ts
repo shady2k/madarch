@@ -447,6 +447,9 @@ describe('the architecture check', () => {
       { importer: 'test/chain.test.ts', content: ["import './helper.js';"], token: 'helper.js', source: 'test/base.test.ts' },
     ];
     writeModule(root, 'test/helper.ts', ["export { x } from './base.test.js';"]);
+    writeModule(root, 'test/safe-helper.ts', ['export const value = 1;']);
+    writeModule(root, 'test/safe.test.ts', ["import { value } from './safe-helper.js';", "import { test } from 'bun:test';", "test('safe', () => { value; });"]);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['no-test-file-imports'] }))).toEqual([]);
     for (const item of cases) {
       const plant = item.content;
       writeModule(root, item.importer, plant);
