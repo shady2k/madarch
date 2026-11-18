@@ -2,7 +2,7 @@
 import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {type GraphContract,type VertexDraft,type EdgeDraft} from '../src/graph/contract.js';
-import {publishGraphDrafts,ensureVertex,writeAssertion,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
+import {publishGraphDrafts,ensureVertex,writeAssertion,removeEntity,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
 import {createTestDatabaseOwner} from './test-database.js';
 
@@ -199,5 +199,20 @@ test('absent key-edge parents name the required role', async () => {
  const owner=await createTestDatabaseOwner({graphContract:contract});
  try {
   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'orphan'},keyEdges:{repository},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT batch.file.repository');
+ } finally {await owner.close();}
+},30000);
+
+
+test('removed key-edge parents name the required role', async () => {
+ const graph:GraphContract={vertex:[
+  {name:'code.repository',table:'unused_repository',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'},
+  {name:'probe.referrer',table:'unused_referrer',key:['path'],keyEdges:[{role:'repository',edge:'probe.referrer-repository',direction:'from',onDelete:'restrict'}],fields:[{name:'path',type:'text'}],capability:'fixture'},
+ ],edge:[{name:'probe.referrer-repository',from:['probe.referrer'],to:['code.repository'],fields:[],repeats:false,cardinality:{from:'many',to:'one'},labels,capability:'fixture'}],dictionary:[]};
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ const parent={kind:'code.repository',key:{name:'r'}};
+ try {
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{...parent,...producer}],removals:[]}));
+  await owner.transaction('write',tx=>removeEntity(tx,graph,{...parent,producer:'fixture'}));
+  await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{kind:'probe.referrer',key:{path:'x.ts'},keyEdges:{repository:parent},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT probe.referrer.repository');
  } finally {await owner.close();}
 },30000);

@@ -281,9 +281,10 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
 export interface GraphDrafts {readonly vertices:readonly VertexDraft[];readonly removals:readonly VertexRemovalDraft[];readonly edges?:readonly EdgeDraft[];readonly edgeRemovals?:readonly EdgeRemovalDraft[]}
 interface BatchNode extends Record<string,unknown> {id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;parents:{kind:string;uid:string;edge:string;direction:string}[]}
 interface BatchAssertion extends AssertionInput {uid:string;id?:string;repeat?:boolean;field:FieldContract;mentions:ReturnType<typeof scanMentions>}
-/** Fixed phases: local validation → identities (UID_IDENTITY_CONFLICT, REQUIRED_PARENT)
- * → endpoint, mention and evidence-target resolution → one activity check
- * (MISSING_ENDPOINT, TARGET_MISSING) → scope (SOURCE_FORBIDDEN) → assertion
+/** Fixed phases: local validation → identities (UID_IDENTITY_CONFLICT)
+ * → endpoint, mention and evidence-target resolution (REQUIRED_PARENT for absent
+ * key-edge parents) → one activity check (REQUIRED_PARENT for inactive key-edge
+ * parents, MISSING_ENDPOINT, TARGET_MISSING) → scope (SOURCE_FORBIDDEN) → assertion
  * admission (IMMUTABLE_KEY, IMMUTABLE_EVIDENCE, digest and content locators)
  * → removals. Within a phase, reject the first draft in input order.
  * Admit at one instant and keep database work set based (0039.25–29). */
@@ -392,9 +393,8 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   for(const name of kind.key){plans.push({...common,property:name,value:draft.key[name]});written++;}
   for(const [property,value] of Object.entries(draft.values??{})){plans.push({...common,property,value,language:draft.lang});written++;}
   for(const role of kind.keyEdges??[]){
-   const ref=draft.keyEdges![role.role]!,parentUid=await referenceUid(ref);
-   if(!nodes.has(parentUid))throw new Error(`${WHERE}:61: REQUIRED_PARENT ${kind.name}.${role.role}`);
-   const parent=await getEndpoint(ref);const uid=addEdge(role.edge,role.direction==='from'?node:parent,role.direction==='from'?parent:node,'');plans.push({...common,sort:'edge',kind:role.edge,subjectId:'',edgeUid:uid,property:'$exists',value:true});}
+   const ref=draft.keyEdges![role.role]!;
+   const parent=await getEndpoint(ref,`REQUIRED_PARENT ${kind.name}.${role.role}`);const uid=addEdge(role.edge,role.direction==='from'?node:parent,role.direction==='from'?parent:node,'');plans.push({...common,sort:'edge',kind:role.edge,subjectId:'',edgeUid:uid,property:'$exists',value:true});}
  }
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind)!;
   if(!endpointKindNames(kind.from,contract.vertex).includes(draft.from.kind)||!endpointKindNames(kind.to,contract.vertex).includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);

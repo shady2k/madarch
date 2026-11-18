@@ -131,7 +131,8 @@ test('an anchor on a merged-away member still visits a single-source slot', asyn
       const members = ['survivor', 'loser'].map(name => ({ kind: 'sample', key: { name }, producer: 'fixture', producerVersion: '1' }));
       await publishGraphDrafts(tx, contract, { vertices: members.map(member => ({ ...member, values: { amount: 1 } })), removals: [] });
       const rows = await loadAssertions(tx, 'vertex', 'sample', ['amount']);
-      const loser = rows.find(row => row.originalSubjectUid !== rows[0]!.originalSubjectUid)!;
+      const loserUid = (await tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key=$1::jsonb", [JSON.stringify({ name: 'loser' })])).rows[0]!.uid;
+      const loser = rows.find(row => row.originalSubjectUid === loserUid)!;
       const question = { kind: 'system.dispute-question', uid: newUid(), key: {} };
       const merge = { kind: 'system.merge', uid: newUid(), key: {} };
       const producer = { producer: 'fixture', producerVersion: '1' };
