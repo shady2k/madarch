@@ -4,11 +4,11 @@
  * no assertion reads the wall clock or waits for it.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
-  BASELINE_FACTOR, BASELINES_PATH, DEFAULT_RUNS, median, measure, readBaselines, type Baselines,
+  BASELINE_FACTOR, BASELINES_PATH, DEFAULT_RUNS, median, measure, parseBaselines, readBaselines, type Baselines,
 } from '../support/measure.js';
 
 const THE_CASE = 'a case';
@@ -86,12 +86,33 @@ describe('measure', () => {
 });
 
 describe('the recorded baselines', () => {
-  test('start empty, follow the schema, and name their file by its full path', () => {
+  test('follow the shipped JSON schema', () => {
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, 'baselines.schema.json'), 'utf8')) as { properties: Record<string, { type?: string; const?: number }> };
     const baselines = readBaselines();
-    expect(baselines.schema).toBe(1);
+    expect(schema.properties.schema.const).toBe(baselines.schema);
+    expect(schema.properties.baselines.type).toBe('object');
+    expect(schema.properties.environment.type).toBe('string');
     expect(typeof baselines.environment).toBe('string');
-    expect(baselines.baselines).toEqual({});
-    expect(BASELINES_PATH.endsWith(join('test', 'measure', 'baselines.json'))).toBe(true);
+    expect(typeof baselines.baselines).toBe('object');
+    expect(Object.getPrototypeOf(baselines.baselines)).toBeNull();
+  });
+
+  test('an empty dictionary is valid on a separate fixture', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-'));
+    try {
+      const path = join(folder, 'empty.json');
+      writeFileSync(path, JSON.stringify({ schema: 1, baselines: {} }));
+      expect(readBaselines(path).baselines).toEqual(Object.create(null));
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  test('checks schema type, preserves special names, and rejects inherited baseline names', async () => {
+    expect(() => parseBaselines({ '$schema': 42, schema: 1, baselines: {} })).toThrow(/\$schema/u);
+    const special = parseBaselines(JSON.parse('{"schema":1,"baselines":{"__proto__":{"medianMs":1,"runs":3}}}'));
+    expect(Object.hasOwn(special.baselines, '__proto__')).toBe(true);
+    const empty = parseBaselines({ schema: 1, baselines: {} });
+    await expect(measure('toString', () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: empty }))
+      .rejects.toThrow(/no baseline for `toString`/u);
   });
 
   test('a malformed file names the file, the baseline and the field', () => {

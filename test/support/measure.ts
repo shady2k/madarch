@@ -115,10 +115,11 @@ export function parseBaselines(value: unknown, path: string = BASELINES_PATH): B
   for (const key of Object.keys(root)) {
     if (!(ROOT_FIELDS as readonly string[]).includes(key)) throw new Error(`${path}: unknown field \`${key}\``);
   }
-  if (root['schema'] !== 1) throw new Error(`${path}: \`schema\` must be 1`);
+  if (Object.hasOwn(root, '$schema') && typeof root['$schema'] !== 'string') throw new Error(`${path}: \`$schema\` must be a string`);
+  if (!Object.hasOwn(root, 'schema') || root['schema'] !== 1) throw new Error(`${path}: \`schema\` must be 1`);
   if (root['environment'] !== undefined && typeof root['environment'] !== 'string') throw new Error(`${path}: \`environment\` must be a string`);
   const entries = object(root['baselines'], `${path}: \`baselines\``);
-  const baselines: Record<string, Baseline> = {};
+  const baselines = Object.create(null) as Record<string, Baseline>;
   for (const [name, candidate] of Object.entries(entries)) {
     const where = `${path}: baseline \`${name}\``;
     const entry = object(candidate, where);
@@ -151,7 +152,7 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
     if (absolute.source.trim() === '') here(`\`${name}\`: the absolute limit must carry the owner's words as \`source\``);
   }
   const baselines = options.baselines ?? readBaselines();
-  const baseline = baselines.baselines[name];
+  const baseline = Object.hasOwn(baselines.baselines, name) ? baselines.baselines[name] : undefined;
   if (baseline === undefined) throw new Error(`${BASELINES_PATH}: no baseline for \`${name}\`; record one in the commit that measures it`);
   const clock = options.clock ?? wallClock;
   const samples: number[] = [];
