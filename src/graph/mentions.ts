@@ -53,6 +53,7 @@ function isUuid(value: string): boolean {
 
 interface StringScan { mentions: MentionOccurrence[]; reserved: {start: number; end: number}[] }
 function scanString(text: string, path: string): StringScan {
+  if (!text.includes('[[uid') && !text.includes('\\[[')) return { mentions: [], reserved: [] };
   const chars = Array.from(text);
   const mentions: MentionOccurrence[] = [];
   const reserved: StringScan['reserved'] = [];
@@ -70,7 +71,7 @@ function scanString(text: string, path: string): StringScan {
       start++;
       continue;
     }
-    if (chars.slice(start, start + 5).join('') !== '[[uid') { start++; continue; }
+    if (chars[start] !== '[' || chars[start + 1] !== '[' || chars[start + 2] !== 'u' || chars[start + 3] !== 'i' || chars[start + 4] !== 'd') { start++; continue; }
     let end = start + 5;
     while (end < chars.length && !(chars[end] === ']' && chars[end + 1] === ']')) end++;
     end = Math.min(chars.length, end + 2);

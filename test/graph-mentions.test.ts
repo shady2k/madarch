@@ -13,6 +13,12 @@ describe('decision 0039 items 5 and 29 mention grammar', () => {
     expect(scanMentions(JSON.parse(`"\\uD83D\\uDE00 ${token}"`), '/body')).toEqual([occurrence('/body', 2)]);
   });
 
+  test('plain prefixes and incomplete prefixes preserve token spans', () => {
+    const prefix = '😀 ordinary [ [[u [[ui '.repeat(100);
+    expect(scanMentions(prefix + token, '/body')).toEqual([occurrence('/body', Array.from(prefix).length)]);
+    expect(scanMentions('plain \\[[hidden]]', '/body')).toEqual([]);
+  });
+
   test('nested JSON strings have RFC6901 pointers, not object keys as text', () => {
     expect(scanMentions({ 'a~/': [null, 3, false, { '': token }], [token]: 'plain' }, '/payload')).toEqual([
       occurrence('/payload/a~0~1/3/'),
