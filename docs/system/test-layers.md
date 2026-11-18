@@ -18,9 +18,11 @@ by that public binding too, rather than by an import barrel's path.
 
 All rules share the same resolver for named imports, import aliases, namespace
 members, local variable initializers, local named exports, named re-exports and
-star re-exports. A call or a static member chain retains the root binding through
-any number of calls and members. This includes `const hostTest = test.skipIf(...)`
-and `const t = test`. Parentheses and transparent TypeScript expression wrappers
+star re-exports. Local bindings distinguish aliases from call results. Only the
+case API retains a stored call result's root when it resolves to `test` or `it`
+from `bun:test`. This includes `const hostTest = test.skipIf(...)` and
+`const t = test`. Process, Bun member, database and default-timeout checks follow
+local aliases, not stored call results. Parentheses and transparent TypeScript expression wrappers
 retain that root. Cycles stop the walk.
 
 A case rooted in `test` or `it` from `bun:test` names its third argument with
@@ -36,6 +38,7 @@ assignments after declaration, scope shadowing, conditional expressions, object
 or array containers, parameter/return flow, CommonJS binding assignments, dynamic
 import bindings, default export expressions, or export-namespace declarations.
 The value import graph still checks module reach for require and dynamic imports.
-The rules do not evaluate arbitrary helper functions. In particular, retaining a
-call's root is the case-chain policy, not general proof of a returned value's
-runtime identity. TypeScript type checking remains a separate check.
+The rules do not evaluate arbitrary helper functions. The case-chain policy
+retains stored call roots only for `test` and `it` from `bun:test`; it does not
+prove a returned value's runtime identity. Inline call/member paths are still
+read syntactically, without evaluating their returned values. TypeScript type checking remains a separate check.

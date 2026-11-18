@@ -73,7 +73,7 @@ export interface MemberSyntax {
 
 export interface ModuleSyntax {
   /** Static local initializers and public local names, for the shared binding resolver. */
-  readonly bindings: ReadonlyMap<string, string>;
+  readonly bindings: ReadonlyMap<string, { readonly name: string; readonly kind: 'alias' | 'call' }>;
   readonly exports: ReadonlyMap<string, string>;
   readonly calls: readonly CallSyntax[];
   /** Value references, excluding import declarations and static property names. */
@@ -111,14 +111,14 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
     const node = value as Record<string, unknown>;
     if (node['type'] === 'CallExpression') markChain(node['callee'], intermediate);
   });
-  const bindings = new Map<string, string>();
+  const bindings = new Map<string, { name: string; kind: 'alias' | 'call' }>();
   const exports = new Map<string, string>();
   walk(module, (value) => {
     const node = value as Record<string, unknown>;
     if (node['type'] === 'VariableDeclarator') {
       const id = node['id'] as Record<string, unknown>;
       const name = nameOf(node['init']);
-      if (id['type'] === 'Identifier' && name !== null) bindings.set(String(id['value']), name);
+      if (id['type'] === 'Identifier' && name !== null) bindings.set(String(id['value']), { name, kind: bindingKind(node['init']) });
     }
   });
   for (const item of module.body) {
@@ -219,6 +219,15 @@ function keyOf(key: unknown): string | null {
   const held = key as Record<string, unknown>;
   if (held['type'] === 'Identifier' || held['type'] === 'StringLiteral') return String(held['value']);
   return '*';
+}
+
+/** Whether a static initializer path crosses a call result. */
+function bindingKind(value: unknown): 'alias' | 'call' {
+  if (value === null || typeof value !== 'object') return 'alias';
+  const node = value as Record<string, unknown>;
+  if (node['type'] === 'CallExpression') return 'call';
+  if (node['type'] === 'MemberExpression') return bindingKind(node['object']);
+  return bindingKind(node['expression']);
 }
 
 /** The callee's name: an identifier as written, or a static member path joined with dots. */

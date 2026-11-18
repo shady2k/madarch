@@ -227,7 +227,7 @@ export function caseBoundViolations(context: RuleContext): TestViolation[] {
 interface Binding { readonly module: string; readonly name: string; readonly chain?: readonly string[] }
 
 /** One resolver for local initializers, imports, namespaces and public re-exports. */
-function resolveBinding(context: RuleContext, file: string, name: string, seen = new Set<string>()): Binding | null {
+function resolveBinding(context: RuleContext, file: string, name: string, seen = new Set<string>(), caseCalls = false): Binding | null {
   const key = `${file}:${name}`;
   if (seen.has(key)) return null;
   seen.add(key);
@@ -235,20 +235,24 @@ function resolveBinding(context: RuleContext, file: string, name: string, seen =
   if (root === undefined) return null;
   const suffix = members.length === 0 ? '' : `.${members.join('.')}`;
   const local = context.syntaxOf(file).bindings.get(root);
-  if (local !== undefined) return resolveBinding(context, file, `${local}${suffix}`, seen);
+  if (local !== undefined) {
+    const binding = resolveBinding(context, file, `${local.name}${suffix}`, seen, caseCalls);
+    if (local.kind === 'alias') return binding;
+    return caseCalls && binding?.module === 'bun:test' && ['test', 'it'].includes(binding.name.split('.')[0] ?? '') ? binding : null;
+  }
   for (const statement of context.importsOf(file)) {
     if (statement.typeOnly || statement.reExport) continue;
     const binding = statement.bindings.find((binding) => binding.local === root);
     if (binding === undefined) continue;
     const target = resolveModuleSpecifier(context.modules, file, statement.specifier) ?? statement.specifier;
     const selected = binding.imported === '*' ? members.join('.') : `${binding.imported}${suffix}`;
-    const resolved = resolveExport(context, target, selected, seen);
+    const resolved = resolveExport(context, target, selected, seen, caseCalls);
     return resolved === null ? null : { ...resolved, chain: [target, ...(resolved.chain ?? [])] };
   }
   return { module: file, name };
 }
 
-function resolveExport(context: RuleContext, module: string, name: string, seen: Set<string>): Binding | null {
+function resolveExport(context: RuleContext, module: string, name: string, seen: Set<string>, caseCalls = false): Binding | null {
   if (!context.modules.modules.includes(module)) return { module, name };
   const key = `export:${module}:${name}`;
   if (seen.has(key)) return null;
@@ -256,20 +260,20 @@ function resolveExport(context: RuleContext, module: string, name: string, seen:
   const [root, ...members] = name.split('.');
   const suffix = members.length === 0 ? '' : `.${members.join('.')}`;
   const local = context.syntaxOf(module).exports.get(root ?? '');
-  if (local !== undefined) return resolveBinding(context, module, `${local}${suffix}`, seen);
+  if (local !== undefined) return resolveBinding(context, module, `${local}${suffix}`, seen, caseCalls);
   for (const statement of context.importsOf(module)) {
     if (statement.typeOnly || !statement.reExport) continue;
     const binding = statement.bindings.find((binding) => binding.local === root);
     if (!statement.wholeModule && binding === undefined) continue;
     const target = resolveModuleSpecifier(context.modules, module, statement.specifier) ?? statement.specifier;
-    const resolved = resolveExport(context, target, binding === undefined ? name : `${binding.imported}${suffix}`, new Set(seen));
+    const resolved = resolveExport(context, target, binding === undefined ? name : `${binding.imported}${suffix}`, new Set(seen), caseCalls);
     if (resolved !== null) return { ...resolved, chain: [target, ...(resolved.chain ?? [])] };
   }
   return null;
 }
 
 function caseApi(context: RuleContext, file: string, name: string): string | null {
-  const binding = resolveBinding(context, file, name);
+  const binding = resolveBinding(context, file, name, new Set(), true);
   if (binding?.module === 'bun:test') {
     const root = binding.name.split('.')[0];
     if (root === 'test' || root === 'it') return 'case';
@@ -283,14 +287,20 @@ function isCaseCall(context: RuleContext, file: string, call: CallSyntax): boole
   return call.finalCall && caseApi(context, file, call.name) === 'case';
 }
 
-/** Both reach rules use the same defining modules, not the path of an import barrel. */
+const databaseModuleSets = new WeakMap<RuleContext, ReadonlySet<string>>();
+
+/** Both reach rules use the same defining modules, computed once per context. */
 function databaseModules(context: RuleContext): ReadonlySet<string> {
-  return new Set(context.modules.modules.filter((file) => {
+  const cached = databaseModuleSets.get(context);
+  if (cached !== undefined) return cached;
+  const found = new Set(context.modules.modules.filter((file) => {
     if (file === 'test/test-database.ts' || file === 'test/support/test-database.ts') return true;
     if (!file.startsWith('test/')) return false;
     const binding = resolveExport(context, file, 'createTestDatabaseOwner', new Set());
     return binding?.module === file && binding.name === 'createTestDatabaseOwner';
   }));
+  databaseModuleSets.set(context, found);
+  return found;
 }
 
 function boundCallViolations(context: RuleContext, file: string, call: CallSyntax): TestViolation[] {

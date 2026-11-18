@@ -550,6 +550,34 @@ ${call}(900_000);`,
   }
 });
 
+describe('ALX-403 call results', () => {
+  for (const [name, imported, body] of [
+    ['spawnSync', "import { spawnSync } from 'node:child_process';", "const run = spawnSync('git', args, { encoding: 'utf8' }); return { ok: run.status === 0, stdout: run.stdout ?? '' };"],
+    ['execFileSync', "import { execFileSync } from 'node:child_process';", "const out = execFileSync('git', args); return out.trim();"],
+    ['Bun.spawnSync', '', "const proc = Bun.spawnSync(['git', ...args]); return proc.stdout.toString();"],
+  ]) {
+    test(`git helper may read the result of ${name}`, async () => {
+      const root = project({
+        'test/support/git.ts': `${imported}
+export function git(args: string[]) { ${body} }`,
+        'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+      });
+      expect(await problemsOf(root, 'test-integration-reach')).toEqual([]);
+    });
+  }
+
+  test('a stored process result still checks the command at the call', async () => {
+    const root = project({
+      'test/support/git.ts': "import { spawnSync } from 'node:child_process';\nexport function git(args: string[]) { const run = spawnSync('bun', args); return run.stdout; }",
+      'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+    });
+    const problems = await problemsOf(root, 'test-integration-reach');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/support/git.ts')}:2: test-integration-reach:`);
+    expect(problems[0]).toContain('executes "bun"');
+  });
+});
+
 describe('shared binding resolution', () => {
   for (const expression of ['test', 'test.skipIf(true)', 'test.future(true).skip.each([1])', 'bun.it.skipIf(true)']) {
     test(`stored Bun case ${expression} retains its root`, async () => {
