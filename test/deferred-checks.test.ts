@@ -79,3 +79,42 @@ for (const [code, message] of [
     })).rejects.toThrow(code===77 ? 'requires exactly one subject' : `:${code}: ${message}`);
   } finally { await owner.close(); }
 }, 60_000);
+
+for (const check of ['subject', 'value', 'key'] as const) {
+  test(`${check} check reads the same rows after small and large standing graphs`, async () => {
+    const measured = [];
+    for (const size of [5, 50]) {
+      const owner = await createTestDatabaseOwner({ graphContract: contract });
+      try {
+        await owner.transaction('write', tx => publishGraphDrafts(tx, contract, {
+          vertices: Array.from({ length: size }, (_, i) => ({
+            kind: 'keyed', key: { name: `standing-${i}` }, values: { amount: i }, producer: 'fixture', producerVersion: '1',
+          })), removals: [],
+        }));
+        measured.push(await owner.transaction('write', async tx => {
+          await tx.query('SET LOCAL enable_seqscan=off');
+          await tx.query('DISCARD PLANS');
+          if (check === 'key') {
+            await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'keyed', key: { name: 'new-key' },
+              producer: 'fixture', producerVersion: '1' }], removals: [] });
+          } else {
+            const { writeAssertion } = await import('../src/graph/write.js');
+            const subject = (await tx.query<{ id: string }>(`SELECT id::text FROM node
+              WHERE entity_id=(SELECT id FROM entity WHERE name='keyed') AND key='{"name":"standing-0"}'::jsonb`)).rows[0]!.id;
+            await writeAssertion(tx, contract, { sort: 'vertex', kind: 'keyed', subjectId: subject,
+              property: check === 'subject' ? '$exists' : 'amount', operation: 'assert', value: check === 'subject' ? true : 99 });
+          }
+          const reads = async () => (await tx.query<{ table: string; reads: number }>(`SELECT relname AS table,
+            (seq_tup_read+idx_tup_fetch)::integer AS reads FROM pg_stat_xact_user_tables
+            WHERE schemaname='public' ORDER BY relname COLLATE "C"`)).rows;
+          const before = new Map((await reads()).map(row => [row.table, row.reads]));
+          await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+          return Object.fromEntries((await reads()).map(row => [row.table, row.reads - (before.get(row.table) ?? 0)]));
+        }));
+      } finally { await owner.close(); }
+    }
+    console.log(`${check.toUpperCase()}_ROWS ${JSON.stringify(measured.map(rows => Object.fromEntries(Object.entries(rows).filter(([, n]) => n !== 0))))}`);
+    expect(Object.values(measured[0]!).reduce((sum, n) => sum + n, 0)).toBeGreaterThan(0);
+    expect(measured[1]).toEqual(measured[0]);
+  }, 60_000);
+}

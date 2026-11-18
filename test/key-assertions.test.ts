@@ -100,7 +100,17 @@ test('0039.28: schema changes regenerate the static key validation plan', async 
     fields: [{ name: 'code', type: 'bigint' }], capability: 'fixture',
   }] };
   const after = generateContractStatements(expanded).statements.find(sql => sql.includes('FUNCTION graph_checks_pass()'))!;
-  expect(after).not.toBe(before);
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  try {
+    const { prepareGraphSchema } = await import('../src/adapters/schemas/graph.js');
+    await prepareGraphSchema(owner, expanded);
+    for (const [kind, key] of [['keyed', { name: 'unconfirmed' }], ['unrelated-key', { code: 7 }]] as const) {
+      await expect(owner.transaction('write', async tx => {
+        await bindTestWriteCapability(tx, expanded);
+        await ensureVertex(tx, expanded, { kind, key });
+      })).rejects.toThrow('IMMUTABLE_KEY');
+    }
+  } finally { await owner.close(); }
   expect(before).not.toMatch(/\bEXECUTE\b/i);
   expect(after).not.toMatch(/\bEXECUTE\b/i);
 });

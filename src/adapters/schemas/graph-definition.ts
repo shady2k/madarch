@@ -546,23 +546,14 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
       RETURN NULL;
     END $$`);
     for (const table of ['node','edge','assertion','context','assertion_vertex_subject','assertion_edge_subject',...names]) {
-      for (const name of ['subject_attachment','typed_value','immutable_key']) statements.push(`DROP TRIGGER IF EXISTS "${name}" ON "${table}"`);
       trigger(table, 'graph_relations_dirty', 'graph_relations_dirty', 7, false,
         `CREATE TRIGGER graph_relations_dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_relations_dirty()`);
       trigger(table, 'graph_relations', 'graph_relations_check', 5, true,
         `CREATE CONSTRAINT TRIGGER graph_relations AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_relations_check()`);
     }
 
-    const keyFields = contract.vertex.flatMap(kind => kind.key.map(name => {
-      const field = kind.fields.find(field => field.name === name)!;
-      return `(${literal(kind.name)},${literal(name)},${literal(assertionValueTableName(kind.name,'vertex',name))},${literal(sqlType(field))})`;
-    }));
-    // Contract metadata is separate from the one validation plan (0039.2,28).
-    statements.push(`CREATE OR REPLACE FUNCTION graph_key_fields(kind text)
-      RETURNS TABLE(property text,value_table text,value_type text) LANGUAGE sql AS $$
-      SELECT property,value_table,value_type FROM (VALUES ${keyFields.length === 0 ? "(NULL::text,NULL::text,NULL::text,NULL::text)" : keyFields.join(',')})
-        fields(kind_name,property,value_table,value_type) WHERE kind_name=kind
-      $$`);
+    statements.push('DROP FUNCTION IF EXISTS graph_subject_check(), graph_value_check(), graph_key_check() CASCADE');
+    statements.push('DROP FUNCTION IF EXISTS graph_key_fields(text)');
     for (const table of lookups) statements.push(`CREATE INDEX IF NOT EXISTS "${table}_lookup" ON "${table}"(value)`);
     const entityStatement = `INSERT INTO entity(name,sort,repeats,discriminator)
       SELECT name,sort,repeats,discriminator FROM jsonb_to_recordset($1::jsonb)
