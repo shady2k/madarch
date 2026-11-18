@@ -246,16 +246,8 @@ edges:
       min: 0
       max: null
 - name: mentions
-  from:
-  - demo.repository
-  - demo.file
-  - demo.commit
-  - demo.author
-  to:
-  - demo.repository
-  - demo.file
-  - demo.commit
-  - demo.author
+  from: [any]
+  to: [any]
   repeats: true
   discriminator: place
   labels:
