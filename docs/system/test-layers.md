@@ -83,7 +83,10 @@ behaviour it checked, and the new cases and their layer.
 
 A rewrite is proved by the coverage comparison and the check map together, both before
 review. The map is checked for completeness by the reviewer; the comparison is the
-blocking proof, and the commands are below.
+blocking proof only when both reports use the same source version. Direct line comparison
+on changed sources is not proof: changed files require an explicit line mapping or separate
+confirmation through the check map. A green result from matching line numbers alone does
+not confirm that the same instructions were covered. The commands are below.
 
 ## Coverage comparison
 
@@ -98,7 +101,8 @@ bun scripts/test-coverage-diff.ts <old.lcov> <new.lcov> [--allow <map.json>]
 The first run writes `coverage/lcov.info`; keep a copy under the name given to the command
 and repeat for the new files. The command compares product files only (records under
 `src/`), prints every lost product line as its full path and line number, and ends with a
-summary line.
+summary line. lcov carries no source-version identity, so the command always prints the
+same-source precondition and the changed-source warning; it cannot detect source changes.
 
 Exit codes:
 
@@ -106,8 +110,12 @@ Exit codes:
 - `1`: a product line lost coverage and the map does not name it. The message is
   `<full path>:<line>: covered before, uncovered now (no reason in the map)`.
 - `2`: bad input — a missing or unreadable file, a malformed lcov record, a map entry
-  without a reason, or bad arguments. The message says which record, with the input file
-  and its line number.
+  without a reason, or bad arguments. Content diagnostics use
+  `<full input path>:<1-based source line>: <reason>`; reason-map errors name the JSON
+  source line, not an array index, and product paths are full paths. Opening failures have
+  no source line and use `<full input path>:no-line: <reason>`. Argument failures use
+  `<full script path>:no-line: arguments: <reason>`. Repeated SF blocks merge covered
+  lines; DA, FN, BRDA and allow-map line numbers must be positive safe integers.
 
 The allow map is JSON and names the line with a reason:
 

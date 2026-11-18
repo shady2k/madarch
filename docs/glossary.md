@@ -465,6 +465,13 @@ _Avoid_: timeout (for a requirement)
 The serial seconds a test layer may take on CI's shape (`test/budget.json`), summed from
 the shards' timings; the layers' budgets add up to the full suite's fifteen minutes.
 
+> **Note — open question for the Architect:** The agreed serial layer budgets total
+> 21.5 minutes (1.5 + 12 + 8), not the fifteen-minute wall limit. Meeting that wall
+> limit requires shards; it is not the sum of the serial budgets. The fast suite
+> includes unit plus affected integration/end-to-end files, not one folder. Please
+> confirm these interpretations before implementing the budget and fast-suite gates.
+> No owner-agreed number is changed by this note.
+
 **Check map** (ru: карта проверок):
 The list a test rewrite carries: each old case, the behaviour it checked, and the new
 cases and layer that check it now; with the coverage comparison it shows no check was lost.

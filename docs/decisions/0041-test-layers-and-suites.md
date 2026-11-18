@@ -36,6 +36,13 @@ through it the database adapter. The owner: «Основную часть пок
 5. A rewrite carries a check map and a coverage comparison showing every product line
    the old tests covered is still covered; mutation runs on extracted seams are recorded.
 
+> **Note — open question for the Architect:** The agreed serial layer budgets total
+> 21.5 minutes (1.5 + 12 + 8), not the fifteen-minute wall limit. Meeting that wall
+> limit requires shards; it is not the sum of the serial budgets. The fast suite
+> includes unit plus affected integration/end-to-end files, not one folder. Please
+> confirm these interpretations before implementing the budget and fast-suite gates.
+> No owner-agreed number is changed by this note.
+
 ## Consequences
 The developer's and reviewer's gate is `bun run check && bun run test:fast`; CI and
 acceptance run the full suite and the measurement suite. Seams are cut in product code

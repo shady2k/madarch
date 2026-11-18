@@ -1,81 +1,68 @@
-import { afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { expect, test } from 'bun:test';
+import { compareCoverage } from '../scripts/test-coverage-diff';
+import { resolve } from 'node:path';
 
-const script = resolve(import.meta.dir, '..', 'scripts', 'test-coverage-diff.ts');
-let folder: string | undefined;
-afterEach(() => { if (folder) rmSync(folder, { recursive: true, force: true }); });
+const record = (body: string) => `SF:src/x.ts\n${body}\nend_of_record\n`;
+const compare = (before: string, after = '', allow?: string) => compareCoverage({
+  before: { path: 'old.lcov', text: before }, after: { path: 'new.lcov', text: after },
+  ...(allow === undefined ? {} : { allow: { path: 'allow.json', text: allow } }),
+});
 
-function fixtures(oldText: string, newText: string): { oldPath: string; newPath: string } {
-  folder = mkdtempSync(join(tmpdir(), 'test-coverage-diff-'));
-  const oldPath = join(folder, 'old.lcov');
-  const newPath = join(folder, 'new.lcov');
-  writeFileSync(oldPath, oldText);
-  writeFileSync(newPath, newText);
-  return { oldPath, newPath };
+test('unchanged coverage exits 0 and warns that source versions are unverified', () => {
+  const result = compare(record('DA:1,1'), record('DA:1,1'));
+  expect(result.code).toBe(0);
+  expect(result.output).toContain('explicit line mapping or separate confirmation through the check map');
+});
+test('coverage loss exits exactly 1 with a full product coordinate', () => {
+  const result = compare(record('DA:7,1'));
+  expect(result.code).toBe(1);
+  expect(result.output).toContain(`${resolve('src/x.ts')}:7: covered before, uncovered now`);
+});
+test('a reason permits a loss with exit 0', () => {
+  expect(compare(record('DA:7,1'), '', JSON.stringify({ allow: [{ file: 'src/x.ts', line: 7, reason: 'moved' }] })).code).toBe(0);
+});
+test('repeated SF blocks preserve covered lines in either order', () => {
+  for (const counts of [[1, 0], [0, 1]]) {
+    expect(compare(counts.map(count => record(`DA:7,${count}`)).join('')).code).toBe(1);
+  }
+});
+for (const tag of ['DA', 'FN', 'BRDA']) for (const line of ['0', '9007199254740993']) {
+  test(`${tag} line ${line} is bad input exit 2`, () => {
+    const suffix = tag === 'DA' ? ',1' : tag === 'FN' ? ',name' : ',0,0,1';
+    const result = compare(record(`${tag}:${line}${suffix}`));
+    expect(result.code).toBe(2);
+    expect(result.output).toContain(`${resolve('old.lcov')}:2:`);
+  });
 }
-
-async function run(args: readonly string[]): Promise<{ output: string; code: number }> {
-  const child = Bun.spawn([process.execPath, script, ...args], { stdout: 'pipe', stderr: 'pipe' });
-  const [out, err, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { output: out + err, code };
-}
-
-test('unchanged coverage exits 0', async () => {
-  const record = 'TN:\nSF:src/x.ts\nDA:1,1\nDA:2,0\nend_of_record\n';
-  const { oldPath, newPath } = fixtures(record, record);
-  const { output, code } = await run([oldPath, newPath]);
-  expect(code).toBe(0);
-  expect(output).toContain('summary:');
-  expect(output).not.toContain('covered before, uncovered now');
+test('malformed relative lcov input names its full record coordinate', () => {
+  const result = compare(record('DA:7'));
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('old.lcov')}:2:`);
+});
+test('reason errors name JSON lines and full product paths, not array indices', () => {
+  const result = compare(record('DA:7,1'), '', '{\n "allow": [\n {"file":"src/x.ts","line":7,"reason":""}\n ]\n}');
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('allow.json')}:3:`);
+  expect(result.output).toContain(`${resolve('src/x.ts')}:7:`);
+});
+test('invalid JSON names its actual line', () => {
+  const result = compare('', '', '{\n "allow": [\n !\n]}');
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('allow.json')}:3:`);
+});
+test('unsafe allow line is bad input exit 2', () => {
+  expect(compare('', '', '{"allow":[{"file":"src/x.ts","line":9007199254740993,"reason":"moved"}]}').code).toBe(2);
+});
+test('non-product coverage is ignored', () => {
+  expect(compare('SF:test/x.ts\nDA:7,1\nend_of_record\n').code).toBe(0);
+});
+test('loss diagnostics use shared deterministic file ordering', () => {
+  const result = compare('SF:src/z.ts\nDA:1,1\nend_of_record\nSF:src/a.ts\nDA:1,1\nend_of_record\n');
+  expect(result.output.indexOf(`${resolve('src/a.ts')}:1:`)).toBeLessThan(result.output.indexOf(`${resolve('src/z.ts')}:1:`));
 });
 
-test('a line covered before and not now fails, naming the full path and the line', async () => {
-  const { oldPath, newPath } = fixtures(
-    'SF:src/x.ts\nDA:7,3\nend_of_record\n',
-    'SF:src/x.ts\nDA:7,0\nend_of_record\n',
-  );
-  const { output, code } = await run([oldPath, newPath]);
-  expect(code).not.toBe(0);
-  expect(output).toContain(`${resolve('src/x.ts')}:7: covered before, uncovered now (no reason in the map)`);
-  expect(output).toContain('summary:');
-});
-
-test('the same loss named in the map with a reason exits 0', async () => {
-  const { oldPath, newPath } = fixtures(
-    'SF:src/x.ts\nDA:7,3\nend_of_record\n',
-    'SF:src/x.ts\nDA:7,0\nend_of_record\n',
-  );
-  const allowPath = join(folder!, 'allow.json');
-  writeFileSync(allowPath, JSON.stringify({ allow: [{ file: 'src/x.ts', line: 7, reason: 'the behaviour moved to the unit case' }] }));
-  const { output, code } = await run([oldPath, newPath, '--allow', allowPath]);
-  expect(code).toBe(0);
-  expect(output).toContain('summary:');
-  expect(output).not.toContain('covered before, uncovered now');
-});
-
-test('a malformed lcov line fails as bad input, naming the file and the line of the record', async () => {
-  const { oldPath, newPath } = fixtures(
-    'TN:\nSF:src/x.ts\nDA:7\nend_of_record\n',
-    'SF:src/x.ts\nDA:7,1\nend_of_record\n',
-  );
-  const { output, code } = await run([oldPath, newPath]);
-  expect(code).not.toBe(0);
-  expect(output).toContain('bad input');
-  expect(output).toContain(`${oldPath}:3:`);
-});
-
-test('a coverage record for a non-product file is ignored', async () => {
-  const { oldPath, newPath } = fixtures(
-    'SF:test/x.ts\nDA:7,1\nend_of_record\n',
-    '',
-  );
-  const { output, code } = await run([oldPath, newPath]);
-  expect(code).toBe(0);
-  expect(output).toContain('summary:');
+test('multiline reason errors point to the reason field', () => {
+  const result = compare('', '', '{\n "allow": [{\n "file": "src/x.ts",\n "line": 7,\n "reason": ""\n }]\n}');
+  expect(result.code).toBe(2);
+  expect(result.output).toContain(`${resolve('allow.json')}:5:`);
 });
