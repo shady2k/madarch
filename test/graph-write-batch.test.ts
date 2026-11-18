@@ -1,5 +1,6 @@
 /** Batch admission counters: decision 0039 items 25–29, ALX-117. */
-import {expect,test} from 'bun:test';
+import {expect,test,spyOn} from 'bun:test';
+import * as crypto from 'node:crypto';
 import {createHash} from 'node:crypto';
 import {type GraphContract,type VertexDraft,type EdgeDraft} from '../src/graph/contract.js';
 import {publishGraphDrafts,ensureVertex,writeAssertion,bindWriteCapability,requireWriteCapability} from '../src/graph/write.js';
@@ -201,3 +202,21 @@ test('absent key-edge parents name the required role', async () => {
   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'orphan'},keyEdges:{repository},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT batch.file.repository');
  } finally {await owner.close();}
 },30000);
+
+test('typed value grouping hashes each slot once rather than each slot times assertions',async()=>{
+ const hashes:number[]=[];
+ for(const count of [10,100]){
+  const owner=await createTestDatabaseOwner({graphContract:contract});
+  try{
+   await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer}],removals:[]}));
+   await owner.transaction('write',async tx=>{
+    const original=crypto.createHash; let tableHashes=0;
+    const spy=spyOn(crypto,'createHash').mockImplementation(((...args:Parameters<typeof crypto.createHash>)=>{if(new Error().stack?.includes('assertionValueTableName'))tableHashes++;return original(...args);}) as typeof crypto.createHash);
+    try{await publishGraphDrafts(tx,contract,{vertices:Array.from({length:count},(_,i)=>({kind:'batch.file',key:{path:`p${i}`},keyEdges:{repository},values:{text:'plain',size:i},...producer})),removals:[]}); hashes.push(tableHashes);}
+    finally{spy.mockRestore();}
+   });
+  }finally{await owner.close();}
+ }
+ console.log('VALUE_HASHES',hashes);
+ expect(hashes[1]).toBe(hashes[0]);
+},60_000);

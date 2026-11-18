@@ -224,12 +224,12 @@ export function generateContractStatements(declared: GraphContract) {
           IF wanted_subjects IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
       statements.push(`DROP FUNCTION IF EXISTS graph_${sort}_active_ids(text,bigint,bigint)`);
-      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subjects bigint[],instant timestamptz,source_kind_id bigint) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
+      statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids_batch(kind text,ctx bigint,wanted_subjects bigint[],instant timestamptz,source_kind_id bigint) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
         DECLARE snapshot_at timestamptz; BEGIN
         IF wanted_subjects IS NOT NULL AND source_kind_id IS NULL THEN SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source'; END IF;
         CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
       statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL,instant timestamptz DEFAULT NULL,source_kind_id bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE sql AS $$
-        SELECT * FROM graph_${sort}_active_ids(kind,ctx,CASE WHEN wanted_subject IS NULL THEN NULL::bigint[] ELSE ARRAY[wanted_subject] END,instant,source_kind_id)
+        SELECT * FROM graph_${sort}_active_ids_batch(kind,ctx,CASE WHEN wanted_subject IS NULL THEN NULL::bigint[] ELSE ARRAY[wanted_subject] END,instant,source_kind_id)
       $$`);
       statements.push(`CREATE OR REPLACE FUNCTION graph_${sort}_active(subject bigint,kind text,ctx bigint) RETURNS boolean LANGUAGE sql AS $$
         SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject) active(id) WHERE active.id=subject)
@@ -463,7 +463,7 @@ WITH vertex_groups AS MATERIALIZED (
         SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
           CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN vertex_groups k
-        CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
+        CROSS JOIN LATERAL graph_vertex_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
         CROSS JOIN LATERAL (SELECT id FROM node WHERE id=active.id OFFSET 0) n
       ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
       ${refusals.join('\n')}
@@ -530,7 +530,7 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
           SELECT id FROM node WHERE id>=node_lower
           UNION SELECT attachment.to_node FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
             CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) attachment
-        ) changed JOIN node n ON n.id=changed.id JOIN entity k ON k.id=n.entity_id
+        ) changed CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=changed.id OFFSET 0) n JOIN entity k ON k.id=n.entity_id
         WHERE k.name=ANY(ARRAY[${keyedKinds.map(kind => literal(kind.name)).join(',')}]::text[]) GROUP BY k.name
       ) grouped;
       bad_id:=NULL;

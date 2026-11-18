@@ -149,7 +149,7 @@ test('relation active-id calls depend on kinds, not vertex count', async () => {
     try { calls.push(await owner.transaction('write',async tx=>{
       await tx.query("SET LOCAL track_functions='all'"); await bindTestWriteCapability(tx,declared);
       await publishGraphDrafts(tx,declared,{vertices:Array.from({length:n},(_,i)=>({kind:'keyed',key:{name:`v-${i}`},producer:'fixture',producerVersion:'1'})),edges:[{kind:'related',from:{kind:'keyed',key:{name:'v-0'}},to:{kind:'keyed',key:{name:'v-1'}},producer:'fixture',producerVersion:'1'}],removals:[]});
-      const count=async()=>Number((await tx.query<{calls:number}>("SELECT coalesce(sum(calls),0)::integer calls FROM pg_stat_xact_user_functions WHERE funcname='graph_vertex_active_ids'")).rows[0]!.calls);
+      const count=async()=>Number((await tx.query<{calls:number}>("SELECT coalesce(sum(calls),0)::integer calls FROM pg_stat_xact_user_functions WHERE funcname IN ('graph_vertex_active_ids','graph_vertex_active_ids_batch')")).rows[0]!.calls);
       const before=await count(); await tx.query('SELECT graph_checks_pass()'); return await count()-before;
     })); } finally {await owner.close();}
   }
