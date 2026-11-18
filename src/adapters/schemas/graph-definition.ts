@@ -163,7 +163,7 @@ export function generateContractStatements(declared: GraphContract) {
           if (sort === 'vertex' && 'key' in kind && kind.key.includes(field.name)) {
             const projected = field.type === 'json' ? `n.key->${literal(field.name)}` : `(n.key->>${literal(field.name)})::${sqlType(field)}`;
             keyChecks.push(`SELECT n.id,${literal(kind.name)}::text AS kind,${literal(field.name)}::text AS property
-              FROM unnest(changed_key_ids) changed(id) CROSS JOIN LATERAL (SELECT * FROM node WHERE id=changed.id OFFSET 0) n CROSS JOIN LATERAL (
+              FROM unnest(changed_key_ids) changed(id) CROSS JOIN LATERAL (SELECT * FROM node WHERE id=changed.id AND entity_id=(SELECT id FROM entity WHERE name=${literal(kind.name)}) OFFSET 0) n CROSS JOIN LATERAL (
                 SELECT count(v.assertion_id) AS total,
                   bool_or(a.operation<>'assert' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM ${projected}) AS contradictory
                 FROM (SELECT id FROM edge WHERE to_node=n.id OFFSET 0) attachment
