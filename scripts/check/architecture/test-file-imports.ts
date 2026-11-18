@@ -49,6 +49,7 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
           if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file, line: chain[0]?.line ?? statement.line, symbol });
         } else if (!visited.has(target)) {
           visited.add(target);
+          visited.add(target);
           pending.push({ file: target, chain });
         }
       }
