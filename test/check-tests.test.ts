@@ -105,10 +105,10 @@ describe('test-integration-reach', () => {
   test('an integration file passes with the pass database and git through test/support/git.ts', async () => {
     const root = project({
       'src/pure.ts': 'export const pure = 1;',
-      'test/support/database.ts': 'export function createTestDatabaseOwner(): string {\n  return "owner";\n}',
+      'test/test-database.ts': 'export function createTestDatabaseOwner(): string {\n  return "owner";\n}',
       'test/support/git.ts': "import { execFileSync } from 'node:child_process';\nexport function git(): void { execFileSync('git', ['status']); }",
       'test/integration/plain.test.ts': [
-        "import { createTestDatabaseOwner } from '../support/database.js';",
+        "import { createTestDatabaseOwner } from '../test-database.js';",
         "import { git } from '../support/git.js';",
         'const owner = createTestDatabaseOwner();',
         'export const held = [owner, git];',
@@ -119,8 +119,8 @@ describe('test-integration-reach', () => {
 
   test('an integration file that asks for a store of its own fails at the call', async () => {
     const root = project({
-      'test/support/database.ts': 'export function createTestDatabaseOwner(options: { store?: string } = {}): string {\n  return options.store ?? "pass";\n}',
-      'test/integration/store.test.ts': "import { createTestDatabaseOwner } from '../support/database.js';\nconst owner = createTestDatabaseOwner({ store: '/tmp/store' });\nexport const held = owner;",
+      'test/test-database.ts': 'export function createTestDatabaseOwner(options: { store?: string } = {}): string {\n  return options.store ?? "pass";\n}',
+      'test/integration/store.test.ts': "import { createTestDatabaseOwner } from '../test-database.js';\nconst owner = createTestDatabaseOwner({ store: '/tmp/store' });\nexport const held = owner;",
     });
     const problems = await problemsOf(root, 'test-integration-reach');
     expect(problems.length).toBe(1);
@@ -390,9 +390,9 @@ describe('review regressions', () => {
 
   test('store shorthand is refused, while no argument and empty options use the pass database', async () => {
     const root = project({
-      'test/support/database.ts': 'export const createTestDatabaseOwner = (options = {}) => options;',
-      'test/integration/store.test.ts': "import { createTestDatabaseOwner } from '../support/database.js';\nconst store = '/tmp/store';\nexport const held = createTestDatabaseOwner({ store });",
-      'test/integration/pass.test.ts': "import { createTestDatabaseOwner } from '../support/database.js';\nexport const held = [createTestDatabaseOwner(), createTestDatabaseOwner({})];",
+      'test/test-database.ts': 'export const createTestDatabaseOwner = (options = {}) => options;',
+      'test/integration/store.test.ts': "import { createTestDatabaseOwner } from '../test-database.js';\nconst store = '/tmp/store';\nexport const held = createTestDatabaseOwner({ store });",
+      'test/integration/pass.test.ts': "import { createTestDatabaseOwner } from '../test-database.js';\nexport const held = [createTestDatabaseOwner(), createTestDatabaseOwner({})];",
     });
     const problems = await problemsOf(root, 'test-integration-reach');
     expect(problems).toHaveLength(1);
@@ -460,4 +460,92 @@ describe('review regressions', () => {
     expect(problems).toHaveLength(7);
     for (const [file, line] of [['require', 7], ['dynamic', 3], ['export', 2], ['static', 3], ['unprefixed', 3], ['net', 3], ['mixed', 3]] as const) expect(problems.some((problem) => problem.includes(`${join(root, 'test/unit', `${file}.test.ts`)}:${line}: test-unit-reach:`))).toBe(true);
   });
+});
+
+describe('ALX-378 regressions', () => {
+  for (const [name, imported, call, reason] of [
+    ['alias', "{ createTestDatabaseOwner as open }", 'open({ store })', 'store of its own'],
+    ['namespace', '* as database', 'database.createTestDatabaseOwner({ store })', 'store of its own'],
+    ['variable', '{ createTestDatabaseOwner }', 'createTestDatabaseOwner(options)', 'readable object literal'],
+    ['spread', '{ createTestDatabaseOwner }', 'createTestDatabaseOwner({ ...options })', 'readable object literal'],
+    ['computed', '{ createTestDatabaseOwner }', 'createTestDatabaseOwner({ [key]: store })', 'readable object literal'],
+  ]) {
+    test(`database binding refuses ${name}`, async () => {
+      const root = project({
+        'test/test-database.ts': 'export const createTestDatabaseOwner = (options = {}) => options; export const forward = (options) => createTestDatabaseOwner(options);',
+        'test/integration/db.test.ts': `import ${imported} from '../test-database.js';
+const store = '/tmp/store', options = { store }, key = 'store';
+${call};`,
+      });
+      const problems = await problemsOf(root, 'test-integration-reach');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(`${join(root, 'test/integration/db.test.ts')}:3: test-integration-reach:`);
+      expect(problems[0]).toContain(reason!);
+      expect(problems[0]).toContain('test/integration/db.test.ts');
+    });
+  }
+
+  test('database options are read only for the imported helper, with a defining-module exception', async () => {
+    const root = project({
+      'test/test-database.ts': 'export const createTestDatabaseOwner = (options = {}) => options; export const forward = (options) => createTestDatabaseOwner(options);',
+      'test/support/db.ts': "import { createTestDatabaseOwner } from '../test-database.js'; export const owner = createTestDatabaseOwner({});",
+      'test/integration/db.test.ts': "import { createTestDatabaseOwner as open } from '../test-database.js'; import { owner } from '../support/db.js'; open(); open({}); open({ label: 'shared' }); const createTestDatabaseOwner = (options) => options; createTestDatabaseOwner({ store: '/tmp/foreign' });",
+    });
+    expect(await problemsOf(root, 'test-integration-reach')).toEqual([]);
+  });
+
+  for (const chain of ['test.if(true)', 'test.failing', 'test.concurrent', 'test.serial', 'test.skip.each([1])', 'test.failingIf(true)', 'test.concurrentIf(true)', 'test.serialIf(true)', 'bun.test', 'bun.it.skip.each([1])', 'caseOf.futureModifier(true).each([1])']) {
+    test(`Bun case chain ${chain} refuses a bare bound`, async () => {
+      const root = project({
+        'test/integration/case.test.ts': `import { test, it as caseOf } from 'bun:test'; import * as bun from 'bun:test';
+${chain}('case', () => {}, 900_000);`,
+      });
+      const problems = await problemsOf(root, 'test-case-bound');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(`${join(root, 'test/integration/case.test.ts')}:2: test-case-bound:`);
+      expect(problems[0]).toContain('900 000');
+    });
+  }
+
+  test('only the final call of a Bun chain is a case, not its table setup or a foreign namespace', async () => {
+    const root = project({
+      'test/support/deadline.ts': 'export const bound = (ms) => ms;',
+      'test/integration/case.test.ts': "import { test } from 'bun:test'; import * as bun from 'bun:test'; import { bound } from '../support/deadline.js'; test.each([1], [2], [3])('case', () => {}); bun.it.skip.each([1])('case', () => {}, bound(30_000, { measured: 1000, on: 'box', at: '2026-11-18' })); const foreign = { test() {} }; foreign.test('case', () => {}, 900_000);",
+    });
+    expect(await problemsOf(root, 'test-case-bound')).toEqual([]);
+  });
+
+  for (const helper of [
+    "export { execFileSync as run } from 'node:child_process';",
+    "import { spawnSync } from 'child_process';\nexport const run = spawnSync;",
+    "import * as cp from 'node:child_process';\nexport const run = cp.spawnSync;",
+    "import { execFileSync } from 'node:child_process';\nexport { execFileSync as run };",
+    "import { execFileSync } from 'node:child_process';\nexport const run = wrap(execFileSync);",
+  ]) {
+    test(`git helper cannot export a process binding: ${helper}`, async () => {
+      const root = project({
+        'test/support/git.ts': helper,
+        'test/integration/git.test.ts': "import { run } from '../support/git.js';\nrun('bun', ['test']);",
+      });
+      const problems = await problemsOf(root, 'test-integration-reach');
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0]).toContain(`${join(root, 'test/support/git.ts')}:${helper.includes('\n') ? 2 : 1}: test-integration-reach:`);
+      expect(problems[0]).toContain('test/integration/git.test.ts > test/support/git.ts');
+    });
+  }
+
+  for (const [imported, call] of [["{ setDefaultTimeout }", 'setDefaultTimeout'], ["{ setDefaultTimeout as timeout }", 'timeout'], ['* as bun', 'bun.setDefaultTimeout']]) {
+    test(`layer refuses default timeout ${call}`, async () => {
+      const root = project({
+        'test/deadline.ts': "import { setDefaultTimeout } from 'bun:test'; setDefaultTimeout(10_000);",
+        'test/integration/default.test.ts': `import ${imported} from 'bun:test';
+${call}(900_000);`,
+      });
+      const problems = await problemsOf(root, 'test-case-bound');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(`${join(root, 'test/integration/default.test.ts')}:2: test-case-bound:`);
+      expect(problems[0]).toContain('setDefaultTimeout');
+      expect(problems[0]).toContain('bound(');
+    });
+  }
 });

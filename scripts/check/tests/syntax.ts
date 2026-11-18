@@ -45,6 +45,7 @@ export interface ArgumentSyntax {
   readonly identifier: string | null;
   /** The callee's name, when the argument is a call. */
   readonly call: string | null;
+  readonly readableObject: boolean;
   readonly properties: readonly PropertySyntax[];
   readonly elements: readonly ElementSyntax[];
 }
@@ -53,7 +54,7 @@ export interface ArgumentSyntax {
 export interface CallSyntax {
   readonly name: string;
   /** True for the case invocation in test.each(...)(...) rather than the table setup. */
-  readonly calleeIsCall: boolean;
+  readonly finalCall: boolean;
   /** The 1-based line the call starts on. */
   readonly line: number;
   readonly arguments: readonly ArgumentSyntax[];
@@ -72,6 +73,8 @@ export interface MemberSyntax {
 
 export interface ModuleSyntax {
   readonly calls: readonly CallSyntax[];
+  /** Value references, excluding import declarations and static property names. */
+  readonly references: readonly { readonly name: string; readonly line: number; readonly call: CallSyntax | null }[];
   readonly members: readonly MemberSyntax[];
   /** Every array literal in the module: the shape a command line is written in. */
   readonly arrays: readonly (readonly ElementSyntax[])[];
@@ -99,6 +102,12 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
   }
   const bytes = new TextEncoder().encode(source);
   const calls: CallSyntax[] = [];
+  const callNodes = new WeakMap<object, CallSyntax>();
+  const intermediate = new WeakSet<object>();
+  walk(module, (value) => {
+    const node = value as Record<string, unknown>;
+    if (node['type'] === 'CallExpression') markChain(node['callee'], intermediate);
+  });
   const members: MemberSyntax[] = [];
   const arrays: ElementSyntax[][] = [];
   walk(module, (value) => {
@@ -108,7 +117,10 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
       const span = node['span'] as { start: number } | undefined;
       if (callee !== null && span !== undefined) {
         const args = Array.isArray(node['arguments']) ? (node['arguments'] as Record<string, unknown>[]) : [];
-        calls.push({ name: callee, calleeIsCall: (node['callee'] as Record<string, unknown>)['type'] === 'CallExpression', line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) });
+        const call = { name: callee, finalCall: !intermediate.has(node), line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) };
+        calls.push(call);
+        const root = calleeRoot(node['callee']);
+        if (root !== null) callNodes.set(root, call);
       }
     } else if (node['type'] === 'MemberExpression') {
       const segments = segmentsOf(node);
@@ -121,7 +133,11 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
       arrays.push(elements);
     }
   });
-  return { calls, members, arrays };
+  const references: { name: string; line: number; call: CallSyntax | null }[] = [];
+  valueReferences(module, (node) => {
+    references.push({ name: String(node['value']), line: lineAt(bytes, (node['span'] as { start: number }).start), call: callNodes.get(node) ?? null });
+  });
+  return { calls, members, arrays, references };
 }
 
 function argumentOf(argument: Record<string, unknown>, bytes: Uint8Array): ArgumentSyntax {
@@ -137,7 +153,10 @@ function argumentOf(argument: Record<string, unknown>, bytes: Uint8Array): Argum
   const elements = expression['type'] === 'ArrayExpression' && Array.isArray(expression['elements'])
     ? (expression['elements'] as (Record<string, unknown> | null)[]).flatMap((element) => elementOf(element, bytes))
     : [];
-  return { line, literal, identifier, call, properties, elements };
+  const readableObject = argument['spread'] == null && expression['type'] === 'ObjectExpression' &&
+    (expression['properties'] as Record<string, unknown>[]).every((property) =>
+      property['type'] === 'Identifier' || (property['type'] === 'KeyValueProperty' && keyOf(property['key']) !== '*'));
+  return { line, literal, identifier, call, readableObject, properties, elements };
 }
 
 function propertyOf(property: Record<string, unknown>, bytes: Uint8Array): PropertySyntax[] {
@@ -191,8 +210,50 @@ function segmentsOf(member: Record<string, unknown>): string[] | null {
   if (object === undefined || property === undefined || property['type'] !== 'Identifier') return null;
   const name = String(property['value']);
   if (object['type'] === 'Identifier') return [String(object['value']), name];
+  if (object['type'] === 'CallExpression') {
+    const inner = nameOf(object);
+    return inner === null ? null : [...inner.split('.'), name];
+  }
   const inner = segmentsOf(object);
   return inner === null ? null : [...inner, name];
+}
+
+/** Calls used to construct a callee are setup, not the final case invocation. */
+function markChain(value: unknown, intermediate: WeakSet<object>): void {
+  if (value === null || typeof value !== 'object') return;
+  const node = value as Record<string, unknown>;
+  if (node['type'] === 'CallExpression') {
+    intermediate.add(node);
+    markChain(node['callee'], intermediate);
+  } else if (node['type'] === 'MemberExpression') markChain(node['object'], intermediate);
+}
+
+/** The binding used as the direct callee, without following a returned function. */
+function calleeRoot(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object') return null;
+  const node = value as Record<string, unknown>;
+  if (node['type'] === 'Identifier') return node;
+  if (node['type'] === 'MemberExpression') return calleeRoot(node['object']);
+  return null;
+}
+
+function valueReferences(value: unknown, visit: (node: Record<string, unknown>) => void): void {
+  if (Array.isArray(value)) {
+    for (const item of value) valueReferences(item, visit);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  const node = value as Record<string, unknown>;
+  if (node['type'] === 'ImportDeclaration') return;
+  if (node['type'] === 'Identifier') visit(node);
+  for (const [key, entry] of Object.entries(node)) {
+    if (key === 'span' || key === 'ctxt') continue;
+    if (node['type'] === 'VariableDeclarator' && key === 'id') continue;
+    if (node['type'] === 'MemberExpression' && key === 'property' && (entry as Record<string, unknown>)['type'] === 'Identifier') continue;
+    if (node['type'] === 'KeyValueProperty' && key === 'key' && (entry as Record<string, unknown>)['type'] !== 'Computed') continue;
+    if (node['type'] === 'ExportSpecifier' && key === 'exported') continue;
+    valueReferences(entry, visit);
+  }
 }
 
 /** Walks every node of the tree once, calling `visit` on every object that carries a `type`. */

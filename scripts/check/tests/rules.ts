@@ -21,6 +21,7 @@ const E2E = 'test/e2e';
 const MEASURE = 'test/measure';
 const GIT_HELPER = 'test/support/git.ts';
 const DEADLINE = 'test/support/deadline.ts';
+const DATABASE = 'test/test-database.ts';
 const DRAFT = 'src/product/draft.ts';
 const LAYER_FOLDERS = [UNIT, INTEGRATION, E2E, MEASURE] as const;
 
@@ -140,30 +141,45 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
       }
       if (file === GIT_HELPER) {
         const commands = new Set(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync']);
-        const processBindings = new Map(context.importsOf(file)
-          .filter((statement) => !statement.typeOnly && isChildProcess(statement.specifier))
+        const processImports = context.importsOf(file).filter((statement) => !statement.typeOnly && isChildProcess(statement.specifier));
+        for (const statement of processImports) {
+          if (statement.reExport) violations.push({ rule: 'test-integration-reach', file, line: statement.line,
+            message: `${reachedFrom(start, paths, file)}, which re-exports ${statement.specifier}; process bindings must stay inside ${GIT_HELPER}` });
+        }
+        const processBindings = new Map(processImports.filter((statement) => !statement.reExport)
           .flatMap((statement) => statement.bindings.map((binding) => [binding.local, binding.imported] as const)));
-        for (const call of context.syntaxOf(file).calls) {
+        const syntax = context.syntaxOf(file);
+        for (const reference of syntax.references) {
+          const imported = processBindings.get(reference.name);
+          if (imported === undefined) continue;
+          const call = reference.call;
+          const member = call?.name.split('.')[1];
+          const processCall = call !== null && (commands.has(imported) ||
+            ((imported === '*' || imported === 'default') && commands.has(member ?? '')));
+          const command = call?.arguments[0]?.literal;
+          if (processCall && command?.kind === 'string' && command.value === 'git') continue;
+          violations.push({ rule: 'test-integration-reach', file, line: reference.line,
+            message: `${reachedFrom(start, paths, file)}, whose ${reference.name} ${processCall ? `executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}` : 'is used outside a call with the literal git'}; process bindings must stay inside ${GIT_HELPER}` });
+        }
+        for (const call of syntax.calls) {
           const [object, member] = call.name.split('.');
-          const imported = processBindings.get(object!);
-          const processCall = commands.has(imported ?? '') ||
-            ((object === 'Bun' || imported === '*' || imported === 'default') && commands.has(member ?? ''));
-          if (!processCall) continue;
-          const first = call.arguments[0];
-          const command = object === 'Bun' ? first?.elements[0]?.literal : first?.literal;
+          if (object !== 'Bun' || !commands.has(member ?? '')) continue;
+          const command = call.arguments[0]?.elements[0]?.literal;
           if (command?.kind === 'string' && command.value === 'git') continue;
           violations.push({ rule: 'test-integration-reach', file, line: call.line,
             message: `${reachedFrom(start, paths, file)}, whose ${call.name} executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}; only the git command is allowed through ${GIT_HELPER}` });
         }
       }
       for (const call of context.syntaxOf(file).calls) {
-        if (call.name !== 'createTestDatabaseOwner') continue;
-        if (!call.arguments.some((argument) => hasProperty(argument, 'store'))) continue;
+        if (file === DATABASE || importedApi(context, file, DATABASE).get(call.name) !== 'createTestDatabaseOwner') continue;
+        const argument = call.arguments[0];
+        const unreadable = argument !== undefined && !argument.readableObject;
+        if (!unreadable && (argument === undefined || !hasProperty(argument, 'store'))) continue;
         violations.push({
           rule: 'test-integration-reach',
           file,
           line: call.line,
-          message: `${reachedFrom(start, paths, file)}, which asks createTestDatabaseOwner for a store of its own; an integration case uses the pass's database, and a store folder belongs to an end-to-end case`,
+          message: `${reachedFrom(start, paths, file)}, which asks createTestDatabaseOwner ${unreadable ? "with options that are not a readable object literal" : "for a store of its own"}; an integration case uses the pass's database, and a store folder belongs to an end-to-end case`,
         });
       }
     }
@@ -183,7 +199,11 @@ export function caseBoundViolations(context: RuleContext): TestViolation[] {
     for (const file of context.modulesIn(folder)) {
       const bindings = caseBindings(context, file);
       for (const call of context.syntaxOf(file).calls) {
-        if (bindings.get(call.name) === 'bound' || call.name === 'bound') violations.push(...boundCallViolations(context, file, call));
+        if (bindings.get(call.name) === 'setDefaultTimeout') violations.push({
+          rule: 'test-case-bound', file, line: call.line,
+          message: `${file} calls setDefaultTimeout through ${call.name}; a case time is set only through bound(ms, { measured, on, at })`,
+        });
+        else if (bindings.get(call.name) === 'bound' || call.name === 'bound') violations.push(...boundCallViolations(context, file, call));
         else if (isCaseCall(call, bindings) && call.arguments.length >= 3) {
           const third = call.arguments[2]!;
           if (third.call === 'bound' || (third.call !== null && bindings.get(third.call) === 'bound')) continue;
@@ -202,25 +222,32 @@ export function caseBoundViolations(context: RuleContext): TestViolation[] {
   return violations;
 }
 
-/** Bind only the Bun case API and the deadline helper, preserving imported/local pairs. */
-function caseBindings(context: RuleContext, file: string): ReadonlyMap<string, string> {
+/** Imported APIs, including a namespace's statically named members. */
+function importedApi(context: RuleContext, file: string, module: string): Map<string, string> {
   const bindings = new Map<string, string>();
+  const api = module === 'bun:test' ? ['test', 'it', 'setDefaultTimeout'] : module === DEADLINE ? ['bound'] : ['createTestDatabaseOwner'];
   for (const statement of context.importsOf(file)) {
     if (statement.typeOnly || statement.reExport) continue;
-    const deadline = resolveModuleSpecifier(context.modules, file, statement.specifier) === DEADLINE;
+    if (statement.specifier !== module && resolveModuleSpecifier(context.modules, file, statement.specifier) !== module) continue;
     for (const binding of statement.bindings) {
-      if (statement.specifier === 'bun:test' && ['test', 'it'].includes(binding.imported)) bindings.set(binding.local, 'test');
-      if (deadline && binding.imported === 'bound') bindings.set(binding.local, 'bound');
+      if (binding.imported === '*') {
+        for (const name of api) bindings.set(`${binding.local}.${name}`, name);
+      } else if (api.includes(binding.imported)) bindings.set(binding.local, binding.imported);
     }
   }
   return bindings;
 }
 
+function caseBindings(context: RuleContext, file: string): ReadonlyMap<string, string> {
+  return new Map([...importedApi(context, file, 'bun:test'), ...importedApi(context, file, DEADLINE)]);
+}
+
 function isCaseCall(call: CallSyntax, bindings: ReadonlyMap<string, string>): boolean {
-  const [root, ...members] = call.name.split('.');
-  if (bindings.get(root!) !== 'test') return false;
-  if (call.calleeIsCall) return members.length === 1 && ['each', 'skipIf', 'todoIf'].includes(members[0]!);
-  return members.length === 0 || (members.length === 1 && ['skip', 'only', 'todo'].includes(members[0]!));
+  if (!call.finalCall) return false;
+  for (const [binding, imported] of bindings) {
+    if ((imported === 'test' || imported === 'it') && (call.name === binding || call.name.startsWith(`${binding}.`))) return true;
+  }
+  return false;
 }
 
 function boundCallViolations(context: RuleContext, file: string, call: CallSyntax): TestViolation[] {
