@@ -32,6 +32,15 @@ function isTestCaseFile(file: string): boolean {
  */
 export function testFileImportViolations(root: string): ArchitectureViolation[] {
   const modules = moduleSet(root, ['']);
+  const parsed = new Map<string, ReturnType<typeof importStatementsOf>>();
+  const statementsOf = (file: string): ReturnType<typeof importStatementsOf> => {
+    let statements = parsed.get(file);
+    if (statements === undefined) {
+      statements = importStatementsOf(root, file);
+      parsed.set(file, statements);
+    }
+    return statements;
+  };
   const held = new Map<string, ArchitectureViolation>();
   for (const file of modules.modules) {
     if (!file.startsWith('test/') || !isTestCaseFile(file)) continue;
@@ -39,14 +48,14 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
     const visited = new Set<string>([file]);
     while (pending.length > 0) {
       const current = pending.shift()!;
-      for (const statement of importStatementsOf(root, current.file)) {
+      for (const statement of statementsOf(current.file)) {
         if (statement.typeOnly) continue;
         const target = resolveModuleSpecifier(modules, current.file, statement.specifier);
         if (target === null) continue;
         const edge = { file: current.file, line: statement.line };
         const chain = [...current.chain, edge];
         if (isTestCaseFile(target)) {
-          const symbol = [...chain.map(({ file: path, line }) => `${path}:${line}`), `${target}:${firstLineOfModule(root, target)}`].join(' → ');
+          const symbol = [...chain.map(({ file: path, line }) => `${path}:${line}`), `${target}:${statementsOf(target)[0]?.line ?? 1}`].join(' → ');
           const key = `${file}\u0000${target}`;
           if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file, line: chain[0]?.line ?? statement.line, symbol });
         } else if (!visited.has(target)) {
@@ -57,9 +66,4 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
     }
   }
   return orderedViolations([...held.values()]);
-}
-
-function firstLineOfModule(root: string, file: string): number {
-  const statements = importStatementsOf(root, file);
-  return statements[0]?.line ?? 1;
 }

@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
+import * as swc from '@swc/core';
+import { testFileImportViolations } from '../scripts/check/architecture/test-file-imports.js';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -434,6 +436,35 @@ describe('the architecture check', () => {
 
     rmSync(join(root, 'src', 'serving.ts'));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['starter-data-when-copying'] }))).toEqual([]);
+  });
+
+  test('test-file imports parse each reachable module once per check and read edits on the next check', () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'test/a.test.ts', ["import '../scripts/shared.ts';"]);
+      writeModule(root, 'test/b.test.ts', ["import '../scripts/shared.ts';"]);
+      writeModule(root, 'test/target.test.ts', ['', "import 'bun:test';"]);
+      writeModule(root, 'scripts/shared.ts', ["import '../src/leaf.ts';", "import '../test/target.test.ts';"]);
+      writeModule(root, 'src/leaf.ts', ["import '../scripts/shared.ts';"]);
+      writeModule(root, 'src/unreachable.ts', ['not valid TypeScript @@@']);
+      const parser = spyOn(swc, 'parseSync');
+      try {
+        const first = testFileImportViolations(root);
+        expect(first).toEqual(['a', 'b'].map((name) => ({
+          rule: 'no-test-file-imports', file: `test/${name}.test.ts`, line: 1,
+          symbol: `test/${name}.test.ts:1 → scripts/shared.ts:2 → test/target.test.ts:2`,
+        })));
+        expect(parser).toHaveBeenCalledTimes(5);
+        parser.mockClear();
+        writeModule(root, 'scripts/shared.ts', ["import '../src/leaf.ts';"]);
+        expect(testFileImportViolations(root)).toEqual([]);
+        expect(parser).toHaveBeenCalledTimes(5);
+      } finally {
+        parser.mockRestore();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('test-file imports cross helpers outside test with the full chain and lines', async () => {
