@@ -198,7 +198,7 @@ test('ALX107 default assertions of a create share the transaction acceptance ins
     await owner.transaction('write', async tx => {
       await publishGraphDrafts(tx, contract, pair());
       const result = await tx.query<{ starts: number; transaction_start: boolean }>(`SELECT count(DISTINCT a.valid_from)::integer AS starts,
-        bool_and(a.valid_from=transaction_timestamp()) AS transaction_start FROM assertion a
+        bool_and(a.valid_from=date_trunc('milliseconds',transaction_timestamp())) AS transaction_start FROM assertion a
         LEFT JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id
         LEFT JOIN edge attachment ON attachment.id=av.subject_edge_id
         LEFT JOIN node n ON n.id=attachment.to_node

@@ -171,3 +171,26 @@ test('ALX-142: malformed mentions retain their structured refusal',async()=>{
   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'bad-mention'},keyEdges:{repository},values:{text:'[[uid:bad]]'},...producer}],removals:[]}))).rejects.toMatchObject({code:'SCHEMA_INVALID',retryable:false,actual:'[[uid:bad]]'});
  }finally{await owner.close();}
 },30000);
+
+for(const immutable of [false,true])for(const nextTransaction of [false,true])test(`bigint repeats reuse assertions and attach evidence, immutable=${immutable} nextTransaction=${nextTransaction}`,async()=>{
+ const graph:GraphContract={vertex:[
+  {name:'batch.number',table:'unused_number',key:['name'],fields:[{name:'name',type:'text'},{name:'small',type:'bigint'},{name:'large',type:'bigint'}],...(immutable?{evidence:{immutable:true as const}}:{}),capability:'fixture'},
+  ...contract.vertex.filter(kind=>kind.name==='batch.snapshot'),
+ ],edge:[],dictionary:[]};
+ const owner=await createTestDatabaseOwner({graphContract:graph});
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{...snapshot,values:{content},...producer}],removals:[]}));
+  const publish=(tx:Parameters<typeof publishGraphDrafts>[0],line:number)=>publishGraphDrafts(tx,graph,{vertices:[{kind:'batch.number',key:{name:'one'},values:{small:1,large:'9223372036854775807'},evidence:[{target:snapshot,locator:{start:line-1,end:line}}],...producer}],removals:[]});
+  if(nextTransaction){
+   await owner.transaction('write',tx=>publish(tx,1));
+   await owner.transaction('write',tx=>publish(tx,2));
+  }else await owner.transaction('write',async tx=>{await publish(tx,1);await publish(tx,2);});
+  const rows=await owner.run(tx=>loadAssertions(tx,'vertex','batch.number',['small','large']));
+  for(const property of ['small','large']){
+   const held=rows.filter(row=>row.property===property);
+   expect(held).toHaveLength(1);
+   expect(held[0]!.evidenceAttachments).toHaveLength(2);
+   expect(held[0]!.value).toBe(property==='small'?1:'9223372036854775807');
+  }
+ }finally{await owner.close();}
+},30000);

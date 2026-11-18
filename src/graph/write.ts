@@ -57,11 +57,11 @@ async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):P
  return await withSpan('graph.write.immutableCatalogue',{},async()=>{
  const cache=await immutableLookups(executor);
  const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
- const rows=(await executor.query<{id:string;name:string;sort:string;instant:string}>(complete?'SELECT transaction_timestamp()::text AS instant':'SELECT id::text,name,sort,transaction_timestamp()::text AS instant FROM entity')).rows;
+ const rows=(await executor.query<{id:string;name:string;sort:string;instant:number}>(complete?'SELECT floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant':'SELECT id::text,name,sort,floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant FROM entity')).rows;
  for(const row of rows)if(row.id!==undefined)cache.kinds.set(row.sort+':'+row.name,row.id);
  const entities=new Map<string,string>();
  for(const name of [...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)]){const id=cache.kinds.get(name);if(id!==undefined)entities.set(name,id);}
- return {entities,instant:Date.parse(rows[0]!.instant)};
+ return {entities,instant:Number(rows[0]!.instant)};
  });
 }
 
@@ -98,6 +98,12 @@ function preparePublicationContract(declared:GraphContract):PreparedContract {
  return {contract,version:graphContractVersion(contract)};
 }
 export function canonicalJson(value:unknown):string{return canonicalAssertionValue(value);}
+function comparable(field:FieldContract,value:unknown):unknown{
+ if(value==null)return value;
+ if(field.type==='bigint')return BigInt(value as string|number|bigint).toString();
+ if(field.type==='timestamp')return new Date(String(value)).toISOString();
+ return value;
+}
 export function sameValue(a:unknown,b:unknown):boolean{return canonicalJson(a)===canonicalJson(b);}
 function permitted(binding:WriteCapability,kind:string,property:string,retract=false):void {
   if(!binding.permissions.some(p=>p.kind===kind&&(p.properties.includes(property)||p.properties.includes('*'))&&(retract?p.retractOwn:p.assert)))
@@ -481,7 +487,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  for(const input of assertions)for(const evidence of input.evidence??[]){const uid=evidence.target.uid??await refUid(executor,contract,evidence.target,context);const target=nodes.get(uid)!;const ids=supportIds.get(target.kind)??new Set<string>();ids.add(target.id);supportIds.set(target.kind,ids);}
  for(const [name,ids] of supportIds){const kind=contract.vertex.find(kind=>kind.name===name)!;for(const field of [{name:'$exists'},...kind.fields])immutableTables.set(assertionValueTableName(kind.name,'vertex',field.name),{kind:kind.name,property:field.name,ids:[...ids]});}
  const cache=await immutableLookups(executor);
- const immutableParts=[...immutableTables].map(([table,slot])=>[table,{...slot,ids:slot.ids.filter(id=>!cache.values.has(JSON.stringify([id,slot.property])))}] as const).filter(([,slot])=>slot.ids.length>0).map(([table,slot])=>`SELECT wanted.id::text AS subject,${literal(slot.property)}::text AS property,to_jsonb(v.value) AS value,a.recorded_sequence::text AS sequence FROM unnest(ARRAY[${slot.ids.join(',')}]::bigint[]) wanted(id)
+ const immutableParts=[...immutableTables].map(([table,slot])=>[table,{...slot,ids:slot.ids.filter(id=>!cache.values.has(JSON.stringify([id,slot.property])))}] as const).filter(([,slot])=>slot.ids.length>0).map(([table,slot])=>`SELECT wanted.id::text AS subject,${literal(slot.property)}::text AS property,CASE WHEN pg_typeof(v.value)::text='bigint' THEN to_jsonb(v.value::text) ELSE to_jsonb(v.value) END AS value,a.recorded_sequence::text AS sequence FROM unnest(ARRAY[${slot.ids.join(',')}]::bigint[]) wanted(id)
  CROSS JOIN LATERAL (SELECT se.id FROM edge se WHERE se.to_node=wanted.id AND se.entity_id=${entities.get('edge:system.assertion-subject')}::bigint OFFSET 0) se
  CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=se.id OFFSET 0) s
  CROSS JOIN LATERAL (SELECT v.value FROM "${table}" v WHERE v.assertion_id=s.assertion_id OFFSET 0) v JOIN assertion a ON a.assertion_id=s.assertion_id`);
@@ -498,16 +504,15 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   if(kind?.evidence?.immutable){
    if(input.operation==='retract'||(input.property==='$exists'&&input.value!==true))throw new Error(`${WHERE}:128: IMMUTABLE_EVIDENCE immutable support cannot be retired`);
    const key=JSON.stringify([input.subjectId,input.property]);const values=immutableValues.get(key)??[];
-   if(values.some(value=>!sameValue(value,input.value)))throw new Error(`${WHERE}:130: IMMUTABLE_EVIDENCE support values cannot change`);
+   if(values.some(value=>!sameValue(comparable(input.field,value),comparable(input.field,input.value))))throw new Error(`${WHERE}:130: IMMUTABLE_EVIDENCE support values cannot change`);
    values.push(input.value);immutableValues.set(key,values);content.set(key,{value:input.value,sequence:++sequence});
    if(input.property===kind.evidence.contentField&&input.value!==null&&kind.evidence.digestField){const node=nodeIds.get(input.subjectId)!;if(createHash('sha256').update(String(input.value),'utf8').digest('hex')!==node.key[kind.evidence.digestField])throw new Error(`${WHERE}:131: EVIDENCE_INVALID snapshot content contradicts digest`);}
   }
   const key=streamKey(input.sort,input.subjectId,input.property,input.language??null);const stream=streams.get(key)??[];
   const at=input.validFrom===undefined?instant:Date.parse(input.validFrom),end=input.validTo==null?null:Date.parse(input.validTo);
   const current=stream.filter(row=>Date.parse(row.valid_from)<=at&&(row.valid_to===null||Date.parse(row.valid_to)>at)).sort((a,b)=>BigInt(a.recorded_sequence)>BigInt(b.recorded_sequence)?-1:1)[0];
-  const normalize=(value:unknown)=>input.field.type==='timestamp'&&value!=null?new Date(String(value)).toISOString():value;
   const unchanged=current!==undefined&&(current.valid_to===null?end===null:Date.parse(current.valid_to)===end)&&!stream.some(row=>BigInt(row.recorded_sequence)>BigInt(current.recorded_sequence)&&(end===null||Date.parse(row.valid_from)<end)&&(row.valid_to===null||Date.parse(row.valid_to)>at));
-  if(input.operation==='assert'&&current?.operation==='assert'&&unchanged&&sameValue(normalize(current.value),normalize(input.value))){input.uid=current.uid;input.id=current.id;input.repeat=true;}
+  if(input.operation==='assert'&&current?.operation==='assert'&&unchanged&&sameValue(comparable(input.field,current.value),comparable(input.field,input.value))){input.uid=current.uid;input.id=current.id;input.repeat=true;}
   else {input.id=input.uid;stream.push({sort:input.sort,subject:input.subjectId,property:input.property,language:input.language??null,operation:input.operation,value:input.value,valid_from:new Date(at).toISOString(),valid_to:end===null?null:new Date(end).toISOString(),recorded_sequence:String(++sequence),uid:input.uid,id:input.uid});streams.set(key,stream);}
  }
  // Validate evidence only after all immutable support values in this batch are known.
@@ -565,7 +570,11 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   for(const mention of input.mentions){const target=lineageNode(mention.uid);const discriminator=JSON.stringify({path:mention.path,start:mention.start,end:mention.end});const kind='system.assertion-mentions';extraEdges.push({uid:edgeUid(kind,input.uid,target.uid,discriminator),kind:entities.get('edge:'+kind)!,from:input.id!,to:target.id,discriminator});}
  }
  await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,x.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint,discriminator text) ON CONFLICT DO NOTHING`,[JSON.stringify(extraEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
- for(const [key,values] of immutableValues)if(!cache.values.has(key)&&values.length&&values.every(value=>sameValue(value,values[0])))cache.values.set(key,values[0]);
+ for(const [key,values] of immutableValues){
+  const [subject,property]=JSON.parse(key) as [string,string];
+  const field=property==='$exists'?{name:property,type:'boolean' as const}:contract.vertex.find(kind=>kind.name===nodeIds.get(subject)!.kind)!.fields.find(field=>field.name===property)!;
+  if(!cache.values.has(key)&&values.length&&values.every(value=>sameValue(comparable(field,value),comparable(field,values[0]))))cache.values.set(key,comparable(field,values[0]));
+ }
  return assertions;
  });
 }
