@@ -204,36 +204,131 @@ export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: Rec
 // Half the protocol message limit leaves room for the RPC envelope and operation metadata.
 const reconciliationBytes = 512 * 1024;
 const reconciliationFacts = 500;
-function* reconciliationBatches(writes: readonly ReconciliationWrite[]): Generator<FactsOperation> {
+/** Pack atomic dependency groups, not individual facts, into deterministic requests. */
+export function* reconciliationBatches(writes: readonly ReconciliationWrite[], contract: ContractDeclaration, unit: Unit): Generator<FactsOperation> {
+  const identity = (ref: EntityRef): string => canonical([ref.kind, ref.key, ref.keyEdges ?? {}]);
   const phases = ['vertices', 'edges', 'edgeRemovals', 'removals'] as const;
-  const groups: Record<(typeof phases)[number], (VertexResult | EdgeResult | EntityRef)[]> = { vertices: [], edges: [], edgeRemovals: [], removals: [] };
-  for (const write of writes) {
+  type Phase = (typeof phases)[number];
+  type Fact = VertexResult | EdgeResult | (EntityRef & { readonly evidence?: Evidence });
+  type Batch = Partial<Record<Phase, Fact[]>>;
+  const retired = new Set(writes.filter(write => write.operation === 'remove' && write.vertex !== undefined).map(write => identity(write.vertex!)));
+  // Keep implicit retractions in dependency analysis: retiring an old target must stay with its replacement.
+  const implicit = (write: ReconciliationWrite): boolean => write.edge !== undefined && write.operation === 'remove' && (retired.has(identity(write.edge.from)) || retired.has(identity(write.edge.to)));
+  const retained = writes;
+  const roots = retained.map((_, index) => index);
+  const root = (index: number): number => {
+    if (roots[index] !== index) roots[index] = root(roots[index]!);
+    return roots[index]!;
+  };
+  const join = (left: number, right: number): void => { roots[root(right)] = root(left); };
+  const additions = new Map<string, number>();
+  const removals = new Map<string, number>();
+  retained.forEach((write, index) => {
+    if (write.vertex !== undefined) (write.operation === 'remove' ? removals : additions).set(identity(write.vertex), index);
+  });
+  const constrained = new Map<string, number>();
+  retained.forEach((write, index) => {
     if (write.vertex !== undefined) {
-      const vertex = write.vertex;
-      if (write.operation === 'remove') groups.removals.push({ kind: vertex.kind, key: vertex.key, ...(vertex.keyEdges === undefined ? {} : { keyEdges: vertex.keyEdges }), ...(vertex.evidence === undefined ? {} : { evidence: vertex.evidence }) });
-      else groups.vertices.push(vertex);
-    } else groups[write.operation === 'remove' ? 'edgeRemovals' : 'edges'].push(write.edge!);
-  }
-  let batch: Partial<Record<(typeof phases)[number], (VertexResult | EdgeResult | EntityRef)[]>> = {};
+      const vertices = write.operation === 'remove' ? removals : additions;
+      for (const parent of Object.values(write.vertex.keyEdges ?? {})) {
+        const dependency = vertices.get(identity(parent));
+        if (dependency !== undefined) join(index, dependency);
+      }
+    }
+    if (write.edge === undefined) return;
+    const edge = write.edge;
+    const declaration = contract.edges.find(kind => kind.kind === edge.kind);
+    for (const side of ['from', 'to'] as const) {
+      const endpoint = edge[side];
+      const added = additions.get(identity(endpoint));
+      if (added !== undefined) join(index, added);
+      const removed = removals.get(identity(endpoint));
+      if (write.operation === 'remove' && removed !== undefined) join(index, removed);
+      const bound = side === 'from' ? declaration?.cardinality.to : declaration?.cardinality.from;
+      if (bound === undefined || bound === 'many') continue;
+      const key = canonical([edge.kind, side, identity(endpoint)]);
+      const previous = constrained.get(key);
+      if (previous !== undefined) join(index, previous);
+      constrained.set(key, index);
+    }
+  });
+  const grouped = new Map<number, ReconciliationWrite[]>();
+  retained.forEach((write, index) => {
+    const key = root(index);
+    const group = grouped.get(key) ?? [];
+    group.push(write);
+    grouped.set(key, group);
+  });
+  const factKey = (write: ReconciliationWrite): string => write.vertex === undefined
+    ? canonical([write.edge!.kind, write.edge!.from, write.edge!.to, write.edge!.discriminator ?? ''])
+    : identity(write.vertex);
+  const orderedVertices = (facts: Fact[], removing: boolean): Fact[] => {
+    const byKey = new Map(facts.map(fact => [identity(fact as EntityRef), fact]));
+    const ordered: Fact[] = [];
+    const visited = new Set<string>();
+    const visit = (fact: Fact): void => {
+      const key = identity(fact as EntityRef);
+      if (visited.has(key)) return;
+      visited.add(key);
+      const dependencies = removing
+        ? facts.filter(child => Object.values((child as EntityRef).keyEdges ?? {}).some(parent => identity(parent) === key))
+        : Object.values((fact as EntityRef).keyEdges ?? {}).map(parent => byKey.get(identity(parent))).filter((parent): parent is Fact => parent !== undefined);
+      dependencies.sort((a, b) => codePointOrder(identity(a as EntityRef), identity(b as EntityRef))).forEach(visit);
+      ordered.push(fact);
+    };
+    facts.forEach(visit);
+    return ordered;
+  };
+  const groups = [...grouped.values()].map(writes => {
+    writes.sort((a, b) => codePointOrder(factKey(a), factKey(b)) || codePointOrder(canonical(a), canonical(b)));
+    const operation: Batch = {};
+    for (const write of writes) {
+      // removeEntity retracts incident edges; explicit retractions would resolve retired endpoints.
+      if (implicit(write)) continue;
+      const phase = write.vertex !== undefined ? (write.operation === 'remove' ? 'removals' : 'vertices') : (write.operation === 'remove' ? 'edgeRemovals' : 'edges');
+      const fact = write.vertex !== undefined && write.operation === 'remove'
+        ? { kind: write.vertex.kind, key: write.vertex.key, ...(write.vertex.keyEdges === undefined ? {} : { keyEdges: write.vertex.keyEdges }), ...(write.vertex.evidence === undefined ? {} : { evidence: write.vertex.evidence }) }
+        : write.vertex ?? write.edge!;
+      (operation[phase] ??= []).push(fact);
+    }
+    for (const phase of ['vertices', 'removals'] as const) {
+      if (operation[phase] !== undefined) operation[phase] = orderedVertices(operation[phase]!, phase === 'removals');
+    }
+    const phase = operation.vertices !== undefined || operation.edges !== undefined ? 0 : operation.edgeRemovals !== undefined ? 1 : 2;
+    return { operation, phase, key: writes.some(write => write.vertex !== undefined) ? writes.filter(write => write.vertex !== undefined).map(factKey).sort(codePointOrder)[0]! : identity(writes[0]!.edge!.from), name: writes.some(write => write.vertex !== undefined) ? identity(writes.find(write => write.vertex !== undefined)!.vertex!) : canonical([writes[0]!.edge!.kind, writes[0]!.edge!.from, writes[0]!.edge!.to, writes[0]!.edge!.discriminator ?? '']), count: writes.filter(write => !implicit(write)).length };
+  }).sort((a, b) => a.phase - b.phase || codePointOrder(a.key, b.key) || codePointOrder(canonical(a.operation), canonical(b.operation)));
+  let batch: Batch = {};
   let count = 0;
-  for (const phase of phases) {
-    // The writer processes vertex removals before edge removals within one operation.
-    if ((phase === 'edgeRemovals' || phase === 'removals') && count > 0) {
+  let bytes = 2;
+  let phase = -1;
+  for (const group of groups) {
+    // Serialize each fact once. Add field names, separators and array brackets separately.
+    const sizes = new Map(phases.filter(field => group.operation[field] !== undefined).map(field => [field, group.operation[field]!.reduce((sum, fact) => sum + Buffer.byteLength(JSON.stringify(fact)) + 1, 0)]));
+    const growth = (target: Batch): number => {
+      let added = 0;
+      let fields = Object.keys(target).length;
+      for (const [field, size] of sizes) {
+        if (target[field] !== undefined) added += size;
+        else {
+          added += Buffer.byteLength(JSON.stringify(field)) + 3 + size - 1 + (fields > 0 ? 1 : 0);
+          fields++;
+        }
+      }
+      return added;
+    };
+    if (2 + growth({}) > reconciliationBytes) {
+      throw new Error(`${import.meta.filename}:320: reconciliation unit ${unit.unitId} ${unit.kind} ${canonical(unit.key)} group ${group.name} exceeds 512 KB operation limit`);
+    }
+    if (count > 0 && (phase !== group.phase || count + group.count > reconciliationFacts || bytes + growth(batch) > reconciliationBytes)) {
       yield batch as FactsOperation;
       batch = {};
       count = 0;
+      bytes = 2;
     }
-    for (const fact of groups[phase]) {
-    const candidate = { ...batch, [phase]: [...(batch[phase] ?? []), fact] };
-    if (count === reconciliationFacts || Buffer.byteLength(JSON.stringify(candidate)) > reconciliationBytes) {
-      if (count > 0) yield batch as FactsOperation;
-      batch = {};
-      count = 0;
-    }
-    (batch[phase] ??= []).push(fact);
-    if (Buffer.byteLength(JSON.stringify(batch)) > reconciliationBytes) throw new Error(`${import.meta.filename}:462: reconciliation fact exceeds 512 KB operation limit`);
-    count++;
-    }
+    bytes += growth(batch);
+    for (const field of phases) if (group.operation[field] !== undefined) (batch[field] ??= []).push(...group.operation[field]!);
+    count += group.count;
+    phase = group.phase;
   }
   if (count > 0) yield batch as FactsOperation;
 }
@@ -540,8 +635,8 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
         const reconcile = async (source: UnitResult, scope: ReconciliationScope): Promise<void> => {
           const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
-          for (const operation of reconciliationBatches(reconcileFacts(source, current, scope))) {
-            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:505: reconciliation cancelled for unit ${unit.unitId}`);
+          for (const operation of reconciliationBatches(reconcileFacts(source, current, scope), definition.contract, unit)) {
+            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
             const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
             await askHost('facts.apply', { unitId: unit.unitId, key, operation });
           }

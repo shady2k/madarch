@@ -66,12 +66,10 @@ async function database(work:(host:ReturnType<typeof createOperationHost>,owner:
 }
 test('retry after committed prefix sends only remainder without conflicting receipts',async()=>await database(async(host,owner)=>{
  const read=async()=>({vertices:(await owner.run(tx=>readKindAssertions(tx,'vertex','item',['id','text'],{contract}))).map(row=>({kind:'item',key:{id:String(row.key['id'])},values:{text:row.values['text']}})),edges:[]});
- const apply=async(key:string,operation:FactsOperation)=>{const operationStart=performance.now();const result=await host.execute({key,request:operation},async(tx,context)=>{
-  const start=performance.now();
+ const apply=async(key:string,operation:FactsOperation)=>await host.execute({key,request:operation},async(tx,context)=>{
   await publishGraphDrafts(tx,contract,{vertices:(operation.vertices??[]).map(v=>({kind:v.kind,key:v.key,values:v.values,producer:context.binding.sourceUid,producerVersion:'1'})),removals:[]});
-  console.log('BATCH_FACTS',operation.vertices?.length,'PUBLISH_MS',performance.now()-start);
   return {accepted:true};
- });console.log('BATCH_FACTS',operation.vertices?.length,'OPERATION_MS',performance.now()-operationStart);return result;};
+ });
  let calls=0;
  const first=await run(facts(501),read,async(key,operation)=>{if(++calls===2)throw new Error(`${import.meta.path}:82: simulated crash after committed prefix`);return await apply(key,operation);});
  expect(first.state).toBe('not-extracted');
