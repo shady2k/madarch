@@ -35,6 +35,9 @@ export interface SlowFile {
   readonly reason: SlowReason;
   readonly result?: 'green' | 'red';
   readonly owner?: string;
+  readonly defect?: string;
+  readonly replacement?: string;
+  readonly exit?: string;
 }
 
 export interface SlowList {
@@ -93,7 +96,7 @@ export function selectFiles(all: readonly string[], slow: SlowList, mode: 'defau
 
 /** The arguments `bun test` receives: the chosen files, then whatever the caller forwarded. */
 export function bunArguments(files: readonly string[], forwarded: readonly string[]): string[] {
-  return ['test', ...files, ...forwarded];
+  return ['test', ...files.map((path) => `./${path}`), ...forwarded];
 }
 
 function main(): void {

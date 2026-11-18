@@ -21,9 +21,11 @@ const bin = join(fixture, 'bin');
 const argsLog = join(fixture, 'bun-args.log');
 mkdirSync(join(fixture, 'test'), { recursive: true });
 mkdirSync(bin, { recursive: true });
+mkdirSync(join(fixture, 'test', 'nested', 'test'), { recursive: true });
 for (const name of ['a', 'b', 'c']) {
   writeFileSync(join(fixture, 'test', `${name}.test.ts`), `import { test } from 'bun:test';\ntest('${name}', () => {});\n`);
 }
+writeFileSync(join(fixture, 'test', 'nested', 'test', 'a.test.ts'), "import { test } from 'bun:test'; test('nested-a', () => { throw new Error('wrong substring selection'); });\n");
 writeFileSync(join(fixture, 'test', 'slow-files.json'), JSON.stringify({
   version: 1,
   measuredOn: '2026-11-18',
@@ -56,15 +58,21 @@ describe('the test runner', () => {
     const result = run();
     expect(result.status).toBe(0);
     expect(result.called[0]).toBe('test');
-    expect(result.called).toContain('test/a.test.ts');
-    expect(result.called).toContain('test/b.test.ts');
-    expect(result.called).not.toContain('test/c.test.ts');
+    expect(result.called).toContain('./test/a.test.ts');
+    expect(result.called).toContain('./test/b.test.ts');
+    expect(result.called).not.toContain('./test/c.test.ts');
+  });
+
+  test('real Bun exact paths and shard manifests select the file, not an overlapping basename', () => {
+    const result = Bun.spawnSync([process.execPath, RUNNER, '--only', 'test/a.test.ts', '--shard=1/1', '--timings='+join(fixture,'timings.json'), '--update-timings'], {cwd:fixture,env:{...process.env,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(fixture,'timings.json'))).toBe(true);
   });
 
   test('runs only the slow list with --slow', () => {
     const result = run('--slow');
     expect(result.status).toBe(0);
-    expect(result.called).toEqual(['test', 'test/c.test.ts']);
+    expect(result.called).toEqual(['test', './test/c.test.ts']);
   });
 
   test('forwards --shard=i/n and the timing flags to bun', () => {
@@ -73,14 +81,14 @@ describe('the test runner', () => {
     expect(result.called).toContain('--shard=2/3');
     expect(result.called).toContain('--timings=/tmp/timings.json');
     expect(result.called).toContain('--update-timings');
-    expect(result.called).toContain('test/a.test.ts');
-    expect(result.called).not.toContain('test/c.test.ts');
+    expect(result.called).toContain('./test/a.test.ts');
+    expect(result.called).not.toContain('./test/c.test.ts');
   });
 
   test('--only runs just the named file', () => {
     const result = run('--only', 'test/a.test.ts');
     expect(result.status).toBe(0);
-    expect(result.called).toEqual(['test', 'test/a.test.ts']);
+    expect(result.called).toEqual(['test', './test/a.test.ts']);
   });
 
   test('--only refuses a file the selected mode leaves out', () => {
@@ -92,7 +100,7 @@ describe('the test runner', () => {
   test('--dry-run lists the selected files and runs none', () => {
     const result = run('--dry-run');
     expect(result.status).toBe(0);
-    expect(result.stdout.trim().split('\n')).toEqual(['test/a.test.ts', 'test/b.test.ts']);
+    expect(result.stdout.trim().split('\n')).toEqual(['test/a.test.ts', 'test/b.test.ts', 'test/nested/test/a.test.ts']);
     expect(result.called).toEqual([]);
   });
 
