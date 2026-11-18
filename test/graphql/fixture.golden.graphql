@@ -120,6 +120,8 @@ type CatalogueEntity implements Entity {
   instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CatalogueEntityConnection {
@@ -261,6 +263,8 @@ interface Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type EntityConnection {
@@ -307,6 +311,8 @@ type KindAgent implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindAgentConnection {
@@ -341,6 +347,8 @@ type KindAgentSession implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindAgentSessionConnection {
@@ -369,6 +377,8 @@ type KindAgentUsage implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindAgentUsageConnection {
@@ -559,6 +569,8 @@ type KindEvent implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindEventConnection {
@@ -587,6 +599,8 @@ type KindKind implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindKindConnection {
@@ -619,6 +633,8 @@ type KindManifestCatalogue implements Entity {
   declarationAssertions: [Assertion!]!
   publicationFingerprint: String
   publicationFingerprintAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestCatalogueConnection {
@@ -649,6 +665,8 @@ type KindManifestDependency implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestDependencyConnection {
@@ -679,6 +697,8 @@ type KindManifestField implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestFieldConnection {
@@ -709,6 +729,8 @@ type KindManifestKind implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestKindConnection {
@@ -739,6 +761,8 @@ type KindManifestRelation implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestRelationConnection {
@@ -769,6 +793,8 @@ type KindManifestWorkflow implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestWorkflowConnection {
@@ -801,6 +827,8 @@ type KindManifestWorkflowStage implements Entity {
   positionAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindManifestWorkflowStageConnection {
@@ -829,6 +857,8 @@ type KindOperation implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindOperationConnection {
@@ -863,6 +893,8 @@ type KindPerson implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindPersonConnection {
@@ -897,6 +929,8 @@ type KindPlugin implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindPluginConnection {
@@ -925,6 +959,8 @@ type KindProblem implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindProblemConnection {
@@ -953,6 +989,8 @@ type KindQuestion implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindQuestionConnection {
@@ -981,6 +1019,8 @@ type KindRole implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindRoleConnection {
@@ -1009,6 +1049,8 @@ type KindRun implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindRunConnection {
@@ -1037,6 +1079,8 @@ type KindSetting implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSettingConnection {
@@ -1071,6 +1115,8 @@ type KindSource implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSourceConnection {
@@ -1097,6 +1143,8 @@ type KindSystemAssertion implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemAssertionConnection {
@@ -1127,6 +1175,8 @@ type KindSystemAuthoredImport implements Entity {
   sourcePathAssertions: [Assertion!]!
   contentDigest: String
   contentDigestAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemAuthoredImportConnection {
@@ -1159,6 +1209,8 @@ type KindSystemChain implements Entity {
   stateAssertions: [Assertion!]!
   updatedAt: BigInt
   updatedAtAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemChainConnection {
@@ -1189,6 +1241,8 @@ type KindSystemContentSnapshot implements Entity {
   digestAssertions: [Assertion!]!
   content: String
   contentAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemContentSnapshotConnection {
@@ -1223,6 +1277,8 @@ type KindSystemDisputePin implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemDisputePinConnection {
@@ -1259,6 +1315,8 @@ type KindSystemDisputeQuestion implements Entity {
   segmentToAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemDisputeQuestionConnection {
@@ -1291,6 +1349,8 @@ type KindSystemDisputeResolution implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemDisputeResolutionConnection {
@@ -1335,6 +1395,8 @@ type KindSystemFillTransition implements Entity {
   fenceAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemFillTransitionConnection {
@@ -1365,6 +1427,8 @@ type KindSystemKindApplicability implements Entity {
   stateAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemKindApplicabilityConnection {
@@ -1395,6 +1459,8 @@ type KindSystemMerge implements Entity {
   stateAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemMergeAllocation implements Entity {
@@ -1411,6 +1477,8 @@ type KindSystemMergeAllocation implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   direction: String
   directionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemMergeAllocationConnection {
@@ -1453,6 +1521,8 @@ type KindSystemMergeQuestion implements Entity {
   stateAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemMergeQuestionConnection {
@@ -1489,6 +1559,8 @@ type KindSystemOperation implements Entity {
   digestAssertions: [Assertion!]!
   result: String
   resultAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemOperationConnection {
@@ -1523,6 +1595,8 @@ type KindSystemProblem implements Entity {
   reasonAssertions: [Assertion!]!
   locator: String
   locatorAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemProblemConnection {
@@ -1549,6 +1623,8 @@ type KindSystemProduct implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemProductConnection {
@@ -1589,6 +1665,8 @@ type KindSystemProgress implements Entity {
   kindFieldAssertions: [Assertion!]!
   summary: String
   summaryAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemProgressConnection {
@@ -1659,6 +1737,8 @@ type KindSystemRun implements Entity {
   updatedAtAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemRunConnection {
@@ -1697,6 +1777,8 @@ type KindSystemRunSelection implements Entity {
   pluginNameAssertions: [Assertion!]!
   stageUnitName: String
   stageUnitNameAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemRunSelectionConnection {
@@ -1731,6 +1813,8 @@ type KindSystemRunStage implements Entity {
   unitsAssertions: [Assertion!]!
   publications: Int
   publicationsAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemRunStageConnection {
@@ -1763,6 +1847,8 @@ type KindSystemRunTarget implements Entity {
   nameAssertions: [Assertion!]!
   position: Int
   positionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemRunTargetConnection {
@@ -1801,6 +1887,8 @@ type KindSystemTrackedRead implements Entity {
   seqAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemTrackedReadConnection {
@@ -1887,6 +1975,8 @@ type KindSystemUnit implements Entity {
   committedOperationsAssertions: [Assertion!]!
   lastProgress: String
   lastProgressAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemUnitCacheVersion implements Entity {
@@ -1905,6 +1995,8 @@ type KindSystemUnitCacheVersion implements Entity {
   nameAssertions: [Assertion!]!
   version: String
   versionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemUnitCacheVersionConnection {
@@ -1949,6 +2041,8 @@ type KindSystemUnread implements Entity {
   pathAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindSystemUnreadConnection {
@@ -1977,6 +2071,8 @@ type KindUnit implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type KindUnitConnection {
