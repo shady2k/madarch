@@ -24,6 +24,8 @@ import { newUid } from '../src/graph/uid.js';
 import { writeContractOf } from '../src/graph/graph-writes.js';
 import { publicationCounts } from './publication-counts.js';
 import { readPublicationFingerprint } from '../src/graph/startup-read.js';
+import { cataloguePageTemplate } from '../src/knowledge/page-template-kind.js';
+import { publicationContractOf, publicationReadSelector } from '../src/graph/publication-contract.js';
 
 
 test('ALX-132 counter: unchanged catalogue is a bounded read with no writer', async () => {
@@ -102,12 +104,12 @@ for (const input of ['vertices', 'snapshots', 'starterValues', 'edges', 'contrac
       expect(await publishValidatedManifests(owner, changed, authored)).toBeGreaterThan(0);
       if (input === 'vertices') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!.values['declaration']).toBe('{"changed":true}');
       if (input === 'snapshots') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content']))).some(row => row.values['content'] === 'changed snapshot')).toBe(true);
-      if (input === 'starterValues') expect((await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'])))[0]!.values['label']).toBe('new');
+      if (input === 'starterValues') expect((await owner.run(async tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'], await publicationReadSelector(tx, publicationContractOf(changed.manifest, authored)))))[0]!.values['label']).toBe('new');
       if (input === 'edges') expect((await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.depends-on', ['declaration'])))[0]!.values['declaration']).toBe('changed edge');
       if (input === 'contract') {
         const after = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']));
         expect(after[0]!.values['publication_fingerprint']).not.toBe(before[0]!.values['publication_fingerprint']);
-        expect(after[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(changed, withAssertionContract(withManifestContract(authored)), null));
+        expect(after[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(changed, publicationContractOf(changed.manifest, authored), null));
       }
       expect(await publishValidatedManifests(owner, changed, authored)).toBe(0);
     } finally { await owner.close(); }
@@ -216,7 +218,7 @@ test('ALX-132 product name invalidates the page and its evidence is catalogue sn
     await publishValidatedManifests(owner, read.value);
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: after\n');
     expect(await publishValidatedManifests(owner, read.value)).toBeGreaterThan(0);
-    const page = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'product', ['title'])))[0]!;
+    const page = (await owner.run(async tx => readKindAssertions(tx, 'vertex', 'product', ['title'], await publicationReadSelector(tx, publicationContractOf(read.value!.manifest, contract)))))[0]!;
     expect(page.values['title']).toBe('after');
     const title = page.selectedAssertions.find(assertion => assertion.property === 'title')!;
     const snapshots = await owner.run(tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content']));
@@ -273,6 +275,7 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
     await owner.transaction('write', async tx => {
       const query = tx.query;
       const cutoffs: string[] = [];
+      let lastReadCutoff: string | undefined;
       tx.query = async (sql, values) => {
         const result = await query.call(tx, sql, values);
         if (sql === 'SELECT clock_timestamp()::text AS now') {
@@ -282,6 +285,14 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
         }
         if (sql.includes('WITH RECURSIVE context_path') && !sql.startsWith('SELECT marker.value') && cutoffs.length > 0) {
           expect(sql).toContain(cutoffs.at(-1)!);
+          expect(sql).not.toContain('transaction_timestamp()');
+        }
+        if (sql.includes('AS request_index') && values?.length) {
+          if (values.includes(cataloguePageTemplate().name)) {
+            // Even an empty template kind needs a fresh cutoff after the preceding publication phase.
+            expect(cutoffs.at(-1)).not.toBe(lastReadCutoff);
+          }
+          lastReadCutoff = cutoffs.at(-1);
         }
         return result as never;
       };
@@ -314,13 +325,16 @@ function atomicFixture() {
   return { folder, a, b, contract: writeContractOf(a.manifest) };
 }
 
-async function publicationState(owner: Parameters<typeof publishValidatedManifests>[0]) {
-  return await owner.run(async tx => ({
-    declarations: await readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']),
-    page: await readKindAssertions(tx, 'vertex', 'product', ['title']),
-    mark: await readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint']),
-    sizes: (await tx.query('SELECT (SELECT count(*) FROM node) AS nodes,(SELECT count(*) FROM edge) AS edges,(SELECT count(*) FROM assertion) AS assertions')).rows,
-  }));
+async function publicationState(owner: Parameters<typeof publishValidatedManifests>[0], validated: Parameters<typeof publishValidatedManifests>[1], contract: Parameters<typeof publicationContractOf>[1]) {
+  return await owner.run(async tx => {
+    const selector = await publicationReadSelector(tx, publicationContractOf(validated.manifest, contract));
+    return {
+      declarations: await readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], selector),
+      page: await readKindAssertions(tx, 'vertex', 'product', ['title'], selector),
+      mark: await readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'], selector),
+      sizes: (await tx.query('SELECT (SELECT count(*) FROM node) AS nodes,(SELECT count(*) FROM edge) AS edges,(SELECT count(*) FROM assertion) AS assertions')).rows,
+    };
+  });
 }
 
 for (const boundary of [2, 3]) {
@@ -329,7 +343,7 @@ for (const boundary of [2, 3]) {
     const owner = await createTestDatabaseOwner({ graphContract: contract });
     try {
       await publishValidatedManifests(owner, a);
-      const before = await publicationState(owner);
+      const before = await publicationState(owner, a, contract);
       writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: B\n');
       const controller = new AbortController();
       let bindings = 0;
@@ -346,9 +360,9 @@ for (const boundary of [2, 3]) {
         return await body(tx);
       }, options) };
       await expect(publishValidatedManifests(interrupted, b, undefined, controller.signal)).rejects.toThrow('injected');
-      expect(await publicationState(owner)).toEqual(before);
+      expect(await publicationState(owner, a, contract)).toEqual(before);
       expect(await publishValidatedManifests(owner, b)).toBeGreaterThan(0);
-      const after = await publicationState(owner);
+      const after = await publicationState(owner, a, contract);
       expect(after.declarations[0]!.values['declaration']).toBe('{"generation":"B"}');
       expect(after.page[0]!.values['title']).toBe('B');
       expect(after.mark[0]!.values['publication_fingerprint']).not.toBe(before.mark[0]!.values['publication_fingerprint']);
@@ -400,11 +414,11 @@ test('ALX-174 queued publications re-read the mark after the graph lock', async 
     release.resolve();
     await holder;
     const results = await Promise.all(publications);
-    const state = await publicationState(owner);
+    const state = await publicationState(owner, a, contract);
     const last = state.declarations[0]!.values['declaration'] === '{"generation":"B"}' ? b : a;
     const title = last === b ? 'B' : 'A';
     expect(state.page[0]!.values['title']).toBe(title);
-    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(last, withAssertionContract(withManifestContract(contract)), { kind: 'product', key: { slug: 'stable-id' }, values: { title } }));
+    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(last, publicationContractOf(last.manifest, contract), { kind: 'product', key: { slug: 'stable-id' }, values: { title } }));
     expect(results[0]).toBeGreaterThan(0);
     expect(await publishValidatedManifests(owner, last)).toBe(0);
     expect(await publishValidatedManifests(owner, last === a ? b : a)).toBeGreaterThan(0);
@@ -458,16 +472,16 @@ test('ALX-215 one queued publication selects declarations after the holder commi
     release.resolve();
     await holder;
     const results = await Promise.all(publications);
-    const state = await publicationState(owner);
+    const state = await publicationState(owner, a, contract);
     expect(state.page[0]!.values['title']).toBe(state.declarations[0]!.values['declaration'] === '{"generation":"B"}' ? 'B' : 'A');
     expect(results).toHaveLength(1);
     expect(results[0]).toBeGreaterThan(0);
     expect(state.declarations[0]!.values['declaration']).toBe(a.vertices.find(draft => draft.kind === 'manifest.kind')!.values!['declaration']);
     expect(state.page[0]!.values['title']).toBe('A');
-    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(a, withAssertionContract(withManifestContract(contract)), { kind: 'product', key: { slug: 'stable-id' }, values: { title: 'A' } }));
+    expect(state.mark[0]!.values['publication_fingerprint']).toBe(publicationFingerprint(a, publicationContractOf(a.manifest, contract), { kind: 'product', key: { slug: 'stable-id' }, values: { title: 'A' } }));
     expect(await publishValidatedManifests(owner, a)).toBe(0);
     expect(await publishValidatedManifests(owner, b)).toBeGreaterThan(0);
-    expect((await publicationState(owner)).page[0]!.values['title']).toBe('B');
+    expect((await publicationState(owner, a, contract)).page[0]!.values['title']).toBe('B');
   } finally {
     release.resolve();
     await Promise.allSettled([...(holder === undefined ? [] : [holder]), ...publications]);
