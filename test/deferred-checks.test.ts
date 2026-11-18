@@ -163,3 +163,19 @@ test('relation active-id calls depend on kinds, not vertex count', async () => {
   }
   console.log('ACTIVE_KIND_CALLS',calls); expect(calls[0]).toBeGreaterThan(0); expect(calls[1]).toBe(calls[0]);
 },60_000);
+
+test('edge active-id calls depend on kinds, not edge count', async () => {
+  const declared: GraphContract={...contract,edge:[{name:'related',table:generatedTableName('related','edge'),
+    from:['keyed'],to:['keyed'],cardinality:{from:'many',to:'many'},fields:[],capability:'fixture',repeats:false,labels:{en:{out:'related',in:'related'},ru:{out:'related',in:'related'}}}]};
+  const calls:number[]=[];
+  for(const n of [2,200]) {
+    const owner=await createTestDatabaseOwner({graphContract:declared});
+    try { calls.push(await owner.transaction('write',async tx=>{
+      await tx.query("SET LOCAL track_functions='all'"); await bindTestWriteCapability(tx,declared);
+      await publishGraphDrafts(tx,declared,{vertices:Array.from({length:n},(_,i)=>({kind:'keyed',key:{name:`v-${i}`},producer:'fixture',producerVersion:'1'})),edges:Array.from({length:n-1},(_,i)=>({kind:'related',from:{kind:'keyed',key:{name:'v-0'}},to:{kind:'keyed',key:{name:`v-${i+1}`}},producer:'fixture',producerVersion:'1'})),removals:[]});
+      const count=async()=>Number((await tx.query<{calls:number}>("SELECT coalesce(sum(calls),0)::integer calls FROM pg_stat_xact_user_functions WHERE funcname IN ('graph_edge_active_ids','graph_edge_active_ids_batch')")).rows[0]!.calls);
+      const before=await count(); await tx.query('SELECT graph_checks_pass()'); return await count()-before;
+    })); } finally {await owner.close();}
+  }
+  console.log('EDGE_KIND_CALLS',calls); expect(calls[0]).toBeGreaterThan(0); expect(calls[1]).toBe(calls[0]);
+},60_000);

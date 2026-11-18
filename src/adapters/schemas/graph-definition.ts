@@ -452,15 +452,18 @@ WITH vertex_groups AS MATERIALIZED (
         SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name,array_agg(n.id) AS ids
         FROM unnest(checked_vertices) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=candidate.id OFFSET 0) n
         WHERE n.entity_id=ANY(vertex_kind_ids) GROUP BY n.entity_id
+      ), edge_groups AS MATERIALIZED (
+        SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name,array_agg(e.id) AS ids
+        FROM unnest(counted_edges) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM edge WHERE id=candidate.id OFFSET 0) e
+        GROUP BY e.entity_id
       ), active_edges AS MATERIALIZED (
         SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
           CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.from_node ELSE graph_edge_endpoint(e.id,e.from_node,'from',ctx.id,instant,clock_timestamp()) END AS from_node,
           CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.to_node ELSE graph_edge_endpoint(e.id,e.to_node,'to',ctx.id,instant,clock_timestamp()) END AS to_node
         FROM unnest(checked_contexts) ctx(id)
-        CROSS JOIN unnest(counted_edges) candidate(id)
-        CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=candidate.id OFFSET 0) e
-        CROSS JOIN LATERAL (SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name) k
-        CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant,source_kind_id) active(id)
+        CROSS JOIN edge_groups k
+        CROSS JOIN LATERAL graph_edge_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
+        CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=active.id OFFSET 0) e
       ), active_vertices AS MATERIALIZED (
         SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
           CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)

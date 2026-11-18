@@ -19,6 +19,13 @@ describe('decision 0039 items 5 and 29 mention grammar', () => {
     expect(scanMentions('plain \\[[hidden]]', '/body')).toEqual([]);
   });
 
+  test('near-prefix strings before a real token remain plain text', () => {
+    for (const plain of ['x[uid', '[xuid', '[[xid', '[[uxd', '[[uix', 'xxuid', 'x[xid', '[xxid']) {
+      const prefix = `${plain}]] `;
+      expect(scanMentions(prefix + token, '/body')).toEqual([occurrence('/body', prefix.length)]);
+    }
+  });
+
   test('nested JSON strings have RFC6901 pointers, not object keys as text', () => {
     expect(scanMentions({ 'a~/': [null, 3, false, { '': token }], [token]: 'plain' }, '/payload')).toEqual([
       occurrence('/payload/a~0~1/3/'),

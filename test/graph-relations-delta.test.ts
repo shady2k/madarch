@@ -154,7 +154,7 @@ test('generated delta relation check never selects an entire active kind', async
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     const result = await owner.run(tx => tx.query<{ body: string }>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_checks_pass()'::regprocedure"));
-    const calls = [...result.rows[0]!.body.matchAll(/graph_(?:vertex|edge)_active_ids\(([^()]*)\)/g)];
+    const calls = [...result.rows[0]!.body.matchAll(/graph_(?:vertex|edge)_active_ids(?:_batch)?\(([^()]*)\)/g)];
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) expect(call[1]!.split(',').length).toBeGreaterThanOrEqual(3);
   } finally { await owner.close(); }
