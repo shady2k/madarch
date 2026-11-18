@@ -70,7 +70,7 @@ test('reconciliation batches add before retirement and omit incident edge retrac
     ...graph, ownFacts:async()=>({vertices:[existing],edges:[{kind:'link',from:existing,to:existing}]}),
   });
   expect(outcome.state).toBe('extracted');
-  expect(operations.map(operation=>Object.keys(operation))).toEqual([['vertices','edges'],['removals']]);
-  expect(operations[1]!.removals).toEqual([existing]);
+  expect(operations.map(operation=>Object.keys(operation))).toEqual([['vertices'],['edges'],['removals']]);
+  expect(operations[2]!.removals).toEqual([existing]);
   expect(operations.flatMap(operation=>operation.edgeRemovals??[])).toEqual([]);
 });

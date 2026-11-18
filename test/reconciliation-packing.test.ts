@@ -46,7 +46,7 @@ test('retirement drops incident edge retractions and retires children before par
 
 test('independent phases remain additions, edges, edge retractions, retirements', () => {
   const result = batches([{ operation: 'remove', vertex: vertex('retired') }, { operation: 'remove', edge: edge('old', 'target') }, { operation: 'add', edge: edge('new', 'target') }, add('new')], contract('many'));
-  expect(result).toEqual([{ vertices: [vertex('new')], edges: [edge('new', 'target')] }, { edgeRemovals: [edge('old', 'target')] }, { removals: [vertex('retired')] }]);
+  expect(result).toEqual([{ vertices: [vertex('new')] }, { edges: [edge('new', 'target')] }, { edgeRemovals: [edge('old', 'target')] }, { removals: [vertex('retired')] }]);
 });
 
 test('permutations give identical batches and content keys in code-point order', () => {
@@ -117,3 +117,34 @@ test('independent edge groups sharing an endpoint have a total order', () => {
   const writes: ReconciliationWrite[] = [{ operation: 'add', edge: edge('same', 'b') }, { operation: 'add', edge: edge('same', 'a') }];
   expect(batches(writes, contract('many'))).toEqual(batches([...writes].reverse(), contract('many')));
 });
+
+for (const bound of ['many', 'optional'] as const) test(`${bound} edges do not merge new endpoint groups at the batch boundary`, () => {
+  const writes = [...Array.from({ length: 499 }, (_, i) => add(String(i).padStart(3, '0'))), add('z-a'), add('z-b'), { operation: 'add', edge: edge('z-a', 'z-b') } as ReconciliationWrite];
+  const result = batches(writes, contract(bound));
+  expect(result).toEqual([
+    { vertices: writes.slice(0, 500).map(write => write.vertex!) },
+    { vertices: [vertex('z-b')] },
+    { edges: [edge('z-a', 'z-b')] },
+  ]);
+});
+
+for (const bound of ['many', 'optional'] as const) test(`600 new vertices with ${bound} links stay within the fact limit`, () => {
+  const ids = Array.from({ length: 600 }, (_, i) => String(i).padStart(3, '0'));
+  const result = batches([...ids.map(add), ...ids.slice(1).map((id, i): ReconciliationWrite => ({ operation: 'add', edge: edge(ids[i]!, id) }))], contract(bound));
+  expect(result.map(batch => (batch.vertices?.length ?? 0) + (batch.edges?.length ?? 0))).toEqual([500, 100, 500, 99]);
+  expect(result.slice(0, 2).flatMap(batch => batch.vertices ?? [])).toHaveLength(600);
+  expect(result.slice(0, 2).every(batch => batch.edges === undefined)).toBe(true);
+});
+
+test('ordering 5000 retirements indexes children instead of canonicalizing every pair', () => {
+  let canonicalKeyReads = 0;
+  // Canonical reads enumerable key fields; count those reads, including parent references.
+  const counted = (id: string): EntityRef => ({ kind: 'item', key: { get id() { canonicalKeyReads++; return id; } } });
+  const parent = counted('p');
+  const children = Array.from({ length: 4999 }, (_, i) => ({ ...counted(String(i)), keyEdges: { p: parent } }));
+  const result = batches([parent, ...children].map(vertex => ({ operation: 'remove', vertex })));
+  expect(result).toHaveLength(1);
+  expect(result[0]!.removals).toHaveLength(5000);
+  expect(result[0]!.removals!.at(-1)).toEqual(parent);
+  expect(canonicalKeyReads).toBeLessThan(500_000);
+}, 120_000);

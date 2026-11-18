@@ -214,8 +214,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
   const retired = new Set(writes.filter(write => write.operation === 'remove' && write.vertex !== undefined).map(write => identity(write.vertex!)));
   // Keep implicit retractions in dependency analysis: retiring an old target must stay with its replacement.
   const implicit = (write: ReconciliationWrite): boolean => write.edge !== undefined && write.operation === 'remove' && (retired.has(identity(write.edge.from)) || retired.has(identity(write.edge.to)));
-  const retained = writes;
-  const roots = retained.map((_, index) => index);
+  const roots = writes.map((_, index) => index);
   const root = (index: number): number => {
     if (roots[index] !== index) roots[index] = root(roots[index]!);
     return roots[index]!;
@@ -223,11 +222,11 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
   const join = (left: number, right: number): void => { roots[root(right)] = root(left); };
   const additions = new Map<string, number>();
   const removals = new Map<string, number>();
-  retained.forEach((write, index) => {
+  writes.forEach((write, index) => {
     if (write.vertex !== undefined) (write.operation === 'remove' ? removals : additions).set(identity(write.vertex), index);
   });
   const constrained = new Map<string, number>();
-  retained.forEach((write, index) => {
+  writes.forEach((write, index) => {
     if (write.vertex !== undefined) {
       const vertices = write.operation === 'remove' ? removals : additions;
       for (const parent of Object.values(write.vertex.keyEdges ?? {})) {
@@ -241,10 +240,10 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     for (const side of ['from', 'to'] as const) {
       const endpoint = edge[side];
       const added = additions.get(identity(endpoint));
-      if (added !== undefined) join(index, added);
+      const bound = side === 'from' ? declaration?.cardinality.to : declaration?.cardinality.from;
+      if (added !== undefined && (bound === 'one' || bound === 'some')) join(index, added);
       const removed = removals.get(identity(endpoint));
       if (write.operation === 'remove' && removed !== undefined) join(index, removed);
-      const bound = side === 'from' ? declaration?.cardinality.to : declaration?.cardinality.from;
       if (bound === undefined || bound === 'many') continue;
       const key = canonical([edge.kind, side, identity(endpoint)]);
       const previous = constrained.get(key);
@@ -253,7 +252,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     }
   });
   const grouped = new Map<number, ReconciliationWrite[]>();
-  retained.forEach((write, index) => {
+  writes.forEach((write, index) => {
     const key = root(index);
     const group = grouped.get(key) ?? [];
     group.push(write);
@@ -264,6 +263,15 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     : identity(write.vertex);
   const orderedVertices = (facts: Fact[], removing: boolean): Fact[] => {
     const byKey = new Map(facts.map(fact => [identity(fact as EntityRef), fact]));
+    const children = new Map<string, Fact[]>();
+    if (removing) for (const fact of facts) {
+      for (const parent of Object.values((fact as EntityRef).keyEdges ?? {})) {
+        const key = identity(parent);
+        const dependents = children.get(key) ?? [];
+        dependents.push(fact);
+        children.set(key, dependents);
+      }
+    }
     const ordered: Fact[] = [];
     const visited = new Set<string>();
     const visit = (fact: Fact): void => {
@@ -271,7 +279,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
       if (visited.has(key)) return;
       visited.add(key);
       const dependencies = removing
-        ? facts.filter(child => Object.values((child as EntityRef).keyEdges ?? {}).some(parent => identity(parent) === key))
+        ? children.get(key) ?? []
         : Object.values((fact as EntityRef).keyEdges ?? {}).map(parent => byKey.get(identity(parent))).filter((parent): parent is Fact => parent !== undefined);
       dependencies.sort((a, b) => codePointOrder(identity(a as EntityRef), identity(b as EntityRef))).forEach(visit);
       ordered.push(fact);
@@ -294,7 +302,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     for (const phase of ['vertices', 'removals'] as const) {
       if (operation[phase] !== undefined) operation[phase] = orderedVertices(operation[phase]!, phase === 'removals');
     }
-    const phase = operation.vertices !== undefined || operation.edges !== undefined ? 0 : operation.edgeRemovals !== undefined ? 1 : 2;
+    const phase = operation.vertices !== undefined ? 0 : operation.edges !== undefined ? 1 : operation.edgeRemovals !== undefined ? 2 : 3;
     return { operation, phase, key: writes.some(write => write.vertex !== undefined) ? writes.filter(write => write.vertex !== undefined).map(factKey).sort(codePointOrder)[0]! : identity(writes[0]!.edge!.from), name: writes.some(write => write.vertex !== undefined) ? identity(writes.find(write => write.vertex !== undefined)!.vertex!) : canonical([writes[0]!.edge!.kind, writes[0]!.edge!.from, writes[0]!.edge!.to, writes[0]!.edge!.discriminator ?? '']), count: writes.filter(write => !implicit(write)).length };
   }).sort((a, b) => a.phase - b.phase || codePointOrder(a.key, b.key) || codePointOrder(canonical(a.operation), canonical(b.operation)));
   let batch: Batch = {};
