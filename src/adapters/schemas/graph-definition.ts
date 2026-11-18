@@ -94,36 +94,7 @@ export const SCHEMA: readonly string[] = [
   END $$`,
   ...['context','node','edge','assertion','assertion_vertex_subject','assertion_edge_subject'].map(table =>
     `CREATE OR REPLACE TRIGGER immutable BEFORE UPDATE OR DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION graph_immutable()`),
-  `CREATE OR REPLACE FUNCTION graph_subject_check() RETURNS trigger LANGUAGE plpgsql AS $$
-    DECLARE a bigint; total integer; BEGIN
-      a := NEW.assertion_id;
-      SELECT (SELECT count(*) FROM assertion_vertex_subject WHERE assertion_id = a) +
-             (SELECT count(*) FROM assertion_edge_subject WHERE assertion_id = a) INTO total;
-      IF total <> 1 THEN RAISE EXCEPTION '${import.meta.path}:77: assertion % requires exactly one subject', a; END IF;
-      IF EXISTS (SELECT 1 FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id
-        JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id=a AND (e.from_node <> a OR k.name <> 'system.assertion-subject')) THEN
-        RAISE EXCEPTION '${import.meta.path}:80: invalid assertion subject edge';
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=a AND k.name='system.assertion') THEN
-        RAISE EXCEPTION '${import.meta.path}:83: assertion header requires a system.assertion vertex';
-      END IF;
-      IF (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-source') <> 1
-        OR (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-author') <> 1
-        OR (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a AND k.name='system.assertion-operation') < 1 THEN
-        RAISE EXCEPTION '${import.meta.path}:88: assertion requires source, author and operation edges';
-      END IF;
-      IF EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node JOIN entity tk ON tk.id=target.entity_id
-        WHERE e.from_node=a AND ((k.name='system.assertion-source' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
-          OR (k.name='system.assertion-author' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
-          OR (k.name='system.assertion-operation' AND tk.name<>'system.operation')
-          OR (k.name='system.assertion-unit' AND tk.name<>'system.unit'))) THEN
-        RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID assertion lineage';
-      END IF;
-      RETURN NULL;
-    END $$`,
-  ...['assertion','assertion_vertex_subject','assertion_edge_subject'].map(table =>
-    `DROP TRIGGER IF EXISTS subject_attachment ON ${table};
-     CREATE CONSTRAINT TRIGGER subject_attachment AFTER INSERT ON ${table} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_subject_check()`),
+
 ];
 
 function sqlType(field: FieldContract): string {
@@ -163,7 +134,8 @@ export function generateContractStatements(declared: GraphContract) {
         ALTER TABLE edge DROP CONSTRAINT edge_check;
       END IF;
     END $$`);
-    const checks: string[] = [];
+    const valueChecks: string[] = [];
+    const keyChecks: string[] = [];
     const names: string[] = [];
     const lookups: string[] = [];
     for (const sort of ['vertex','edge'] as const) {
@@ -178,7 +150,30 @@ export function generateContractStatements(declared: GraphContract) {
           trigger(table, 'immutable', 'graph_immutable', 27, false,
         `CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_immutable()`);
           const literal = (value: string): string => "'" + value.split("'").join("''") + "'";
-          checks.push(`WHEN subject_sort=${literal(sort)} AND subject_kind=${literal(kind.name)} AND h.property=${literal(field.name)} THEN ${literal(table)}`);
+          valueChecks.push(`SELECT id,code INTO candidate_id,candidate_code FROM (
+            SELECT v.assertion_id AS id,43 AS code FROM (SELECT * FROM "${table}" WHERE assertion_id>=node_lower OFFSET 0) v
+              WHERE expected_values->>v.assertion_id::text IS DISTINCT FROM ${literal(table)}
+            UNION ALL SELECT checked.id,60 FROM jsonb_array_elements_text(required_values->${literal(table)}) wanted(id)
+              CROSS JOIN LATERAL (SELECT wanted.id::bigint AS id) checked
+              WHERE NOT EXISTS(SELECT 1 FROM "${table}" v WHERE v.assertion_id=checked.id OFFSET 0)
+            ) failures ORDER BY id,code DESC LIMIT 1;
+            IF candidate_id IS NOT NULL AND (bad_id IS NULL OR (candidate_id,-candidate_code)<(bad_id,-violation)) THEN
+              bad_id:=candidate_id; violation:=candidate_code;
+            END IF;`);
+          if (sort === 'vertex' && 'key' in kind && kind.key.includes(field.name)) {
+            const projected = field.type === 'json' ? `n.key->${literal(field.name)}` : `(n.key->>${literal(field.name)})::${sqlType(field)}`;
+            keyChecks.push(`SELECT n.id,${literal(kind.name)}::text AS kind,${literal(field.name)}::text AS property
+              FROM unnest(changed_key_ids) changed(id) CROSS JOIN LATERAL (SELECT * FROM node WHERE id=changed.id AND entity_id=(SELECT id FROM entity WHERE name=${literal(kind.name)}) OFFSET 0) n CROSS JOIN LATERAL (
+                SELECT count(v.assertion_id) AS total,
+                  bool_or(a.operation<>'assert' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM ${projected}) AS contradictory
+                FROM (SELECT id FROM edge WHERE to_node=n.id OFFSET 0) attachment
+                CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=attachment.id OFFSET 0) s
+                CROSS JOIN LATERAL (SELECT * FROM assertion WHERE assertion_id=s.assertion_id AND property=${literal(field.name)} OFFSET 0) a
+                LEFT JOIN LATERAL (SELECT * FROM "${table}" WHERE assertion_id=a.assertion_id OFFSET 0) v ON true
+              ) checked
+              WHERE n.entity_id=(SELECT id FROM entity WHERE name=${literal(kind.name)})
+                AND (NOT (n.key ? ${literal(field.name)}) OR checked.total=0 OR checked.contradictory)`);
+          }
         }
       }
     }
@@ -239,7 +234,7 @@ export function generateContractStatements(declared: GraphContract) {
     // 0039.20/32: immutable aliases and endpoints, selected through graph merge records.
     statements.push(`CREATE OR REPLACE FUNCTION graph_merge_target(subject bigint,ctx bigint,valid_at timestamptz DEFAULT clock_timestamp(),recorded_cutoff timestamptz DEFAULT clock_timestamp()) RETURNS bigint LANGUAGE plpgsql STABLE AS $$
       BEGIN
-        IF NOT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') THEN RETURN subject; END IF;
+        IF NOT EXISTS(SELECT 1 FROM node WHERE entity_id=(SELECT id FROM entity WHERE name='system.merge')) THEN RETURN subject; END IF;
         RETURN (WITH RECURSIVE layers AS (
           SELECT c.id,c.parent,c.parent_recorded_seq,NULL::bigint AS cutoff,0 AS depth FROM context c WHERE c.id=ctx
           UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,least(l.cutoff,l.parent_recorded_seq),l.depth+1 FROM context c JOIN layers l ON c.id=l.parent
@@ -329,21 +324,22 @@ export function generateContractStatements(declared: GraphContract) {
       const refusals: string[] = [];
       for (const [index, kind] of relationKinds.entries()) {
         const edgeKind = literal(kind.name);
+        const vertexId = keyEdgeNames.includes(kind.name) ? 'raw_id' : 'id';
         const from = endpointKindNames(kind.from, contract.vertex);
         const to = endpointKindNames(kind.to, contract.vertex);
         const endpointCode = index * 2 + 1;
         const cardinalityCode = endpointCode + 1;
         failures.push(`WHEN EXISTS(
           SELECT 1 FROM active_edges e WHERE e.id=ANY(checked_edges) AND e.kind=${edgeKind} AND (
-            NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
-            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
+            NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.${vertexId}=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
+            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.${vertexId}=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
         for (const [direction, ends, bound] of [['from',from,kind.cardinality.to],['to',to,kind.cardinality.from]] as const) {
           if (bound === 'many') continue;
           failures.push(`WHEN EXISTS(
             SELECT 1 FROM active_vertices n LEFT JOIN active_edges e
-              ON e.context_id=n.context_id AND e.${direction}_node=n.id AND e.kind=${edgeKind}
+              ON e.context_id=n.context_id AND e.${direction}_node=n.${vertexId} AND e.kind=${edgeKind}
             WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
-            GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
+            GROUP BY n.context_id,n.${vertexId} HAVING count(DISTINCT (e.from_node,e.to_node,e.discriminator)) FILTER (WHERE e.id IS NOT NULL) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
         }
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
@@ -363,6 +359,29 @@ export function generateContractStatements(declared: GraphContract) {
         UNION SELECT s.edge_id FROM (SELECT * FROM assertion_edge_subject WHERE assertion_id>=node_lower OFFSET 0) s CROSS JOIN LATERAL (SELECT entity_id FROM edge WHERE id=s.edge_id OFFSET 0) e
            WHERE s.assertion_id>=node_lower AND e.entity_id=ANY(edge_kind_ids)
       ) changed;
+      IF merge_present THEN
+        -- Structural membership includes undone links and allocation destinations.
+        WITH RECURSIVE membership AS MATERIALIZED (
+          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
+            WHERE k.name='system.merge-member'
+        ), touched AS (
+          SELECT attachment.to_node AS id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
+            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
+            WHERE s.assertion_id>=node_lower AND k.name IN ('system.merge','system.merge-allocation')
+        ), seeds(id) AS (
+          SELECT unnest(changed_vertices)
+          UNION SELECT e.to_node FROM touched t JOIN edge e ON e.from_node=t.id JOIN entity k ON k.id=e.entity_id
+            WHERE k.name IN ('system.merge-member','system.merge-allocation-member')
+          UNION SELECT member.member FROM touched t JOIN edge link ON link.from_node=t.id
+            JOIN entity k ON k.id=link.entity_id AND k.name='system.merge-allocation-merge'
+            JOIN membership member ON member.merge_id=link.to_node
+          UNION SELECT endpoint.id FROM unnest(changed_edges) changed(id) JOIN edge e ON e.id=changed.id
+            CROSS JOIN LATERAL (VALUES(e.from_node),(e.to_node)) endpoint(id)
+        ), members(id) AS (
+          SELECT id FROM seeds UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
+            JOIN membership b ON b.merge_id=a.merge_id
+        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO changed_vertices FROM members;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_edges FROM (
         SELECT unnest(changed_edges) AS id
         UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
@@ -375,6 +394,15 @@ export function generateContractStatements(declared: GraphContract) {
         UNION SELECT e.from_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
         UNION SELECT e.to_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
       ) checked;
+      IF merge_present THEN
+        WITH RECURSIVE membership AS MATERIALIZED (
+          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
+            WHERE k.name='system.merge-member'
+        ), members(id) AS (
+          SELECT unnest(checked_vertices) UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
+            JOIN membership b ON b.merge_id=a.merge_id
+        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_vertices FROM members;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO counted_edges FROM (
         SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
            WHERE e.entity_id=ANY(edge_kind_ids)
@@ -386,6 +414,17 @@ export function generateContractStatements(declared: GraphContract) {
           CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
         UNION SELECT s.assertion_id FROM unnest(counted_edges) e(id) CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=e.id OFFSET 0) s
       ) checked;
+      IF merge_present THEN
+        SELECT ARRAY(SELECT DISTINCT id FROM (
+          SELECT unnest(checked_assertions) AS id
+          UNION SELECT s.assertion_id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
+            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
+            WHERE k.name IN ('system.merge','system.merge-allocation') AND (
+              s.assertion_id>=node_lower OR EXISTS(SELECT 1 FROM edge member JOIN entity mk ON mk.id=member.entity_id
+                WHERE member.from_node=n.id AND mk.name IN ('system.merge-member','system.merge-allocation-member')
+                  AND member.to_node=ANY(checked_vertices)))
+        ) assertions) INTO checked_assertions;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_contexts FROM (
         WITH RECURSIVE affected(id) AS (
           SELECT c.id FROM (SELECT id FROM context WHERE id>=context_lower OFFSET 0) c
@@ -404,13 +443,17 @@ export function generateContractStatements(declared: GraphContract) {
         ) SELECT DISTINCT at FROM boundaries ORDER BY at
       LOOP
 WITH active_edges AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.from_node,e.to_node FROM unnest(checked_contexts) ctx(id)
+        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.from_node ELSE graph_edge_endpoint(e.id,e.from_node,'from',ctx.id,instant,clock_timestamp()) END AS from_node,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.to_node ELSE graph_edge_endpoint(e.id,e.to_node,'to',ctx.id,instant,clock_timestamp()) END AS to_node
+        FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN unnest(counted_edges) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=candidate.id OFFSET 0) e
         CROSS JOIN LATERAL (SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name) k
         CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant,source_kind_id) active(id)
       ), active_vertices AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,n.id FROM unnest(checked_contexts) ctx(id)
+        SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
+          CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN unnest(checked_vertices) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM node WHERE id=candidate.id OFFSET 0) n
         CROSS JOIN LATERAL (SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name) k
@@ -426,11 +469,15 @@ WITH active_edges AS MATERIALIZED (
             PERFORM set_config('madarch.graph_' || TG_TABLE_NAME || '_lower',NEW.id::text,true);
           END IF;
         END IF;
+        IF TG_TABLE_NAME IN ('assertion','assertion_vertex_subject','assertion_edge_subject') OR TG_TABLE_NAME NOT IN ('node','edge','context') THEN
+          PERFORM set_config('madarch.graph_node_lower',least(NEW.assertion_id,
+            coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,NEW.assertion_id))::text,true);
+        END IF;
         PERFORM set_config('madarch.graph_revision',(coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')::bigint+1)::text,true);
         RETURN NEW;
       END $$`);
-    statements.push(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE revision text; violation integer;
+    statements.push(`CREATE OR REPLACE FUNCTION graph_checks_pass() RETURNS void LANGUAGE plpgsql SET jit=off AS $$
+      DECLARE revision text; violation integer; merge_present boolean; expected_values jsonb; required_values jsonb; bad_id bigint; candidate_id bigint; candidate_code integer; candidate_kind text; candidate_property text; changed_key_ids bigint[]; bad_kind text; bad_property text;
         node_lower bigint := coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807);
         edge_lower bigint := coalesce(nullif(current_setting('madarch.graph_edge_lower',true),'')::bigint,9223372036854775807);
         context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
@@ -440,8 +487,51 @@ WITH active_edges AS MATERIALIZED (
         vertex_kinds text[] := ARRAY[${vertexKinds.map(literal).join(',')}]::text[];
         edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
       revision := current_setting('madarch.graph_revision',true);
-      IF current_setting('madarch.checked_graph_revision',true)=revision THEN RETURN NULL; END IF;
-      SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source';
+
+SELECT id,code INTO bad_id,violation FROM (SELECT h.assertion_id AS id,CASE WHEN (SELECT count(*) FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id) + (SELECT count(*) FROM assertion_edge_subject WHERE assertion_id=h.assertion_id) <> 1 THEN 77 WHEN EXISTS (SELECT 1 FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id OFFSET 0) s CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=s.subject_edge_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id=h.assertion_id AND (e.from_node<>h.assertion_id OR k.name<>'system.assertion-subject')) THEN 80 WHEN NOT EXISTS (SELECT 1 FROM (SELECT entity_id FROM node WHERE id=h.assertion_id OFFSET 0) n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.assertion') THEN 83 WHEN (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-source') <> 1
+        OR (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-author') <> 1
+        OR (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-operation') < 1 THEN 88 WHEN EXISTS (SELECT 1 FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id CROSS JOIN LATERAL (SELECT entity_id FROM node WHERE id=e.to_node OFFSET 0) target JOIN entity tk ON tk.id=target.entity_id
+        WHERE e.from_node=h.assertion_id AND ((k.name='system.assertion-source' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
+          OR (k.name='system.assertion-author' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
+          OR (k.name='system.assertion-operation' AND tk.name<>'system.operation')
+          OR (k.name='system.assertion-unit' AND tk.name<>'system.unit'))) THEN 106 ELSE 0 END AS code FROM (SELECT * FROM assertion WHERE assertion_id>=node_lower OFFSET 0) h) failures WHERE code<>0 ORDER BY id,code LIMIT 1;
+IF violation=77 THEN RAISE EXCEPTION '${import.meta.path}:77: assertion % requires exactly one subject',bad_id; END IF;
+IF violation=80 THEN RAISE EXCEPTION '${import.meta.path}:80: invalid assertion subject edge'; END IF;
+IF violation=83 THEN RAISE EXCEPTION '${import.meta.path}:83: assertion header requires a system.assertion vertex'; END IF;
+IF violation=88 THEN RAISE EXCEPTION '${import.meta.path}:88: assertion requires source, author and operation edges'; END IF;
+IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID assertion lineage'; END IF;
+
+      WITH headers AS MATERIALIZED (
+        SELECT a.assertion_id,a.operation,CASE ${contract.vertex.flatMap(kind => ['$exists',...kind.fields.map(f=>f.name)].map(field => `WHEN vk.name=${literal(kind.name)} AND a.property=${literal(field)} THEN ${literal(assertionValueTableName(kind.name,'vertex',field))}`)).join(' ')}
+          ${contract.edge.flatMap(kind => ['$exists',...kind.fields.map(f=>f.name)].map(field => `WHEN ek.name=${literal(kind.name)} AND a.property=${literal(field)} THEN ${literal(assertionValueTableName(kind.name,'edge',field))}`)).join(' ')} ELSE NULL END AS expected
+        FROM (SELECT * FROM assertion WHERE assertion_id>=node_lower OFFSET 0) a
+        LEFT JOIN LATERAL (SELECT * FROM assertion_vertex_subject WHERE assertion_id=a.assertion_id OFFSET 0) av ON true
+        LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=av.subject_edge_id OFFSET 0) attachment ON true
+        LEFT JOIN LATERAL (SELECT * FROM node WHERE id=attachment.to_node OFFSET 0) target ON true LEFT JOIN entity vk ON vk.id=target.entity_id
+        LEFT JOIN LATERAL (SELECT * FROM assertion_edge_subject WHERE assertion_id=a.assertion_id OFFSET 0) ae ON true
+        LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=ae.edge_id OFFSET 0) relation ON true LEFT JOIN entity ek ON ek.id=relation.entity_id
+      ) SELECT (SELECT jsonb_object_agg(assertion_id,expected) FROM headers WHERE operation='assert'),
+        (SELECT jsonb_object_agg(expected,ids) FROM (SELECT expected,jsonb_agg(assertion_id) ids FROM headers WHERE operation='assert' AND expected IS NOT NULL GROUP BY expected) grouped),
+        (SELECT min(assertion_id) FROM headers WHERE operation='assert' AND expected IS NULL)
+        INTO expected_values,required_values,bad_id;
+      violation:=CASE WHEN bad_id IS NULL THEN NULL ELSE 60 END;
+      ${valueChecks.join('\n')}
+      IF violation=43 THEN RAISE EXCEPTION '${import.meta.path}:43: assertion value does not match declared subject/property'; END IF;
+      IF violation=60 THEN RAISE EXCEPTION '${import.meta.path}:60: assertion requires exactly one typed value; retraction requires none'; END IF;
+      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO changed_key_ids FROM (
+        SELECT id FROM node WHERE id>=node_lower
+        UNION SELECT attachment.to_node FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
+          CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) attachment
+      ) changed;
+      bad_id:=NULL;
+      ${keyChecks.map(query => `SELECT id,kind,property INTO candidate_id,candidate_kind,candidate_property FROM (
+        ${query}
+      ) failures ORDER BY id LIMIT 1;
+      IF candidate_id IS NOT NULL AND (bad_id IS NULL OR (candidate_id,candidate_kind COLLATE "C",candidate_property COLLATE "C")<(bad_id,bad_kind COLLATE "C",bad_property COLLATE "C")) THEN
+        bad_id:=candidate_id; bad_kind:=candidate_kind; bad_property:=candidate_property;
+      END IF;`).join('\n')}
+      IF bad_id IS NOT NULL THEN RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',bad_kind,bad_property; END IF;
+      SELECT id,EXISTS(SELECT 1 FROM node WHERE entity_id=(SELECT id FROM entity WHERE name='system.merge')) INTO source_kind_id,merge_present FROM entity WHERE name='system.assertion-source';
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO vertex_kind_ids,vertex_kinds FROM unnest(vertex_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO edge_kind_ids,edge_kinds FROM unnest(edge_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       ${relationChecks.join('\n')}
@@ -449,41 +539,18 @@ WITH active_edges AS MATERIALIZED (
       PERFORM set_config('madarch.graph_node_lower','',true);
       PERFORM set_config('madarch.graph_edge_lower','',true);
       PERFORM set_config('madarch.graph_context_lower','',true);
-      RETURN NULL; END $$`);
+      RETURN; END $$`);
+    statements.push(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF current_setting('madarch.checked_graph_revision',true)=current_setting('madarch.graph_revision',true) THEN RETURN NULL; END IF;
+      PERFORM graph_checks_pass();
+      RETURN NULL;
+    END $$`);
     for (const table of ['node','edge','assertion','context','assertion_vertex_subject','assertion_edge_subject',...names]) {
+      for (const name of ['subject_attachment','typed_value','immutable_key']) statements.push(`DROP TRIGGER IF EXISTS "${name}" ON "${table}"`);
       trigger(table, 'graph_relations_dirty', 'graph_relations_dirty', 7, false,
         `CREATE TRIGGER graph_relations_dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_relations_dirty()`);
       trigger(table, 'graph_relations', 'graph_relations_check', 5, true,
         `CREATE CONSTRAINT TRIGGER graph_relations AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_relations_check()`);
-    }
-
-    statements.push(`CREATE OR REPLACE FUNCTION graph_value_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE a bigint; h assertion%ROWTYPE; expected_table text; has_value boolean; subject_kind text; subject_sort text;
-      BEGIN
-        a:=NEW.assertion_id; SELECT * INTO h FROM assertion WHERE assertion_id=a;
-        SELECT k.name,'vertex' INTO subject_kind,subject_sort FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=n.entity_id WHERE s.assertion_id=a;
-        IF subject_kind IS NULL THEN
-          SELECT k.name,'edge' INTO subject_kind,subject_sort FROM assertion_edge_subject s JOIN edge e ON e.id=s.edge_id JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id=a;
-        END IF;
-        expected_table := CASE ${checks.join('\n')} ELSE NULL END;
-        IF TG_TABLE_NAME <> 'assertion' THEN
-          IF h.operation <> 'assert' OR expected_table IS NULL OR TG_TABLE_NAME <> expected_table THEN
-            RAISE EXCEPTION '${import.meta.path}:43: assertion value does not match declared subject/property';
-          END IF;
-        ELSIF h.operation='assert' THEN
-          IF expected_table IS NULL THEN
-            RAISE EXCEPTION '${import.meta.path}:60: assertion requires exactly one typed value; retraction requires none';
-          END IF;
-          EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I WHERE assertion_id=$1)',expected_table) INTO has_value USING a;
-          IF NOT has_value THEN
-            RAISE EXCEPTION '${import.meta.path}:60: assertion requires exactly one typed value; retraction requires none';
-          END IF;
-        END IF;
-        RETURN NULL;
-      END $$`);
-    for (const table of ['assertion',...names]) {
-      trigger(table, 'typed_value', 'graph_value_check', 5, true,
-        `CREATE CONSTRAINT TRIGGER typed_value AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_value_check()`);
     }
 
     const keyFields = contract.vertex.flatMap(kind => kind.key.map(name => {
@@ -496,37 +563,7 @@ WITH active_edges AS MATERIALIZED (
       SELECT property,value_table,value_type FROM (VALUES ${keyFields.length === 0 ? "(NULL::text,NULL::text,NULL::text,NULL::text)" : keyFields.join(',')})
         fields(kind_name,property,value_table,value_type) WHERE kind_name=kind
       $$`);
-    statements.push(`CREATE OR REPLACE FUNCTION graph_key_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE subject_id bigint; subject_kind text; identity_key jsonb; field record; valid boolean; projected text; BEGIN
-        IF TG_TABLE_NAME='node' THEN subject_id:=NEW.id;
-        ELSE SELECT attachment.to_node INTO subject_id FROM assertion_vertex_subject s
-          JOIN edge attachment ON attachment.id=s.subject_edge_id WHERE s.assertion_id=NEW.assertion_id; END IF;
-        IF subject_id IS NULL THEN RETURN NULL; END IF;
-        SELECT k.name,n.key INTO subject_kind,identity_key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=subject_id;
-        FOR field IN SELECT * FROM graph_key_fields(subject_kind) LOOP
-          IF NOT (identity_key ? field.property) THEN
-            RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,field.property;
-          END IF;
-          projected := CASE WHEN field.value_type='jsonb' THEN '$2->$3' ELSE format('($2->>$3)::%s',field.value_type) END;
-          EXECUTE format('WITH subject_assertions AS MATERIALIZED (
-            SELECT s.assertion_id FROM edge attachment JOIN assertion_vertex_subject s ON s.subject_edge_id=attachment.id
-            WHERE attachment.to_node=$1)
-            SELECT count(v.assertion_id)>0 AND NOT coalesce(bool_or(a.operation<>''assert'' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM %s),false)
-            FROM subject_assertions s JOIN assertion a ON a.assertion_id=s.assertion_id
-            LEFT JOIN %I v ON v.assertion_id=a.assertion_id WHERE a.property=$3',projected,field.value_table)
-            INTO valid USING subject_id,identity_key,field.property;
-          IF NOT valid THEN
-            RAISE EXCEPTION '${import.meta.path}:214: IMMUTABLE_KEY missing or contradictory assertion for %.%',subject_kind,field.property;
-          END IF;
-        END LOOP;
-        RETURN NULL;
-      END $$`);
     for (const table of lookups) statements.push(`CREATE INDEX IF NOT EXISTS "${table}_lookup" ON "${table}"(value)`);
-    const keyTables = contract.vertex.flatMap(kind => kind.key.map(name => assertionValueTableName(kind.name,'vertex',name)));
-    for (const table of ['node','assertion','assertion_vertex_subject',...keyTables]) {
-      trigger(table, 'immutable_key', 'graph_key_check', 5, true,
-        `CREATE CONSTRAINT TRIGGER immutable_key AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_key_check()`);
-    }
     const entityStatement = `INSERT INTO entity(name,sort,repeats,discriminator)
       SELECT name,sort,repeats,discriminator FROM jsonb_to_recordset($1::jsonb)
         AS kinds(name text,sort text,repeats boolean,discriminator text)
