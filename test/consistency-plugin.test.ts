@@ -230,7 +230,9 @@ beforeAll(async () => {
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
   owner = await createTestDatabaseOwner({ authenticated:false, btreeGist: true, graphContract: graphContractOf(declared.manifest) });
-});
+  // Bounds fixture preparation plus one contract template per run; three measured hooks
+  // took 4.884 s, 5.470 s and 4.868 s: 3 × max, rounded up to 10 s, with a 30 s floor.
+}, 30_000);
 
 afterAll(async () => {
   await owner?.close();
