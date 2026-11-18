@@ -148,22 +148,23 @@ describe('the recorded baselines', () => {
         { text: '{\n  "baselines": {}\n}', location: `${path}:1:1`, pointer: '/schema' },
         { text: '{\n  "schema": 1,\n  "environment": 4,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/environment' },
         { text: '{\n  "schema": 1\n}', location: `${path}:1:1`, pointer: '/baselines' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": 2\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": 2\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/x' },
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "extra": 1 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/extra' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 0, "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2.5 }\n  }\n}', location: `${path}:4:33`, pointer: '/baselines/x/runs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "note": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/note' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "runs": 3 }\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x/medianMs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": -1, "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": "bad", "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1 }\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x/runs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2 }\n  }\n}', location: `${path}:4:33`, pointer: '/baselines/x/runs' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "measuredAt": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/measuredAt' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "commit": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/commit' },
-        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "wat": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/wat' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 0, "runs": 3 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2.5 }\n  }\n}', location: `${path}:4:27`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "note": 4 }\n  }\n}', location: `${path}:4:38`, pointer: '/baselines/x/note' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "runs": 3 }\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": -1, "runs": 3 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": "bad", "runs": 3 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1e999, "runs": 3 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1 }\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2 }\n  }\n}', location: `${path}:4:27`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "measuredAt": 4 }\n  }\n}', location: `${path}:4:38`, pointer: '/baselines/x/measuredAt' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "commit": 4 }\n  }\n}', location: `${path}:4:38`, pointer: '/baselines/x/commit' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "wat": 4 }\n  }\n}', location: `${path}:4:38`, pointer: '/baselines/x/wat' },
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "__proto__": 5\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/__proto__' },
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "toString": 5\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/toString' },
-        { text: '{\n  "schema": 1,\n  "baselines": []\n}', location: `${path}:3:15`, pointer: '/baselines' },
+        { text: '{\n  "schema": 1,\n  "baselines": []\n}', location: `${path}:3:3`, pointer: '/baselines' },
         { text: '{\n  "schema": 1,\n  "extra": 1,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/extra' },
       ];
       for (const item of cases) {
@@ -173,11 +174,17 @@ describe('the recorded baselines', () => {
           const message = (error as Error).message;
           const [file, line] = item.location.split(':');
           if (!message.startsWith(`${file}:${line}:`)) throw new Error(`expected ${item.location}; got ${message}`);
-          expect(Number(message.slice(`${file}:${line}:`.length).split(' ')[0])).toBeGreaterThan(0);
+          const actualColumn = Number(message.slice(`${file}:${line}:`.length).split(' ')[0]);
+          expect(actualColumn).toBe(Number(item.location.split(':').at(-1)));
           expect(message).toContain(` ${item.pointer}:`);
         }
       }
     } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  test('read failure includes the resolved full path', () => {
+    const path = resolve(join(tmpdir(), 'absent-baselines-file.json'));
+    expect(() => readBaselines(path)).toThrow(path);
   });
 
   test('locates distinct JSON syntax failures rather than reporting a fixed parser location', () => {
