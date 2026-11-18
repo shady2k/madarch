@@ -1,0 +1,6 @@
+{
+  "$schema": "./baselines.schema.json",
+  "schema": 1,
+  "environment": "GitHub Actions ubuntu-24.04, 4 vCPU; medians are recorded after the 0039 stack lands (plan ALX-340, row A8)",
+  "baselines": {}
+}
