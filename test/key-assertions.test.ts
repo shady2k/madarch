@@ -92,20 +92,25 @@ test('scalar keys are immutable asserted facts with complete source history, not
 }, 60_000);
 
 
-test('0039.28: key validation body is independent of unrelated key declarations', async () => {
-  const owner = await createTestDatabaseOwner({ graphContract: contract });
+test('0039.28: schema changes regenerate the static key validation plan', async () => {
+  const { generateContractStatements } = await import('../src/adapters/schemas/graph-definition.js');
+  const before = generateContractStatements(contract).statements.find(sql => sql.includes('FUNCTION graph_checks_pass()'))!;
+  const expanded: GraphContract = { ...contract, vertex: [...contract.vertex, {
+    name: 'unrelated-key', table: generatedTableName('unrelated-key', 'vertex'), key: ['code'],
+    fields: [{ name: 'code', type: 'bigint' }], capability: 'fixture',
+  }] };
+  const after = generateContractStatements(expanded).statements.find(sql => sql.includes('FUNCTION graph_checks_pass()'))!;
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
   try {
-    const body = async () => await owner.run(async tx => (await tx.query<{ body: string }>(
-      "SELECT prosrc AS body FROM pg_proc WHERE oid='graph_key_check()'::regprocedure")).rows[0]!.body);
-    const before = await body();
     const { prepareGraphSchema } = await import('../src/adapters/schemas/graph.js');
-    await prepareGraphSchema(owner, { ...contract, vertex: [...contract.vertex, {
-      name: 'unrelated-key', table: generatedTableName('unrelated-key', 'vertex'), key: ['code'],
-      fields: [{ name: 'code', type: 'bigint' }], capability: 'fixture',
-    }] });
-    expect(await body()).toBe(before);
-    await expect(owner.transaction('write', async tx => {
-      await ensureVertex(tx, contract, { kind: 'keyed', key: { name: 'still-unasserted' } });
-    })).rejects.toThrow('IMMUTABLE_KEY');
+    await prepareGraphSchema(owner, expanded);
+    for (const [kind, key] of [['keyed', { name: 'unconfirmed' }], ['unrelated-key', { code: 7 }]] as const) {
+      await expect(owner.transaction('write', async tx => {
+        await bindTestWriteCapability(tx, expanded);
+        await ensureVertex(tx, expanded, { kind, key });
+      })).rejects.toThrow('IMMUTABLE_KEY');
+    }
   } finally { await owner.close(); }
+  expect(before).not.toMatch(/\bEXECUTE\b/i);
+  expect(after).not.toMatch(/\bEXECUTE\b/i);
 }, 60_000);
