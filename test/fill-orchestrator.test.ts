@@ -36,7 +36,7 @@ import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { fixtureOperations, writeFixtureFact } from './fill-operation-fixture.js';
-import { operationReceipt } from '../src/graph/operation-host.js';
+import { AttemptStaleError, operationReceipt } from '../src/graph/operation-host.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 
 async function recordUnitRead(database:Parameters<typeof recordUnitReads>[0], input:Parameters<typeof recordUnitReads>[1][number]) {
@@ -93,16 +93,19 @@ async function openWorld(options: {
   owner?: TestDatabaseOwner;
   /** The clock the run reads; a test that reopens a world over one owner moves one clock across both. */
   clock?: ReturnType<typeof testClock>;
+  queueFactory?: (queue: QueueService) => QueueService;
 }): Promise<World> {
   const lent = options.owner !== undefined;
   const owner = options.owner ?? await createTestDatabaseOwner();
 
   await createOrchestratorSchema(owner);
-  const queue = await createPgBossQueue({ owner, supervise: false });
+  const baseQueue = await createPgBossQueue({ owner, supervise: false });
+  const queue = options.queueFactory?.(baseQueue) ?? baseQueue;
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
   await queue.declare({
     name: QUEUE,
-    leaseSeconds: 60,
+    leaseSeconds: limits.attemptSeconds,
+    heartbeatSeconds: Math.max(10, limits.heartbeatSeconds),
     retries: 0,
     retryDelaySeconds: 0,
     retryBackoff: false,
@@ -1692,6 +1695,147 @@ describe('immediate operation transactions (decision 0039)', () => {
     expect((await startRun(opened.orchestrator, { runId })).ok).toBe(true);
     expect((await readRun(opened.owner, runId))?.state).toBe('running');
     expect((await readRunUnits(opened.owner, runId)).some(unit => !isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('a stage longer than the old claim still publishes', async () => {
+    let expire: () => Promise<void>;
+    const stage = writingStage('snapshot', { units: ['src'] });
+    const execute = stage.execute;
+    stage.execute = async (...args) => { await expire(); return await execute(...args); };
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    expire = async () => { await opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = clock_timestamp() - interval '61 seconds' WHERE name = $1 AND state = 'active'`, [QUEUE])); };
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+  });
+
+  test.each(['retry', 'complete'] as const)('a lapsed claim is refused on %s without an operation', async path => {
+    let expire: () => Promise<void>;
+    let unitUid: string | undefined;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context) => {
+        unitUid = context.operationUnitUid;
+        await expire();
+        if (path === 'retry') throw new Error('stage failed after expiry');
+        return { outcome: 'draft' };
+      },
+    });
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    expire = async () => { await opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = clock_timestamp() - (expire_seconds + 1) * interval '1 second' WHERE name = $1 AND state = 'active'`, [QUEUE])); };
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
+    expect(await opened.owner.transaction('snapshot', tx => operationReceipt(tx, EMPTY_CONTRACT, unitUid!, path === 'retry' ? 'retry:0' : 'complete'))).toBeUndefined();
+  });
+
+  test('heartbeat runs through the whole attempt and stops afterwards', async () => {
+    let heartbeats = 0;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async () => { heartbeats = 0; await Bun.sleep(600); expect(heartbeats).toBeGreaterThanOrEqual(2); return { outcome: 'draft' }; },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage),
+      limits: { heartbeatSeconds: 0.6 },
+      queueFactory: queue => new Proxy(queue, {
+        get: (target, key) => {
+          if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => { heartbeats++; return await target.heartbeat(...args); };
+          const value = Reflect.get(target, key, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+    const finished = heartbeats;
+    await Bun.sleep(400);
+    expect(heartbeats).toBe(finished);
+  });
+
+  test.each(['refused', 'rejected'] as const)('heartbeat %s aborts the attempt and stops touching', async mode => {
+    const failure = new Error('heartbeat storage failure');
+    let heartbeats = 0;
+    let aborted = false;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context) => {
+        await new Promise<void>(resolve => {
+          if (context.signal.aborted) { aborted = true; resolve(); }
+          else context.signal.addEventListener('abort', () => { aborted = true; resolve(); }, { once: true });
+        });
+        return { outcome: 'draft' };
+      },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 },
+      queueFactory: queue => new Proxy(queue, {
+        get: (target, key) => {
+          if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => {
+            heartbeats++;
+            if (heartbeats === 1) return await target.heartbeat(...args);
+            if (mode === 'rejected') throw failure;
+            return false;
+          };
+          const value = Reflect.get(target, key, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    const work = workOnce(opened.orchestrator, { worker: 'worker-1' });
+    if (mode === 'rejected') await expect(work).rejects.toBe(failure);
+    else await work;
+    expect(aborted).toBe(true);
+    const finished = heartbeats;
+    await Bun.sleep(400);
+    expect(heartbeats).toBe(finished);
+  });
+
+  test('attempt cleanup drains a deferred heartbeat rejection', async () => {
+    const failure = new Error('deferred heartbeat failure');
+    let heartbeatStarted!: () => void;
+    const touched = new Promise<void>(resolve => { heartbeatStarted = resolve; });
+    let rejectTouch!: (error: Error) => void;
+    let calls = 0;
+    const deferred = new Promise<boolean>((_resolve, reject) => { rejectTouch = reject; });
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async () => { await touched; return { outcome: 'draft' }; },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 },
+      queueFactory: queue => new Proxy(queue, {
+        get: (target, key) => {
+          if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => {
+            if (++calls === 1) return await target.heartbeat(...args);
+            heartbeatStarted();
+            return await deferred;
+          };
+          const value = Reflect.get(target, key, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    let finished = false;
+    const work = workOnce(opened.orchestrator, { worker: 'worker-1' }).finally(() => { finished = true; });
+    await touched;
+    await Bun.sleep(500);
+    const returnedBeforeHeartbeat = finished;
+    rejectTouch(failure);
+    await expect(work).rejects.toBe(failure);
+    expect(returnedBeforeHeartbeat).toBe(false);
+  });
+
+  test('a typed stale stage operation is refused without retrying', async () => {
+    let unitUid: string | undefined;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context) => { unitUid = context.operationUnitUid; throw new AttemptStaleError('stage operation lost its claim'); },
+    });
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
+    expect(await opened.owner.transaction('snapshot', tx => operationReceipt(tx, EMPTY_CONTRACT, unitUid!, 'retry:0'))).toBeUndefined();
   });
 
   test('a worker killed inside its attempt is retried after the queue expires its claim', async () => {

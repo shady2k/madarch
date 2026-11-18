@@ -157,7 +157,7 @@ const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
 export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
-export const RUN_JOB_HEARTBEAT_SECONDS = 30;
+
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
@@ -226,7 +226,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        await opened.declare({ name: queueName, leaseSeconds: limits.attemptSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+        await opened.declare({ name: queueName, leaseSeconds: limits.attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };

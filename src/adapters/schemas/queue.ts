@@ -1,4 +1,5 @@
 import { withSpan } from '../../obs/trace.js';
+import { UNIT_JOB_ATTEMPT_SECONDS, RUN_JOB_HEARTBEAT_SECONDS } from '../../fill/queue-limits.js';
 /** Queue installation. Only central store preparation calls prepareQueueSchema. */
 import { PgBoss } from 'pg-boss';
 import type { DatabaseOwner } from '../database-owner.js';
@@ -11,7 +12,7 @@ import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, MANUAL_GRAPH_QUEUE, ownerDatab
 const FILL_QUEUES: readonly QueueDeclaration[] = [
   MANUAL_GRAPH_QUEUE,
   { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
-  { name: 'fill-units', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
+  { name: 'fill-units', leaseSeconds: UNIT_JOB_ATTEMPT_SECONDS, heartbeatSeconds: RUN_JOB_HEARTBEAT_SECONDS, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
 ];
 
 export interface QueueSchemaOptions {

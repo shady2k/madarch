@@ -16,6 +16,9 @@ import { reconcileDisputes } from './disputes.js';
 import type { ClaimedJob, EnqueueRequest, QueueService } from '../fill/queue.js';
 
 const WHERE = new URL(import.meta.url).pathname;
+
+/** A fenced operation cannot write after its queue attempt loses authority. */
+export class AttemptStaleError extends Error {}
 export interface OperationRequest {
   readonly key: string;
   readonly request: unknown;
@@ -169,7 +172,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
           if(request.completion&&await options.queue.fence(options.job,tx))await options.queue.complete(options.job.queue,options.job,request.completion.output,tx);
           return (receipt.result === undefined ? undefined : JSON.parse(receipt.result)) as Result;
         }
-        if(!await options.queue.fence(options.job,tx))throw new Error(`${WHERE}:84: ATTEMPT_STALE`);
+        if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:84: ATTEMPT_STALE`);
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
         const locked=await tx.query('SELECT id FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[uids]);
         const runState=await selected(tx,'system.run',options.runUid,'state',context),unitState=await selected(tx,'system.unit',options.unitUid,'state',context);
@@ -208,7 +211,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
             }
             await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,assertionUids.outcome!,String(await selected(tx,'system.unit',options.unitUid,'plan_scope',context) ?? await selected(tx,'system.unit',options.unitUid,'scope',context) ?? options.unitUid));
           }
-          if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new Error(`${WHERE}:106: ATTEMPT_STALE completion`);
+          if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
         }
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
@@ -221,6 +224,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
 /** Serialize queue-start metadata with graph writes under the same active attempt. */
 export async function fencedAttemptStart<Result>(queue:QueueService,job:ClaimedJob,tx:OuterTransaction,apply:()=>Promise<Result>):Promise<Result>{
  await acquireGraphWriteLock(tx);
- if(!await queue.fence(job,tx))throw new Error(`${WHERE}:190: ATTEMPT_STALE start`);
+ if(!await queue.fence(job,tx))throw new AttemptStaleError(`${WHERE}:190: ATTEMPT_STALE start`);
  return await apply();
 }
