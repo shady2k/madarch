@@ -444,6 +444,7 @@ describe('the architecture check', () => {
       { importer: 'test/require.test.ts', content: ["require('./base.test.ts');"], token: 'base.test.ts', source: 'test/base.test.ts' },
       { importer: 'test/reexport.test.ts', content: ["export { x } from './base.test.js';"], token: 'base.test.js', source: 'test/base.test.ts' },
       { importer: 'test/dynamic.test.ts', content: ["void import('./base.test.js');"], token: 'base.test.js', source: 'test/base.test.ts' },
+      { importer: 'test/direct.test.ts', content: ["import { test } from './base.test.js';"], token: 'base.test.js', source: 'test/base.test.ts' },
       { importer: 'test/chain.test.ts', content: ["import './helper.js';"], token: 'helper.js', source: 'test/base.test.ts' },
     ];
     writeModule(root, 'test/helper.ts', ["export { x } from './base.test.js';"]);
@@ -460,7 +461,11 @@ describe('the architecture check', () => {
       expect(diagnostic).toContain(item.source);
       if (item.importer === 'test/chain.test.ts') {
         expect(report.comparison.unlisted[0]?.symbol).toBe('test/chain.test.ts:1 → test/helper.ts:1 → test/base.test.ts:1');
-        expect(diagnostic).toContain('test/chain.test.ts:1 → test/helper.ts:1 → test/base.test.ts:1');
+        expect(diagnostic).toContain('test/chain.test.ts imports the test file test/base.test.ts through test/helper.ts (test/chain.test.ts:1 → test/helper.ts:1 → test/base.test.ts:1)');
+      }
+      if (item.importer === 'test/direct.test.ts') {
+        expect(diagnostic).toContain('test/direct.test.ts imports the test file test/base.test.ts');
+        expect(diagnostic).not.toContain(' through ');
       }
       rmSync(join(root, item.importer));
     }

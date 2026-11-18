@@ -243,8 +243,14 @@ function describe(violation: ArchitectureViolation): string {
       return `${violation.file} spells ${JSON.stringify(violation.symbol ?? '?')}, a kind id, kind name or field name the starter catalogue declares, and the engine holds no product data: the catalogue is the product's, read from its own files`;
     case 'no-regex':
       return `${violation.file} parses text with the regular expression ${violation.symbol ?? '?'}, and the engine parses with a syntax tree, never with a pattern`;
-    case 'no-test-file-imports':
-      return `${violation.file} imports the test file ${violation.symbol ?? '?'}, and bun registers every case it reaches: test code two files share is a helper module, not a *.test.ts`;
+    case 'no-test-file-imports': {
+      const chain = violation.symbol ?? '?';
+      const paths = chain.split(' → ');
+      const target = (paths[paths.length - 1] ?? '?').slice(0, (paths[paths.length - 1] ?? '?').lastIndexOf(':'));
+      if (paths.length === 2) return `${violation.file} imports the test file ${target}, and bun registers every case it reaches: test code two files share is a helper module, not a *.test.ts`;
+      const helpers = paths.slice(1, -1).map((step) => step.slice(0, step.lastIndexOf(':'))).join(', ');
+      return `${violation.file} imports the test file ${target} through ${helpers} (${chain}), and bun registers every case it reaches: test code two files share is a helper module, not a *.test.ts`;
+    }
     case 'one-table-source':
       return `${violation.file} creates the table ${violation.symbol ?? '?'}, and only the graph core's installation and the generator from the manifest make a table: everything else is a vertex or an edge`;
     case 'catalogue-pointers':

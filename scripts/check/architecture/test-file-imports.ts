@@ -6,8 +6,8 @@
  * `*.test.ts` (test/product-cli-helpers.ts is one).
  *
  * The finding is read from the import graph: a test case file's own syntax tree
- * (imports.ts) names every specifier it writes, static imports, re-exports and
- * dynamic `import()` alike, and the modules of `test/` resolve it to the file it
+ * (imports.ts) names every specifier it writes, static imports, re-exports, dynamic
+ * `import()` and CommonJS `require()` alike, and the modules of `test/` resolve it to the file it
  * names (sources.ts). Only the repository's own `test/` folder is walked, in code
  * point order, and the line comes from the statement's own byte offset: nothing is
  * read from a pattern over the text.
@@ -48,7 +48,6 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
           const key = `${file}\u0000${target}`;
           if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file, line: chain[0]?.line ?? statement.line, symbol });
         } else if (!visited.has(target)) {
-          visited.add(target);
           visited.add(target);
           pending.push({ file: target, chain });
         }
