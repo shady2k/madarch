@@ -18,6 +18,8 @@ import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-ow
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
+import { readKinds } from '../product/manifest/kinds.js';
+import { unitJobAttemptSeconds } from './queue-limits.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
@@ -158,7 +160,6 @@ const DEFAULT_FILL_QUEUE = 'fill-units';
 /** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
 export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
 
-
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
 
@@ -226,7 +227,6 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        await opened.declare({ name: queueName, leaseSeconds: limits.attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };
@@ -251,6 +251,12 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
+    const kinds = readKinds(product.folder);
+    let attemptSeconds = limits.attemptSeconds;
+    if (kinds.present) for (const plugin of kinds.manifest.plugins?.values() ?? []) {
+      attemptSeconds = Math.max(attemptSeconds, unitJobAttemptSeconds(plugin.bounds?.minutes));
+    }
+    await queue.declare({ name: queueName, leaseSeconds: attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
     const built = createOrchestrator({
       database: { transaction: owner.transaction.bind(owner), graphContract: wiring.graphContract },
       registry,

@@ -1526,15 +1526,25 @@ async function attemptUnitPhases(
   // The queue's own answer first, before this attempt takes anything: a claim the queue already handed to
   // another worker must not leave a lease, a start or a spent retry behind it.
   if (!(await orchestrator.queue.heartbeat(orchestrator.queueName, request.job))) {
-    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the claim of job ${request.job.id} is no longer this worker's before ${unit.unitId} attempt ${unit.context.attempt + 1} ran, so the attempt spends nothing` }, job: 'none' };
+    return await claimLapsed(orchestrator, unit, request.job, `before attempt ${unit.context.attempt + 1} ran, so the attempt spends nothing`);
   }
   const fence=request.job.attempt;
-  const started = await writeOrchestration(database,async tx=>await fencedAttemptStart(orchestrator.queue,request.job,tx,async()=>await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'start',at,generation:unit.generation,fence}})));
+  const started = await writeOrchestration(database, async tx => {
+    try {
+      return await fencedAttemptStart(orchestrator.queue, request.job, tx, async () => await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'start', at, generation: unit.generation, fence } }));
+    } catch (error) {
+      if (error instanceof AttemptStaleError) return error;
+      throw error;
+    }
+  });
+  if (started instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, started.message);
   if (!started.ok) {
     await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: `the start was refused: ${started.refusal.reason}` });
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: started.refusal.code, reason: started.refusal.reason }, job: 'completed' };
   }
   const controller = new AbortController();
+  let terminalWritten = false;
+  let attemptRaised = false;
   let heartbeatFailure: { error: unknown } | undefined;
   let touching: Promise<void> | undefined;
   const touch = setInterval(() => {
@@ -1691,7 +1701,10 @@ async function attemptUnitPhases(
         await emit(orchestrator, { runId: unit.runId, at: note.at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-progress', summary: note.fraction === null ? note.note : `${note.note} (${Math.round(note.fraction * 100)}%)` });
       }
     }
-    if (heartbeatFailure !== undefined) throw heartbeatFailure.error;
+    if (heartbeatFailure !== undefined) {
+      if (raised !== undefined) throw new AggregateError([raised, heartbeatFailure.error], `the stage raised: ${raised.message}; heartbeat failed`);
+      throw heartbeatFailure.error;
+    }
     // A unit a bound of its own run stopped fails here, with that reason: another attempt meets the same bound, and a retry
     // loop that only waits out the wall is no work at all (owner's decision, 2026-11-15).
     if (bound !== undefined) {
@@ -1701,12 +1714,16 @@ async function attemptUnitPhases(
         const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}},writeContext);
         if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1660: FAILURE_CONFLICT ${step.refusal.reason}`);
       });
-      if(failed)await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
-      return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:failed?'failed':'refused',summary:bound.message,job:failed?'failed':'none'};
+      if (!failed) return await claimLapsed(orchestrator, unit, request.job, bound.message);
+      terminalWritten = true;
+      await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
+      return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'failed',summary:bound.message,job:'failed'};
     }
-    if (raised instanceof AttemptStaleError) return claimLapsed(unit, request.job);
+    if (raised instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, raised.message);
     if (raised !== undefined || result === undefined) {
-      return await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${raised?.message ?? 'it answered nothing'}`, summary: `${unit.unitId} raised: ${raised?.message ?? 'it answered nothing'}` });
+      const retried = await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${raised?.message ?? 'it answered nothing'}`, summary: `${unit.unitId} raised: ${raised?.message ?? 'it answered nothing'}` });
+      terminalWritten = retried.job !== 'none';
+      return retried;
     }
 
     if (result.outcome === 'blocked') {
@@ -1730,21 +1747,30 @@ async function attemptUnitPhases(
           return {completed:true};
         });
       } catch (error) {
-        if (error instanceof AttemptStaleError) return claimLapsed(unit, request.job);
+        if (error instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, error.message);
         throw error;
       }
+      terminalWritten = true;
       await emit(orchestrator,{runId:unit.runId,at:orchestrator.clock(),stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-published',summary:`${unit.unitId} completed; accepted operations remain visible`});
       return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'published',job:'completed'};
     }
+  } catch (error) {
+    attemptRaised = true;
+    throw error;
   } finally {
     clearInterval(touch);
     await touching;
-    if (heartbeatFailure !== undefined) throw heartbeatFailure.error;
+    if (heartbeatFailure !== undefined) {
+      if (!terminalWritten && !attemptRaised) throw heartbeatFailure.error;
+      annotateSpan({ 'madarch.heartbeatFailure': String(heartbeatFailure.error) });
+    }
   }
 }
 
-function claimLapsed(unit: UnitRecord, job: ClaimedJob): WorkOutcome {
-  return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the claim of job ${job.id} lapsed during ${unit.unitId}` }, job: 'none' };
+async function claimLapsed(orchestrator: FillOrchestrator, unit: UnitRecord, job: ClaimedJob, stageReason?: string): Promise<WorkOutcome> {
+  const refusal = { code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the claim of job ${job.id} lapsed during ${unit.unitId}${stageReason === undefined ? '' : `: ${stageReason}`}` };
+  await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-refused', summary: `${refusal.code}: ${refusal.reason}. The queue no longer held its claim, so the queue's own maintenance owns it` });
+  return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal, job: 'none' };
 }
 
 /** Sends one attempt into a retry wait, or fails the generation when no retry is left. */
@@ -1762,7 +1788,7 @@ async function retryAttempt(
       const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}},writeContext);
       if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1800: FAILURE_CONFLICT ${step.refusal.reason}`);
     });
-    if (!failed) return claimLapsed(unit, request.job);
+    if (!failed) return await claimLapsed(orchestrator, unit, request.job, request.reason);
     await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:request.reason});
     return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:failed?'failed':'refused',summary:request.reason,job:failed?'failed':'none'};
   }
@@ -1776,7 +1802,7 @@ async function retryAttempt(
       return true;
     });
   } catch (error) {
-    if (error instanceof AttemptStaleError) return claimLapsed(unit, request.job);
+    if (error instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, request.reason);
     throw error;
   }
   await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${request.summary}; the attempt is retried at ${retryAt}` });

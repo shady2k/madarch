@@ -1,6 +1,6 @@
+/** Queue installation. Only central store preparation calls prepareQueueSchema. */
 import { withSpan } from '../../obs/trace.js';
 import { UNIT_JOB_ATTEMPT_SECONDS, RUN_JOB_HEARTBEAT_SECONDS } from '../../fill/queue-limits.js';
-/** Queue installation. Only central store preparation calls prepareQueueSchema. */
 import { PgBoss } from 'pg-boss';
 import type { DatabaseOwner } from '../database-owner.js';
 import type { QueueDeclaration } from '../../fill/queue.js';

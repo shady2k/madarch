@@ -31,6 +31,8 @@ import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snaps
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
 import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, protocolMessageProblem, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
 
+import { DEFAULT_HOST_LIMITS, type HostLimits } from './host-limits.js';
+
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/host.ts';
 
@@ -38,7 +40,6 @@ const WHERE = 'src/plugin/host.ts';
 const READ_DEADLINE_MS = 20_000;
 
 export type { HostLimits } from './host-limits.js';
-import { DEFAULT_HOST_LIMITS, type HostLimits } from './host-limits.js';
 
 /** The product's concurrency setting (decision 0035, item 13): plugins at once, and units per plugin. */
 export interface HostSettings {
