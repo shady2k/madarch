@@ -47,8 +47,7 @@ export interface Baselines {
 /** A limit the owner named, with the owner's words it rests on. */
 export interface AbsoluteLimit {
   readonly ms: number;
-  /** Review reference, a pipe, then the owner's verbatim words. */
-  readonly source: string;
+  readonly source: { readonly ref: string; readonly quote: string };
 }
 
 export interface MeasureOptions {
@@ -85,56 +84,105 @@ export function median(samples: readonly number[]): number {
   return (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
-/** Read a baselines file; `test/measure/baselines.json` unless a test names another. */
+/** JSON source positions, indexed by JSON pointer. */
+type Position = { line: number; column: number };
+
+function locateJson(text: string): Map<string, Position> {
+  const positions = new Map<string, Position>();
+  let index = 0;
+  const position = (): Position => {
+    const before = text.slice(0, index);
+    const line = before.split('\n').length;
+    return { line, column: index - before.lastIndexOf('\n') };
+  };
+  const whitespace = (): void => { while (index < text.length && ' \t\r\n'.includes(text[index]!)) index += 1; };
+  const string = (): string => {
+    const start = index++;
+    while (index < text.length) {
+      if (text[index] === '\\') { index += 2; continue; }
+      if (text[index++] === '"') break;
+    }
+    return JSON.parse(text.slice(start, index)) as string;
+  };
+  const pointer = (parts: string[]): string => '/' + parts.map((part) => part.replaceAll('~', '~0').replaceAll('/', '~1')).join('/');
+  const value = (parts: string[]): void => {
+    whitespace();
+    if (!positions.has(pointer(parts))) positions.set(pointer(parts), position());
+    if (text[index] === '{') {
+      index++; whitespace();
+      while (text[index] !== '}') {
+        whitespace(); const keyPosition = position(); const key = string();
+        whitespace(); index++; whitespace();
+        positions.set(pointer([...parts, key]), keyPosition);
+        value([...parts, key]); whitespace();
+        if (text[index] === ',') { index++; continue; }
+        break;
+      }
+      index++; return;
+    }
+    if (text[index] === '[') {
+      index++; whitespace(); let item = 0;
+      while (text[index] !== ']') { value([...parts, String(item++)]); whitespace(); if (text[index] === ',') { index++; continue; } break; }
+      index++; return;
+    }
+    if (text[index] === '"') { string(); return; }
+    while (index < text.length && !',}:] \t\r\n'.includes(text[index]!)) index++;
+  };
+  value([]);
+  return positions;
+}
+
+/** Read a baselines file; locations come from scanning the original JSON, never parser stacks. */
 export function readBaselines(path: string = BASELINES_PATH): Baselines {
   const absolutePath = resolve(path);
   let text: string;
-  try {
-    text = readFileSync(absolutePath, 'utf8');
-  } catch (error) {
-    throw new Error(`${absolutePath}: the baselines cannot be read: ${(error as Error).message}`);
-  }
+  try { text = readFileSync(absolutePath, 'utf8'); }
+  catch (error) { throw new Error(`${absolutePath}: the baselines cannot be read: ${(error as Error).message}`); }
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`${path}: the baselines are not JSON: ${(error as Error).message}`);
-  }
-  return parseBaselines(parsed, path);
+  try { parsed = JSON.parse(text); }
+  catch { throw new Error(`${absolutePath}:1:1 /: the baselines are not valid JSON`); }
+  const positions = locateJson(text);
+  return validateBaselines(parsed, absolutePath, positions);
 }
 
 const ROOT_FIELDS = ['$schema', 'schema', 'environment', 'baselines'] as const;
 const ENTRY_FIELDS = ['medianMs', 'runs', 'measuredAt', 'commit', 'note'] as const;
 
-/** Check a parsed baselines file against the schema beside it. */
+/** Check a parsed file against the runtime schema and identify the offending JSON pointer. */
 export function parseBaselines(value: unknown, path: string = BASELINES_PATH): Baselines {
-  const object = (candidate: unknown, where: string): Record<string, unknown> => {
-    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) throw new Error(`${where} must be an object`);
+  return validateBaselines(value, path, new Map());
+}
+
+function validateBaselines(value: unknown, path: string, positions: Map<string, Position>): Baselines {
+  const fail = (pointer: string, message: string): never => {
+    const loc = positions.get(pointer) ?? positions.get('/') ?? { line: 1, column: 1 };
+    throw new Error(`${path}:${loc.line}:${loc.column} ${pointer}: ${message}`);
+  };
+  const object = (candidate: unknown, pointer: string): Record<string, unknown> => {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) fail(pointer, 'must be an object');
     return candidate as Record<string, unknown>;
   };
-  const root = object(value, `${path}: the root`);
-  for (const key of Object.keys(root)) {
-    if (!(ROOT_FIELDS as readonly string[]).includes(key)) throw new Error(`${path}: unknown field \`${key}\``);
-  }
-  if (Object.hasOwn(root, '$schema') && typeof root['$schema'] !== 'string') throw new Error(`${path}: \`$schema\` must be a string`);
-  if (!Object.hasOwn(root, 'schema') || root['schema'] !== 1) throw new Error(`${path}: \`schema\` must be 1`);
-  if (root['environment'] !== undefined && typeof root['environment'] !== 'string') throw new Error(`${path}: \`environment\` must be a string`);
-  const entries = object(root['baselines'], `${path}: \`baselines\``);
+  const root = object(value, '/');
+  for (const key of Object.keys(root)) if (!(ROOT_FIELDS as readonly string[]).includes(key)) fail(`/${key}`, 'unknown field');
+  if (Object.hasOwn(root, '$schema') && typeof root['$schema'] !== 'string') fail('/$schema', 'must be a string');
+  if (!Object.hasOwn(root, 'schema') || root['schema'] !== 1) fail('/schema', 'must be 1');
+  if (root['environment'] !== undefined && typeof root['environment'] !== 'string') fail('/environment', 'must be a string');
+  const entries = object(root['baselines'], '/baselines');
   const baselines = Object.create(null) as Record<string, Baseline>;
   for (const [name, candidate] of Object.entries(entries)) {
-    const where = `${path}: baseline \`${name}\``;
-    const entry = object(candidate, where);
-    for (const key of Object.keys(entry)) {
-      if (!(ENTRY_FIELDS as readonly string[]).includes(key)) throw new Error(`${where}: unknown field \`${key}\``);
-    }
-    const medianMs = entry['medianMs'];
-    if (typeof medianMs !== 'number' || !Number.isFinite(medianMs) || medianMs <= 0) throw new Error(`${where}: \`medianMs\` must be a positive number`);
-    const runs = entry['runs'];
-    if (typeof runs !== 'number' || !Number.isInteger(runs) || runs < 3) throw new Error(`${where}: \`runs\` must be an integer of at least 3`);
+    const base = `/baselines/${name.replaceAll('~', '~0').replaceAll('/', '~1')}`;
+    const entry = object(candidate, base);
+    for (const key of Object.keys(entry)) if (!(ENTRY_FIELDS as readonly string[]).includes(key)) fail(`${base}/${key}`, 'unknown field');
+    const medianValue = entry['medianMs'];
+    if (typeof medianValue !== 'number' || !Number.isFinite(medianValue) || medianValue <= 0) fail(`${base}/medianMs`, 'must be a positive number');
+    const medianMs = medianValue as number;
+    const runsValue = entry['runs'];
+    if (typeof runsValue !== 'number' || !Number.isInteger(runsValue) || runsValue < 3) fail(`${base}/runs`, 'must be an integer of at least 3');
+    const runs = runsValue as number;
     const optional: { measuredAt?: string; commit?: string; note?: string } = {};
     for (const key of ['measuredAt', 'commit', 'note'] as const) {
       const field = entry[key];
-      if (field !== undefined && typeof field !== 'string') throw new Error(`${where}: \`${key}\` must be a string`);
+      if (field !== undefined && typeof field !== 'string') fail(`${base}/${key}`, 'must be a string');
       if (typeof field === 'string') optional[key] = field;
     }
     baselines[name] = { medianMs, runs, ...optional };
@@ -150,8 +198,16 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
   const absolute = options.absolute;
   if (absolute !== undefined) {
     if (!Number.isFinite(absolute.ms) || absolute.ms <= 0) here(`\`${name}\`: the absolute limit must be a positive number of milliseconds`);
-    const separator = absolute.source.indexOf(' | ');
-    if (separator < 1 || absolute.source.slice(separator + 3).trim() === '') here(`\`${name}\`: absolute source must be \`review-reference | verbatim-owner-quote\``);
+    const { ref, quote } = absolute.source;
+    const match = ref.match(/^(.+):(\d+)$/u);
+    if (match === null || quote === '' || ['TODO', 'TBD', '…'].includes(quote)) here(`${import.meta.path}: invalid absolute source; expected a file:line reference and non-placeholder quote`);
+    const reference = match!;
+    const sourcePath = resolve(reference[1]!);
+    let sourceLines: string[] = [];
+    try { sourceLines = readFileSync(sourcePath, 'utf8').split('\n'); }
+    catch { here(`${sourcePath}:${reference[2]}: absolute source reference cannot be read`); }
+    const line = sourceLines[Number(reference[2]) - 1];
+    if (line === undefined || !line.includes(quote)) here(`${sourcePath}:${reference[2]}: quoted source is not present on the referenced line`);
   }
   const baselines = options.baselines ?? readBaselines();
   const baseline = Object.hasOwn(baselines.baselines, name) ? baselines.baselines[name] : undefined;
@@ -168,13 +224,10 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
   const medianMs = median(samples);
   const allowed = baseline.medianMs * BASELINE_FACTOR;
   if (absolute !== undefined && medianMs > absolute.ms) {
-    throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above the absolute limit ${milliseconds(absolute.ms)} ms — source: ${absolute.source}`);
+    throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above the absolute limit ${milliseconds(absolute.ms)} ms — source ${absolute.source.ref}: “${absolute.source.quote}”`);
   }
   if (medianMs > allowed) {
     throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above ${String(BASELINE_FACTOR)} × ${milliseconds(baseline.medianMs)} ms = ${milliseconds(allowed)} ms`);
-  }
-  if (absolute !== undefined && medianMs > absolute.ms) {
-    throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above the absolute limit ${milliseconds(absolute.ms)} ms — the owner's words: ${absolute.source}`);
   }
   return { name, runs, samples, medianMs, baselineMs: baseline.medianMs, factor: BASELINE_FACTOR };
 }

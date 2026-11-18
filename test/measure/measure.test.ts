@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   BASELINE_FACTOR, BASELINES_PATH, DEFAULT_RUNS, median, measure, parseBaselines, readBaselines, type Baselines,
 } from '../support/measure.js';
@@ -62,18 +62,18 @@ describe('measure', () => {
   });
 
   test('holds an absolute limit the owner named and quotes the owner\'s words when the median passes it', async () => {
-    const owner = 'owner-review/2026-11-18#timing | «Ну до 15 минут я бы еще понял.»';
+    const owner = { ref: 'docs/changes/madarch-64o5.32/capabilities/fill-orchestrator.md:339', quote: 'first answer arrives within 5 seconds and the unchanged second answer within 50 milliseconds' };
     const within = await measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 400, 0, 400, 0, 400), baselines: recorded(1000), absolute: { ms: 500, source: owner } });
     expect(within.medianMs).toBe(400);
     await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(1000), absolute: { ms: 500, source: owner } }))
-      .rejects.toThrow(/absolute limit 500 ms.*owner-review\/2026-11-18#timing \|.*Ну до 15 минут я бы еще понял/u);
+      .rejects.toThrow(/absolute limit 500 ms.*fill-orchestrator\.md:339.*first answer arrives within 5 seconds/u);
     await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(100), absolute: { ms: 500, source: owner } }))
-      .rejects.toThrow(/absolute limit 500 ms.*owner-review/u);
+      .rejects.toThrow(/absolute limit 500 ms.*fill-orchestrator\.md:339/u);
   });
 
   test('refuses an absolute limit that carries no owner words', async () => {
-    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: '  ' } }))
-      .rejects.toThrow(/test\/support\/measure\.ts: .*review-reference \| verbatim-owner-quote/u);
+    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: { ref: 'missing:1', quote: 'TODO' } } }))
+      .rejects.toThrow(/test\/support\/measure\.ts: .*invalid absolute source/u);
   });
 
   test('refuses a case whose baseline was never recorded, naming the file and the case', async () => {
@@ -118,14 +118,46 @@ describe('the recorded baselines', () => {
       .rejects.toThrow(/no baseline for `toString`/u);
   });
 
+  test('locates invalid JSON and malformed fields by absolute file, line, column, and pointer', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-locations-'));
+    try {
+      const path = resolve(join(folder, 'bad.json'));
+      const cases: { text: string; location: string; pointer: string }[] = [
+        { text: '{\n  "schema": 1,\n  "baselines": {', location: `${path}:1:1`, pointer: '/' },
+        { text: '[\n  1\n]', location: `${path}:1:1`, pointer: '/' },
+        { text: '{\n  "schema": 1,\n  "oops": 2,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/oops' },
+        { text: '{\n  "$schema": 42,\n  "schema": 1,\n  "baselines": {}\n}', location: `${path}:2:3`, pointer: '/$schema' },
+        { text: '{\n  "baselines": {}\n}', location: `${path}:1:1`, pointer: '/schema' },
+        { text: '{\n  "schema": 1,\n  "environment": 4,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/environment' },
+        { text: '{\n  "schema": 1\n}', location: `${path}:1:1`, pointer: '/baselines' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": 2\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "extra": 1 }\n  }\n}', location: `${path}:4:12`, pointer: '/baselines/x/extra' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 0, "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2.5 }\n  }\n}', location: `${path}:4:33`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "note": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/note' },
+      ];
+      for (const item of cases) {
+        writeFileSync(path, item.text);
+        try { readBaselines(path); throw new Error('expected invalid baseline'); }
+        catch (error) {
+          const message = (error as Error).message;
+          const [file, line] = item.location.split(':');
+          expect(message.startsWith(`${file}:${line}:`)).toBe(true);
+          expect(Number(message.slice(`${file}:${line}:`.length).split(' ')[0])).toBeGreaterThan(0);
+          expect(message).toContain(` ${item.pointer}:`);
+        }
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
   test('a malformed file names the file, the baseline and the field', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-'));
     try {
       const path = join(folder, 'baselines.json');
       writeFileSync(path, JSON.stringify({ schema: 1, baselines: { [THE_CASE]: { medianMs: 0, runs: 3 } } }));
-      expect(() => readBaselines(path)).toThrow(/baselines\.json: baseline `a case`: `medianMs` must be a positive number/u);
+      expect(() => readBaselines(path)).toThrow(new RegExp(`${path}:1:\\d+ /baselines/a case/medianMs: must be a positive number`));
       writeFileSync(path, JSON.stringify({ schema: 2, baselines: {} }));
-      expect(() => readBaselines(path)).toThrow(/baselines\.json: `schema` must be 1/u);
+      expect(() => readBaselines(path)).toThrow(new RegExp(`${path}:1:\\d+ /schema: must be 1`));
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }

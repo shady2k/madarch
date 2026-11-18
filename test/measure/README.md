@@ -16,15 +16,23 @@ baselines are injected, and no assertion reads or waits for the wall.
 ```ts
 import { measure } from '../support/measure.js';
 
-await measure('graph-records: two passes', async () => { await fill(); }, { runs: 5 });
+await measure('api-role-first-page: first status', async () => { await firstStatus(); }, {
+  runs: 5,
+  absolute: {
+    ms: 5_000,
+    source: {
+      ref: 'docs/changes/madarch-64o5.32/capabilities/fill-orchestrator.md:339',
+      quote: 'first answer arrives within 5 seconds and the unchanged second answer within 50 milliseconds',
+    },
+  },
+});
 ```
 
 `measure()` runs the case `runs` times (default 5, at least 3), takes the median
 of the clock readings, and fails when either bound is passed:
 
 - the **baseline**: `2 × medianMs` of the case's entry in `baselines.json`;
-- the **absolute limit** the case names. Its `source` is the owner's words,
-  verbatim, and an error quotes them. A limit's `source` uses `review-reference | verbatim owner quote`; for example, `owner-review/2026-11-18#timing | «<exact words from that review>»`. The reference must point to the review record so a reader can verify the quote; do not infer a case-specific limit from a suite-wide statement. A limit without that structure is refused. This example names no absolute limit because no case-specific confirmed source is available here.
+- the **absolute limit** the case names. `source` is `{ ref, quote }`: the reference names the file and line where the words stand, and validation reads that line and checks the quote occurs there. A missing file, line, or quote is refused. The quote must be present verbatim and cannot be a placeholder. A suite-wide statement (such as the owner's 15-minute remark on ALX-12) justifies no per-case limit. Words are not attributed to the owner unless the reference is to the owner.
 
 A case whose name has no baseline fails naming `baselines.json` and the case:
 record the median in the commit that measures it. An entry is taken on CI's
@@ -64,26 +72,27 @@ today, by file and line.
 
 | requirement | current home | A8 action |
 |---|---|---|
-| 80 related kinds render within 200 ms warm | `test/catalogue-diagram.test.ts:99` (reading at `:91`) |
-| the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:158` (`:133`) |
-| a child stops within 10 s of SIGTERM; one ignoring SIGTERM stops within 10 s; one holding its output stops within 5 s | `test/child-stop.test.ts:20`, `:34`, `:48` |
-| diagram fold under 5 ms, fold and layout under 400 ms | `test/diagram-budget.test.ts:47`, `:48` |
-| another diagram answers under 650 ms while a CPU-looping renderer runs, and the looping one's timeout is answered under 1 500 ms | `test/diagram-route.test.ts:255`, `:258` |
-| the static fill's peak per 100 files varies at most 25 % between 100, 200 and 400 files (memory) | `test/fill-static-heap.test.ts:77`, `:78`; `MADARCH_SKIP_PERF` at `:39` |
-| `graphql-executor`: a diagram read over 1 324 children, bounded to its sample, under 2 s | `test/graphql-executor.test.ts:653` (reading at `:639`) |
-| storing a new version of a 10 000-element model under 5 s | `test/history.test.ts:572`; `MADARCH_SKIP_PERF` at `:553` |
-| an open stands behind another process's start over 300 ms, and a refusal waits at least 300 ms (ordering, not a speed bar) | `test/postgres-cluster-owner.test.ts:203`, `:298` |
-| producer reads keep one query count for 2 and 200 entities; the reading is printed | `test/producer-read.test.ts:27` (arrives with the 0039 stack `64fed185b`; query count at `:45`; no elapsed assertion) |
-| two api and two fill roles: one press, polled for up to 600 s | `test/roles-two-and-two.test.ts:117`; `MADARCH_SKIP_PERF` at `:19` |
-| a page answers under 500 ms while a render is stuck | `test/server-observability.test.ts:166` (reading at `:164`) |
-| the first publication of `everything` through the `madarch init` path | `test/madarch-init-e2e.test.ts:80`; the press waits up to 3600 × 500 ms at `:197`, with no elapsed assertion |
-| `graph-records`: the two passes over one fixture, 120 s (ALX-29) | `test/graph-records.test.ts:168` (case at `:156`) |
-| `fill-states`: the press and the refusal, 300 s each | `test/fill-states.test.ts:115`, `:143` |
-| `api-role-first-page`: the first status answer on a 150 000-span store within 5 s, the cached answer within 50 ms | `test/api-role-first-page.test.ts:74`, `:79` |
-| process exits with stdout held, under 10 s | `test/postgres-cluster-owner.test.ts:615` | measurement needed |
-| foreign PID triggers preparation again under 12 s | `test/postgres-cluster-owner.test.ts:637` | event check: assert preparation starts without waiting for foreign PID |
-| ACP installer is stopped within 2.5 s | `test/fill-acp-install.test.ts:260` | measurement needed |
-| ignored SIGTERM causes SIGKILL after 2 s | `test/fill-acp-install.test.ts:295` | event check: assert kill escalation and process-group exit |
+| 80 related kinds render within 200 ms warm | `test/catalogue-diagram.test.ts:99` (reading at `:91`)  | not yet classified (A8 review) |
+| the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:158` (`:133`)  | not yet classified (A8 review) |
+| a child stops within 10 s of SIGTERM; one ignoring SIGTERM stops within 10 s; one holding its output stops within 5 s | `test/child-stop.test.ts:20`, `:34`, `:48`  | not yet classified (A8 review) |
+| diagram fold under 5 ms, fold and layout under 400 ms | `test/diagram-budget.test.ts:47`, `:48`  | not yet classified (A8 review) |
+| another diagram answers under 650 ms while a CPU-looping renderer runs, and the looping one's timeout is answered under 1 500 ms | `test/diagram-route.test.ts:255`, `:258`  | not yet classified (A8 review) |
+| the static fill's peak per 100 files varies at most 25 % between 100, 200 and 400 files (memory) | `test/fill-static-heap.test.ts:77`, `:78`; `MADARCH_SKIP_PERF` at `:39`  | not yet classified (A8 review) |
+| `graphql-executor`: a diagram read over 1 324 children, bounded to its sample, under 2 s | `test/graphql-executor.test.ts:653` (reading at `:639`)  | not yet classified (A8 review) |
+| storing a new version of a 10 000-element model under 5 s | `test/history.test.ts:572`; `MADARCH_SKIP_PERF` at `:553`  | not yet classified (A8 review) |
+| an open stands behind another process's start over 300 ms, and a refusal waits at least 300 ms (ordering, not a speed bar) | `test/postgres-cluster-owner.test.ts:203`, `:298`  | not yet classified (A8 review) |
+| producer reads keep one query count for 2 and 200 entities; the reading is printed | `test/producer-read.test.ts:27` (arrives with the 0039 stack `64fed185b`; query count at `:45`; no elapsed assertion)  | not yet classified (A8 review) |
+| two api and two fill roles: one press, polled for up to 600 s | `test/roles-two-and-two.test.ts:117`; `MADARCH_SKIP_PERF` at `:19`  | not yet classified (A8 review) |
+| a page answers under 500 ms while a render is stuck | `test/server-observability.test.ts:166` (reading at `:164`)  | not yet classified (A8 review) |
+| the first publication of `everything` through the `madarch init` path | `test/madarch-init-e2e.test.ts:80`; the press waits up to 3600 × 500 ms at `:197`, with no elapsed assertion  | not yet classified (A8 review) |
+| `graph-records`: the two passes over one fixture, 120 s (ALX-29) | `test/graph-records.test.ts:168` (case at `:156`)  | not yet classified (A8 review) |
+| `fill-states`: the press and the refusal, 300 s each | `test/fill-states.test.ts:115`, `:143`  | not yet classified (A8 review) |
+| `api-role-first-page`: the first status answer on a 150 000-span store within 5 s, the cached answer within 50 ms | `test/api-role-first-page.test.ts:74`, `:79`  | not yet classified (A8 review) |
+| process exits with stdout held: `expect(elapsed).toBeLessThan(10_000)` | `test/postgres-cluster-owner.test.ts:615` | measurement needed |
+| foreign PID preparation: `expect(performance.now() - started).toBeLessThan(12_000)` | `test/postgres-cluster-owner.test.ts:637` | measurement needed |
+| ACP install: `expect(Date.now() - started).toBeLessThan(2_500)` | `test/fill-acp-install.test.ts:260` | measurement needed |
+| ignored SIGTERM: `expect(Date.now() - started).toBeGreaterThan(2_000)` before checking stopped process group | `test/fill-acp-install.test.ts:295` | event check: assert kill escalation and process-group exit |
+| PostgreSQL 404: `expect(Date.now() - started).toBeLessThan(10_000)` | `test/postgres-install.test.ts:189` | measurement needed |
 | PostgreSQL 404 refusal under 10 s | `test/postgres-install.test.ts:189` | measurement needed |
 
 The three files under `MADARCH_SKIP_PERF` are this table's rows for
