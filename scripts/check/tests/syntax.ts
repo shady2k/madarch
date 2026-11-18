@@ -72,6 +72,9 @@ export interface MemberSyntax {
 }
 
 export interface ModuleSyntax {
+  /** Static local initializers and public local names, for the shared binding resolver. */
+  readonly bindings: ReadonlyMap<string, string>;
+  readonly exports: ReadonlyMap<string, string>;
   readonly calls: readonly CallSyntax[];
   /** Value references, excluding import declarations and static property names. */
   readonly references: readonly { readonly name: string; readonly line: number; readonly call: CallSyntax | null }[];
@@ -108,6 +111,32 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
     const node = value as Record<string, unknown>;
     if (node['type'] === 'CallExpression') markChain(node['callee'], intermediate);
   });
+  const bindings = new Map<string, string>();
+  const exports = new Map<string, string>();
+  walk(module, (value) => {
+    const node = value as Record<string, unknown>;
+    if (node['type'] === 'VariableDeclarator') {
+      const id = node['id'] as Record<string, unknown>;
+      const name = nameOf(node['init']);
+      if (id['type'] === 'Identifier' && name !== null) bindings.set(String(id['value']), name);
+    }
+  });
+  for (const item of module.body) {
+    if (item.type === 'ExportDeclaration') {
+      const declaration = item.declaration;
+      if (declaration.type === 'VariableDeclaration') {
+        for (const entry of declaration.declarations) {
+          if (entry.id.type === 'Identifier') exports.set(entry.id.value, entry.id.value);
+        }
+      } else if (declaration.type === 'FunctionDeclaration' || declaration.type === 'ClassDeclaration') {
+        exports.set(declaration.identifier.value, declaration.identifier.value);
+      }
+    } else if (item.type === 'ExportNamedDeclaration' && !item.source && !item.typeOnly) {
+      for (const entry of item.specifiers) {
+        if (entry.type === 'ExportSpecifier' && !entry.isTypeOnly) exports.set(entry.exported?.value ?? entry.orig.value, entry.orig.value);
+      }
+    }
+  }
   const members: MemberSyntax[] = [];
   const arrays: ElementSyntax[][] = [];
   walk(module, (value) => {
@@ -137,7 +166,7 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
   valueReferences(module, (node) => {
     references.push({ name: String(node['value']), line: lineAt(bytes, (node['span'] as { start: number }).start), call: callNodes.get(node) ?? null });
   });
-  return { calls, members, arrays, references };
+  return { calls, members, arrays, references, bindings, exports };
 }
 
 function argumentOf(argument: Record<string, unknown>, bytes: Uint8Array): ArgumentSyntax {
@@ -197,6 +226,7 @@ function nameOf(callee: unknown): string | null {
   if (callee === null || typeof callee !== 'object') return null;
   const held = callee as Record<string, unknown>;
   if (held['type'] === 'Identifier') return String(held['value']);
+  if (['ParenthesisExpression', 'TsAsExpression', 'TsSatisfiesExpression', 'TsNonNullExpression', 'TsTypeAssertion', 'TsInstantiation'].includes(String(held['type']))) return nameOf(held['expression']);
   if (held['type'] === 'CallExpression') return nameOf(held['callee']);
   const segments = segmentsOf(held);
   return segments === null ? null : segments.join('.');
@@ -245,6 +275,11 @@ function valueReferences(value: unknown, visit: (node: Record<string, unknown>) 
   if (value === null || typeof value !== 'object') return;
   const node = value as Record<string, unknown>;
   if (node['type'] === 'ImportDeclaration') return;
+  // Type queries such as typeof execFileSync do not evaluate the binding.
+  if (typeof node['type'] === 'string' && node['type'].startsWith('Ts') &&
+    node['type'] !== 'TsAsExpression' && node['type'] !== 'TsSatisfiesExpression' &&
+    node['type'] !== 'TsNonNullExpression' && node['type'] !== 'TsTypeAssertion' &&
+    node['type'] !== 'TsInstantiation') return;
   if (node['type'] === 'Identifier') visit(node);
   for (const [key, entry] of Object.entries(node)) {
     if (key === 'span' || key === 'ctxt') continue;

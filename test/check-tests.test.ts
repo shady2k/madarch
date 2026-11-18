@@ -549,3 +549,95 @@ ${call}(900_000);`,
     });
   }
 });
+
+describe('shared binding resolution', () => {
+  for (const expression of ['test', 'test.skipIf(true)', 'test.future(true).skip.each([1])', 'bun.it.skipIf(true)']) {
+    test(`stored Bun case ${expression} retains its root`, async () => {
+      for (const third of ['60_000', "limit(60_000, { measured: 1000, on: 'box', at: '2026-11-18' })"]) {
+        const root = project({
+          'test/support/deadline.ts': 'export const bound = (ms) => ms;',
+          'test/support/cases.ts': "export { test, it } from 'bun:test'; export * from './deadline.js';",
+          'test/e2e/host.test.ts': `import { test, bound } from '../support/cases.js'; import * as bun from 'bun:test';
+const hostTest = ${expression}; const again = hostTest; const limit = bound;
+again('host', () => {}, ${third});`,
+        });
+        const problems = await problemsOf(root, 'test-case-bound');
+        if (third === '60_000') {
+          expect(problems).toHaveLength(1);
+          expect(problems[0]).toContain(`${join(root, 'test/e2e/host.test.ts')}:3: test-case-bound:`);
+        } else expect(problems).toEqual([]);
+      }
+    });
+  }
+
+  for (const module of ['test/test-database.ts', 'test/support/test-database.ts']) {
+    test(`database definition at ${module} is shared by reach and store rules`, async () => {
+      const relative = module === 'test/test-database.ts' ? '../test-database.js' : './test-database.js';
+      const root = project({
+        [module]: 'export const createTestDatabaseOwner = (options = {}) => options;',
+        'test/support/db.ts': `export { createTestDatabaseOwner as open } from '${relative}';`,
+        'test/support/db-again.ts': "import { open } from './db.js'; const owner = open; export { owner };",
+        'test/integration/db.test.ts': "import { owner } from '../support/db-again.js';\nconst make = owner; make({ store: '/tmp/store' });",
+        'test/unit/db.test.ts': "import { owner } from '../support/db-again.js'; export const held = owner;",
+      });
+      const integration = await problemsOf(root, 'test-integration-reach');
+      expect(integration).toHaveLength(1);
+      expect(integration[0]).toContain(`${join(root, 'test/integration/db.test.ts')}:2: test-integration-reach:`);
+      expect(integration[0]).toContain('store of its own');
+      expect(await problemsOf(root, 'test-unit-reach')).toHaveLength(1);
+    });
+  }
+
+  test('reachable support timeout and local alias are refused with the import path', async () => {
+    const root = project({
+      'test/support/api.ts': "export { setDefaultTimeout as timeout } from 'bun:test';",
+      'test/support/setup.ts': "import { timeout } from './api.js';\nconst s = timeout; s(60_000);",
+      'test/e2e/host.test.ts': "import '../support/setup.js';",
+    });
+    const problems = await problemsOf(root, 'test-case-bound');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/support/setup.ts')}:2: test-case-bound:`);
+    expect(problems[0]).toContain('test/e2e/host.test.ts > test/support/setup.ts');
+  });
+
+  test('a type query of a process binding is not a value escape', async () => {
+    const root = project({
+      'test/support/git.ts': "import { execFileSync } from 'node:child_process';\ntype R = ReturnType<typeof execFileSync>;\nexport const git = () => execFileSync('git', ['status']);",
+      'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+    });
+    expect(await problemsOf(root, 'test-integration-reach')).toEqual([]);
+  });
+
+  test('process aliases still cannot escape the git helper', async () => {
+    const root = project({
+      'test/support/git.ts': "import { execFileSync } from 'node:child_process';\nconst run = execFileSync;\nrun('bun', ['test']);",
+      'test/integration/git.test.ts': "import '../support/git.js';",
+    });
+    const problems = await problemsOf(root, 'test-integration-reach');
+    expect(problems.some((line) => line.includes(`${join(root, 'test/support/git.ts')}:3: test-integration-reach:`))).toBe(true);
+  });
+
+  test('global process and timing members use the same local binding resolution', async () => {
+    const root = project({
+      'test/support/process.ts': 'const runtime = Bun; const start = runtime.spawn; start(["true"]);',
+      'test/unit/process.test.ts': "import '../support/process.js';",
+      'test/integration/clock.test.ts': 'const clock = performance; const now = clock.now; now();',
+    });
+    const unit = await problemsOf(root, 'test-unit-reach');
+    expect(unit.some((line) => line.includes(`${join(root, 'test/support/process.ts')}:1: test-unit-reach:`))).toBe(true);
+    const timing = await problemsOf(root, 'test-timing-only-in-measure');
+    expect(timing.some((line) => line.includes(`${join(root, 'test/integration/clock.test.ts')}:1: test-timing-only-in-measure:`))).toBe(true);
+  });
+
+  test('catalogue bindings follow local aliases exported by a helper', async () => {
+    const root = project({
+      'src/product/draft.ts': 'export const createDraft = (options) => options;',
+      'test/support/catalogue.ts': "import { createDraft } from '../../src/product/draft.js'; const make = createDraft; export { make };",
+      'test/unit/catalogue.test.ts': "import { make } from '../support/catalogue.js'; make({});",
+    });
+    const problems = await problemsOf(root, 'test-full-catalogue');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/unit/catalogue.test.ts')}:1: test-full-catalogue:`);
+    expect(problems[0]).toContain('test/unit/catalogue.test.ts > test/support/catalogue.ts > src/product/draft.ts');
+  });
+});

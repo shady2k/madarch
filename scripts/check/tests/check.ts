@@ -51,7 +51,7 @@ export interface TestsReport {
 export async function testsCheck(options: TestsCheckOptions = {}): Promise<TestsReport> {
   const root = resolve(options.root ?? repositoryRoot());
   const rules = options.rules ?? TEST_RULES;
-  const graph: ImportGraph = rules.some((rule) => rule === 'test-unit-reach' || rule === 'test-integration-reach' || rule === 'test-timing-only-in-measure')
+  const graph: ImportGraph = rules.some((rule) => rule === 'test-unit-reach' || rule === 'test-integration-reach' || rule === 'test-timing-only-in-measure' || rule === 'test-case-bound')
     ? await valueImportGraph(root, ['test/unit', 'test/integration', 'test/e2e', 'test/measure'])
     : emptyImportGraph(root);
   const context = createRuleContext(root, graph);
