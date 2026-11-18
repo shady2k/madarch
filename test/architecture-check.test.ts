@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { architectureCheck, architectureCheckPasses, architectureProblemLines, renderViolationListOf, VIOLATION_LIST } from '../scripts/check/architecture/check.js';
 import { baseGuard, baseGuardPasses, baseGuardProblemLines } from '../scripts/check/architecture/base-guard.js';
+import { testFileImportViolations } from '../scripts/check/architecture/test-file-imports.js';
 import type { ArchitectureRule, ListedViolation } from '../scripts/check/architecture/violation.js';
 
 /**
@@ -434,6 +435,30 @@ describe('the architecture check', () => {
 
     rmSync(join(root, 'src', 'serving.ts'));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['starter-data-when-copying'] }))).toEqual([]);
+  });
+
+  test('a test file importing another test file is refused with the file and the line, while a helper it imports is not', () => {
+    const root = fixtureProject();
+    writeModule(root, 'test/helper.ts', ['/** Shared test code; bun registers no case from it. */', 'export const helper = 1;', '']);
+    writeModule(root, 'test/allowed.test.ts', ["import { helper } from './helper.js';", "import { test } from 'bun:test';", "test('allowed', () => { helper; });", '']);
+    expect(testFileImportViolations(root)).toEqual([]);
+
+    writeModule(root, 'test/base.test.ts', ["import { test } from 'bun:test';", "test('base', () => {});", '']);
+    const plant = [
+      '/**',
+      ' * A case file importing another case file, planted by the test: bun registers the base cases again.',
+      ' */',
+      "import './base.test.js';",
+      '',
+    ];
+    writeModule(root, 'test/other.test.ts', plant);
+
+    expect(testFileImportViolations(root)).toEqual([
+      { rule: 'no-test-file-imports', file: 'test/other.test.ts', line: lineOf(plant, 'base.test.js'), symbol: 'test/base.test.ts' },
+    ]);
+
+    rmSync(join(root, 'test', 'other.test.ts'));
+    expect(testFileImportViolations(root)).toEqual([]);
   });
 
 });

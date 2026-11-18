@@ -7,10 +7,14 @@
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { CLI, builtApp, serveNew, printedLiveFacts, scratchFolder, freePort } from './product-cli.test.js';
+import { CLI, builtApp, cleanTestScratch, freePort, printedLiveFacts, scratchFolder, serveNew } from './product-cli-helpers.js';
 import { stopDaemon } from '../src/product/daemon.js';
+
+// The helpers make scratch folders and start daemons; this file cleans them after
+// each of its own cases (the helper module cannot register a hook for every file).
+afterEach(cleanTestScratch);
 
 describe('the madarch command as an executable', () => {
   test('spawning the committed script itself answers --help: it carries an interpreter directive and the exec bit', () => {

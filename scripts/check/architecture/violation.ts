@@ -43,6 +43,7 @@ export const ARCHITECTURE_RULES = [
   'no-product-data',
   'no-regex',
   'no-retired-surfaces',
+  'no-test-file-imports',
   'no-unreachable-code',
   'one-command-list',
   'one-fill-entry',
@@ -62,9 +63,10 @@ export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
  * The rules that take no baseline: a violation they find is fixed, never written
  * into the list, and no commit's owner decision may keep one there. A kind name a
  * validation rule states is the one exception the owner may list as debt
- * (`no-kind-names`); a retired read route and dead code never are.
+ * (`no-kind-names`); a retired read route, a test file another test file imports,
+ * and dead code never are.
  */
-export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-unreachable-code', 'one-command-list', 'schema-preparation-only', 'starter-data-when-copying'];
+export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-test-file-imports', 'no-unreachable-code', 'one-command-list', 'schema-preparation-only', 'starter-data-when-copying'];
 
 /**
  * One violation as a rule found it.
