@@ -95,7 +95,10 @@ test('publication failure ends the waiting fill with diagnostics and never queue
 test('close cancels a waiting fill without waiting for daemon publication', async () => {
   const { product, queued } = fixture();
   expect(await product.startFill({ agent: 'claude-code', tokenCap: 1000 })).toMatchObject({ started: true });
+  const abort = spyOn(AbortController.prototype, 'abort');
   await product.close();
+  expect(abort.mock.calls.some(([reason]) => reason instanceof Error && reason.message === 'the wiki is shutting down')).toBe(true);
+  abort.mockRestore();
   await product.settled();
   expect(queued).not.toHaveBeenCalled();
 });

@@ -16,6 +16,10 @@ import { startupBinding } from '../src/graph/manifest-publication.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { sha256Hex } from '../src/graph/digest.js';
 
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { planManifestFill } from '../src/plugin/fill-declarations.js';
+
 function validated(folder: string): ValidatedManifests {
   const read = validateProductManifests(folder);
   if (!read.ok) throw new Error(read.findings.map(one => `${one.file}:${one.line}: ${one.message}`).join('\n'));
@@ -28,6 +32,22 @@ function fullStarter(home: string): string {
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   return draft.folder;
 }
+
+test('repository extraction closes with product interpretation and a product profile', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-repository-closure-'));
+  try {
+    seedRepositoryPlugins(folder);
+    const read = readKinds(folder);
+    if (!read.present) throw new Error(`${folder}:1: no manifest`);
+    const plan = planManifestFill(read.manifest, folder, ['code.repository', 'code.blob']);
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.selectedKinds).toContain('code.repository');
+    expect(plan.selectedKinds).toContain('code.blob');
+    expect(plan.selectedKinds).toContain('product');
+    expect(plan.selectedKinds).toContain('product-profile');
+  } finally { rmSync(folder, { recursive: true, force: true }); }
+}, 30_000);
 
 const universal = ['mentions', 'linksTo', 'grounds', 'ownedBy'];
 const about = ['question-about', 'correction-about'];
