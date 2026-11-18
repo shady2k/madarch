@@ -7,10 +7,11 @@
  *
  * The finding is read from the import graph: a test case file's own syntax tree
  * (imports.ts) names every specifier it writes, static imports, re-exports, dynamic
- * `import()` and CommonJS `require()` alike, and the modules of `test/` resolve it to the file it
- * names (sources.ts). Only the repository's own `test/` folder is walked, in code
- * point order, and the line comes from the statement's own byte offset: nothing is
- * read from a pattern over the text.
+ * `import()` and CommonJS `require()` alike. Type-only edges are erased by Bun and
+ * skipped. The repository's modules resolve each specifier (sources.ts), including
+ * helpers outside `test/`; only the starting test files are confined to `test/`.
+ * Files are read in code point order, and the line comes from the statement's own
+ * byte offset: nothing is read from a pattern over the text.
  */
 import { importStatementsOf } from './imports.js';
 import { moduleSet, resolveModuleSpecifier } from './sources.js';
@@ -30,15 +31,16 @@ function isTestCaseFile(file: string): boolean {
  * One test file imported twice is one finding, on the first line it is written.
  */
 export function testFileImportViolations(root: string): ArchitectureViolation[] {
-  const modules = moduleSet(root, ['test']);
+  const modules = moduleSet(root, ['']);
   const held = new Map<string, ArchitectureViolation>();
   for (const file of modules.modules) {
-    if (!isTestCaseFile(file)) continue;
+    if (!file.startsWith('test/') || !isTestCaseFile(file)) continue;
     const pending: { file: string; chain: { file: string; line: number }[] }[] = [{ file, chain: [] }];
     const visited = new Set<string>([file]);
     while (pending.length > 0) {
       const current = pending.shift()!;
       for (const statement of importStatementsOf(root, current.file)) {
+        if (statement.typeOnly) continue;
         const target = resolveModuleSpecifier(modules, current.file, statement.specifier);
         if (target === null) continue;
         const edge = { file: current.file, line: statement.line };

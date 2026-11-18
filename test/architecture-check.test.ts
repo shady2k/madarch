@@ -436,6 +436,64 @@ describe('the architecture check', () => {
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['starter-data-when-copying'] }))).toEqual([]);
   });
 
+  test('test-file imports cross helpers outside test with the full chain and lines', async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'test/base.test.ts', ['', "import { test } from 'bun:test';", "test('base', () => {});"]);
+      writeModule(root, 'scripts/helper.ts', ['', '', "export * from '../test/base.test.ts';"]);
+      writeModule(root, 'test/other.test.ts', ['', "import '../scripts/helper.ts';"]);
+      writeModule(root, 'scripts/not-a-start.test.ts', ["import '../test/base.test.ts';"]);
+      const report = await architectureCheck({ root, rules: ['no-test-file-imports'] });
+      expect(architectureCheckPasses(report)).toBe(false);
+      expect(report.comparison.unlisted).toEqual([{
+        rule: 'no-test-file-imports', file: 'test/other.test.ts', line: 2,
+        symbol: 'test/other.test.ts:2 → scripts/helper.ts:3 → test/base.test.ts:2',
+      }]);
+      const problems = architectureProblemLines(report);
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(`${join(root, 'test/other.test.ts')}:2: no-test-file-imports:`);
+      expect(problems[0]).toContain('test/other.test.ts:2 → scripts/helper.ts:3 → test/base.test.ts:2');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test-file imports ignore erased type edges but refuse mixed value and type edges', async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'test/base.test.ts', ['export interface X {}', 'export const value = 1;']);
+      const erased = [
+        "import type { X } from './base.test.ts';",
+        "export type { X } from './base.test.ts';",
+        "export type * from './base.test.ts';",
+        "import { type X } from './base.test.ts';",
+        "export { type X } from './base.test.ts';",
+        "import type X from './base.test.ts';",
+        "import type * as X from './base.test.ts';",
+      ];
+      for (const edge of erased) {
+        writeModule(root, 'test/other.test.ts', [edge]);
+        const report = await architectureCheck({ root, rules: ['no-test-file-imports'] });
+        expect(architectureProblemLines(report), edge).toEqual([]);
+        expect(architectureCheckPasses(report), edge).toBe(true);
+      }
+      for (const edge of [
+        "import { type X, value } from './base.test.ts';",
+        "export { type X, value } from './base.test.ts';",
+      ]) {
+        writeModule(root, 'test/other.test.ts', ['', edge]);
+        const report = await architectureCheck({ root, rules: ['no-test-file-imports'] });
+        expect(architectureCheckPasses(report), edge).toBe(false);
+        expect(report.comparison.unlisted).toEqual([{
+          rule: 'no-test-file-imports', file: 'test/other.test.ts', line: 2,
+          symbol: 'test/other.test.ts:2 → test/base.test.ts:1',
+        }]);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('test-file imports through require, re-export, dynamic import and helpers fail the public check', async () => {
     const root = fixtureProject();
     writeFileSync(join(root, VIOLATION_LIST), '[]\n');

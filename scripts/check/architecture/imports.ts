@@ -33,6 +33,8 @@ export interface ImportStatement {
    * name the module exports is reachable through it.
    */
   readonly wholeModule: boolean;
+  /** True when Bun erases the entire edge, including every named specifier. */
+  readonly typeOnly: boolean;
 }
 
 /** One call whose first argument is a string literal: the module name the call hands over, and its line. */
@@ -91,17 +93,19 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
         else wholeModule = true;
       }
       if (item.specifiers.length === 0) wholeModule = true;
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ImportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule, typeOnly });
     } else if (item.type === 'ExportNamedDeclaration') {
       if (item.source === null || item.source === undefined) continue;
       const names = item.specifiers.flatMap((specifier) => (specifier.type === 'ExportSpecifier' ? [specifier.orig.value] : []));
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ExportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false, typeOnly });
     } else if (item.type === 'ExportAllDeclaration') {
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true, typeOnly: 'typeOnly' in item && item.typeOnly === true });
     }
   }
   for (const dynamic of moduleLoadsOf(module)) {
-    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true });
+    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true, typeOnly: false });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
   return { imports: statements, literalCalls };

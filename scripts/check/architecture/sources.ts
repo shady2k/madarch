@@ -72,7 +72,7 @@ function modulesUnder(root: string, folders: readonly string[]): string[] {
       throw error;
     }
     for (const entry of entries) {
-      const path = `${folder}/${entry.name}`;
+      const path = folder === '' ? entry.name : `${folder}/${entry.name}`;
       if (entry.isDirectory()) {
         if (!SKIPPED_FOLDERS.has(entry.name)) walk(path);
       } else if (entry.isFile() && MODULE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
