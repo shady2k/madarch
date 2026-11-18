@@ -1,19 +1,19 @@
 {
   "version": 1,
   "measuredOn": "2026-11-18",
-  "criterion": "A test file whose single-file run takes more than 30 s, or one that was red in the measured run and names a case or child-process timeout of 60 s or more.",
+  "criterion": "Quarantine files with a measured single-file run over 30 s, plus measured-red files whose assertions or waiting failures require repair before returning to the blocking suite.",
   "source": "Complete per-file run on box madarch-acc, 2026-11-18, /work/reports/01a1ef1e-9341-768e-9c66-eff98b21d199/results-passA.jsonl (379 records, the 0039 stack; seconds are taken for the 280 files that exist on worker/slow-split).",
-  "note": "Measured-red files are consistently quarantined with their measured duration and tracked repair task; no red test is silently treated as green.",
+  "note": "Each retained file has a concrete observed failure or passing slow behavior, a behavior-preserving rewrite plan and an explicit blocking-suite exit. Reasons distinguish assertion/setup defects from actual waiting timeouts; measured seconds remain from pass A, not the later rerun.",
   "files": [
     {
       "path": "test/agent-usage-page.test.ts",
       "seconds": 59.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The no-model-call kind usage case expects no runs and zero token totals, but receives fill-1 and fill-2 usage rows from another fixture after its request times out.",
+      "replacement": "Give the empty-kind request its own store and assert empty runs, zero totals and a named refusal for a missing kind; separately seed two runs and assert their ordered usage totals.",
+      "exit": "Rewrite test/agent-usage-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/architecture-repository.test.ts",
@@ -21,19 +21,19 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The repository-debt comparison passes but runs the full architecture toolchain to compare the discovered violations with the tracked list.",
+      "replacement": "Separate tool invocation from comparison and assert exact violation membership, stale-entry refusal and code-point ordering with captured graph fixtures; keep one explicit repository toolchain check.",
+      "exit": "Rewrite test/architecture-repository.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/authored-http.test.ts",
       "seconds": 52.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The authored create/update/delete case expects error.field to name title, but invalid numeric title input returns SCHEMA_INVALID with path /values/title instead.",
+      "replacement": "Assert the structured SCHEMA_INVALID title-path refusal before exercising creation, conditional update, deletion and GraphQL reads with valid authored values.",
+      "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/authored-import.test.ts",
@@ -41,9 +41,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The import regression suite passes but repeatedly prepares stores and archives source files for receipt and retry scenarios.",
+      "replacement": "Share only immutable source fixtures and assert byte-preserving import, interrupted archive retry, changed-source receipt identity, symlink refusal and exclusion of person Markdown in independent transactional cases.",
+      "exit": "Rewrite test/authored-import.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/catalog-check.test.ts",
@@ -51,9 +51,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The catalogue command suite passes but starts a fresh CLI and starter product for each invalid declaration.",
+      "replacement": "Exercise declaration validation directly for omitted fields, missing edge translations and subgroup bounds, retaining one CLI assertion for counts and full file/line diagnostics.",
+      "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/catalog-read.test.ts",
@@ -61,29 +61,29 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The catalogue parser suite passes but combines bundled starter scans with store-backed catalogue read scenarios.",
+      "replacement": "Use a small two-level catalogue fixture to assert untranslated-kind findings, preserved pages and catalogue-only rows, retaining one complete bundled-declaration parity check.",
+      "exit": "Rewrite test/catalog-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/consistency-plugin.test.ts",
       "seconds": 144.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The consistent-fill case expects succeeded but receives running, and the two-unevidenced-fields case expects run.ok true but receives false before checking finding keys.",
+      "replacement": "Complete the fixture producer dependencies, then assert a consistent fill succeeds without findings and two unevidenced fields produce two distinct finding keys.",
+      "exit": "Rewrite test/consistency-plugin.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/daemon-one-store.test.ts",
       "seconds": 41.6,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The simultaneous-first-runs case cannot reach its one-store and second-start-refusal assertions because planning raises selected kind product has no enabled producer.",
+      "replacement": "Declare an enabled product producer, race the two starts against one store and assert exactly one accepted chain and a named refusal for the other.",
+      "exit": "Rewrite test/daemon-one-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/draft-starter-copy.test.ts",
@@ -91,109 +91,109 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The starter-copy suite passes but repeatedly compiles the CLI and checks installed plugin closures.",
+      "replacement": "Build the CLI once per file and assert runtime package resolution, byte-for-byte starter copying, clean manifest reads and release-approved installed plugin closures against that artifact.",
+      "exit": "Rewrite test/draft-starter-copy.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/draft-templates.test.ts",
       "seconds": 69.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The third-template case expects no manifest findings but omits product and product-profile prerequisites; the exact-kinds case omits code.blob from its expectation, and the initial-status case times out.",
+      "replacement": "Declare the third template dependencies, compare the full installed kind closure including code.blob, and assert template products report not-filled while scratch products report no-manifest.",
+      "exit": "Rewrite test/draft-templates.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-already-running.test.ts",
       "seconds": 50.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The no-active-fill case expects command exit zero but receives exit one because selected kind product has no enabled producer.",
+      "replacement": "Use a complete deterministic producer closure and assert the idle command starts a fill while an active fill refuses the second command without starting another run.",
+      "exit": "Rewrite test/fill-already-running.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-entities.test.ts",
       "seconds": 168.4,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The selected-kind and author cases expect exit zero but receive one; the targeted vertex case names missing product and domain producers, and later refusal cases see a leaked active run instead of the agent or token-cap diagnostic.",
+      "replacement": "Declare product and domain prerequisites, isolate each run, and assert kind dependency selection, author-only prerequisites, preservation of downstream opinions, exact vertex updates and named agent/token-cap refusals.",
+      "exit": "Rewrite test/fill-entities.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-one-store.test.ts",
       "seconds": 57.6,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The fill-stages case exits one for a missing product producer, leaving the expected store empty so MCP and wiki store-equality assertions compare a real path against an empty string.",
+      "replacement": "Fill a complete fixture successfully, capture its resolved store independently, and assert the command, MCP and wiki use that same store and the published run pins.",
+      "exit": "Rewrite test/fill-one-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-orchestrator.test.ts",
       "seconds": 567.6,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The concurrent tracked-read and failed-progress-batch cases access a closed database owner before durable sequence and rollback assertions can complete.",
+      "replacement": "Keep each owner open until concurrent work settles and assert unique durable sequence allocation, rollback of failed progress only, dependency starvation paths and all run/unit transition guards.",
+      "exit": "Rewrite test/fill-orchestrator.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-role-language.test.ts",
       "seconds": 277.9,
-      "reason": "green-slow",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Existing measured test failure masks a product defect and blocks dependable feedback.",
-      "replacement": "Replacement must assert the currently failing role/data/plugin behavior while isolating the underlying defect.",
-      "exit": "Rewrite this test file, pass it in the blocking suite, then remove this entry."
+      "defect": "The pressed-language case times out before its recorded-language assertion, logs too many database clients, and the redelivery case cannot enqueue next-run after completion because the singleton remains held.",
+      "replacement": "Bound queue/store ownership, dispatch a language-bearing job and assert the persisted language; redeliver a published failure and assert acknowledgement releases the singleton without reopening the product.",
+      "exit": "Rewrite test/fill-role-language.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-role-parent.test.ts",
       "seconds": 149.5,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The killed-server case expects its fill press to return HTTP 202 but receives 409, so it never establishes the running role whose process-tree cleanup it intends to verify.",
+      "replacement": "Prepare an accepted deterministic fill, verify the role is running, kill its parent and assert both the fill child and store PostgreSQL server exit within the cleanup bound.",
+      "exit": "Rewrite test/fill-role-parent.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-run.test.ts",
       "seconds": 499.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The file setup fails in git init with SIGTERM before the fill-run cases or their lifecycle assertions execute.",
+      "replacement": "Create one minimal Git fixture outside the long setup chain and assert successful fill completion, durable failure/cancellation states and the recorded run facts with owners held through completion.",
+      "exit": "Rewrite test/fill-run.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-runs.test.ts",
       "seconds": 56.6,
-      "reason": "green-slow",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Existing measured test failure masks a product defect and blocks dependable feedback.",
-      "replacement": "Replacement must assert the currently failing role/data/plugin behavior while isolating the underlying defect.",
-      "exit": "Rewrite this test file, pass it in the blocking suite, then remove this entry."
+      "defect": "The paused Stop case expects run-cancelled among durable events but reads only run-cancelling and unit-cancelled; the named-generation and status cases also time out.",
+      "replacement": "Await canonical cancellation completion and assert the terminal event, preserved replacement generations, paused/stopped global status, fresh request identity and stored agent exchanges.",
+      "exit": "Rewrite test/fill-runs.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-selection.test.ts",
       "seconds": 110.3,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Invalid agent and tokenCap cases expect error.field but receive no such field; planning returns HTTP 500 instead of 200 and the default-cap case reads a leaked 250000 instead of 200000.",
+      "replacement": "Assert typed validation paths for invalid selection settings, isolate product caps, and verify plugin-only planning, explicit no-agent refusal and chosen-agent/default-cap dispatch through the current request contract.",
+      "exit": "Rewrite test/fill-selection.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-state-store.test.ts",
@@ -201,59 +201,59 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The state-store suite passes but opens repeated database fixtures to exercise individual chain, run and unit transitions.",
+      "replacement": "Reuse a prepared schema with independent run identities and assert created-to-succeeded transitions, runnable-unit completion guards, cancellation, immutable terminal states and externally supplied retry attempts.",
+      "exit": "Rewrite test/fill-state-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-states.test.ts",
       "seconds": 34.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The idle-to-running case expects a fill press to return HTTP 202 but receives 409, and the missing-repository case throws during pin resolution instead of returning the asserted diagnostic state.",
+      "replacement": "Use a valid deterministic fixture for idle/running/completed counts and trace assertions, then isolate a missing checkout and assert a failed run with the full repository path and line.",
+      "exit": "Rewrite test/fill-states.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-updates-before-fill.test.ts",
       "seconds": 73.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The repo-add-before-first-fill case expects every stored kind to be manifest metadata, product, value sets or the page template, but its row predicate is false.",
+      "replacement": "Read the actual baseline kinds explicitly and assert repo add advances only the approved metadata baseline, leaves content unfilled and creates no repository facts before Fill.",
+      "exit": "Rewrite test/fill-updates-before-fill.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/fill-updates-run.test.ts",
       "seconds": 255.4,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The setup expects a watcher update run after a default-branch commit, but watch.pass creates no run with the expected request id and the hook throws.",
+      "replacement": "Drive one declared repository commit through the watcher and assert exactly one update request with the commit-derived identity, correct pins and preserved user-controlled fill behavior.",
+      "exit": "Rewrite test/fill-updates-run.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/git-file-history.test.ts",
       "seconds": 123.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The history fixture setup fails at git init before any file-history assertion runs.",
+      "replacement": "Build a small local repository with explicit add, rename, deletion and merge commits, then assert historical file identities, authors and commit links without depending on the failed shared setup.",
+      "exit": "Rewrite test/git-file-history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graph-records.test.ts",
       "seconds": 277.8,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The first two-pass fill times out, the text-file blob assertion receives undefined, and later fills are refused because records-1 remains running; required-parent checks also reject an undeclared repository.",
+      "replacement": "Declare the repository parent and complete the first fill before reuse, then assert blob opinions, Git path shapes, no-op replay, changed-file-only publication, redacted remotes and typed language history.",
+      "exit": "Rewrite test/graph-records.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graph-write.test.ts",
@@ -261,39 +261,39 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The graph-write suite passes but repeatedly prepares typed contracts and source identities across transaction-level assertion cases.",
+      "replacement": "Use a small prepared contract and isolated transactions to assert authenticated producers, typed key identity, source lineage/history, source-local retraction and complete rollback on invalid values.",
+      "exit": "Rewrite test/graph-write.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graphql-executor.test.ts",
       "seconds": 124.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The edge-list case receives paths out of expected order, details queries are rejected as undeclared, batching uses 18 rather than fewer than 12 statements, and the canonical text-key label case returns a uid instead of r1.",
+      "replacement": "Use declared typed queries and deterministic ordering to assert bidirectional edges, canonical labels, durable dispute resolution and cochange counts; retain bounded statement-count assertions for batched list/reference reads.",
+      "exit": "Rewrite test/graphql-executor.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graphql-schema-route.test.ts",
       "seconds": 70.7,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Schema route requests time out, the published-schema case receives SDL different from its expected manifest, and graph bootstrap returns a TIMEOUT error instead of an error-free body.",
+      "replacement": "Publish an explicit fixture manifest once and assert schema SDL stays pinned across unpublished edits, graph queries use the one executor and over-depth queries are refused before execution.",
+      "exit": "Rewrite test/graphql-schema-route.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graphql-writes.test.ts",
       "seconds": 51.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The natural-text-key case raises TARGET_MISSING for a mention, the disagreement case receives no contested description, and the catalogue-endpoint query is rejected for undeclared fields.",
+      "replacement": "Create valid mention targets and use declared catalogue fields, then assert atomic text-key writes and backlinks, both conflicting opinions, stable returned identities and accepted catalogue edge endpoints.",
+      "exit": "Rewrite test/graphql-writes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/history-change-report.test.ts",
@@ -301,9 +301,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The history replay property case passes but drives twenty seeds through thousands of store operations while comparing every resulting assertion set.",
+      "replacement": "Retain deterministic multi-source add/replace/retract histories and assert literal change-report replay equals current assertions after each step, with the larger seed sweep separated from blocking regression cases.",
+      "exit": "Rewrite test/history-change-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/history.test.ts",
@@ -311,29 +311,29 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The temporal history suite passes but repeats store setup across valid-time and known-time query combinations.",
+      "replacement": "Run table-driven history transitions over an isolated prepared store and assert pre-commit absence, valid-time removal, historical known-time visibility and unchanged-row identity.",
+      "exit": "Rewrite test/history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-close-verdict.test.ts",
       "seconds": 45.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The close-during-verdict case expects AbortError but receives a different rejection, and the standalone-fill case expects started true but receives a refusal.",
+      "replacement": "Coordinate an owned verdict read with close and assert cancellation drains before store release; separately accept a valid standalone fill and assert it does not trigger validation until explicitly requested.",
+      "exit": "Rewrite test/knowledge-close-verdict.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-declared-entities.test.ts",
       "seconds": 34.7,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The files-only and repositories-only cases fail manifest validation for semantic bindings that still name removed kinds and edges, before their declared-only publication assertions.",
+      "replacement": "Construct coherent reduced manifests with matching semantic bindings and assert files-only and repositories-only products publish only their declared entity kinds without phantom tables.",
+      "exit": "Rewrite test/knowledge-declared-entities.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-publication-state.test.ts",
@@ -341,29 +341,29 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Publication-state cases pass but each waits through product preparation and queue setup before observing pending or failed publication.",
+      "replacement": "Control publication completion explicitly and assert full unfilled pending/failed status, agent requirements, exactly-once queue dispatch, diagnostic failure and close cancellation without background polling.",
+      "exit": "Rewrite test/knowledge-publication-state.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-reset.test.ts",
       "seconds": 59.7,
-      "reason": "green-slow",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Existing measured test failure masks a product defect and blocks dependable feedback.",
-      "replacement": "Replacement must assert the currently failing role/data/plugin behavior while isolating the underlying defect.",
-      "exit": "Rewrite this test file, pass it in the blocking suite, then remove this entry."
+      "defect": "The answered-question reset case rejects a non-string answerText projection, and keepQuestions/keepStore rejects a non-string askedAt projection before retention assertions.",
+      "replacement": "Seed question pages using the declared semantic projection types and assert answered questions survive, explicit agent-open questions are removed and keepQuestions/keepStore preserve only the selected paths.",
+      "exit": "Rewrite test/knowledge-reset.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/madarch-init-e2e.test.ts",
       "seconds": 37.8,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
+      "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
+      "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/manifest-publication.test.ts",
@@ -371,9 +371,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The publication suite passes but repeatedly publishes large catalogue fixtures for each invalidation input.",
+      "replacement": "Prepare the catalogue once with independent revisions and assert unchanged reads do not write, foreign vertices do not change output and vertices, snapshots and starter values each invalidate the publication correctly.",
+      "exit": "Rewrite test/manifest-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/manifest-start.test.ts",
@@ -381,79 +381,79 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Manifest-start cases pass but launch full daemon products for invalid-manifest and never-filled refresh checks.",
+      "replacement": "Validate malformed manifests before listener startup in a focused command case, then retain one ready daemon fixture asserting never-filled catalogue publication and refresh with content still unfilled.",
+      "exit": "Rewrite test/manifest-start.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-agent-fill.test.ts",
       "seconds": 50.8,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The pressed ACP fill raises a declaration refusal because code.file is not declared, and the bundled/novel-agent cases expect no manifest findings but receive invalid field declarations.",
+      "replacement": "Give each ACP fixture a valid kind/producer closure and assert two-file evidence publication, outside-access denial, novel and already-filled kind refinement, deterministic no-agent execution and atomic malformed-output refusal.",
+      "exit": "Rewrite test/plugin-agent-fill.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-capabilities.test.ts",
       "seconds": 67.3,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The no-source blob-read case times out before asserting the plugin-named access refusal; its plugin introduction and contract rights do not agree.",
+      "replacement": "Make handshake rights match the contract, issue a blob read without source permission and assert the refusal names the plugin and denied access rather than leaving the request pending.",
+      "exit": "Rewrite test/plugin-capabilities.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-declaration-change.test.ts",
       "seconds": 43.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The narrowed-pattern, widened-pattern and no-change cases throw prepared fixture manifest missing before checking invalidation or retained terms.",
+      "replacement": "Publish the fixture manifest through the preparation owner, change only the declared pattern and assert narrowed terms retract, widened terms appear and unchanged declarations execute no unit again.",
+      "exit": "Rewrite test/plugin-declaration-change.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-file-read.test.ts",
       "seconds": 127.3,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The continued-range and linked-out-repository cases time out after rights-mismatch rejects graph read rights absent from the contract, before checking byte continuation and confinement refusal.",
+      "replacement": "Complete the plugin handshake before requests, then assert successive bounded byte ranges reconstruct the file and an out-of-product repository link is refused with its name.",
+      "exit": "Rewrite test/plugin-file-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-host.test.ts",
       "seconds": 240.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The normal-unit and partial-removal cases expect one operation but receive two; heartbeat pause returns not-extracted, the memory-kill counter stays zero and an undeclared-kind result is incorrectly extracted.",
+      "replacement": "Separate handshake/request operation accounting and assert complete normal extraction, pause-aware heartbeats, verified memory-limit kills, request audit outcomes, undeclared-kind refusal and dropped partial removals under confinement.",
+      "exit": "Rewrite test/plugin-host.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-output-partitions.test.ts",
       "seconds": 428.4,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The large-content, prior-snapshot and empty-plan cases expect succeeded but every initial partitioned run remains running, so snapshot retention and retraction assertions are never reached.",
+      "replacement": "Use a complete bounded partition producer and assert successful publication beyond the message bound, failed-partition retention and blocked dependants, immutable named snapshots, empty-plan retraction and out-of-plan key refusal.",
+      "exit": "Rewrite test/plugin-output-partitions.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-read.test.ts",
       "seconds": 67.5,
-      "reason": "green-slow",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Existing measured test failure masks a product defect and blocks dependable feedback.",
-      "replacement": "Replacement must assert the currently failing role/data/plugin behavior while isolating the underlying defect.",
-      "exit": "Rewrite this test file, pass it in the blocking suite, then remove this entry."
+      "defect": "Both blob-range and no-read cases time out after the host rejects rights-mismatch: the plugin announces graph read rights that its contract does not grant.",
+      "replacement": "Align each fixture introduction with its declared rights and assert blob line ranges for the granted case and a plugin-named refusal for the no-read case.",
+      "exit": "Rewrite test/plugin-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/postgres-cluster-owner.test.ts",
@@ -461,49 +461,49 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Cluster-owner cases pass but start many PostgreSQL processes to cover ownership, platform and process-attachment behavior.",
+      "replacement": "Keep lifecycle tests on real owned clusters and test endpoint/platform decisions with local fixtures; assert last-hold shutdown, attachment ownership and simultaneous independent-store shutdown without blocking the event loop.",
+      "exit": "Rewrite test/postgres-cluster-owner.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/problem-task.test.ts",
       "seconds": 64.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Manual problem creation cases time out and the Problems-page case raises PostgreSQL operator does not exist: text ->> unknown instead of creating or reopening its graph task.",
+      "replacement": "Read typed graph assertions rather than applying JSON extraction to text, and assert idempotent problem/task identities, concurrent author retention, safe fingerprints and atomic missing-binding refusal.",
+      "exit": "Rewrite test/problem-task.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-cli-script.test.ts",
       "seconds": 573.1,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The script CLI live-rename case expects exit zero but gets one when its daemon fails readiness; nonterminal init and terminal prompt cases also return one before their catalogue assertions.",
+      "replacement": "Run the script entry point against a ready fixture daemon and assert live rename republishes catalogue kinds, nonterminal init respects explicit templates and terminal init asks only for the template.",
+      "exit": "Rewrite test/product-cli-script.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-cli.test.ts",
       "seconds": 549.0,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The CLI live-rename case expects exit zero but receives one because its daemon does not answer; template init and terminal prompt cases likewise exit one.",
+      "replacement": "Use a deterministic daemon readiness fixture and assert successful init in empty folders and checkouts, template-only prompting, nonterminal template selection and live catalogue rename publication.",
+      "exit": "Rewrite test/product-cli.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-daemon.test.ts",
       "seconds": 180.6,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The live-daemon reuse/stale-record case expects status exit zero but receives a null status; the products-home routing case fails before its product wiki assertions.",
+      "replacement": "Control daemon startup and shutdown explicitly, then assert product-prefix routing, live reuse, stale-record replacement, status success and state removal on stop.",
+      "exit": "Rewrite test/product-daemon.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-draft.test.ts",
@@ -511,29 +511,29 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Draft-product cases pass but combine cheap home-resolution assertions with repeated Git-backed template product creation.",
+      "replacement": "Keep home precedence and blank-override cases pure, create one reusable immutable template source and assert independent drafts preserve identity, selected template contents and repository links.",
+      "exit": "Rewrite test/product-draft.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-reset.test.ts",
       "seconds": 55.5,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Both standalone and server-mediated reset cases expect the seed fill to exit zero but receive one for selected kind product having no enabled producer.",
+      "replacement": "Seed a fully declared deterministic fill, reset it directly and through the server, and assert both paths return the product to the same unfilled state with preserved product identity.",
+      "exit": "Rewrite test/product-reset.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-serve.test.ts",
       "seconds": 435.3,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The second-serve and browser cases fail because the command prints no serving address, while init expects a Next line that is absent; the intended HTTP/build/open assertions remain unverified.",
+      "replacement": "Use one explicit server readiness handshake and assert product pages answer, existing dist avoids rebuild, port conflicts preserve the holder, browser failure only warns, slow openers do not block and no-open launches nothing.",
+      "exit": "Rewrite test/product-serve.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-start-identity.test.ts",
@@ -541,19 +541,19 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Startup identity and rename cases pass but repeat full product preparation to compare stable identities and preserved person opinions.",
+      "replacement": "Use one prepared contract with distinct product fixtures and assert restart keeps identity/current home, rename updates one node only and person-authored opinions remain unchanged.",
+      "exit": "Rewrite test/product-start-identity.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/queue.test.ts",
       "seconds": 47.8,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The same-clock-tick enqueue case expects tick-one then tick-two in the first two claims but receives tick-two then tick-one.",
+      "replacement": "Make enqueue order explicit for equal-priority same-tick jobs and assert the first claim takes the two oldest, while jobs with an identical stored instant use the declared code-point id tie-break.",
+      "exit": "Rewrite test/queue.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/removed-routes.test.ts",
@@ -561,19 +561,19 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Removed-route checks pass but the surviving read-API case performs a full graph setup alongside cheap route-dispatch assertions.",
+      "replacement": "Test removed reads and method refusals with a minimal router fixture, then assert the app shell and one declared GraphQL read work against one prepared product.",
+      "exit": "Rewrite test/removed-routes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/repository-language-publication.test.ts",
       "seconds": 34.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The disk JSON attribution replay case raises selected kind product has no enabled producer before asserting unknown language history and no-change replay.",
+      "replacement": "Declare the product producer and assert disk JSON attribution preserves unknown language assertions, adds the known language transition and replays the same repository without new changes.",
+      "exit": "Rewrite test/repository-language-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/schema-stamp.test.ts",
@@ -581,9 +581,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Schema-stamp cases pass but create twenty stores with eight concurrent clients each to establish preparation and no-DDL behavior.",
+      "replacement": "Retain one real prepared/unprepared-store boundary case and bounded concurrent clients, asserting no client DDL/retries, serialized transaction admission and savepoint recovery; separate the larger store-count stress sweep.",
+      "exit": "Rewrite test/schema-stamp.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/server-observability.test.ts",
@@ -591,9 +591,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Observability cases pass but tracing one HTTP request requires a full server/store startup in addition to pure watchdog cases.",
+      "replacement": "Drive the watchdog with a controlled clock and use one ready server to assert request start/end trace and logs, concurrent stage isolation and cancellation warnings while an unrelated page still answers.",
+      "exit": "Rewrite test/server-observability.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/server-sources.test.ts",
@@ -601,29 +601,29 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Source-name and store-reopen cases pass but create separate store clusters while also covering pure filename encoding checks.",
+      "replacement": "Keep separator, case, control-character and canonical-encoding checks pure; use one dedicated store lifecycle case to assert encoded source names persist and reopen without collisions or path escape.",
+      "exit": "Rewrite test/server-sources.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/server-templates.test.ts",
       "seconds": 166.4,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The reduced-manifest page case expects a Cannot query field repository diagnostic but receives the typed operation-validation refusal, and bootstrap navigation returns no product label.",
+      "replacement": "Use current typed GraphQL page operations and assert invalid template findings stay local to their page and Problems, valid pages still serve and bootstrap returns the declared product label and complete templates.",
+      "exit": "Rewrite test/server-templates.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/starter-value-sets.test.ts",
       "seconds": 52.3,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The value-set parent-edge case reads disputable assertions without an explicit graph contract and throws before checking scalar assignments.",
+      "replacement": "Read the published fixture contract and pass it to assertion reads, then assert every declared value-set entry has its parent edge and assignments remain scalar typed values.",
+      "exit": "Rewrite test/starter-value-sets.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/stop-databases.test.ts",
@@ -631,9 +631,9 @@
       "reason": "waits-timeout",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Daemon stop and signal cases fail readiness before observing a product PostgreSQL server, and standalone serve cases print no address before their database-lifetime assertions.",
+      "replacement": "Establish owned daemon and standalone server readiness, then assert stop/SIGTERM clean up only their own PostgreSQL servers, SIGKILL recovery reopens cleanly and unverified or sibling pids are never signalled.",
+      "exit": "Rewrite test/stop-databases.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/store-preparation-owner.test.ts",
@@ -641,19 +641,19 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Preparation-owner cases pass but each boots a separate role process and store for pinned-contract and shutdown checks.",
+      "replacement": "Use one explicitly owned prepared store to assert pinned-contract/source database preparation, attach-only client access and SIGTERM cancellation before store close with no surviving process.",
+      "exit": "Rewrite test/store-preparation-owner.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/trace-report.test.ts",
       "seconds": 46.2,
-      "reason": "waits-timeout",
+      "reason": "red-defect",
       "result": "red",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "The step-report and span-coverage fill cases raise cannot CREATE INDEX node because it has pending trigger events before checking trace output or uncovered wall-clock fraction.",
+      "replacement": "Prepare schema outside transactions with pending assertion triggers, run one fixture fill and assert named steps, wall clock, peak RSS, slowest spans and less than five percent uncovered root time.",
+      "exit": "Rewrite test/trace-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/workflows-check.test.ts",
@@ -661,9 +661,9 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
-      "defect": "Slow or timeout-prone legacy test blocks dependable feedback; determine and fix the underlying fixture or runtime bottleneck.",
-      "replacement": "A rewritten focused test must retain the named regression/behavior assertion without the slow wait or shared integration setup.",
-      "exit": "Rewrite the file and remove it from quarantine after the replacement passes in the blocking suite."
+      "defect": "Workflow CLI checks pass but repeatedly construct starter products and invoke commands for catalogue/workflow separation and argument errors.",
+      "replacement": "Validate workflow fixtures directly for missing manifests and catalogue isolation, retaining one CLI case that asserts counts, full manifest paths and unknown-argument exit two.",
+      "exit": "Rewrite test/workflows-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     }
   ]
 }

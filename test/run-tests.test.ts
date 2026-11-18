@@ -66,7 +66,63 @@ describe('the test runner', () => {
   test('real Bun exact paths and shard manifests select the file, not an overlapping basename', () => {
     const result = Bun.spawnSync([process.execPath, RUNNER, '--only', 'test/a.test.ts', '--shard=1/1', '--timings='+join(fixture,'timings.json'), '--update-timings'], {cwd:fixture,env:{...process.env,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
     expect(result.exitCode).toBe(0);
-    expect(existsSync(join(fixture,'timings.json'))).toBe(true);
+    const manifest = JSON.parse(readFileSync(join(fixture, 'timings.json'), 'utf8'));
+    expect(Object.keys(manifest.files)).toEqual(['test/a.test.ts']);
+    expect(manifest.files).not.toHaveProperty('test/nested/test/a.test.ts');
+  });
+
+
+  test('reports the absolute manifest path and the actual entry line for invalid entries', () => {
+    const manifest = join(fixture, 'test', 'slow-files.json');
+    const original = readFileSync(manifest, 'utf8');
+    const cases = [
+      { entry: '17', message: 'every slow entry names a "path"' },
+      { entry: '{}', message: 'every slow entry names a "path"' },
+      { entry: 'null', message: 'every slow entry names a "path"' },
+      { entry: '{"path":"test/gone.test.ts","reason":"green-slow"}', message: 'test/gone.test.ts is in the slow list' },
+      { entry: '{"path":"test/a.test.ts","reason":"bad"}', message: 'test/a.test.ts names no reason: green-slow, waits-timeout or red-defect' },
+    ];
+    try {
+      for (const { entry, message } of cases) {
+        writeFileSync(manifest, '{\n  "note": "punctuation [,]", "other": [],\n  "files": [\n    {"path":"test/c.test.ts","reason":"green-slow","nested":[{}],"label":"a, { [, b"},\n\n    ' + entry + '\n  ], "tail": {}\n}');
+        const result = run();
+        expect(result.status).toBe(2);
+        expect(result.stderr).toContain(`${manifest}:6: ${message}`);
+      }
+    } finally {
+      writeFileSync(manifest, original);
+    }
+  });
+
+  test('accepts red-defect as a slow-list reason', () => {
+    const manifest = join(fixture, 'test', 'slow-files.json');
+    const original = readFileSync(manifest, 'utf8');
+    try {
+      for (const reason of ['red-defect', 'waits-timeout']) {
+        writeFileSync(manifest, JSON.stringify({ files: [{ path: 'test/c.test.ts', reason }] }));
+        const result = run('--slow');
+        expect(result.status).toBe(0);
+        expect(result.called).toEqual(['test', './test/c.test.ts']);
+      }
+    } finally {
+      writeFileSync(manifest, original);
+    }
+  });
+
+  test('refuses unreadable or malformed manifests with an absolute source location', () => {
+    const manifest = join(fixture, 'test', 'slow-files.json');
+    const original = readFileSync(manifest, 'utf8');
+    try {
+      for (const source of ['{', 'null', '3', '{}', '{"files":{}}']) {
+        writeFileSync(manifest, source);
+        const result = run();
+        expect(result.status).toBe(2);
+        expect(result.stderr).toContain(`${manifest}:1: `);
+        expect(result.stderr).toContain(source === '{' ? 'cannot read the slow list:' : 'the slow list must be an object with a "files" array');
+      }
+    } finally {
+      writeFileSync(manifest, original);
+    }
   });
 
   test('runs only the slow list with --slow', () => {

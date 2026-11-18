@@ -20,13 +20,13 @@
  * names what exists, and a deleted test does not stay silently excluded.
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const SLOW_LIST = join('test', 'slow-files.json');
 export const SLOW_THRESHOLD_SECONDS = 30;
 
-export type SlowReason = 'green-slow' | 'waits-timeout';
+export type SlowReason = 'green-slow' | 'waits-timeout' | 'red-defect';
 
 /** One file the blocking run leaves out, with the measure that put it here. */
 export interface SlowFile {
@@ -48,9 +48,28 @@ export interface SlowList {
 
 const USAGE = 'usage: bun scripts/run-tests.ts [--slow] [--dry-run] [--only <path>] [--shard=<i>/<n>] [bun test flags]';
 
-function fail(message: string): never {
-  console.error(`${SLOW_LIST}:1: ${message}`);
-  process.exit(2);
+/** Lines of the array entries, ignoring punctuation inside JSON strings. */
+function entryLines(source: string): number[] {
+  const tokens = [...source.matchAll(/"(?:\\.|[^"\\])*"|[{}[\],:]|[^\s{}[\],:]+/g)];
+  const start = tokens.findIndex((token, index) => token[0] === '"files"' && tokens[index + 1]?.[0] === ':' && tokens[index + 2]?.[0] === '[');
+  const lines: number[] = [];
+  let depth = 1;
+  let next = true;
+  for (const token of tokens.slice(start + 3)) {
+    const text = token[0];
+    if (depth === 1 && text === ']') break;
+    if (depth === 1 && text === ',') {
+      next = true;
+      continue;
+    }
+    if (next) {
+      lines.push(source.slice(0, token.index).split('\n').length);
+      next = false;
+    }
+    if (text === '[' || text === '{') depth += 1;
+    if (text === ']' || text === '}') depth -= 1;
+  }
+  return lines;
 }
 
 /** Every `*.test.ts` under `test/` at any depth, relative and in code point order. */
@@ -69,9 +88,16 @@ export function testFiles(root: string): string[] {
 
 /** The slow list, refused when it names a path that is not a test file of this tree. */
 export function readSlowList(root: string, all: readonly string[]): SlowList {
+  const manifest = resolve(root, SLOW_LIST);
+  const fail = (message: string, line = 1): never => {
+    console.error(`${manifest}:${line}: ${message}`);
+    process.exit(2);
+  };
+  let source = '';
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(join(root, SLOW_LIST), 'utf8'));
+    source = readFileSync(manifest, 'utf8');
+    parsed = JSON.parse(source);
   } catch (error) {
     fail(`cannot read the slow list: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -79,11 +105,13 @@ export function readSlowList(root: string, all: readonly string[]): SlowList {
     fail('the slow list must be an object with a "files" array');
   }
   const list = parsed as SlowList;
+  const lines = entryLines(source);
   const known = new Set(all);
-  for (const entry of list.files) {
-    if (entry === null || typeof entry !== 'object' || typeof entry.path !== 'string') fail('every slow entry names a "path"');
-    if (!known.has(entry.path)) fail(`${entry.path} is in the slow list, but it is not a test file of this tree`);
-    if (entry.reason !== 'green-slow' && entry.reason !== 'waits-timeout') fail(`${entry.path} names no reason: green-slow or waits-timeout`);
+  for (const [index, entry] of list.files.entries()) {
+    const line = lines[index];
+    if (entry === null || typeof entry !== 'object' || typeof entry.path !== 'string') fail('every slow entry names a "path"', line);
+    if (!known.has(entry.path)) fail(`${entry.path} is in the slow list, but it is not a test file of this tree`, line);
+    if (entry.reason !== 'green-slow' && entry.reason !== 'waits-timeout' && entry.reason !== 'red-defect') fail(`${entry.path} names no reason: green-slow, waits-timeout or red-defect`, line);
   }
   return list;
 }

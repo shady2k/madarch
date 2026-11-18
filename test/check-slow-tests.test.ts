@@ -1,45 +1,91 @@
-import { describe, expect, test } from 'bun:test';
-import { slowFindings, type Timings } from '../scripts/check-slow-tests.js';
-import type { SlowList } from '../scripts/run-tests.js';
-
-const all = ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'];
-
-function list(files: SlowList['files']): SlowList {
-  return { version: 1, measuredOn: '2026-11-18', files: files.map((entry) => ({owner:'madarch-x9a7',defect:'test defect',replacement:'replacement assertion',exit:'rewritten file',...entry})) };
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, test } from 'bun:test';
+import { readShardTimings, slowFindings, type Timings } from '../scripts/check-slow-tests.js';
+import type { SlowFile, SlowList } from '../scripts/run-tests.js';
+const path = 'test/a.test.ts';
+const entry: SlowFile = { path, seconds: 31, reason: 'red-defect', result: 'red', owner: 'madarch-x9a7', defect: 'A claim is answered as published.', replacement: 'Assert the restored claim remains pending.', exit: 'Rewrite the file, pass blocking tests, remove this entry.' };
+function list(files: SlowList['files']): SlowList { return { version: 1, measuredOn: 'today', files }; }
+const evidence: Timings = { source: '/evidence.json', kind: 'single-file', files: { [path]: 31000 }, text: "{\n  \"files\": {\n    \"test/a.test.ts\": 31000\n  }\n}" };
+const findings = (row: SlowFile) => slowFindings([path], list([row]), evidence);
+test('accepts a measured red defect with repair evidence', () => expect(findings(entry)).toEqual([]));
+for (const field of ['owner', 'defect', 'replacement', 'exit'] as const) {
+  test(`requires explicit ${field}`, () => expect(findings({ ...entry, [field]: undefined }).some(value => value.includes(field))).toBe(true));
 }
+test('rejects unassigned owner', () => expect(findings({ ...entry, owner: 'unassigned' }).join()).toContain('owner'));
+test('red cannot be green-slow', () => expect(findings({ ...entry, reason: 'green-slow' }).join()).toContain('red and cannot use reason green-slow'));
+test('green cannot be red-defect or waits-timeout', () => {
+  for (const reason of ['red-defect', 'waits-timeout'] as const) expect(findings({ ...entry, result: 'green', reason }).join()).toContain('green and must use reason green-slow');
+});
+test('accepts green-slow and waiting reds', () => {
+  expect(findings({ ...entry, result: 'green', reason: 'green-slow' })).toEqual([]);
+  expect(findings({ ...entry, reason: 'waits-timeout' })).toEqual([]);
+});
+test('rejects 6.2 seconds disguised as 31 with actual evidence line', () => {
+  const result = slowFindings([path], list([{ ...entry, result: 'green', reason: 'green-slow' }]), { ...evidence, files: { [path]: 6200 } });
+  expect(result).toContain('/evidence.json:3: test/a.test.ts listed time 31s disagrees with the committed measurement 6200ms');
+});
+test('merge-base guard requires independent evidence for changed files', () => {
+  const result = slowFindings([path], list([]), { ...evidence, text: '{}', files: {} }, { revision: 'abc', changedFiles: [path] });
+  expect(result).toContain('/evidence.json:1: test/a.test.ts changed since abc has no single-file evidence');
+});
+test('new measured 35 second file must be listed', () => {
+  expect(slowFindings([path], list([]), { ...evidence, files: { [path]: 35000 } }, { revision: 'abc', changedFiles: [path] })).toEqual(['/evidence.json:3: test/a.test.ts took 35000 ms, more than 30 s, and is not in test/slow-files.json']);
+});
+test('kind not filename chooses comparison rules', () => {
+  expect(slowFindings([path], list([entry]), { ...evidence, kind: 'shard', files: { [path]: 6200 } })).toEqual([]);
+  expect(slowFindings([path], list([entry]), { ...evidence, source: '/anything.json', files: { [path]: 6200 } }).join()).toContain('disagrees');
+});
+test('invalid and subthreshold listed seconds fail', () => {
+  for (const seconds of [NaN, 30]) expect(findings({ ...entry, seconds }).join()).toContain('slow criterion');
+});
+test('invalid measurement is not evidence', () => {
+  expect(slowFindings([path], list([]), { ...evidence, files: { [path]: NaN } }, { revision: 'abc', changedFiles: [path] }).join()).toContain('no single-file evidence');
+});
 
-const timings: Timings = { source: '.github/workflows/single-file-timings.json', files: { 'test/a.test.ts': 31_000, 'test/b.test.ts': 2_000, 'test/c.test.ts': 31_000 } };
+test('owner task syntax is anchored and allows multi-digit child tasks', () => {
+  for (const owner of ['madarch-x9a7!', '!madarch-x9a7', 'madarch-x9a7.foo']) expect(findings({ ...entry, owner }).join()).toContain('owner');
+  expect(findings({ ...entry, owner: 'madarch-x9a7.12' })).toEqual([]);
+});
+test('blank repair evidence fails', () => {
+  for (const field of ['defect', 'replacement', 'exit'] as const) expect(findings({ ...entry, [field]: '  ' }).join()).toContain(field);
+});
+test('measurement rounding tolerance is 100 milliseconds inclusive', () => {
+  expect(slowFindings([path], list([entry]), { ...evidence, files: { [path]: 31100 } })).toEqual([]);
+  expect(slowFindings([path], list([entry]), { ...evidence, files: { [path]: 31101 } }).join()).toContain('disagrees');
+});
+test('unknown, nonfinite, fast and exactly threshold measures are not slow', () => {
+  expect(slowFindings([path], list([]), { ...evidence, files: { [path]: 30000, 'test/gone.test.ts': 35000 } })).toEqual([]);
+  expect(slowFindings([path], list([]), { ...evidence, files: { [path]: Infinity } })).toEqual([]);
+});
+test('shards do not serve as merge-base evidence and preserve manifest location', () => {
+  expect(slowFindings([path], list([]), { ...evidence, kind: 'shard', files: {} }, { revision: 'abc', changedFiles: [path] })).toEqual([]);
+  expect(slowFindings([path], list([]), { ...evidence, kind: 'shard', locations: { [path]: '/shards/shard-1.json:7' } })).toEqual(['/shards/shard-1.json:7: test/a.test.ts took 31000 ms, more than 30 s, and is not in test/slow-files.json']);
+});
+test('missing path after multiple lines points at manifest root', () => {
+  expect(slowFindings([path], list([]), { ...evidence, text: '{\n\n}', files: {} }, { revision: 'abc', changedFiles: [path] })).toEqual(['/evidence.json:1: test/a.test.ts changed since abc has no single-file evidence']);
+});
 
-describe('the slow-list check', () => {
-  test('names a measured file over 30 s that the slow list does not carry', () => {
-    const findings = slowFindings(all, list([{ path: 'test/c.test.ts', seconds: 31, reason: 'green-slow' }]), timings);
-    expect(findings).toEqual([
-      '.github/workflows/single-file-timings.json: test/a.test.ts took 31000 ms, more than 30 s, and is not in test/slow-files.json',
-    ]);
-  });
+test('shard schema is independent of manifest basename and reports actual source line', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'slow-evidence-'));
+  try {
+    const manifest = join(folder, 'observed.json');
+    writeFileSync(manifest, JSON.stringify({ version: 1, files: { [path]: 35000 } }, null, 2));
+    writeFileSync(join(folder, 'notes.txt'), 'not a manifest');
+    const measured = readShardTimings(folder);
+    expect(measured.kind).toBe('shard');
+    expect(slowFindings([path], list([]), measured)).toEqual([`${manifest}:4: test/a.test.ts took 35000 ms, more than 30 s, and is not in test/slow-files.json`]);
+  } finally { rmSync(folder, { recursive: true, force: true }); }
+});
 
-  test('accepts a measured file over 30 s when the slow list carries it', () => {
-    const findings = slowFindings(all, list([{ path: 'test/a.test.ts', seconds: 31, reason: 'green-slow' }]), { ...timings, files: { ...timings.files, 'test/c.test.ts': 2_000 } });
-    expect(findings).toEqual([]);
-  });
-
-  test('names a slow entry that does not reach the criterion', () => {
-    const findings = slowFindings(all, list([{ path: 'test/c.test.ts', seconds: 20, reason: 'green-slow' }]), timings);
-    expect(findings).toContain('test/slow-files.json: test/c.test.ts is listed with 20 s; the slow criterion is more than 30 s');
-  });
-
-  test('rejects a slow entry when its committed measurement understates the evidence', () => {
-    const findings = slowFindings(all, list([{ path: 'test/a.test.ts', seconds: 31, reason: 'green-slow', result: 'green' }]), {source:'timings',files:{'test/a.test.ts':6200}});
-    expect(findings.some((finding) => finding.includes('disagrees with the committed measurement'))).toBe(true);
-  });
-  test('flags new single-file measurements missing from the committed baseline', () => {
-    const findings = slowFindings(all, list([]), {source:'single-file evidence',files:{'test/a.test.ts':35000}});
-    expect(findings.some((finding) => finding.includes('no committed measurement'))).toBe(true);
-    const growth = slowFindings(all, list([]), {source:'new single-file evidence',files:{'test/c.test.ts':35000}}, {source:'base timings',files:{'test/a.test.ts':1000}});
-    expect(growth.some((finding) => finding.includes('new test/c.test.ts exceeds 30 s'))).toBe(true);
-  });
-  test('names a red entry with no owner task', () => {
-    const findings = slowFindings(all, list([{ path: 'test/a.test.ts', seconds: 31, reason: 'waits-timeout', result: 'red' }]), timings);
-    expect(findings.some((finding) => finding.includes('test/a.test.ts') && finding.includes('tracked owner'))).toBe(false);
-  });
+test('shard union retains maximum observation and its source', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'slow-union-'));
+  try {
+    writeFileSync(join(folder, 'a.json'), JSON.stringify({ version: 1, files: { [path]: 35000 } }));
+    writeFileSync(join(folder, 'b.json'), JSON.stringify({ version: 1, files: { [path]: 32000 } }));
+    const measured = readShardTimings(folder);
+    expect(measured.files[path]).toBe(35000);
+    expect(measured.locations?.[path]).toBe(`${join(folder, 'a.json')}:1`);
+  } finally { rmSync(folder, { recursive: true, force: true }); }
 });
