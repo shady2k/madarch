@@ -60,8 +60,8 @@ export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,sel
   const contract=withAssertionContract(declared);const result:DisputeSlot[]=[];
   const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`WITH anchors AS (
    SELECT DISTINCT a.assertion_id,a.property,a.language FROM edge e JOIN entity k ON k.id=e.entity_id AND k.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=e.to_node
-  ) SELECT 'vertex'::text AS sort,k.name AS kind,n.id AS subject_id,a.property,a.language FROM anchors a JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id JOIN node n ON n.id=subject_edge.to_node JOIN entity k ON k.id=n.entity_id
-  UNION SELECT 'edge'::text AS sort,k.name AS kind,e.id AS subject_id,a.property,a.language FROM anchors a JOIN assertion_edge_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge e ON e.id=attachment.edge_id JOIN entity k ON k.id=e.entity_id`)).rows;
+  ) SELECT 'vertex'::text AS sort,k.name AS kind,graph_assertion_target(n.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) AS subject_id,a.property,a.language FROM anchors a JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id JOIN node n ON n.id=subject_edge.to_node JOIN entity k ON k.id=n.entity_id
+  UNION SELECT 'edge'::text AS sort,k.name AS kind,e.id AS subject_id,a.property,a.language FROM anchors a JOIN assertion_edge_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge e ON e.id=attachment.edge_id JOIN entity k ON k.id=e.entity_id`,[selectors.contexts?.[0]??1,selectors.validAt,selectors.recordedAt])).rows;
   const groups=new Map<string,{sort:'vertex'|'edge';kind:string;properties:Set<string>;subjects:Set<number>;slots:typeof anchors}>();
   for(const anchor of anchors){
    const definition=contract[anchor.sort].find(kind=>kind.name===anchor.kind);
@@ -72,7 +72,7 @@ export async function listDisputeSlots(tx:SqlExecutor,declared:GraphContract,sel
   }
   if(groups.size===0)return result;
   const requested=[...groups.values()];
-  const snapshot=await disputeSnapshot(tx,selectors,requested.map(group=>({sort:group.sort,kind:group.kind,properties:[...group.properties],subjectIds:[...group.subjects]})));
+  const snapshot=await disputeSnapshot(tx,{...selectors,projectMergedSubjects:true},requested.map(group=>({sort:group.sort,kind:group.kind,properties:[...group.properties],subjectIds:[...group.subjects]})));
   for(const [index,group] of requested.entries()){
    const all=snapshot.batches[index]!;
    for(const anchor of group.slots){
