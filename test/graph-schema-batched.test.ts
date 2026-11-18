@@ -80,3 +80,11 @@ test('a previous declaration-only stamp upgrades generated functions without res
     expect(fn.rows[0]!.body).not.toContain('obsolete generated function');
   } finally { await owner.close(); }
 }, 60_000);
+
+test('typed value dispatch uses kind/property maps instead of a per-assertion linear CASE',()=>{
+ const statements=generateContractStatements(MANIFEST_CONTRACT).statements;
+ const pass=statements.find(sql=>sql.includes('FUNCTION graph_checks_pass()'))!;
+ expect(pass).toContain('vertex_value_tables->vk.name->>a.property');
+ expect(pass).toContain('edge_value_tables->ek.name->>a.property');
+ expect(pass).not.toContain('WHEN vk.name=');
+});

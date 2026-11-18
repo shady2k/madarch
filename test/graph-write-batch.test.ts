@@ -220,3 +220,18 @@ test('typed value grouping hashes each slot once rather than each slot times ass
  console.log('VALUE_HASHES',hashes);
  expect(hashes[1]).toBe(hashes[0]);
 },60_000);
+
+test('shared evidence content is measured once per admission, retaining code-point bounds',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ const text='😀\n'; const target={kind:'batch.snapshot',key:{digest:createHash('sha256').update(text).digest('hex')}};
+ try{
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer},{...target,values:{content:text},...producer}],removals:[]}));
+  for(const count of [2,20]){
+   let splits=0;const original=String.prototype.split;
+   const spy=spyOn(String.prototype,'split').mockImplementation(function(this:string,...args:Parameters<typeof original>){if(String(this)===text&&args[0]==='\n')splits++;return original.apply(this,args);});
+   try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:Array.from({length:count},(_,i)=>({kind:'batch.file',key:{path:`e-${count}-${i}`},keyEdges:{repository},values:{text:'plain'},evidence:[{target,locator:{end:2,lineEnd:2,digest:target.key.digest}}],...producer})),removals:[]}));}finally{spy.mockRestore();}
+   expect(splits).toBe(1);
+  }
+  await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'bad-bound'},keyEdges:{repository},evidence:[{target,locator:{end:3}}],...producer}],removals:[]}))).rejects.toThrow(':154: EVIDENCE_INVALID locator outside immutable content');
+ }finally{await owner.close();}
+},60_000);

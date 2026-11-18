@@ -526,17 +526,20 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  }
  // Validate evidence only after all immutable support values in this batch are known.
  const evidenceTargets=new Map<EvidenceDraft,BatchNode>();
+ const contentMeasures=new Map<string,{points?:number;lines?:number;digest?:string}>();
  for(const input of assertions)for(const evidence of input.evidence??[]){
   let target:BatchNode|undefined;
   if(evidence.target.uid)target=nodes.get(evidence.target.uid);
   else {const uid=await refUid(executor,contract,evidence.target,context);target=nodes.get(uid);}
   if(!target)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind}`);
   evidenceTargets.set(evidence,target);const field=contract.vertex.find(kind=>kind.name===evidence.target.kind)!.evidence!.contentField;
-  const text=field?content.get(JSON.stringify([target.id,field]))?.value:undefined;
+  const contentKey=JSON.stringify([target.id,field]);
+  const text=field?content.get(contentKey)?.value:undefined;
   const locator=evidence.locator??{};
   if(typeof text==='string'){
-   if((typeof locator.end==='number'&&locator.end>[...text].length)||(typeof locator.lineEnd==='number'&&locator.lineEnd>text.split('\n').length))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content; subject ${input.kind} ${nodeIds.get(input.subjectId)?.uid??input.subjectId}`);
-   if(typeof locator.digest==='string'&&createHash('sha256').update(text,'utf8').digest('hex')!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);
+   const measures=contentMeasures.get(contentKey)??{};contentMeasures.set(contentKey,measures);
+   if((typeof locator.end==='number'&&locator.end>(measures.points??=Array.from(text).length))||(typeof locator.lineEnd==='number'&&locator.lineEnd>(measures.lines??=text.split('\n').length)))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content; subject ${input.kind} ${nodeIds.get(input.subjectId)?.uid??input.subjectId}`);
+   if(typeof locator.digest==='string'&&(measures.digest??=createHash('sha256').update(text,'utf8').digest('hex'))!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);
   }
  }
  const fresh=assertions.filter(input=>!input.repeat);

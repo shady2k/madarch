@@ -137,6 +137,8 @@ export function generateContractStatements(declared: GraphContract) {
     const valueChecks: string[] = [];
     const keyChecks: string[] = [];
     const keyedKinds = contract.vertex.filter(kind => kind.key.length > 0);
+    const valueTables = (sort: 'vertex'|'edge') => Object.fromEntries(contract[sort].map(kind => [kind.name,
+      Object.fromEntries(['$exists',...kind.fields.map(field => field.name)].map(property => [property,assertionValueTableName(kind.name,sort,property)]))]));
     const names: string[] = [];
     const lookups: string[] = [];
     for (const sort of ['vertex','edge'] as const) {
@@ -484,7 +486,9 @@ WITH vertex_groups AS MATERIALIZED (
         RETURN NEW;
       END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_checks_pass() RETURNS void LANGUAGE plpgsql SET jit=off AS $$
-      DECLARE revision text; violation integer; merge_present boolean; expected_values jsonb; required_values jsonb; bad_id bigint; candidate_id bigint; candidate_code integer; candidate_kind text; candidate_property text; changed_keys jsonb; bad_kind text; bad_property text;
+      DECLARE vertex_value_tables jsonb := ${literal(JSON.stringify(valueTables('vertex')))}::jsonb;
+      edge_value_tables jsonb := ${literal(JSON.stringify(valueTables('edge')))}::jsonb;
+      revision text; violation integer; merge_present boolean; expected_values jsonb; required_values jsonb; bad_id bigint; candidate_id bigint; candidate_code integer; candidate_kind text; candidate_property text; changed_keys jsonb; bad_kind text; bad_property text;
         node_lower bigint := coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807);
         edge_lower bigint := coalesce(nullif(current_setting('madarch.graph_edge_lower',true),'')::bigint,9223372036854775807);
         context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
@@ -509,8 +513,7 @@ IF violation=88 THEN RAISE EXCEPTION '${import.meta.path}:88: assertion requires
 IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID assertion lineage'; END IF;
 
       WITH headers AS MATERIALIZED (
-        SELECT a.assertion_id,a.operation,CASE ${contract.vertex.flatMap(kind => ['$exists',...kind.fields.map(f=>f.name)].map(field => `WHEN vk.name=${literal(kind.name)} AND a.property=${literal(field)} THEN ${literal(assertionValueTableName(kind.name,'vertex',field))}`)).join(' ')}
-          ${contract.edge.flatMap(kind => ['$exists',...kind.fields.map(f=>f.name)].map(field => `WHEN ek.name=${literal(kind.name)} AND a.property=${literal(field)} THEN ${literal(assertionValueTableName(kind.name,'edge',field))}`)).join(' ')} ELSE NULL END AS expected
+        SELECT a.assertion_id,a.operation,coalesce(vertex_value_tables->vk.name->>a.property,edge_value_tables->ek.name->>a.property) AS expected
         FROM (SELECT * FROM assertion WHERE assertion_id>=node_lower OFFSET 0) a
         LEFT JOIN LATERAL (SELECT * FROM assertion_vertex_subject WHERE assertion_id=a.assertion_id OFFSET 0) av ON true
         LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=av.subject_edge_id OFFSET 0) attachment ON true

@@ -134,7 +134,15 @@ test('key checks read only changed ids of their keyed kind', async () => {
       })), removals:[] });
       const count=async()=>Number((await tx.query<{reads:number}>(`SELECT (seq_tup_read+idx_tup_fetch)::integer reads FROM pg_stat_xact_user_tables WHERE relname='node'`)).rows[0]!.reads);
       await tx.query('DROP INDEX node_entity');
-      const before=await count(); await tx.query('SELECT graph_checks_pass()'); return await count()-before;
+      const before=await count(); await tx.query('SELECT graph_checks_pass()'); const measured=await count()-before;
+      await tx.query('SAVEPOINT invalid_key');
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('ALTER TABLE node DISABLE TRIGGER immutable');
+      await tx.query(`UPDATE node SET key='{"name":"contradiction"}' WHERE entity_id=(SELECT id FROM entity WHERE name='keyed0') AND key='{"name":"new-0"}'`);
+      await tx.query(`SELECT set_config('madarch.graph_node_lower',(SELECT min(id)::text FROM node WHERE entity_id=(SELECT id FROM entity WHERE name='keyed0')),true),set_config('madarch.checked_graph_revision','',true)`);
+      await expect(tx.query('SELECT graph_checks_pass()')).rejects.toThrow(':214: IMMUTABLE_KEY missing or contradictory assertion for keyed0.name');
+      await tx.query('ROLLBACK TO SAVEPOINT invalid_key');
+      return measured;
     })); } finally { await owner.close(); }
   }
   console.log('KEY_KIND_READS',reads); expect(reads[0]).toBeGreaterThan(0); expect(reads[1]).toBe(reads[0]);
