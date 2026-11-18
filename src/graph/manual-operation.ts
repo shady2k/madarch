@@ -119,7 +119,8 @@ export async function executeManualOperation(owner: DatabaseOwner, source: Write
     grants.set(identity, hostBinding);
     HOST_GRANTS.set(owner, grants);
     const own = await admit(owner, { source, operation, identity });
-    if (own.receipt) return JSON.parse(own.receipt.result) as WriteAnswer;
+    // Every manual handler returns a WriteAnswer; only void operations omit the result.
+    if (own.receipt) return JSON.parse(own.receipt.result!) as WriteAnswer;
     const queue = await createPgBossQueue({ owner, supervise: false });
     try {
       await queue.declare(MANUAL_GRAPH_QUEUE);
