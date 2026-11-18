@@ -27,6 +27,8 @@ export interface ImportStatement {
   readonly line: number;
   /** The names the statement brings in, as the exporting module writes them. */
   readonly names: readonly string[];
+  /** True when every name the statement brings in is a type: `import type`, or every specifier written `type`. */
+  readonly typeOnly: boolean;
   /**
    * True when the statement takes the module as a whole — `import * as store`,
    * `export * from`, a side-effect `import 'x'`, or `await import('x')` — so every
@@ -91,17 +93,19 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
         else wholeModule = true;
       }
       if (item.specifiers.length === 0) wholeModule = true;
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ImportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, typeOnly, wholeModule });
     } else if (item.type === 'ExportNamedDeclaration') {
       if (item.source === null || item.source === undefined) continue;
       const names = item.specifiers.flatMap((specifier) => (specifier.type === 'ExportSpecifier' ? [specifier.orig.value] : []));
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ExportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, typeOnly, wholeModule: false });
     } else if (item.type === 'ExportAllDeclaration') {
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], typeOnly: false, wholeModule: true });
     }
   }
   for (const dynamic of dynamicImportsOf(module)) {
-    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true });
+    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], typeOnly: false, wholeModule: true });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
   return { imports: statements, literalCalls };
