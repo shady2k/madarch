@@ -13,7 +13,7 @@
  */
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { stopWindowsDaemon } from './windows-daemon-stop.js';
-import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync, renameSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -38,8 +38,11 @@ interface DaemonState { pid: number; port: number; startedAt: number; home: stri
 const STATE_FILE = '.madarch-daemon.json';
 const LOG_FILE = '.madarch-daemon.log';
 const LOCK_FILE = '.madarch-daemon.lock';
-/** How long a start waits for the child's listener to answer before it reads the start as failed. */
-const READY_TIMEOUT_MS = 8000;
+/** Engine start limit: pg_ctl stop waits 60 s and is killed at 90 s; store users
+ * wait 90 s and the start lock 120 s; manifest validation takes about 8 s.
+ * A shorter client limit would abandon a live child within the engine's own allowed waits.
+ */
+const START_LIMIT_MS = 120_000;
 /**
  * How many free ports a start that asked for port 0 may try: the one it picked
  * first and two more picked when another process took the port before the
@@ -360,7 +363,7 @@ export function startFailureWhy(
   seen: { reading: SpawnedChild; args: string | undefined },
   outcome: { answered: boolean; tokenMissed: boolean },
 ): string {
-  const waited = `${READY_TIMEOUT_MS / 1000}s`;
+  const waited = `${START_LIMIT_MS / 1000}s`;
   if (seen.reading === 'ended') return `the process it started (pid ${pid}) had already ended`;
   if (seen.reading === 'foreign') return `the process it started (pid ${pid}) was not the daemon of this record; its command line read ${JSON.stringify(seen.args)}`;
   if (outcome.answered) return `the process it started (pid ${pid}) answered on port ${port} and then ended`;
@@ -370,6 +373,74 @@ export function startFailureWhy(
       : `the process it started (pid ${pid}) is the daemon of this record and did not answer on port ${port} within ${waited}`;
   }
   return `the process it started (pid ${pid}) was still starting after ${waited} and did not answer on port ${port}: its command line read ${seen.args === undefined ? 'nothing' : JSON.stringify(seen.args)}`;
+}
+
+type StartPhase = 'sandbox' | 'databases' | 'manifests' | 'listener';
+interface StartProgress { phase: StartPhase; since: number; }
+const phaseText: Record<StartPhase, string> = {
+  sandbox: 'checking the plugin sandbox',
+  databases: 'stopping databases left by a crash',
+  manifests: 'checking product manifests',
+  listener: 'opening the listener',
+};
+function startPath(home: string, token: string): string { return join(home, `.madarch-daemon-start-${token}.json`); }
+function readStart(home: string, token: string): StartProgress | undefined {
+  try {
+    const value = JSON.parse(withSpanSync('fs.read', { 'file.path': startPath(home, token) }, () => readFileSync(startPath(home, token), 'utf8'))) as StartProgress;
+    if (!Object.hasOwn(phaseText, value.phase) || !Number.isFinite(value.since)) return undefined;
+    return value;
+  } catch { return undefined; }
+}
+function clearStart(home: string, token: string): void {
+  try { unlinkSync(startPath(home, token)); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+function writeStart(home: string, token: string, phase: StartPhase): void {
+  const file = startPath(home, token);
+  const temporary = `${file}.tmp`;
+  withSpanSync('fs.write', { 'file.path': file }, () => {
+    writeFileSync(temporary, JSON.stringify({ phase, since: Date.now() }), { mode: 0o600 });
+    renameSync(temporary, file);
+  });
+}
+
+/** Waits on liveness and the child's proof; progress is display-only. The clock and reads are injectable. */
+export async function waitForDaemonStart(options: {
+  pid: number; port: number; log: string;
+  now: () => number; sleep: (ms: number) => Promise<void>;
+  readChild: () => { reading: SpawnedChild; args: string | undefined };
+  tokenMatches: () => boolean; answers: () => Promise<boolean>; alive: () => boolean;
+  phase: () => StartProgress | undefined; print: (line: string) => void;
+}): Promise<{ ok: boolean; answered: boolean; why: string }> {
+  const started = options.now();
+  let shown: StartPhase | undefined;
+  let progress: StartProgress | undefined;
+  let tokenMissed = false;
+  let answered = false;
+  let seen: ReturnType<typeof options.readChild>;
+  while (true) {
+    seen = options.readChild();
+    progress = options.phase() ?? progress;
+    if (seen.reading === 'ended' || seen.reading === 'foreign') break;
+    const elapsed = options.now() - started;
+    if (elapsed >= START_LIMIT_MS) break;
+    if (elapsed >= 2000 && progress !== undefined && shown !== progress.phase) {
+      options.print(`starting (pid ${options.pid}): ${phaseText[progress.phase]} — ${Math.max(0, Math.floor((options.now() - progress.since) / 1000))} s`);
+      shown = progress.phase;
+    }
+    if (seen.reading === 'daemon') {
+      if (!options.tokenMatches()) tokenMissed = true;
+      else if (await options.answers()) {
+        answered = true;
+        if (options.alive() && options.now() - started < START_LIMIT_MS) return { ok: true, answered, why: '' };
+        break;
+      }
+    }
+    await options.sleep(Math.min(40, Math.max(0, START_LIMIT_MS - (options.now() - started))));
+  }
+  const phase = progress === undefined ? '' : `; last start phase ${progress.phase} (${phaseText[progress.phase]}) for ${Math.max(0, Math.floor((options.now() - progress.since) / 1000))} s`;
+  return { ok: false, answered, why: `${here()}: ${startFailureWhy(options.pid, options.port, seen, { answered, tokenMissed })}${phase}; read ${options.log} for its cause` };
 }
 
 export type DaemonStart =
@@ -416,7 +487,7 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   try { lock = acquireLock(home); }
   catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
   if (lock === undefined) return { ok: false, message: `another madarch lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying` };
-  try { return await ensureDaemonUnderLock(home, port, asked, built.dist, options.readings ?? childReadings, asked === 0 ? pickPort : undefined, addressHeld); }
+  try { return await ensureDaemonUnderLock(home, port, asked, built.dist, options.readings ?? childReadings, asked === 0 ? pickPort : undefined, addressHeld, print); }
   finally { releaseLock(home, lock); }
 }
 
@@ -428,7 +499,7 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
  * caller that named no port (or 0, a free one) is told nothing, since it asked
  * for no particular port.
  */
-async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string, reads: ChildReadings, pick: FreePortPicker | undefined, addressHeld: AddressLook): Promise<DaemonStart> {
+async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string, reads: ChildReadings, pick: FreePortPicker | undefined, addressHeld: AddressLook, print: (line: string) => void): Promise<DaemonStart> {
   const existing = readState(home);
   // A server of another version keeps running the code it started with, so a binary of this version ends it and starts its own.
   let replaced: string | undefined;
@@ -463,12 +534,12 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   // and starts once more, a bounded number of times, and reports the port it
   // really took. A port the caller named, and the default 4180, keep the
   // refusal: whoever goes to that address is meant to find this home's server.
-  let started = await startChild(home, port, appDist, reads, addressHeld);
+  let started = await startChild(home, port, appDist, reads, addressHeld, print);
   for (let attempt = 1; !started.ok && started.taken && pick !== undefined && attempt < FREE_PORT_ATTEMPTS; attempt++) {
     const next = await pick();
     if (next === undefined) break;
     port = next;
-    started = await startChild(home, port, appDist, reads, addressHeld);
+    started = await startChild(home, port, appDist, reads, addressHeld, print);
   }
   if (!started.ok) return { ok: false, message: started.message };
   // The facts name the port the caller asked for (0 meaning a free one) beside
@@ -503,7 +574,7 @@ export async function answersAsDaemon(port: number, token: string): Promise<bool
  * has ended. A child that could not be stopped keeps its port question open and
  * is never read as taken.
  */
-async function startChild(home: string, port: number, appDist: string, reads: ChildReadings, addressHeld: AddressLook): Promise<{ ok: true; pid: number; port: number } | { ok: false; taken: boolean; message: string }> {
+async function startChild(home: string, port: number, appDist: string, reads: ChildReadings, addressHeld: AddressLook, print: (line: string) => void): Promise<{ ok: true; pid: number; port: number } | { ok: false; taken: boolean; message: string }> {
   if (await addressHeld(port)) {
     return { ok: false, taken: true, message: `the daemon did not start: port ${port} on 127.0.0.1 is already held by another process — name another --port, or stop what holds this one` };
   }
@@ -556,36 +627,21 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   const state: DaemonState = { pid: daemonPid, port, startedAt: Date.now(), home, token, version: runningVersion() };
   try { saveState(home, state); } catch (error) {
     await stopProcess(state, reads);
+    clearStart(home, token);
     clearState(home);
     return { ok: false, taken: false, message: `could not save the daemon state at ${statePath(home)}: ${(error as Error).message}` };
   }
-  // The child is ready when its listener answers, not merely when the
-  // process exists: the answer waits for the port, and a child that dies or
-  // execs into another program ends the wait early. A child that has not
-  // exec'd yet is still starting — the kernel answers this process's own
-  // command line for it (see `childReading`) — so the wait goes on for it,
-  // and a start never fails on the read of a child the kernel has not let
-  // exec yet.
-  let answered = false;              // its listener answered
-  let tokenMissed = false;           // it ran a daemon's command line without this record's token
-  // Every pass keeps its own read, and what a failed start says is built from
-  // the last one: what the check saw, read before the process is ended. The
-  // wait's own first pass sets it, so nothing is read twice.
-  let seen: { reading: SpawnedChild; args: string | undefined } = { reading: 'starting', args: undefined };
-  const ready = await waitUntil(async () => {
-    seen = readChild(state.pid, state, reads);
-    if (seen.reading === 'ended' || seen.reading === 'foreign') return true;
-    // A child that runs the daemon's own command line is ours only with this
-    // record's token; one that is merely `starting` has nothing to check yet.
-    if (seen.reading !== 'daemon') return false;
-    if (!daemonTokenMatches(state)) { tokenMissed = true; return false; }
-    // Only the child's own answer counts: a server that took this port answers every 2xx, so the probe asks for the
-    // proof the child alone can give (an HMAC of a fresh nonce with the token this record holds). Another server on the
-    // port is the port being taken, and a start that asked for a free one picks again (madarch-64o5.80).
-    if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
-    return false;
-  }, READY_TIMEOUT_MS);
-  if (ready && answered && daemonIsAlive(state, reads)) {
+  const waited = await waitForDaemonStart({
+    pid: state.pid, port, log: logPath(home), now: Date.now,
+    sleep: async (ms) => { await new Promise<void>((done) => setTimeout(done, ms)); },
+    readChild: () => readChild(state.pid, state, reads),
+    tokenMatches: () => daemonTokenMatches(state),
+    answers: () => answersAsDaemon(port, state.token),
+    alive: () => daemonIsAlive(state, reads),
+    phase: () => readStart(home, token), print,
+  });
+  const answered = waited.answered;
+  if (waited.ok) {
     try { unlinkSync(pidFile); } catch { /* never written */ }
     return { ok: true, pid: state.pid, port };
   }
@@ -596,8 +652,9 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   // A record for a daemon that is really gone goes; a record whose process
   // could not be stopped stays, so `stop` can still find and end it.
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
-  if (childFault.message !== undefined) return { ok: false, taken: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
-  const why = startFailureWhy(state.pid, port, seen, { answered, tokenMissed });
+  clearStart(home, token);
+  if (childFault.message !== undefined) return { ok: false, taken: false, message: `${here()}: the daemon did not start on port ${port}: ${childFault.message}; read ${logPath(home)} for its cause` };
+  const why = waited.why;
   let diagnostic = '';
   try { diagnostic = `\n${withSpanSync('fs.read', { 'file.path': logPath(home) }, (span) => { const held = readFileSync(logPath(home), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })}`; } catch { /* the child may have failed before writing */ }
   const taken = !survived && !answered && await addressHeld(port);
@@ -707,6 +764,11 @@ export function daemonStatus(options: { home?: string }): number {
     console.log('not running');
     return 0;
   }
+  const progress = readStart(home, state.token);
+  if (progress !== undefined) {
+    console.log(`starting: ${progress.phase} (${Math.max(0, Math.floor((Date.now() - progress.since) / 1000))} s)`);
+    return 0;
+  }
   const listed = listProducts({ home });
   const names = listed.outcome === 'listed' ? listed.products.map((product) => product.name) : [];
   console.log(`running: http://127.0.0.1:${state.port}`);
@@ -774,6 +836,9 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const { validateProductManifests } = await import('../graph/manifest-publication.js');
   const { createManifestWatch } = await import('./manifest-watch.js');
   const home = homePath(options.home);
+  const token = process.env.MADARCH_DAEMON_TOKEN;
+  const phase = (value: StartPhase): void => { if (token !== undefined) writeStart(home, token, value); };
+  phase('sandbox');
   const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
   const cgroup = await prepareSandboxCgroup(process.env);
   if (!cgroup.ok) console.error(cgroup.message);
@@ -782,12 +847,14 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   if (probe.state === 'unavailable') console.error(probe.reason);
   // A start of this home stops a PostgreSQL server a crash left before it serves: its data folder is no process's to
   // keep when no madarch process uses it.
+  phase('databases');
   await stopDatabasesUnder(knowledgeRootOf(home));
   // The service opens a unit's MCP server for a stage that runs an agent (0026), and the address it hands the
   // started server is this process's own: read when a unit's tools are opened, because the server knows its
   // address only once it listens.
   // One fill store, every run through `runFill` (madarch-8bdc.2.5, item 6): the address a unit's tools answer at is
   // this process's own, read when they are opened because the server knows its address only once it listens.
+  phase('manifests');
   const { daemonFills } = await import('./daemon-fills.js');
   const fills = daemonFills(home);
   // madarch's own wiki (decision 0031): installed from the copy the program carries, so a clean machine opens it with no
@@ -853,6 +920,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       return work;
     };
     const { startServer } = await import('../server/http.js');
+    phase('listener');
     const listenerStarted = performance.now();
     const server = await startServer({
       productHome: home,
@@ -870,6 +938,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
         },
       },
     });
+    if (token !== undefined) clearStart(home, token);
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup listener ${(performance.now() - listenerStarted).toFixed(1)} ms`);
     // Valid declarations may take seconds to publish. The listener can answer truthfully meanwhile;
     // validation above is still a hard start gate, before any public socket is opened.

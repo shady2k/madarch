@@ -427,6 +427,15 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect(state.port).toBeGreaterThan(0);
   expect(state.pid).toBeGreaterThan(0);
   daemonPid = state.pid;
+  const token = (JSON.parse(readFileSync(join(home, '.madarch-daemon.json'), 'utf8')) as { token: string }).token;
+  const progressFile = join(home, `.madarch-daemon-start-${token}.json`);
+  expect(existsSync(progressFile)).toBe(false);
+  writeFileSync(progressFile, JSON.stringify({ phase: 'databases', since: Date.now() - 6000 }));
+  const starting = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+  expect(starting.status).toBe(0);
+  expect(starting.stdout).toContain('starting: databases (6 s)');
+  expect(starting.stdout).not.toContain('running:');
+  rmSync(progressFile);
   const status = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
   expect(status.status).toBe(0);
   expect(status.stdout).toContain(`running: http://127.0.0.1:${state.port}`);
@@ -648,6 +657,9 @@ test('a record whose pid is a live process that is not this daemon is never stop
     expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
     // A record whose process is really gone does go with the status read.
     writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: 2147483000, port: 1, startedAt: 0, home, token: 'stale' }));
+    writeFileSync(join(home, '.madarch-daemon-start-stale.json'), JSON.stringify({ phase: 'sandbox', since: 0 }));
+    const staleStatus = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+    expect(staleStatus.stdout.trim()).toBe('not running');
     expect(daemonStatus({ home })).toBe(0);
     expect(existsSync(join(home, '.madarch-daemon.json'))).toBeFalse();
     let alive = true;
@@ -670,11 +682,11 @@ test('a failed start says which reading of the child it saw, and claims no check
   // token is what says so — the claim is made only where the token was read.
   expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), { answered: false, tokenMissed: true })).toContain("does not show this record's token");
   // This record's daemon, which never answered.
-  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 8s');
+  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 120s');
   // Still starting when the wait ran out: the reading is named, and no token
   // check that was never made is claimed for it.
   const starting = startFailureWhy(1234, 43137, seen('starting', ''), never);
-  expect(starting).toContain('was still starting after 8s');
+  expect(starting).toContain('was still starting after 120s');
   expect(starting).toContain('its command line read ""');
   expect(starting).not.toContain('token');
   expect(startFailureWhy(1234, 43137, seen('starting', undefined), never)).toContain('its command line read nothing');
