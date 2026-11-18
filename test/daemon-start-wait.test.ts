@@ -5,7 +5,7 @@ function fixture() {
   let now = 0;
   const lines: string[] = [];
   const options = {
-    pid: 42, port: 4180, log: '/tmp/products/.madarch-daemon.log',
+    pid: 42, port: 4180,
     now: () => now,
     sleep: async (ms: number) => { now += ms; },
     readChild: () => ({ reading: 'daemon' as const, args: 'daemon-serve' }),
@@ -27,12 +27,11 @@ test('a live child can spend 30 seconds in databases before ready', async () => 
   expect(f.lines).toEqual(['starting (pid 42): stopping databases left by a crash — 2 s']);
 });
 
-test('an ended child fails immediately and names the log', async () => {
+test('an ended child fails immediately', async () => {
   const f = fixture();
   const answer = await waitForDaemonStart({ ...f.options, readChild: () => ({ reading: 'ended', args: undefined }) });
   expect(answer.ok).toBe(false);
   expect(answer.why).toContain('had already ended');
-  expect(answer.why).toContain('/tmp/products/.madarch-daemon.log');
   expect(f.now()).toBe(0);
   expect(f.lines).toEqual([]);
 });
@@ -46,7 +45,6 @@ test('a live child that never answers fails exactly at 120 seconds with its last
   expect(answer.why).toContain('manifests');
   expect(answer.why).toContain('110 s');
   expect(answer.why).not.toContain('token');
-  expect(answer.why).toContain('/tmp/products/.madarch-daemon.log');
   expect(f.lines).toEqual([
     'starting (pid 42): stopping databases left by a crash — 2 s',
     'starting (pid 42): checking product manifests — 0 s',

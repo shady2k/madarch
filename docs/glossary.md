@@ -5,14 +5,6 @@ names; a word under _Avoid_ is not used for the concept.
 
 ## Domain terms
 
-**Ready (daemon)**:
-The daemon has passed the plugin sandbox probe, stopped database servers left
-by a crash, checked product manifests, and opened its listener. No public
-socket opens before these start steps finish. The client confirms readiness
-with the child's HMAC answer at `/api/daemon`, not its pid or start-phase file.
-Catalogue publication may still be pending after the daemon is ready.
-
-
 **Graph**:
 The complete state madarch keeps for one organisation's system: the intended
 model, every fact from every source with its times, and the relations derived
@@ -286,6 +278,13 @@ A temporary replacement of one source's facts, used to check a pull request
 without changing the graph.
 
 ## The system's own parts
+
+**Ready (daemon)**:
+The daemon has run the plugin sandbox probe, stopped database servers left
+by a crash, checked product manifests, and opened its listener. No public
+socket opens before these start steps finish. The client confirms readiness
+with the child's HMAC answer at `/api/daemon`, not its pid or start-phase file.
+Catalogue publication may still be pending after the daemon is ready.
 
 **Core**:
 The logic that joins facts, derives relations, evaluates rules and answers

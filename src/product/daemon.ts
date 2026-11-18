@@ -393,21 +393,25 @@ function readStart(home: string, token: string): StartProgress | undefined {
 }
 function clearStart(home: string, token: string): void {
   try { unlinkSync(startPath(home, token)); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.error(`could not clear start progress at ${startPath(home, token)}: ${String(error)}`);
   }
 }
 function writeStart(home: string, token: string, phase: StartPhase): void {
   const file = startPath(home, token);
   const temporary = `${file}.tmp`;
-  withSpanSync('fs.write', { 'file.path': file }, () => {
-    writeFileSync(temporary, JSON.stringify({ phase, since: Date.now() }), { mode: 0o600 });
-    renameSync(temporary, file);
-  });
+  try {
+    withSpanSync('fs.write', { 'file.path': file }, () => {
+      writeFileSync(temporary, JSON.stringify({ phase, since: Date.now() }), { mode: 0o600 });
+      renameSync(temporary, file);
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.error(`could not write start progress at ${file}: ${String(error)}`);
+  }
 }
 
 /** Waits on liveness and the child's proof; progress is display-only. The clock and reads are injectable. */
 export async function waitForDaemonStart(options: {
-  pid: number; port: number; log: string;
+  pid: number; port: number;
   now: () => number; sleep: (ms: number) => Promise<void>;
   readChild: () => { reading: SpawnedChild; args: string | undefined };
   tokenMatches: () => boolean; answers: () => Promise<boolean>; alive: () => boolean;
@@ -440,7 +444,7 @@ export async function waitForDaemonStart(options: {
     await options.sleep(Math.min(40, Math.max(0, START_LIMIT_MS - (options.now() - started))));
   }
   const phase = progress === undefined ? '' : `; last start phase ${progress.phase} (${phaseText[progress.phase]}) for ${Math.max(0, Math.floor((options.now() - progress.since) / 1000))} s`;
-  return { ok: false, answered, why: `${here()}: ${startFailureWhy(options.pid, options.port, seen, { answered, tokenMissed })}${phase}; read ${options.log} for its cause` };
+  return { ok: false, answered, why: `${here()}: ${startFailureWhy(options.pid, options.port, seen, { answered, tokenMissed })}${phase}` };
 }
 
 export type DaemonStart =
@@ -462,7 +466,7 @@ export type DaemonStart =
  * the caller named, and the default, are never moved.
  */
 export async function ensureDaemon(options: { home?: string; port?: number; appFolder?: string; buildCommand?: string; env?: ServeEnv; print?: (line: string) => void; readings?: ChildReadings; pickPort?: FreePortPicker; addressHeld?: AddressLook }): Promise<DaemonStart> {
-  const print = options.print ?? ((line: string) => console.log(line));
+  const print = options.print ?? ((line: string) => console.error(line));
   // Port 0 names a free port the way the foreground serve reads it: the
   // daemon's state and readiness probe need the real port, so it is found
   // before the child is spawned. The picker and the look at the address are
@@ -632,7 +636,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     return { ok: false, taken: false, message: `could not save the daemon state at ${statePath(home)}: ${(error as Error).message}` };
   }
   const waited = await waitForDaemonStart({
-    pid: state.pid, port, log: logPath(home), now: Date.now,
+    pid: state.pid, port, now: Date.now,
     sleep: async (ms) => { await new Promise<void>((done) => setTimeout(done, ms)); },
     readChild: () => readChild(state.pid, state, reads),
     tokenMatches: () => daemonTokenMatches(state),

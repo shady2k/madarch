@@ -612,6 +612,7 @@ test('a start still refuses a child whose command line is another program, and e
   // the child this start spawned instead of leaving it serving the home.
   daemonPid = refusedPid!;
   expect(started.message).toContain('was not the daemon of this record; its command line read "sleep 4711"');
+  expect(started.message.split(join(home, '.madarch-daemon.log'))).toHaveLength(2);
   expect(started.message).toContain(join(home, '.madarch-daemon.log'));
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
   // The child the start had spawned is ended with it, not left serving the
