@@ -15,6 +15,9 @@ import { publicationCounts } from './publication-counts.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { sha256Hex } from '../src/graph/digest.js';
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { planManifestFill } from '../src/plugin/fill-declarations.js';
 
 function validated(folder: string): ValidatedManifests {
   const read = validateProductManifests(folder);
@@ -28,6 +31,22 @@ function fullStarter(home: string): string {
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   return draft.folder;
 }
+
+test('repository extraction closes without product interpretation or a product profile', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-repository-closure-'));
+  try {
+    seedRepositoryPlugins(folder);
+    const read = readKinds(folder);
+    if (!read.present) throw new Error(`${folder}:1: no manifest`);
+    const plan = planManifestFill(read.manifest, folder, ['code.repository', 'code.blob']);
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.selectedKinds).toContain('code.repository');
+    expect(plan.selectedKinds).toContain('code.blob');
+    expect(plan.selectedKinds).not.toContain('product');
+    expect(plan.selectedKinds).not.toContain('product-profile');
+  } finally { rmSync(folder, { recursive: true, force: true }); }
+});
 
 const universal = ['mentions', 'linksTo', 'grounds', 'ownedBy'];
 const about = ['question-about', 'correction-about'];
@@ -66,7 +85,7 @@ test('adding one kind to the full starter publishes only its own field, relation
         expectedPairs.add(JSON.stringify([MANIFEST_DEPENDS_ON, name, dependency, '']));
       }
     }
-    expect(expectedPairs.size).toBe(813 + 185 + 1); // Whole catalogue dependencies, concrete edge endpoints, and a declared relation.
+    expect(expectedPairs.size).toBe(810 + 185 + 1); // Whole catalogue dependencies, concrete edge endpoints, and a declared relation.
     expect(new Set(before.edges.map(one => JSON.stringify([one.kind, one.from.key['name'], one.to.key['name'], one.discriminator ?? ''])))).toEqual(expectedPairs);
     expect(before.edges).toHaveLength(expectedPairs.size);
 
