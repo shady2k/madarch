@@ -62,16 +62,18 @@ describe('measure', () => {
   });
 
   test('holds an absolute limit the owner named and quotes the owner\'s words when the median passes it', async () => {
-    const owner = 'owner, 2026-11-18: «Ну до 15 минут я бы еще понял.»';
+    const owner = 'owner-review/2026-11-18#timing | «Ну до 15 минут я бы еще понял.»';
     const within = await measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 400, 0, 400, 0, 400), baselines: recorded(1000), absolute: { ms: 500, source: owner } });
     expect(within.medianMs).toBe(400);
     await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(1000), absolute: { ms: 500, source: owner } }))
-      .rejects.toThrow(/absolute limit 500 ms.*Ну до 15 минут я бы еще понял/u);
+      .rejects.toThrow(/absolute limit 500 ms.*owner-review\/2026-11-18#timing \|.*Ну до 15 минут я бы еще понял/u);
+    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 600, 0, 600, 0, 600), baselines: recorded(100), absolute: { ms: 500, source: owner } }))
+      .rejects.toThrow(/absolute limit 500 ms.*owner-review/u);
   });
 
   test('refuses an absolute limit that carries no owner words', async () => {
     await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: '  ' } }))
-      .rejects.toThrow(/test\/support\/measure\.ts: .*owner's words as `source`/u);
+      .rejects.toThrow(/test\/support\/measure\.ts: .*review-reference \| verbatim-owner-quote/u);
   });
 
   test('refuses a case whose baseline was never recorded, naming the file and the case', async () => {

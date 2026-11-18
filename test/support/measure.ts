@@ -11,7 +11,7 @@
  * the wall.
  */
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** The file the recorded medians stand in, by its full path. */
 export const BASELINES_PATH = join(import.meta.dir, '..', 'measure', 'baselines.json');
@@ -47,7 +47,7 @@ export interface Baselines {
 /** A limit the owner named, with the owner's words it rests on. */
 export interface AbsoluteLimit {
   readonly ms: number;
-  /** The owner's words, verbatim. */
+  /** Review reference, a pipe, then the owner's verbatim words. */
   readonly source: string;
 }
 
@@ -87,11 +87,12 @@ export function median(samples: readonly number[]): number {
 
 /** Read a baselines file; `test/measure/baselines.json` unless a test names another. */
 export function readBaselines(path: string = BASELINES_PATH): Baselines {
+  const absolutePath = resolve(path);
   let text: string;
   try {
-    text = readFileSync(path, 'utf8');
+    text = readFileSync(absolutePath, 'utf8');
   } catch (error) {
-    throw new Error(`${path}: the baselines cannot be read: ${(error as Error).message}`);
+    throw new Error(`${absolutePath}: the baselines cannot be read: ${(error as Error).message}`);
   }
   let parsed: unknown;
   try {
@@ -149,7 +150,8 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
   const absolute = options.absolute;
   if (absolute !== undefined) {
     if (!Number.isFinite(absolute.ms) || absolute.ms <= 0) here(`\`${name}\`: the absolute limit must be a positive number of milliseconds`);
-    if (absolute.source.trim() === '') here(`\`${name}\`: the absolute limit must carry the owner's words as \`source\``);
+    const separator = absolute.source.indexOf(' | ');
+    if (separator < 1 || absolute.source.slice(separator + 3).trim() === '') here(`\`${name}\`: absolute source must be \`review-reference | verbatim-owner-quote\``);
   }
   const baselines = options.baselines ?? readBaselines();
   const baseline = Object.hasOwn(baselines.baselines, name) ? baselines.baselines[name] : undefined;
@@ -165,6 +167,9 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
   }
   const medianMs = median(samples);
   const allowed = baseline.medianMs * BASELINE_FACTOR;
+  if (absolute !== undefined && medianMs > absolute.ms) {
+    throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above the absolute limit ${milliseconds(absolute.ms)} ms — source: ${absolute.source}`);
+  }
   if (medianMs > allowed) {
     throw new Error(`${BASELINES_PATH}: \`${name}\` took ${milliseconds(medianMs)} ms as its median of ${String(runs)} runs, above ${String(BASELINE_FACTOR)} × ${milliseconds(baseline.medianMs)} ms = ${milliseconds(allowed)} ms`);
   }

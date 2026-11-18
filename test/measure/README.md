@@ -16,13 +16,7 @@ baselines are injected, and no assertion reads or waits for the wall.
 ```ts
 import { measure } from '../support/measure.js';
 
-await measure('graph-records: two passes', async () => { await fill(); }, {
-  runs: 5,
-  absolute: {
-    ms: 120_000,
-    source: 'owner, 2026-11-18 (ALX-12): «Ну до 15 минут я бы еще понял.»',
-  },
-});
+await measure('graph-records: two passes', async () => { await fill(); }, { runs: 5 });
 ```
 
 `measure()` runs the case `runs` times (default 5, at least 3), takes the median
@@ -30,7 +24,7 @@ of the clock readings, and fails when either bound is passed:
 
 - the **baseline**: `2 × medianMs` of the case's entry in `baselines.json`;
 - the **absolute limit** the case names. Its `source` is the owner's words,
-  verbatim, and an error quotes them. A limit without those words is refused.
+  verbatim, and an error quotes them. A limit's `source` uses `review-reference | verbatim owner quote`; for example, `owner-review/2026-11-18#timing | «<exact words from that review>»`. The reference must point to the review record so a reader can verify the quote; do not infer a case-specific limit from a suite-wide statement. A limit without that structure is refused. This example names no absolute limit because no case-specific confirmed source is available here.
 
 A case whose name has no baseline fails naming `baselines.json` and the case:
 record the median in the commit that measures it. An entry is taken on CI's
@@ -68,8 +62,8 @@ Nothing is moved yet; this table is the work list for A8, from row A8 and
 section 2 of the plan (ALX-340). A row's home is where the requirement stands
 today, by file and line.
 
-| requirement | current home |
-|---|---|
+| requirement | current home | A8 action |
+|---|---|---|
 | 80 related kinds render within 200 ms warm | `test/catalogue-diagram.test.ts:99` (reading at `:91`) |
 | the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:158` (`:133`) |
 | a child stops within 10 s of SIGTERM; one ignoring SIGTERM stops within 10 s; one holding its output stops within 5 s | `test/child-stop.test.ts:20`, `:34`, `:48` |
@@ -86,6 +80,11 @@ today, by file and line.
 | `graph-records`: the two passes over one fixture, 120 s (ALX-29) | `test/graph-records.test.ts:168` (case at `:156`) |
 | `fill-states`: the press and the refusal, 300 s each | `test/fill-states.test.ts:115`, `:143` |
 | `api-role-first-page`: the first status answer on a 150 000-span store within 5 s, the cached answer within 50 ms | `test/api-role-first-page.test.ts:74`, `:79` |
+| process exits with stdout held, under 10 s | `test/postgres-cluster-owner.test.ts:615` | measurement needed |
+| foreign PID triggers preparation again under 12 s | `test/postgres-cluster-owner.test.ts:637` | event check: assert preparation starts without waiting for foreign PID |
+| ACP installer is stopped within 2.5 s | `test/fill-acp-install.test.ts:260` | measurement needed |
+| ignored SIGTERM causes SIGKILL after 2 s | `test/fill-acp-install.test.ts:295` | event check: assert kill escalation and process-group exit |
+| PostgreSQL 404 refusal under 10 s | `test/postgres-install.test.ts:189` | measurement needed |
 
 The three files under `MADARCH_SKIP_PERF` are this table's rows for
 `fill-static-heap`, `history` and `roles-two-and-two`. Two of them read the
