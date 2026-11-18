@@ -441,20 +441,29 @@ are the repository's installation, and each person's plugin and hooks are theirs
   job, the union-of-test-files check and merge-base growth control pass.
   Growth is every added slow entry and every changed single-file evidence row.
   The blocking `test` job measures only growth paths listed as green, because
-  these claim speed: an alone run must exceed 30 000 ms and must not be more
-  than 100 ms below listed seconds. Slower measurements do not fail: the file
-  remains slow. Committed evidence still compares symmetrically with listed
-  seconds. Red entries claim defects, not stable duration; their bound waits
-  fluctuate, and the nightly summary judges their outcomes instead. It exits 1
-  for a claimed red file that runs green or a claimed green file that runs red.
+  these claim speed. Each file runs alone once; only a first measurement at or
+  below 30 000 ms triggers a second alone run with fresh temporary timings.
+  A finding requires both measurements at or below 30 000 ms, and names both
+  numbers and listed seconds. Any above-threshold run is not a speed finding,
+  whatever the listed seconds. Fresh times are noisy: on the same box
+  `test/manifest-publication.test.ts` measured 14 427 / 43 906 / 55 410 ms within
+  45 minutes (Teamlead measurement); a 100 ms fresh-run comparison cannot gate
+  that noise. The 100 ms comparison remains only between listed seconds and
+  committed evidence, which is internal and stable. Evidence and growth commands
+  do not set `MADARCH_SKIP_PERF`: committed rows were measured without it.
+  Red entries claim defects, not stable duration; their bound waits fluctuate,
+  and the nightly summary judges their outcomes instead. It exits 1 for a
+  claimed red file that runs green or a claimed green file that runs red.
   A batch run at or below 30 s marks an exit candidate; only a green single-file
   confirmation at or below 30 s confirms removal. The initial adoption has no
   base manifests, so all rows are growth but only 21 green claims are measured
-  in the gate (about 1 347 s of committed evidence), not the 282-file, roughly
-  177-minute serial pass. Normal PRs pay for a handful of added/changed green
-  claims. This owner-directed exception to literal every-entry remeasurement
-  avoids treating known defect bound waits as false speed claims. Evidence for
-  moved paths is deleted as move bookkeeping; the new paths have their own rows.
+  in the gate (about 1 347 s of committed evidence before any confirmation runs),
+  not the 282-file, roughly 177-minute serial pass. Normal PRs pay for a handful
+  of added/changed green claims. This owner-directed exception to literal
+  every-entry remeasurement avoids treating known defect bound waits as speed
+  claims. Evidence for moved paths is deleted as move bookkeeping; the new paths
+  have their own rows. A confirmed fast inventory entry is reported for the
+  Teamlead, not automatically removed or rebaselined from one local run.
   Produce a single-file evidence row with the exact command (add `--slow` after
   `test` for an already listed file):
   `scripts/plugin-sandbox-cgroup.sh bun run test --only test/integration/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.

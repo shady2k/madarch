@@ -69,23 +69,27 @@ export function growthPaths(slow: SlowList, timings: Timings, base: BaseChanges)
  * times; nightly summaries judge their outcomes instead of timing bound waits.
  * Initial adoption has no base manifests: 21 green files (~1347 s), not all 282
  * evidence paths. Normal PRs measure only their added/changed green claims.
+ * Fresh times are noisy: run again only after <=30000 ms; both runs must be
+ * <=30000 ms to contradict a speed claim. Listed seconds are not a fresh-run
+ * target. The stable committed-evidence comparison alone keeps 100 ms tolerance.
  */
 export function growthMeasurementPaths(slow: SlowList, timings: Timings, base: BaseChanges): string[] {
   const green = new Set(slow.files.filter(entry => entry.result === 'green').map(entry => entry.path));
   return growthPaths(slow, timings, base).filter(path => green.has(path));
 }
 
-export function growthFindings(slow: SlowList, measured: Timings, paths: readonly string[]): string[] {
+export function growthFindings(slow: SlowList, measured: Timings, paths: readonly string[], confirmation?: Timings): string[] {
   const findings: string[] = [];
   for (const path of paths) {
     const at = location(measured.source, measured.text ?? '', path);
     const ms = measured.files[path];
     const entry = slow.files.find(entry => entry.path === path);
     if (!Number.isFinite(ms)) findings.push(`${at}: ${path} has no alone-run measurement`);
-    // A slower run is still slow; reject only speed claims inflated above reality.
-    else if (entry && ms! <= SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees: took ${ms}ms and is not slow (at or below 30000ms)`);
-    else if (entry && entry.seconds * 1000 - ms! > 100) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees with the alone-run measurement ${ms}ms`);
-    else if (!entry && ms! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} took ${ms}ms and is not in ${SLOW_LIST}`);
+    else if (entry && ms! <= SLOW_THRESHOLD_SECONDS * 1000 && confirmation) {
+      const second = confirmation.files[path];
+      if (!Number.isFinite(second)) findings.push(`${location(confirmation.source, confirmation.text ?? '', path)}: ${path} has no confirmation measurement`);
+      else if (second! <= SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees: alone runs ${ms}ms and ${second}ms are both at or below 30000ms (not slow)`);
+    } else if (!entry && ms! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} took ${ms}ms and is not in ${SLOW_LIST}`);
   }
   return findings;
 }
@@ -200,11 +204,24 @@ function main(): void {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-growth-'));
     try {
       for (const [index, path] of paths.entries()) {
-        const output = join(folder, `${index}.json`);
-        const args = ['bun', 'run', 'test', ...(slow.files.some(entry => entry.path === path) ? ['--slow'] : []), '--only', path, `--timings=${output}`, '--update-timings'];
-        const run = spawnSync('scripts/plugin-sandbox-cgroup.sh', args, { stdio: 'inherit' });
-        if (run.error || run.status === null || !existsSync(output)) findings.push(`${resolve(path)}:1: alone run produced no timing evidence (${run.error?.message ?? run.status})`);
-        else findings.push(...growthFindings(slow, readTimings(output, 'single-file'), [path]));
+        const measure = (attempt: number): Timings | undefined => {
+          const output = join(folder, `${index}-${attempt}.json`);
+          const args = ['bun', 'run', 'test', '--slow', '--only', path, `--timings=${output}`, '--update-timings'];
+          const run = spawnSync('scripts/plugin-sandbox-cgroup.sh', args, { stdio: 'inherit' });
+          if (run.error || run.status === null || !existsSync(output)) {
+            findings.push(`${resolve(path)}:1: alone run ${attempt} produced no timing evidence (${run.error?.message ?? run.status})`);
+            return undefined;
+          }
+          const measured = readTimings(output, 'single-file');
+          console.log(`growth measurement: ${path} attempt=${attempt} milliseconds=${measured.files[path]} exit=${run.status}`);
+          if (run.status !== 0) findings.push(`${resolve(path)}:1: claimed green alone run ${attempt} exited ${run.status}`);
+          return measured;
+        };
+        const first = measure(1);
+        if (!first) continue;
+        const ms = first.files[path];
+        const confirmation = Number.isFinite(ms) && ms! <= SLOW_THRESHOLD_SECONDS * 1000 ? measure(2) : undefined;
+        findings.push(...growthFindings(slow, first, [path], confirmation));
       }
     } finally { rmSync(folder, { recursive: true, force: true }); }
   }

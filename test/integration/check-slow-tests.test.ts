@@ -99,13 +99,13 @@ test('added slow entry without added evidence fails and is growth', () => {
 test('changed evidence alone is growth and alone measurement rejects the listed lie', () => {
   const changed = { ...evidence, files: { [path]: 32000 } };
   expect(growthPaths(list([entry]), changed, baseState)).toEqual([path]);
-  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path]).join()).toContain('6200ms');
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path], { ...evidence, files: { [path]: 6200 } }).join()).toContain('6200ms');
 });
 test('entry plus evidence changed together cannot disguise an under-threshold alone run', () => {
   const base = { ...baseState, slowPaths: [], evidence: { [path]: 6200 } };
   const growth = growthPaths(list([entry]), evidence, base);
   expect(growth).toEqual([path]);
-  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, growth).join()).toContain('31s');
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, growth, { ...evidence, files: { [path]: 6200 } }).join()).toContain('31s');
 });
 test('untouched base entry and evidence are not growth', () => {
   expect(growthPaths(list([entry]), evidence, baseState)).toEqual([]);
@@ -127,7 +127,7 @@ test('growth checks the matching path, threshold and evidence source location', 
   expect(growthFindings(list([entry]), { ...evidence, files: { 'test/fast.test.ts': 30000 } }, ['test/fast.test.ts'])).toEqual([]);
   expect(growthFindings(list([]), { ...evidence, files: { [path]: 30000 } }, [path])).toEqual([]);
   expect(growthFindings(list([]), { ...evidence, files: { [path]: 1 } }, [path])).toEqual([]);
-  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path])[0]).toStartWith('/evidence.json:3:');
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path], { ...evidence, files: { [path]: 6200 } })[0]).toStartWith('/evidence.json:3:');
 });
 
 test('missing-row producer command names the path and slow mode', () => {
@@ -146,9 +146,25 @@ test('blocking growth measures only green speed claims from the full growth set'
   expect(growthMeasurementPaths(manifest, rows, { ...base, slowPaths: [path], evidence: rows.files })).toEqual([]);
   expect(growthMeasurementPaths(manifest, rows, { ...base, slowPaths: [path], evidence: { [path]: 32000 } })).toEqual([path]);
 });
-test('alone speed comparison is asymmetric and always rejects the threshold', () => {
+test('alone speed comparison ignores listed-time noise and confirms the threshold', () => {
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 31101 } }, [path])).toEqual([]);
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 30900 } }, [path])).toEqual([]);
-  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 30899 } }, [path]).join()).toContain('disagrees');
-  expect(growthFindings(list([{ ...entry, seconds: 30.05 }]), { ...evidence, files: { [path]: 30000 } }, [path]).join()).toContain('not slow');
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 30899 } }, [path])).toEqual([]);
+  expect(growthFindings(list([{ ...entry, seconds: 30.05 }]), { ...evidence, files: { [path]: 30000 } }, [path], { ...evidence, files: { [path]: 30000 } }).join()).toContain('not slow');
+});
+
+test('two fast alone runs confirm the speed finding with both values', () => {
+  const first = { ...evidence, files: { [path]: 6200 } };
+  const second = { ...evidence, files: { [path]: 30000 } };
+  const result = growthFindings(list([entry]), first, [path], second).join();
+  expect(result).toContain('31s');
+  expect(result).toContain('6200ms');
+  expect(result).toContain('30000ms');
+});
+test('one fast alone run and one slow alone run is not a speed finding', () => {
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path], { ...evidence, files: { [path]: 43000 } })).toEqual([]);
+});
+test('one fast run requires confirmation; a 43 second run never contradicts listed 31 seconds', () => {
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path])).toEqual([]);
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 43000 } }, [path])).toEqual([]);
 });
