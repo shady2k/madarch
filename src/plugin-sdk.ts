@@ -237,11 +237,12 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     if (write.edge === undefined) return;
     const edge = write.edge;
     const declaration = contract.edges.find(kind => kind.kind === edge.kind);
+    const required = declaration !== undefined && [declaration.cardinality.from, declaration.cardinality.to].some(bound => bound === 'one' || bound === 'some');
     for (const side of ['from', 'to'] as const) {
       const endpoint = edge[side];
       const added = additions.get(identity(endpoint));
       const bound = side === 'from' ? declaration?.cardinality.to : declaration?.cardinality.from;
-      if (added !== undefined && (bound === 'one' || bound === 'some')) join(index, added);
+      if (added !== undefined && required) join(index, added);
       const removed = removals.get(identity(endpoint));
       if (write.operation === 'remove' && removed !== undefined) join(index, removed);
       if (bound === undefined || bound === 'many') continue;
@@ -327,7 +328,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     if (2 + growth({}) > reconciliationBytes) {
       throw new Error(`${import.meta.filename}:320: reconciliation unit ${unit.unitId} ${unit.kind} ${canonical(unit.key)} group ${group.name} exceeds 512 KB operation limit`);
     }
-    if (count > 0 && (phase !== group.phase || count + group.count > reconciliationFacts || bytes + growth(batch) > reconciliationBytes)) {
+    if (count > 0 && ((phase !== group.phase && group.phase >= 2) || count + group.count > reconciliationFacts || bytes + growth(batch) > reconciliationBytes)) {
       yield batch as FactsOperation;
       batch = {};
       count = 0;

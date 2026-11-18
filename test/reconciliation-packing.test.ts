@@ -22,6 +22,15 @@ test('499 independent vertices leave a two-fact required group whole in the seco
   expect(result[1]).toEqual({ vertices: [child.vertex!], edges: [required.edge!] });
 });
 
+test('a required edge keeps both new endpoints together at the batch boundary', () => {
+  const required = edge('a', 'b');
+  const result = batches([...Array.from({ length: 498 }, (_, i) => add(String(i).padStart(3, '0'))), add('a'), add('b'), { operation: 'add', edge: required }], contract('one'));
+  expect(result).toHaveLength(2);
+  expect(result[0]!.vertices).toHaveLength(498);
+  expect(result[0]!.edges).toBeUndefined();
+  expect(result[1]).toEqual({ vertices: [vertex('a'), vertex('b')], edges: [required] });
+});
+
 test('new parents stay with their child and precede it even across lexical kind order', () => {
   const parent = { kind: 'z-parent', key: { id: 'p' } };
   const child = { kind: 'a-child', key: { id: 'c' }, keyEdges: { parent } };
@@ -46,7 +55,7 @@ test('retirement drops incident edge retractions and retires children before par
 
 test('independent phases remain additions, edges, edge retractions, retirements', () => {
   const result = batches([{ operation: 'remove', vertex: vertex('retired') }, { operation: 'remove', edge: edge('old', 'target') }, { operation: 'add', edge: edge('new', 'target') }, add('new')], contract('many'));
-  expect(result).toEqual([{ vertices: [vertex('new')] }, { edges: [edge('new', 'target')] }, { edgeRemovals: [edge('old', 'target')] }, { removals: [vertex('retired')] }]);
+  expect(result).toEqual([{ vertices: [vertex('new')], edges: [edge('new', 'target')] }, { edgeRemovals: [edge('old', 'target')] }, { removals: [vertex('retired')] }]);
 });
 
 test('permutations give identical batches and content keys in code-point order', () => {
@@ -123,17 +132,19 @@ for (const bound of ['many', 'optional'] as const) test(`${bound} edges do not m
   const result = batches(writes, contract(bound));
   expect(result).toEqual([
     { vertices: writes.slice(0, 500).map(write => write.vertex!) },
-    { vertices: [vertex('z-b')] },
-    { edges: [edge('z-a', 'z-b')] },
+    { vertices: [vertex('z-b')], edges: [edge('z-a', 'z-b')] },
   ]);
 });
 
 for (const bound of ['many', 'optional'] as const) test(`600 new vertices with ${bound} links stay within the fact limit`, () => {
   const ids = Array.from({ length: 600 }, (_, i) => String(i).padStart(3, '0'));
   const result = batches([...ids.map(add), ...ids.slice(1).map((id, i): ReconciliationWrite => ({ operation: 'add', edge: edge(ids[i]!, id) }))], contract(bound));
-  expect(result.map(batch => (batch.vertices?.length ?? 0) + (batch.edges?.length ?? 0))).toEqual([500, 100, 500, 99]);
+  expect(result.map(batch => (batch.vertices?.length ?? 0) + (batch.edges?.length ?? 0))).toEqual([500, 500, 199]);
   expect(result.slice(0, 2).flatMap(batch => batch.vertices ?? [])).toHaveLength(600);
-  expect(result.slice(0, 2).every(batch => batch.edges === undefined)).toBe(true);
+  expect(result[0]!.edges).toBeUndefined();
+  expect(result[1]!.vertices).toHaveLength(100);
+  expect(result[1]!.edges).toHaveLength(400);
+  expect(result[2]!.edges).toHaveLength(199);
 });
 
 test('ordering 5000 retirements indexes children instead of canonicalizing every pair', () => {
