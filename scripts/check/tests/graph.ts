@@ -75,7 +75,11 @@ export async function valueImportGraph(root: string, folders: readonly string[])
   if (present.length === 0) return emptyImportGraph(root);
   const options = await committedOptions();
   // Keep installed packages as leaf edges so layer rules can forbid reaching them.
-  const result = await cruise(present, { ...options, exclude: { path: '^wiki/app/dist/|^vendor/|^build/' }, baseDir: root, validate: false });
+  const configured = options.exclude;
+  const exclude = typeof configured === 'object' && configured !== null && 'path' in configured && typeof configured.path === 'string'
+    ? { ...configured, path: withoutPackageExclusion(configured.path) }
+    : configured;
+  const result = await cruise(present, { ...options, exclude, baseDir: root, validate: false });
   const output = result.output;
   if (typeof output === 'string') {
     throw new Error(`${root}:1: dependency-cruiser answered ${JSON.stringify(output.slice(0, 80))} rather than a report; the test check reads its report as data`);
@@ -105,6 +109,31 @@ export async function valueImportGraph(root: string, folders: readonly string[])
     edges.set(source, found);
   }
   return { root, edges, modules };
+}
+
+/** Keep the configured exclusions except alternatives that remove installed-package edges. */
+function withoutPackageExclusion(pattern: string): string {
+  const alternatives: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let escaped = false;
+  let characterClass = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (escaped) { escaped = false; continue; }
+    if (character === '\\') { escaped = true; continue; }
+    if (character === '[') characterClass = true;
+    if (character === ']') characterClass = false;
+    if (characterClass) continue;
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (character === '|' && depth === 0) {
+      alternatives.push(pattern.slice(start, index));
+      start = index + 1;
+    }
+  }
+  alternatives.push(pattern.slice(start));
+  return alternatives.filter((alternative) => !new RegExp(alternative).test('node_modules/x/index.js')).join('|');
 }
 
 /** A path dependency-cruiser reports, as a path from the root; `null` when it is no module this repository holds. */

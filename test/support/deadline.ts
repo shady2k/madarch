@@ -1,7 +1,6 @@
 /**
- * `bound()` — the one way a test case names how long it may run (decision 0039,
- * section 2, rule `test-case-bound`): the bound, together with the measurement it is
- * three times and the place and day that measurement was taken.
+ * `bound()` names a case's run-time limit with its measurement, place and day.
+ * See docs/decisions/0041-test-layers-and-suites.md, rule `test-case-bound`.
  *
  *   test('a fill of two passes', async () => { ... }, bound(30_000, {
  *     measured: 4_200,
@@ -9,12 +8,13 @@
  *     at: '2026-11-18',
  *   }));
  *
- * The check `check:tests` reads the same arguments from the syntax tree and refuses a
- * bound that is under three times its measurement or under ten seconds, a bound above
- * its layer (30 000 ms in integration, 120 000 ms end-to-end), and a bound in the unit
- * layer at all. This helper refuses the same bounds at run time, so a case that slips
- * past the check (a computed bound, a run without the check) still says why it is
- * wrong instead of timing a case out in silence.
+ * At runtime this helper requires at least 10 000 ms, at least three times the
+ * measured time, and nonempty `on` and `at` fields. It also checks finite bounds
+ * and finite, nonnegative measurements. It has no knowledge of the test layer.
+ *
+ * Statically, `check:tests` checks those literal arguments and also enforces the
+ * layer rules: no bound in unit, at most 30 000 ms in integration and at most
+ * 120 000 ms in e2e. Only the static check enforces those layer restrictions.
  */
 export interface CaseMeasurement {
   /** How long the case took when it was measured, in milliseconds. */

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * `bun run check:tests` (decision 0039, section 2): the five rules of the test
+ * `bun run check:tests` (docs/decisions/0041-test-layers-and-suites.md): the five rules of the test
  * layers, wired into `bun run check`.
  *
  * Every violation is printed as `<full path>:<line>: <rule>: <what and where>`, one
@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import { TEST_RULES, testsCheck, testsCheckPasses, testProblemLines } from './check/tests/check.js';
 
 const USAGE = [
-  'the test layer check of decision 0039, section 2',
+  'the test layer check of docs/decisions/0041-test-layers-and-suites.md',
   '',
   '  bun scripts/check-tests.ts            the five rules over test/unit, test/integration, test/e2e and test/measure',
   '  bun scripts/check-tests.ts --help     print this help',

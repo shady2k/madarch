@@ -46,11 +46,14 @@ export interface ArgumentSyntax {
   /** The callee's name, when the argument is a call. */
   readonly call: string | null;
   readonly properties: readonly PropertySyntax[];
+  readonly elements: readonly ElementSyntax[];
 }
 
 /** One call: the callee as written (`test`, `bound`, `createTestDatabaseOwner`), and its arguments. */
 export interface CallSyntax {
   readonly name: string;
+  /** True for the case invocation in test.each(...)(...) rather than the table setup. */
+  readonly calleeIsCall: boolean;
   /** The 1-based line the call starts on. */
   readonly line: number;
   readonly arguments: readonly ArgumentSyntax[];
@@ -105,7 +108,7 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
       const span = node['span'] as { start: number } | undefined;
       if (callee !== null && span !== undefined) {
         const args = Array.isArray(node['arguments']) ? (node['arguments'] as Record<string, unknown>[]) : [];
-        calls.push({ name: callee, line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) });
+        calls.push({ name: callee, calleeIsCall: (node['callee'] as Record<string, unknown>)['type'] === 'CallExpression', line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) });
       }
     } else if (node['type'] === 'MemberExpression') {
       const segments = segmentsOf(node);
@@ -131,12 +134,19 @@ function argumentOf(argument: Record<string, unknown>, bytes: Uint8Array): Argum
     : [];
   const identifier = expression['type'] === 'Identifier' ? String((expression as Record<string, unknown>)['value']) : null;
   const call = expression['type'] === 'CallExpression' ? nameOf(expression['callee']) : null;
-  return { line, literal, identifier, call, properties };
+  const elements = expression['type'] === 'ArrayExpression' && Array.isArray(expression['elements'])
+    ? (expression['elements'] as (Record<string, unknown> | null)[]).flatMap((element) => elementOf(element, bytes))
+    : [];
+  return { line, literal, identifier, call, properties, elements };
 }
 
 function propertyOf(property: Record<string, unknown>, bytes: Uint8Array): PropertySyntax[] {
-  if (property['type'] !== 'KeyValueProperty' && property['type'] !== 'AssignmentPatternProperty') return [];
-  const key = keyOf(property['key'] ?? property['value']);
+  if (property['type'] === 'Identifier') {
+    const span = property['span'] as { start: number };
+    return [{ key: String(property['value']), literal: null, line: lineAt(bytes, span.start) }];
+  }
+  if (property['type'] !== 'KeyValueProperty') return [];
+  const key = keyOf(property['key']);
   if (key === null) return [];
   const value = (property['value'] ?? {}) as Record<string, unknown>;
   const span = (property['span'] ?? value['span']) as { start: number } | undefined;
@@ -168,6 +178,7 @@ function nameOf(callee: unknown): string | null {
   if (callee === null || typeof callee !== 'object') return null;
   const held = callee as Record<string, unknown>;
   if (held['type'] === 'Identifier') return String(held['value']);
+  if (held['type'] === 'CallExpression') return nameOf(held['callee']);
   const segments = segmentsOf(held);
   return segments === null ? null : segments.join('.');
 }

@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { testProblemLines, testsCheck, testsCheckPasses, type TestRule } from '../scripts/check/tests/check.js';
 import { bound } from './support/deadline.js';
+import { valueImportGraph } from '../scripts/check/tests/graph.js';
 
 /**
- * `check:tests` (decision 0039, section 2): the five rules that hold the test
+ * `check:tests` (`docs/decisions/0041-test-layers-and-suites.md`): the five rules that hold the test
  * layers' reach, case bounds, timing assertions and catalogue entry points.
  *
  * Every case writes a small project of its own into a temporary folder — the
@@ -105,7 +106,7 @@ describe('test-integration-reach', () => {
     const root = project({
       'src/pure.ts': 'export const pure = 1;',
       'test/support/database.ts': 'export function createTestDatabaseOwner(): string {\n  return "owner";\n}',
-      'test/support/git.ts': "import { execFileSync } from 'node:child_process';\nexport const git = execFileSync;",
+      'test/support/git.ts': "import { execFileSync } from 'node:child_process';\nexport function git(): void { execFileSync('git', ['status']); }",
       'test/integration/plain.test.ts': [
         "import { createTestDatabaseOwner } from '../support/database.js';",
         "import { git } from '../support/git.js';",
@@ -156,13 +157,13 @@ describe('test-case-bound', () => {
   test('a case bound named with bound(), three times its measurement, passes in integration and e2e', async () => {
     const root = project({
       'test/support/deadline.ts': deadline,
-      'test/unit/default.test.ts': "test('a unit case', () => {});",
+      'test/unit/default.test.ts': "import { test } from 'bun:test'; test('a unit case', () => {});",
       'test/integration/bound.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('an integration case', () => {}, bound(30_000, { measured: 9_000, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
       'test/e2e/bound.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('an e2e case', () => {}, bound(120_000, { measured: 40_000, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
     });
@@ -171,11 +172,11 @@ describe('test-case-bound', () => {
 
   test('a bare number as the third argument of test() fails', async () => {
     const root = project({
-      'test/integration/bare.test.ts': "test('a case', () => {}, 900_000);",
+      'test/integration/bare.test.ts': "import { test } from 'bun:test';\ntest('a case', () => {}, 900_000);",
     });
     const problems = await problemsOf(root, 'test-case-bound');
     expect(problems.length).toBe(1);
-    expect(problems[0]).toContain(`${join(root, 'test', 'integration', 'bare.test.ts')}:1: test-case-bound:`);
+    expect(problems[0]).toContain(`${join(root, 'test', 'integration', 'bare.test.ts')}:2: test-case-bound:`);
     expect(problems[0]).toContain('bound()');
   });
 
@@ -183,11 +184,11 @@ describe('test-case-bound', () => {
     const root = project({
       'test/support/deadline.ts': deadline,
       'test/integration/small.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('a case', () => {}, bound(20_000, { measured: 9_000, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
       'test/e2e/short.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('a case', () => {}, bound(5_000, { measured: 100, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
     });
@@ -201,15 +202,15 @@ describe('test-case-bound', () => {
     const root = project({
       'test/support/deadline.ts': deadline,
       'test/integration/big.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('a case', () => {}, bound(31_000, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
       'test/e2e/no-measure.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('a case', () => {}, bound(20_000, { on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
       'test/e2e/big.test.ts': [
-        "import { bound } from '../support/deadline.js';",
+        "import { test } from 'bun:test'; import { bound } from '../support/deadline.js';",
         "test('a case', () => {}, bound(120_001, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
       ].join('\n'),
     });
@@ -222,7 +223,7 @@ describe('test-case-bound', () => {
 
   test('a unit case names no bound, and bound must come from test/support/deadline.ts', async () => {
     const root = project({
-      'test/unit/bound.test.ts': "const bound = (ms: number): number => ms;\ntest('a unit case', () => {}, bound(20_000, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
+      'test/unit/bound.test.ts': "import { test } from 'bun:test'; const bound = (ms: number): number => ms;\ntest('a unit case', () => {}, bound(20_000, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
     });
     const problems = await problemsOf(root, 'test-case-bound');
     expect(problems.length).toBe(2);
@@ -299,5 +300,160 @@ describe('bound', () => {
   test('refuses a measurement with no place or date', () => {
     expect(() => bound(20_000, { measured: 5_000, on: '', at: '2026-11-18' })).toThrow(/on/);
     expect(() => bound(20_000, { measured: 5_000, on: 'box', at: '' })).toThrow(/at/);
+  });
+});
+
+
+describe('review regressions', () => {
+  test('a require-based git helper cannot hide a non-git command', async () => {
+    const root = project({
+      'test/support/git.ts': "const { execFileSync } = require('node:child_process');\nexport const git = () => execFileSync('bun', ['--version']);",
+      'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+    });
+    const problems = await problemsOf(root, 'test-integration-reach');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/support/git.ts')}:2: test-integration-reach:`);
+    expect(problems[0]).toContain('bun');
+    expect(problems[0]).toContain('test/integration/git.test.ts > test/support/git.ts');
+  });
+
+  test('a barrel may expose other names beside createDraft without importing createDraft', async () => {
+    const root = project({
+      'src/product/draft.ts': 'export const createDraft = () => {}; export const CONSTITUTION = 1;',
+      'test/support/barrel.ts': "export { createDraft, CONSTITUTION } from '../../src/product/draft.js';",
+      'test/unit/plain.test.ts': "import { CONSTITUTION } from '../support/barrel.js'; export const held = CONSTITUTION;",
+    });
+    expect(await problemsOf(root, 'test-full-catalogue')).toEqual([]);
+  });
+
+  test('installed packages remain leaf edges, including type-only imports that do not run', async () => {
+    const root = project({
+      'node_modules/local-pkg/package.json': '{"name":"local-pkg","main":"index.js"}',
+      'node_modules/local-pkg/index.js': "import pg from 'pg'; export const value = pg;",
+      'node_modules/pg/package.json': '{"name":"pg","main":"index.js"}',
+      'node_modules/pg/index.js': 'export default 1;',
+      'test/unit/value.test.ts': "import { value } from 'local-pkg'; export const held = value;",
+      'test/unit/type.test.ts': "import type { value } from 'local-pkg'; export type Held = typeof value;",
+    });
+    const graph = await valueImportGraph(root, ['test/unit']);
+    expect(graph.edges.get('test/unit/value.test.ts')).toEqual([{ to: 'local-pkg', specifier: 'local-pkg', line: 1 }]);
+    expect(graph.edges.get('test/unit/type.test.ts')).toEqual([]);
+    expect([...graph.modules].some((file) => file.includes('node_modules'))).toBe(false);
+  });
+
+  test('installed database and browser packages are denied, but installed types pass', async () => {
+    const files: Record<string, string> = {};
+    for (const name of ['pg', 'pg-boss', 'puppeteer']) {
+      files[`node_modules/${name}/package.json`] = JSON.stringify({ name, main: 'index.js' });
+      files[`node_modules/${name}/index.js`] = 'export default {};';
+    }
+    const root = project({ ...files,
+      'test/unit/pg.test.ts': "import pg from 'pg'; export const held = pg;",
+      'test/unit/boss.test.ts': "import boss from 'pg-boss'; export const held = boss;",
+      'test/unit/type.test.ts': "import type pg from 'pg'; export type Held = typeof pg;",
+      'test/integration/browser.test.ts': "import browser from 'puppeteer'; export const held = browser;",
+    });
+    const unit = await problemsOf(root, 'test-unit-reach');
+    expect(unit).toHaveLength(2);
+    for (const file of ['pg', 'boss']) expect(unit.some((line) => line.includes(`${join(root, 'test/unit', `${file}.test.ts`)}:1: test-unit-reach:`))).toBe(true);
+    const browser = await problemsOf(root, 'test-integration-reach');
+    expect(browser).toHaveLength(1);
+    expect(browser[0]).toContain(`${join(root, 'test/integration/browser.test.ts')}:1: test-integration-reach:`);
+  });
+
+  test('committed vendor and build exclusions stay excluded from the value graph', async () => {
+    const root = project({
+      'test/unit/entry.test.ts': "import { a } from '../../vendor/a.js'; import { b } from '../../build/b.js'; export const held = [a,b];",
+      'vendor/a.ts': 'export const a = performance.now();',
+      'build/b.ts': 'export const b = performance.now();',
+    });
+    const graph = await valueImportGraph(root, ['test/unit']);
+    expect(graph.modules.has('vendor/a.ts')).toBe(false);
+    expect(graph.modules.has('build/b.ts')).toBe(false);
+  });
+
+  test('aliased and curried Bun cases enforce numeric bounds, while a foreign test function is not a Bun case', async () => {
+    const root = project({
+      'test/support/deadline.ts': 'export const bound = (ms: number) => ms;',
+      'test/integration/alias.test.ts': "import bun, { test as caseOf } from 'bun:test';\ncaseOf('bare', () => {}, 900_000);",
+      'test/integration/each.test.ts': "import { test } from 'bun:test';\ntest.each([1])('bare', () => {}, 900_000);",
+      'test/integration/skip.test.ts': "import { test } from 'bun:test';\ntest.skipIf(true)('bare', () => {}, 900_000);",
+      'test/integration/foreign.test.ts': "const test = (...args: unknown[]) => args;\ntest('not a case', () => {}, 900_000);",
+      'test/integration/bound-alias.test.ts': "import * as bun from 'bun:test'; import { test } from 'bun:test'; import deadline, { bound as limit } from '../support/deadline.js';\ntest('too long', () => {}, limit(31_000, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
+      'test/integration/bound-good.test.ts': "import * as bun from 'bun:test'; import { test } from 'bun:test'; import deadline, { bound as limit } from '../support/deadline.js';\ntest('okay', () => {}, limit(30_000, { measured: 1_000, on: 'box', at: '2026-11-18' }));",
+    });
+    const problems = await problemsOf(root, 'test-case-bound');
+    expect(problems).toHaveLength(4);
+    for (const file of ['alias', 'each', 'skip', 'bound-alias']) expect(problems.some((line) => line.includes(`${join(root, 'test/integration', `${file}.test.ts`)}:2: test-case-bound:`))).toBe(true);
+    expect(problems.some((line) => line.includes('bound-alias.test.ts') && line.includes('30 000'))).toBe(true);
+  });
+
+  test('store shorthand is refused, while no argument and empty options use the pass database', async () => {
+    const root = project({
+      'test/support/database.ts': 'export const createTestDatabaseOwner = (options = {}) => options;',
+      'test/integration/store.test.ts': "import { createTestDatabaseOwner } from '../support/database.js';\nconst store = '/tmp/store';\nexport const held = createTestDatabaseOwner({ store });",
+      'test/integration/pass.test.ts': "import { createTestDatabaseOwner } from '../support/database.js';\nexport const held = [createTestDatabaseOwner(), createTestDatabaseOwner({})];",
+    });
+    const problems = await problemsOf(root, 'test-integration-reach');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/integration/store.test.ts')}:3: test-integration-reach:`);
+  });
+
+  for (const runtime of ['node', 'Bun', 'Bun.spawn']) {
+    for (const command of ["'git'", "'bun'", 'command']) {
+      test(`the git helper checks ${runtime} command ${command}`, async () => {
+        const call = runtime === 'node' ? `execFileSync(${command}, ['status'])` : runtime === 'Bun' ? `Bun.spawnSync([${command}, 'status'])` : `Bun.spawn([${command}, 'status'])`;
+        const root = project({
+          'test/support/git.ts': `import { execFileSync } from 'node:child_process';\nconst command = process.argv[2];\nexport function git() { return ${call}; }`,
+          'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+        });
+        const problems = await problemsOf(root, 'test-integration-reach');
+        if (command === "'git'") expect(problems).toEqual([]);
+        else {
+          expect(problems.length).toBeGreaterThan(0);
+          expect(problems.some((line) => line.includes('test/integration/git.test.ts') && line.includes('test/support/git.ts'))).toBe(true);
+          if (command === "'bun'") expect(problems.some((line) => line.includes('bun'))).toBe(true);
+          expect(problems.some((line) => line.includes(`${join(root, 'test/support/git.ts')}:3: test-integration-reach:`))).toBe(true);
+        }
+      });
+    }
+  }
+
+  test('the timing rule alone follows support helpers, but permits the measurement helper', async () => {
+    const root = project({
+      'test/support/clock.ts': 'export const elapsed = performance.now();',
+      'test/support/measure.ts': 'export const elapsed = performance.now();',
+      'test/unit/clock.test.ts': "import { elapsed } from '../support/clock.js'; export const held = elapsed;",
+      'test/unit/measured.test.ts': "import { elapsed } from '../support/measure.js'; export const held = elapsed;",
+    });
+    const problems = await problemsOf(root, 'test-timing-only-in-measure');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/support/clock.ts')}:1: test-timing-only-in-measure:`);
+    expect(problems[0]).toContain('test/unit/clock.test.ts');
+  });
+
+  test('catalogue imports through a barrel fail, but the minimal factory may use createDraft', async () => {
+    const root = project({
+      'src/product/draft.ts': 'export const createDraft = (options = {}) => options;',
+      'test/support/barrel.ts': "export { createDraft as draft } from '../../src/product/draft.js';",
+      'test/support/draft.ts': "import { createDraft } from '../../src/product/draft.js'; export const testDraft = (options: { kinds: string[] }) => createDraft(options);",
+      'test/unit/barrel.test.ts': "import { draft } from '../support/barrel.js'; export const held = draft({ home: '/tmp/product' });",
+      'test/unit/minimal.test.ts': "import { testDraft } from '../support/draft.js'; export const held = testDraft({ kinds: ['note'] });",
+    });
+    const problems = await problemsOf(root, 'test-full-catalogue');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/unit/barrel.test.ts')}:1: test-full-catalogue:`);
+    expect(problems[0]).toContain('createDraft');
+  });
+
+  test('require, dynamic import and re-export diagnostics point to their actual source lines', async () => {
+    const root = project({
+      'test/unit/require.test.ts': "// one\n// two\n// three\n// four\n// five\n// six\nexport const held = require('pg');",
+      'test/unit/dynamic.test.ts': "// one\n// two\nexport const held = import('pg');",
+      'test/unit/export.test.ts': "// one\nexport { default as held } from 'pg';",
+    });
+    const problems = await problemsOf(root, 'test-unit-reach');
+    expect(problems).toHaveLength(3);
+    for (const [file, line] of [['require', 7], ['dynamic', 3], ['export', 2]] as const) expect(problems.some((problem) => problem.includes(`${join(root, 'test/unit', `${file}.test.ts`)}:${line}: test-unit-reach:`))).toBe(true);
   });
 });

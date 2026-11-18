@@ -1,5 +1,5 @@
 /**
- * The five rules `check:tests` runs (decision 0039, section 2), the violations they
+ * The five rules `check:tests` runs (docs/decisions/0041-test-layers-and-suites.md), the violations they
  * find, and the one way those are written down and printed.
  *
  * A violation names the rule, the module it is in as a path from the repository root,

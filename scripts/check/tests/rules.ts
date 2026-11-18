@@ -135,8 +135,26 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
         violations.push({ rule: 'test-integration-reach', file, line: edge.line, message: `${reachedFrom(start, paths, file)}, which starts a process through ${edge.specifier}; the integration layer starts no process, and git runs through test/support/git.ts` });
       }
       for (const member of membersMatching(context.syntaxOf(file), ['spawn'])) {
-        if (file === GIT_HELPER && ['spawnSync', 'execFileSync', 'execSync', 'spawn', 'execFile', 'exec'].includes(member.name)) continue;
+        if (file === GIT_HELPER) continue;
         violations.push({ rule: 'test-integration-reach', file, line: member.line, message: `${reachedFrom(start, paths, file)}, whose ${member.name} starts a process; the integration layer starts no process, and git runs through test/support/git.ts` });
+      }
+      if (file === GIT_HELPER) {
+        const commands = new Set(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync']);
+        const processBindings = new Map(context.importsOf(file)
+          .filter((statement) => !statement.typeOnly && isChildProcess(statement.specifier))
+          .flatMap((statement) => statement.bindings.map((binding) => [binding.local, binding.imported] as const)));
+        for (const call of context.syntaxOf(file).calls) {
+          const [object, member] = call.name.split('.');
+          const imported = processBindings.get(object!);
+          const processCall = commands.has(imported ?? '') ||
+            ((object === 'Bun' || imported === '*' || imported === 'default') && commands.has(member ?? ''));
+          if (!processCall) continue;
+          const first = call.arguments[0];
+          const command = object === 'Bun' ? first?.elements[0]?.literal : first?.literal;
+          if (command?.kind === 'string' && command.value === 'git') continue;
+          violations.push({ rule: 'test-integration-reach', file, line: call.line,
+            message: `${reachedFrom(start, paths, file)}, whose ${call.name} executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}; only the git command is allowed through ${GIT_HELPER}` });
+        }
       }
       for (const call of context.syntaxOf(file).calls) {
         if (call.name !== 'createTestDatabaseOwner') continue;
@@ -163,18 +181,19 @@ export function caseBoundViolations(context: RuleContext): TestViolation[] {
   const violations: TestViolation[] = [];
   for (const folder of LAYER_FOLDERS) {
     for (const file of context.modulesIn(folder)) {
+      const bindings = caseBindings(context, file);
       for (const call of context.syntaxOf(file).calls) {
-        if (call.name === 'bound') violations.push(...boundCallViolations(context, file, call));
-        else if (call.name === 'test' && call.arguments.length >= 3) {
+        if (bindings.get(call.name) === 'bound' || call.name === 'bound') violations.push(...boundCallViolations(context, file, call));
+        else if (isCaseCall(call, bindings) && call.arguments.length >= 3) {
           const third = call.arguments[2]!;
-          if (third.call === 'bound') continue;
+          if (third.call === 'bound' || (third.call !== null && bindings.get(third.call) === 'bound')) continue;
           violations.push({
             rule: 'test-case-bound',
             file,
             line: third.line,
             message: third.literal?.kind === 'number'
-              ? `a bare number, ${group(third.literal.value)}, is the third argument of test(), and names no bound(); a case bound is bound(ms, { measured, on, at })`
-              : `the third argument of test() is not bound(), and a case bound is named bound(ms, { measured, on, at })`,
+              ? `a bare number, ${group(third.literal.value)}, is the third argument of ${call.name}(), and names no bound(); a case bound is bound(ms, { measured, on, at })`
+              : `the third argument of ${call.name}() is not bound(), and a case bound is named bound(ms, { measured, on, at })`,
           });
         }
       }
@@ -183,12 +202,31 @@ export function caseBoundViolations(context: RuleContext): TestViolation[] {
   return violations;
 }
 
+/** Bind only the Bun case API and the deadline helper, preserving imported/local pairs. */
+function caseBindings(context: RuleContext, file: string): ReadonlyMap<string, string> {
+  const bindings = new Map<string, string>();
+  for (const statement of context.importsOf(file)) {
+    if (statement.typeOnly || statement.reExport) continue;
+    const deadline = resolveModuleSpecifier(context.modules, file, statement.specifier) === DEADLINE;
+    for (const binding of statement.bindings) {
+      if (statement.specifier === 'bun:test' && ['test', 'it'].includes(binding.imported)) bindings.set(binding.local, 'test');
+      if (deadline && binding.imported === 'bound') bindings.set(binding.local, 'bound');
+    }
+  }
+  return bindings;
+}
+
+function isCaseCall(call: CallSyntax, bindings: ReadonlyMap<string, string>): boolean {
+  const [root, ...members] = call.name.split('.');
+  if (bindings.get(root!) !== 'test') return false;
+  if (call.calleeIsCall) return members.length === 1 && ['each', 'skipIf', 'todoIf'].includes(members[0]!);
+  return members.length === 0 || (members.length === 1 && ['skip', 'only', 'todo'].includes(members[0]!));
+}
+
 function boundCallViolations(context: RuleContext, file: string, call: CallSyntax): TestViolation[] {
   const violations: TestViolation[] = [];
   const layer = layerOf(file);
-  const imported = context.importsOf(file).some(
-    (statement) => !statement.typeOnly && statement.names.includes('bound') && resolveModuleSpecifier(context.modules, file, statement.specifier) === DEADLINE,
-  );
+  const imported = caseBindings(context, file).get(call.name) === 'bound';
   if (!imported) {
     violations.push({
       rule: 'test-case-bound',
@@ -283,14 +321,18 @@ function boundCallViolations(context: RuleContext, file: string, call: CallSynta
 export function timingViolations(context: RuleContext): TestViolation[] {
   const violations: TestViolation[] = [];
   for (const folder of [UNIT, INTEGRATION, E2E]) {
-    for (const file of context.modulesIn(folder)) {
-      for (const member of timingMembers(context.syntaxOf(file))) {
-        violations.push({
-          rule: 'test-timing-only-in-measure',
-          file,
-          line: member.line,
-          message: `${member.name} reads elapsed time, and elapsed time is asserted only in test/measure against a recorded baseline`,
-        });
+    for (const start of context.modulesIn(folder)) {
+      const { paths } = reachSearch(context.graph, start, () => false);
+      for (const file of new Set([start, ...paths.keys()])) {
+        if (file !== start && (!file.startsWith('test/support/') || file === 'test/support/measure.ts')) continue;
+        for (const member of timingMembers(context.syntaxOf(file))) {
+          violations.push({
+            rule: 'test-timing-only-in-measure',
+            file,
+            line: member.line,
+            message: `${reachedFrom(start, paths, file)}, whose ${member.name} reads elapsed time, and elapsed time is asserted only in test/measure against a recorded baseline`,
+          });
+        }
       }
     }
   }
@@ -309,13 +351,13 @@ export function fullCatalogueViolations(context: RuleContext): TestViolation[] {
       if (isStarterSet(file)) continue;
       for (const statement of context.importsOf(file)) {
         if (statement.typeOnly) continue;
-        if (!statement.names.includes('createDraft') && !statement.wholeModule) continue;
-        if (resolveModuleSpecifier(context.modules, file, statement.specifier) !== DRAFT) continue;
+        const chain = draftExportChain(context, file, statement, new Set());
+        if (chain === null) continue;
         violations.push({
           rule: 'test-full-catalogue',
           file,
           line: statement.line,
-          message: `imports ${statement.wholeModule ? 'the draft module' : 'createDraft'} from ${DRAFT}; only test/<layer>/starter-set/ makes a product from the whole starter set, and every other file takes testDraft({ kinds }) from test/support/draft.ts`,
+          message: `imports ${statement.wholeModule ? 'the draft module' : 'createDraft'} through ${[file, ...chain].join(' > ')} from ${DRAFT}; only test/<layer>/starter-set/ makes a product from the whole starter set, and every other file takes testDraft({ kinds }) from test/support/draft.ts`,
         });
       }
       const syntax = context.syntaxOf(file);
@@ -349,6 +391,27 @@ export function fullCatalogueViolations(context: RuleContext): TestViolation[] {
     }
   }
   return violations;
+}
+
+/** Follow public re-exports, not a minimal-catalogue factory's private imports. */
+function draftExportChain(context: RuleContext, file: string, statement: ImportStatement, visited: Set<string>): string[] | null {
+  const target = resolveModuleSpecifier(context.modules, file, statement.specifier);
+  if (target === null || statement.typeOnly) return null;
+  if (target === DRAFT) return statement.wholeModule || statement.names.includes('createDraft') ? [target] : null;
+  if (visited.has(target)) return null;
+  visited.add(target);
+  for (const exported of context.importsOf(target)) {
+    if (!exported.reExport || exported.typeOnly) continue;
+    const selected = statement.wholeModule ? exported : {
+      ...exported,
+      names: exported.wholeModule ? statement.names : exported.bindings.filter((binding) => statement.names.includes(binding.local)).map((binding) => binding.imported),
+      wholeModule: false,
+    };
+    if (!selected.wholeModule && selected.names.length === 0) continue;
+    const chain = draftExportChain(context, target, selected, new Set(visited));
+    if (chain !== null) return [target, ...chain];
+  }
+  return null;
 }
 
 /** One module a rule reached, and the chain of imports from the layer file. */

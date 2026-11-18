@@ -1,5 +1,5 @@
 /**
- * `check:tests` (decision 0039, section 2): the five rules that hold the test
+ * `check:tests` (docs/decisions/0041-test-layers-and-suites.md): the five rules that hold the test
  * layers' reach, their case bounds, their timing assertions and their catalogue
  * entry points.
  *
@@ -51,7 +51,7 @@ export interface TestsReport {
 export async function testsCheck(options: TestsCheckOptions = {}): Promise<TestsReport> {
   const root = resolve(options.root ?? repositoryRoot());
   const rules = options.rules ?? TEST_RULES;
-  const graph: ImportGraph = rules.some((rule) => rule === 'test-unit-reach' || rule === 'test-integration-reach')
+  const graph: ImportGraph = rules.some((rule) => rule === 'test-unit-reach' || rule === 'test-integration-reach' || rule === 'test-timing-only-in-measure')
     ? await valueImportGraph(root, ['test/unit', 'test/integration', 'test/e2e', 'test/measure'])
     : emptyImportGraph(root);
   const context = createRuleContext(root, graph);
