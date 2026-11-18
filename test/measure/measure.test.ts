@@ -71,9 +71,18 @@ describe('measure', () => {
       .rejects.toThrow(/absolute limit 500 ms.*fill-orchestrator\.md:339/u);
   });
 
-  test('refuses an absolute limit that carries no owner words', async () => {
-    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: { ref: 'missing:1', quote: 'TODO' } } }))
-      .rejects.toThrow(/test\/support\/measure\.ts: .*invalid absolute source/u);
+  test('rejects malformed, zero, placeholder and unresolved source references with their origin', async () => {
+    const refs = ['docs/x.md', ':339', 'docs/x.md:', 'docs/x.md:abc', 'docs/x.md:0'];
+    for (const ref of refs) {
+      try {
+        await measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: { ref, quote: 'quote' } } });
+        throw new Error('expected invalid reference');
+      } catch (error) { expect((error as Error).message).toContain(`invalid absolute source reference \`${ref}\``); }
+    }
+    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: { ref: 'docs/x.md:339', quote: 'TODO' } } }))
+      .rejects.toThrow(/invalid absolute source reference `docs\/x\.md:339`/u);
+    await expect(measure(THE_CASE, () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: recorded(10), absolute: { ms: 500, source: { ref: 'docs/x.md:339', quote: 'not present' } } }))
+      .rejects.toThrow(/docs\/x\.md:339: reference `docs\/x\.md:339` from .*measure\.ts/u);
   });
 
   test('refuses a case whose baseline was never recorded, naming the file and the case', async () => {
@@ -113,6 +122,15 @@ describe('the recorded baselines', () => {
     expect(() => parseBaselines({ '$schema': 42, schema: 1, baselines: {} })).toThrow(/\$schema/u);
     const special = parseBaselines(JSON.parse('{"schema":1,"baselines":{"__proto__":{"medianMs":1,"runs":3}}}'));
     expect(Object.hasOwn(special.baselines, '__proto__')).toBe(true);
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-special-'));
+    try {
+      const path = join(folder, 'special.json');
+      writeFileSync(path, '{\n  "schema": 1,\n  "baselines": {\n    "__proto__": { "medianMs": 1, "runs": 3 },\n    "toString": { "medianMs": 2, "runs": 3 }\n  }\n}');
+      const fromFile = readBaselines(path);
+      expect(Object.hasOwn(fromFile.baselines, '__proto__')).toBe(true);
+      expect(Object.hasOwn(fromFile.baselines, 'toString')).toBe(true);
+      expect(fromFile.baselines['toString']?.medianMs).toBe(2);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
     const empty = parseBaselines({ schema: 1, baselines: {} });
     await expect(measure('toString', () => undefined, { runs: 3, clock: readings(0, 1, 0, 1, 0, 1), baselines: empty }))
       .rejects.toThrow(/no baseline for `toString`/u);
@@ -123,7 +141,7 @@ describe('the recorded baselines', () => {
     try {
       const path = resolve(join(folder, 'bad.json'));
       const cases: { text: string; location: string; pointer: string }[] = [
-        { text: '{\n  "schema": 1,\n  "baselines": {', location: `${path}:1:1`, pointer: '/' },
+        { text: '{\n  "schema": 1,\n  "baselines": {', location: `${path}:3:17`, pointer: '/' },
         { text: '[\n  1\n]', location: `${path}:1:1`, pointer: '/' },
         { text: '{\n  "schema": 1,\n  "oops": 2,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/oops' },
         { text: '{\n  "$schema": 42,\n  "schema": 1,\n  "baselines": {}\n}', location: `${path}:2:3`, pointer: '/$schema' },
@@ -135,6 +153,18 @@ describe('the recorded baselines', () => {
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 0, "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2.5 }\n  }\n}', location: `${path}:4:33`, pointer: '/baselines/x/runs' },
         { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "note": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/note' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "runs": 3 }\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": -1, "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": "bad", "runs": 3 }\n  }\n}', location: `${path}:4:19`, pointer: '/baselines/x/medianMs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1 }\n  }\n}', location: `${path}:4:10`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 2 }\n  }\n}', location: `${path}:4:33`, pointer: '/baselines/x/runs' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "measuredAt": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/measuredAt' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "commit": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/commit' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "x": { "medianMs": 1, "runs": 3, "wat": 4 }\n  }\n}', location: `${path}:4:44`, pointer: '/baselines/x/wat' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "__proto__": 5\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/__proto__' },
+        { text: '{\n  "schema": 1,\n  "baselines": {\n    "toString": 5\n  }\n}', location: `${path}:4:5`, pointer: '/baselines/toString' },
+        { text: '{\n  "schema": 1,\n  "baselines": []\n}', location: `${path}:3:15`, pointer: '/baselines' },
+        { text: '{\n  "schema": 1,\n  "extra": 1,\n  "baselines": {}\n}', location: `${path}:3:3`, pointer: '/extra' },
       ];
       for (const item of cases) {
         writeFileSync(path, item.text);
@@ -142,9 +172,31 @@ describe('the recorded baselines', () => {
         catch (error) {
           const message = (error as Error).message;
           const [file, line] = item.location.split(':');
-          expect(message.startsWith(`${file}:${line}:`)).toBe(true);
+          if (!message.startsWith(`${file}:${line}:`)) throw new Error(`expected ${item.location}; got ${message}`);
           expect(Number(message.slice(`${file}:${line}:`.length).split(' ')[0])).toBeGreaterThan(0);
           expect(message).toContain(` ${item.pointer}:`);
+        }
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  test('locates distinct JSON syntax failures rather than reporting a fixed parser location', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-measure-syntax-'));
+    try {
+      const path = resolve(join(folder, 'broken.json'));
+      const cases = [
+        { text: '{\n  "schema": 1,', line: 2 },
+        { text: '{\n  "schema": 1,\n}', line: 3 },
+        { text: '{\n  "schema": 1,\n  "baselines": {}\n}x', line: 4 },
+        { text: '{\n  "schema": 1,\n  "baselines": { "x": bare }\n}', line: 3 },
+      ];
+      for (const item of cases) {
+        writeFileSync(path, item.text);
+        try { readBaselines(path); throw new Error('expected invalid JSON'); }
+        catch (error) {
+          const message = (error as Error).message;
+          if (!message.startsWith(`${path}:${item.line}:`)) throw new Error(`wanted line ${item.line}; received ${message}`);
+          expect(message).toContain(' /: the baselines are not valid JSON');
         }
       }
     } finally { rmSync(folder, { recursive: true, force: true }); }

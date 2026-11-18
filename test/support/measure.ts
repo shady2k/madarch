@@ -2,8 +2,8 @@
  * The measurement suite's one way to measure (decision 0041; plan ALX-340,
  * slice T4): run a case `runs` times, take the median, hold it against the
  * baseline recorded in `test/measure/baselines.json` with the factor two, and,
- * where the owner named an absolute limit, against that limit and the owner's
- * words it came from.
+ * where a cited source line supports an absolute limit, against that limit and
+ * the quote recorded at the reference.
  *
  * This file and `test/measure/` are the only places a test reads an elapsed
  * clock (`check:tests`, rule 4). A measurement is deterministic in its own
@@ -44,7 +44,7 @@ export interface Baselines {
   readonly baselines: Readonly<Record<string, Baseline>>;
 }
 
-/** A limit the owner named, with the owner's words it rests on. */
+/** An absolute limit supported by a verifiable source line and quote. */
 export interface AbsoluteLimit {
   readonly ms: number;
   readonly source: { readonly ref: string; readonly quote: string };
@@ -56,7 +56,7 @@ export interface MeasureOptions {
   readonly clock?: Clock;
   /** Injected by the helper's own test; the recorded file otherwise. */
   readonly baselines?: Baselines;
-  /** A limit the owner named, with the owner's words. */
+  /** A limit supported by the quoted source line. */
   readonly absolute?: AbsoluteLimit;
 }
 
@@ -132,6 +132,37 @@ function locateJson(text: string): Map<string, Position> {
   return positions;
 }
 
+function syntaxOffset(text: string): number {
+  let quoted = false;
+  let escaped = false;
+  const stack: string[] = [];
+  let afterRoot = false;
+  let previousComma = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index]!;
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') quoted = false;
+      continue;
+    }
+    if (' \t\r\n'.includes(ch)) continue;
+    if (afterRoot) return index;
+    if (ch === '"') { quoted = true; previousComma = false; continue; }
+    if (ch === '{' || ch === '[') { stack.push(ch); previousComma = false; continue; }
+    if (ch === '}' || ch === ']') {
+      if (previousComma) return index;
+      stack.pop(); if (stack.length === 0) afterRoot = true;
+      previousComma = false; continue;
+    }
+    if (ch === ',') { previousComma = true; continue; }
+    if (ch === ':' || ch === 't' || ch === 'f' || ch === 'n' || ch === '-' || (ch >= '0' && ch <= '9')) { previousComma = false; continue; }
+    if (stack.length > 0) return index;
+    return index;
+  }
+  return text.length;
+}
+
 /** Read a baselines file; locations come from scanning the original JSON, never parser stacks. */
 export function readBaselines(path: string = BASELINES_PATH): Baselines {
   const absolutePath = resolve(path);
@@ -140,7 +171,13 @@ export function readBaselines(path: string = BASELINES_PATH): Baselines {
   catch (error) { throw new Error(`${absolutePath}: the baselines cannot be read: ${(error as Error).message}`); }
   let parsed: unknown;
   try { parsed = JSON.parse(text); }
-  catch { throw new Error(`${absolutePath}:1:1 /: the baselines are not valid JSON`); }
+  catch (error) {
+    const offset = syntaxOffset(text);
+    const before = text.slice(0, offset);
+    const line = before.split('\n').length;
+    const column = offset - before.lastIndexOf('\n');
+    throw new Error(`${absolutePath}:${line}:${column} /: the baselines are not valid JSON`);
+  }
   const positions = locateJson(text);
   return validateBaselines(parsed, absolutePath, positions);
 }
@@ -155,7 +192,8 @@ export function parseBaselines(value: unknown, path: string = BASELINES_PATH): B
 
 function validateBaselines(value: unknown, path: string, positions: Map<string, Position>): Baselines {
   const fail = (pointer: string, message: string): never => {
-    const loc = positions.get(pointer) ?? positions.get('/') ?? { line: 1, column: 1 };
+    const parent = pointer.slice(0, pointer.lastIndexOf('/')) || '/';
+    const loc = positions.get(pointer) ?? positions.get(parent) ?? positions.get('/') ?? { line: 1, column: 1 };
     throw new Error(`${path}:${loc.line}:${loc.column} ${pointer}: ${message}`);
   };
   const object = (candidate: unknown, pointer: string): Record<string, unknown> => {
@@ -199,15 +237,23 @@ export async function measure(name: string, run: () => void | Promise<void>, opt
   if (absolute !== undefined) {
     if (!Number.isFinite(absolute.ms) || absolute.ms <= 0) here(`\`${name}\`: the absolute limit must be a positive number of milliseconds`);
     const { ref, quote } = absolute.source;
-    const match = ref.match(/^(.+):(\d+)$/u);
-    if (match === null || quote === '' || ['TODO', 'TBD', '…'].includes(quote)) here(`${import.meta.path}: invalid absolute source; expected a file:line reference and non-placeholder quote`);
-    const reference = match!;
-    const sourcePath = resolve(reference[1]!);
+    const colon = ref.lastIndexOf(':');
+    const filePart = colon < 1 ? '' : ref.slice(0, colon);
+    const lineText = colon < 0 ? '' : ref.slice(colon + 1);
+    let lineNumber = 0;
+    let validDigits = lineText.length > 0;
+    for (const character of lineText) {
+      const digit = character.charCodeAt(0) - 48;
+      if (digit < 0 || digit > 9) { validDigits = false; break; }
+      lineNumber = lineNumber * 10 + digit;
+    }
+    if (filePart === '' || !validDigits || lineNumber < 1 || quote === '' || ['TODO', 'TBD', '…'].includes(quote)) here(`${import.meta.path}: invalid absolute source reference \`${ref}\``);
+    const sourcePath = resolve(filePart);
     let sourceLines: string[] = [];
     try { sourceLines = readFileSync(sourcePath, 'utf8').split('\n'); }
-    catch { here(`${sourcePath}:${reference[2]}: absolute source reference cannot be read`); }
-    const line = sourceLines[Number(reference[2]) - 1];
-    if (line === undefined || !line.includes(quote)) here(`${sourcePath}:${reference[2]}: quoted source is not present on the referenced line`);
+    catch { here(`${sourcePath}:${lineNumber}: reference \`${ref}\` from ${import.meta.path} cannot be read`); }
+    const line = sourceLines[lineNumber - 1];
+    if (line === undefined || !line.includes(quote)) here(`${sourcePath}:${lineNumber}: reference \`${ref}\` from ${import.meta.path} does not contain the quote on that line`);
   }
   const baselines = options.baselines ?? readBaselines();
   const baseline = Object.hasOwn(baselines.baselines, name) ? baselines.baselines[name] : undefined;
