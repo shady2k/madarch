@@ -329,21 +329,22 @@ export function generateContractStatements(declared: GraphContract) {
       const refusals: string[] = [];
       for (const [index, kind] of relationKinds.entries()) {
         const edgeKind = literal(kind.name);
+        const vertexId = keyEdgeNames.includes(kind.name) ? 'raw_id' : 'id';
         const from = endpointKindNames(kind.from, contract.vertex);
         const to = endpointKindNames(kind.to, contract.vertex);
         const endpointCode = index * 2 + 1;
         const cardinalityCode = endpointCode + 1;
         failures.push(`WHEN EXISTS(
           SELECT 1 FROM active_edges e WHERE e.id=ANY(checked_edges) AND e.kind=${edgeKind} AND (
-            NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
-            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
+            NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.${vertexId}=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
+            OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.${vertexId}=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
         for (const [direction, ends, bound] of [['from',from,kind.cardinality.to],['to',to,kind.cardinality.from]] as const) {
           if (bound === 'many') continue;
           failures.push(`WHEN EXISTS(
             SELECT 1 FROM active_vertices n LEFT JOIN active_edges e
-              ON e.context_id=n.context_id AND e.${direction}_node=n.id AND e.kind=${edgeKind}
+              ON e.context_id=n.context_id AND e.${direction}_node=n.${vertexId} AND e.kind=${edgeKind}
             WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
-            GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
+            GROUP BY n.context_id,n.${vertexId} HAVING count(DISTINCT (e.from_node,e.to_node,e.discriminator)) FILTER (WHERE e.id IS NOT NULL) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
         }
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
@@ -363,6 +364,29 @@ export function generateContractStatements(declared: GraphContract) {
         UNION SELECT s.edge_id FROM (SELECT * FROM assertion_edge_subject WHERE assertion_id>=node_lower OFFSET 0) s CROSS JOIN LATERAL (SELECT entity_id FROM edge WHERE id=s.edge_id OFFSET 0) e
            WHERE s.assertion_id>=node_lower AND e.entity_id=ANY(edge_kind_ids)
       ) changed;
+      IF merge_present THEN
+        -- Structural membership includes undone links and allocation destinations.
+        WITH RECURSIVE membership AS MATERIALIZED (
+          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
+            WHERE k.name='system.merge-member'
+        ), touched AS (
+          SELECT attachment.to_node AS id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
+            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
+            WHERE s.assertion_id>=node_lower AND k.name IN ('system.merge','system.merge-allocation')
+        ), seeds(id) AS (
+          SELECT unnest(changed_vertices)
+          UNION SELECT e.to_node FROM touched t JOIN edge e ON e.from_node=t.id JOIN entity k ON k.id=e.entity_id
+            WHERE k.name IN ('system.merge-member','system.merge-allocation-member')
+          UNION SELECT member.member FROM touched t JOIN edge link ON link.from_node=t.id
+            JOIN entity k ON k.id=link.entity_id AND k.name='system.merge-allocation-merge'
+            JOIN membership member ON member.merge_id=link.to_node
+          UNION SELECT endpoint.id FROM unnest(changed_edges) changed(id) JOIN edge e ON e.id=changed.id
+            CROSS JOIN LATERAL (VALUES(e.from_node),(e.to_node)) endpoint(id)
+        ), members(id) AS (
+          SELECT id FROM seeds UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
+            JOIN membership b ON b.merge_id=a.merge_id
+        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO changed_vertices FROM members;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_edges FROM (
         SELECT unnest(changed_edges) AS id
         UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
@@ -375,6 +399,15 @@ export function generateContractStatements(declared: GraphContract) {
         UNION SELECT e.from_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
         UNION SELECT e.to_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
       ) checked;
+      IF merge_present THEN
+        WITH RECURSIVE membership AS MATERIALIZED (
+          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
+            WHERE k.name='system.merge-member'
+        ), members(id) AS (
+          SELECT unnest(checked_vertices) UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
+            JOIN membership b ON b.merge_id=a.merge_id
+        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_vertices FROM members;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO counted_edges FROM (
         SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
            WHERE e.entity_id=ANY(edge_kind_ids)
@@ -386,6 +419,17 @@ export function generateContractStatements(declared: GraphContract) {
           CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
         UNION SELECT s.assertion_id FROM unnest(counted_edges) e(id) CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=e.id OFFSET 0) s
       ) checked;
+      IF merge_present THEN
+        SELECT ARRAY(SELECT DISTINCT id FROM (
+          SELECT unnest(checked_assertions) AS id
+          UNION SELECT s.assertion_id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
+            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
+            WHERE k.name IN ('system.merge','system.merge-allocation') AND (
+              s.assertion_id>=node_lower OR EXISTS(SELECT 1 FROM edge member JOIN entity mk ON mk.id=member.entity_id
+                WHERE member.from_node=n.id AND mk.name IN ('system.merge-member','system.merge-allocation-member')
+                  AND member.to_node=ANY(checked_vertices)))
+        ) assertions) INTO checked_assertions;
+      END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_contexts FROM (
         WITH RECURSIVE affected(id) AS (
           SELECT c.id FROM (SELECT id FROM context WHERE id>=context_lower OFFSET 0) c
@@ -404,13 +448,17 @@ export function generateContractStatements(declared: GraphContract) {
         ) SELECT DISTINCT at FROM boundaries ORDER BY at
       LOOP
 WITH active_edges AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.from_node,e.to_node FROM unnest(checked_contexts) ctx(id)
+        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.from_node ELSE graph_edge_endpoint(e.id,e.from_node,'from',ctx.id,instant,clock_timestamp()) END AS from_node,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.to_node ELSE graph_edge_endpoint(e.id,e.to_node,'to',ctx.id,instant,clock_timestamp()) END AS to_node
+        FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN unnest(counted_edges) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=candidate.id OFFSET 0) e
         CROSS JOIN LATERAL (SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name) k
         CROSS JOIN LATERAL graph_edge_active_ids(k.name,ctx.id,e.id,instant,source_kind_id) active(id)
       ), active_vertices AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,n.id FROM unnest(checked_contexts) ctx(id)
+        SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
+          CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)
         CROSS JOIN unnest(checked_vertices) candidate(id)
         CROSS JOIN LATERAL (SELECT * FROM node WHERE id=candidate.id OFFSET 0) n
         CROSS JOIN LATERAL (SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name) k
@@ -430,7 +478,7 @@ WITH active_edges AS MATERIALIZED (
         RETURN NEW;
       END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE revision text; violation integer;
+      DECLARE revision text; violation integer; merge_present boolean;
         node_lower bigint := coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807);
         edge_lower bigint := coalesce(nullif(current_setting('madarch.graph_edge_lower',true),'')::bigint,9223372036854775807);
         context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
@@ -441,7 +489,7 @@ WITH active_edges AS MATERIALIZED (
         edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
       revision := current_setting('madarch.graph_revision',true);
       IF current_setting('madarch.checked_graph_revision',true)=revision THEN RETURN NULL; END IF;
-      SELECT id INTO source_kind_id FROM entity WHERE name='system.assertion-source';
+      SELECT id,EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') INTO source_kind_id,merge_present FROM entity WHERE name='system.assertion-source';
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO vertex_kind_ids,vertex_kinds FROM unnest(vertex_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO edge_kind_ids,edge_kinds FROM unnest(edge_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       ${relationChecks.join('\n')}
