@@ -194,3 +194,10 @@ for(const immutable of [false,true])for(const nextTransaction of [false,true])te
   }
  }finally{await owner.close();}
 },30000);
+
+test('absent key-edge parents name the required role', async () => {
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try {
+  await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'batch.file',key:{path:'orphan'},keyEdges:{repository},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT batch.file.repository');
+ } finally {await owner.close();}
+},30000);

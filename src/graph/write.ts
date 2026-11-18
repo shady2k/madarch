@@ -391,7 +391,10 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   plans.push({...common,property:'$exists',value:true});written++;
   for(const name of kind.key){plans.push({...common,property:name,value:draft.key[name]});written++;}
   for(const [property,value] of Object.entries(draft.values??{})){plans.push({...common,property,value,language:draft.lang});written++;}
-  for(const role of kind.keyEdges??[]){const parent=await getEndpoint(draft.keyEdges![role.role]!);const uid=addEdge(role.edge,role.direction==='from'?node:parent,role.direction==='from'?parent:node,'');plans.push({...common,sort:'edge',kind:role.edge,subjectId:'',edgeUid:uid,property:'$exists',value:true});}
+  for(const role of kind.keyEdges??[]){
+   const ref=draft.keyEdges![role.role]!,parentUid=await referenceUid(ref);
+   if(!nodes.has(parentUid))throw new Error(`${WHERE}:61: REQUIRED_PARENT ${kind.name}.${role.role}`);
+   const parent=await getEndpoint(ref);const uid=addEdge(role.edge,role.direction==='from'?node:parent,role.direction==='from'?parent:node,'');plans.push({...common,sort:'edge',kind:role.edge,subjectId:'',edgeUid:uid,property:'$exists',value:true});}
  }
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind)!;
   if(!endpointKindNames(kind.from,contract.vertex).includes(draft.from.kind)||!endpointKindNames(kind.to,contract.vertex).includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);
