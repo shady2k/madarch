@@ -135,8 +135,8 @@ function argumentOf(argument: Record<string, unknown>, bytes: Uint8Array): Argum
 }
 
 function propertyOf(property: Record<string, unknown>, bytes: Uint8Array): PropertySyntax[] {
-  if (property['type'] !== 'KeyValueProperty') return [];
-  const key = keyOf(property['key']);
+  if (property['type'] !== 'KeyValueProperty' && property['type'] !== 'AssignmentPatternProperty') return [];
+  const key = keyOf(property['key'] ?? property['value']);
   if (key === null) return [];
   const value = (property['value'] ?? {}) as Record<string, unknown>;
   const span = (property['span'] ?? value['span']) as { start: number } | undefined;

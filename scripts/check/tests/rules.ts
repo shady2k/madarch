@@ -1,5 +1,5 @@
 /**
- * The five rules of `check:tests` (decision 0039, section 2). Each rule reads the
+ * The five rules of `check:tests` (docs/decisions/0041-test-layers-and-suites.md). Each rule reads the
  * import graph of values and the modules' syntax trees — never a pattern read from
  * source text — and answers violations with the file, the line and the chain of
  * imports that leads to the forbidden module.
@@ -129,24 +129,14 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
     const closure = closureOf(context.graph, start);
     for (const file of closure) {
       if (!isTestSide(file)) continue;
-      if (file !== GIT_HELPER) {
-        for (const edge of context.graph.edges.get(file) ?? []) {
-          if (!isChildProcess(edge.to)) continue;
-          violations.push({
-            rule: 'test-integration-reach',
-            file,
-            line: edge.line,
-            message: `${reachedFrom(start, paths, file)}, which starts a process through ${edge.specifier}; the integration layer starts no process, and git runs through test/support/git.ts`,
-          });
-        }
-        for (const member of membersMatching(context.syntaxOf(file), ['spawn'])) {
-          violations.push({
-            rule: 'test-integration-reach',
-            file,
-            line: member.line,
-            message: `${reachedFrom(start, paths, file)}, whose ${member.name} starts a process; the integration layer starts no process, and git runs through test/support/git.ts`,
-          });
-        }
+      for (const edge of context.graph.edges.get(file) ?? []) {
+        if (!isChildProcess(edge.to)) continue;
+        if (file === GIT_HELPER && (edge.specifier === 'node:child_process' || edge.specifier === 'child_process')) continue;
+        violations.push({ rule: 'test-integration-reach', file, line: edge.line, message: `${reachedFrom(start, paths, file)}, which starts a process through ${edge.specifier}; the integration layer starts no process, and git runs through test/support/git.ts` });
+      }
+      for (const member of membersMatching(context.syntaxOf(file), ['spawn'])) {
+        if (file === GIT_HELPER && ['spawnSync', 'execFileSync', 'execSync', 'spawn', 'execFile', 'exec'].includes(member.name)) continue;
+        violations.push({ rule: 'test-integration-reach', file, line: member.line, message: `${reachedFrom(start, paths, file)}, whose ${member.name} starts a process; the integration layer starts no process, and git runs through test/support/git.ts` });
       }
       for (const call of context.syntaxOf(file).calls) {
         if (call.name !== 'createTestDatabaseOwner') continue;

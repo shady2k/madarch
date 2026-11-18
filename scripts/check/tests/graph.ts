@@ -74,7 +74,8 @@ export async function valueImportGraph(root: string, folders: readonly string[])
   const present = folders.filter((folder) => existsSync(join(root, ...folder.split('/'))));
   if (present.length === 0) return emptyImportGraph(root);
   const options = await committedOptions();
-  const result = await cruise(present, { ...options, baseDir: root, validate: false });
+  // Keep installed packages as leaf edges so layer rules can forbid reaching them.
+  const result = await cruise(present, { ...options, exclude: { path: '^wiki/app/dist/|^vendor/|^build/' }, baseDir: root, validate: false });
   const output = result.output;
   if (typeof output === 'string') {
     throw new Error(`${root}:1: dependency-cruiser answered ${JSON.stringify(output.slice(0, 80))} rather than a report; the test check reads its report as data`);
