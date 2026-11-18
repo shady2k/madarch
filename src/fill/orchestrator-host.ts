@@ -18,7 +18,6 @@ import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-ow
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
-import { readKinds } from '../product/manifest/kinds.js';
 import { unitJobAttemptSeconds } from './queue-limits.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
@@ -60,6 +59,8 @@ export interface FillProduct {
 
 /** How one product's fill reads and writes. Every field is the caller's; nothing here guesses. */
 export interface ProductFillWiring {
+  /** Largest explicit plugin time bound in the pinned catalog; absent when none is declared. */
+  readonly pluginMaxMinutes?: number;
   readonly graphContract: import('../graph/contract.js').GraphContract;
   readonly operations:import('./orchestrator.js').UnitOperations;
   snapshot(): Promise<RunSnapshot> | RunSnapshot;
@@ -251,11 +252,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
-    const kinds = readKinds(product.folder);
-    let attemptSeconds = limits.attemptSeconds;
-    if (kinds.present) for (const plugin of kinds.manifest.plugins?.values() ?? []) {
-      attemptSeconds = Math.max(attemptSeconds, unitJobAttemptSeconds(plugin.bounds?.minutes));
-    }
+    const attemptSeconds = wiring.pluginMaxMinutes === undefined
+      ? limits.attemptSeconds
+      : Math.max(limits.attemptSeconds, unitJobAttemptSeconds(wiring.pluginMaxMinutes));
     await queue.declare({ name: queueName, leaseSeconds: attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
     const built = createOrchestrator({
       database: { transaction: owner.transaction.bind(owner), graphContract: wiring.graphContract },

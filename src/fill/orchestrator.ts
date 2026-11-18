@@ -1728,13 +1728,19 @@ async function attemptUnitPhases(
 
     if (result.outcome === 'blocked') {
       const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at: orchestrator.clock(), generation: unit.generation, fence, reason: result.reason } });
-      if (!blocked.ok) return blocked.outcome;
+      if (!blocked.ok) {
+        terminalWritten = blocked.outcome.job !== 'none';
+        return blocked.outcome;
+      }
       await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: result.reason });
+      terminalWritten = true;
       await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: `${unit.unitId} is blocked: ${result.reason}` });
       return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: result.reason, job: 'completed' };
     }
     if (result.outcome === 'split') {
-      return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
+      const split = await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
+      terminalWritten = split.job !== 'none';
+      return split;
     }
 
     {

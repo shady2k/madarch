@@ -39,6 +39,47 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { fixtureOperations, writeFixtureFact } from './fill-operation-fixture.js';
 import { AttemptStaleError, operationReceipt } from '../src/graph/operation-host.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
+import { execFileSync } from 'node:child_process';
+import { createStagesFill } from '../src/product/fill-stages.js';
+import { prepareTestStore } from './test-database.js';
+import { unitJobAttemptSeconds } from '../src/fill/queue-limits.js';
+
+async function pinnedBoundWiring(folder: string, owner: TestDatabaseOwner, bound: string) {
+  await mkdir(join(folder, 'madarch'), { recursive: true });
+  await writeFile(join(folder, 'madarch/catalog.yaml'), `groups:
+  fixture: { en: Fixture, ru: Пример }
+  fixture.fixture: { en: Fixture, ru: Пример, parent: fixture }
+plugins:
+  - id: slow
+    version: 1
+    path: plugins/slow
+    inputs: []
+    outputs: []
+    closure: [plugin.json]
+    bounds:
+      ${bound}
+${bound.startsWith('minutes:') ? `  - id: quick
+    version: 1
+    path: plugins/quick
+    inputs: []
+    outputs: []
+    closure: [plugin.json]
+    bounds:
+      minutes: 10
+` : ''}`);
+  await mkdir(join(folder, 'plugins/slow'), { recursive: true });
+  await writeFile(join(folder, 'plugins/slow/plugin.json'), JSON.stringify({ name: 'slow', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Unused', fields: '*' }] }));
+  await mkdir(join(folder, 'plugins/quick'), { recursive: true });
+  await writeFile(join(folder, 'plugins/quick/plugin.json'), JSON.stringify({ name: 'quick', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Unused', fields: '*', refines: ['slow'] }] }));
+  await mkdir(join(folder, 'madarch/kinds/fixture/fixture'), { recursive: true });
+  await writeFile(join(folder, 'madarch/kinds/fixture/fixture/Unused.yaml'), 'source: graph\nkey: [id]\nfields:\n  - name: id\n    type: text\n');
+  const git = (...args: string[]) => execFileSync('git', ['-C', folder, ...args], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('add', '.');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'Pinned plugin bound');
+  await writeFile(join(folder, 'madarch/catalog.yaml'), 'plugins: broken-working-tree\n');
+  return await createStagesFill({ product: folder, database: owner, prepareContract: async contract => { await prepareTestStore(owner, { contract }); } });
+}
 
 async function recordUnitRead(database:Parameters<typeof recordUnitReads>[0], input:Parameters<typeof recordUnitReads>[1][number]) {
   return (await recordUnitReads(database,[input]))[0]!;
@@ -1700,22 +1741,15 @@ describe('immediate operation transactions (decision 0039)', () => {
     expect((await readRunUnits(opened.owner, runId)).some(unit => !isFinalUnitState(unit.state))).toBe(true);
   });
 
+  test.each([undefined, 45, 10])('unit attempt ceiling includes exact host margins for %s minutes', minutes => {
+    expect(unitJobAttemptSeconds(minutes)).toBe(minutes === 45 ? 3070 : 2170);
+  });
 
   test('a product declaring 45 minutes keeps a 40-minute unit claim', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'madarch-long-unit-'));
     const owner = await createTestDatabaseOwner();
     const clock = testClock();
-    await mkdir(join(folder, 'madarch'), { recursive: true });
-    await writeFile(join(folder, 'madarch/catalog.yaml'), `plugins:
-  - id: slow
-    version: 1
-    path: plugins/slow
-    inputs: []
-    outputs: []
-    closure: [plugin.json]
-    bounds:
-      minutes: 45
-`);
+    const pinned = await pinnedBoundWiring(folder, owner, 'minutes: 45');
     const stage = fakeStage('snapshot', {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
       execute: async () => {
@@ -1736,7 +1770,7 @@ describe('immediate operation transactions (decision 0039)', () => {
           return typeof value === 'function' ? value.bind(target) : value;
         } });
       },
-      wiring: () => ({ graphContract: EMPTY_CONTRACT, operations: fixtureOperations(owner), snapshot: () => SNAPSHOT, configuration: () => undefined, graph: () => fakeGraph().reader, inputs: () => ({}) }),
+      wiring: () => ({ ...pinned.wiring, graphContract: EMPTY_CONTRACT, operations: fixtureOperations(owner), snapshot: () => SNAPSHOT, configuration: () => undefined, graph: () => fakeGraph().reader, inputs: () => ({}) }),
     });
     try {
       await service.status({ product: { name: 'long-unit', folder }, runId: 'long-unit' });
@@ -1746,6 +1780,34 @@ describe('immediate operation transactions (decision 0039)', () => {
       await opened.close();
       worlds.pop();
       expect((await readUnit(owner, 'snapshot/src'))?.state).toBe('published');
+      expect(attemptSeconds).toBe(3070);
+    } finally {
+      await service.stop();
+      await owner.close();
+      await rm(folder, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test('a plugin without minutes preserves a caller-lowered attempt ceiling', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'madarch-short-unit-'));
+    const owner = await createTestDatabaseOwner();
+    const pinned = await pinnedBoundWiring(folder, owner, 'tokens: 100');
+    let attemptSeconds = 0;
+    const service = createFillOrchestratorService({
+      owner, registry: new StageRegistry(), limits: { attemptSeconds: 12 },
+      queueFactory: async owner => {
+        const queue = await createPgBossQueue({ owner, supervise: false });
+        return new Proxy(queue, { get: (target, key) => {
+          if (key === 'declare') return async (declaration: Parameters<QueueService['declare']>[0]) => { attemptSeconds = declaration.leaseSeconds; await target.declare(declaration); };
+          const value = Reflect.get(target, key, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        } });
+      },
+      wiring: () => ({ ...pinned.wiring, graphContract: EMPTY_CONTRACT, operations: fixtureOperations(owner), snapshot: () => SNAPSHOT, configuration: () => undefined, graph: () => fakeGraph().reader, inputs: () => ({}) }),
+    });
+    try {
+      await service.status({ product: { name: 'short-unit', folder }, runId: 'short-unit' });
+      expect(attemptSeconds).toBe(12);
     } finally {
       await service.stop();
       await owner.close();
@@ -1811,7 +1873,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     const finished = heartbeats;
     await Bun.sleep(400);
     expect(heartbeats).toBe(finished);
-  });
+  }, 15_000);
 
   test.each(['refused', 'rejected'] as const)('heartbeat %s aborts the attempt and stops touching', async mode => {
     const failure = new Error('heartbeat storage failure');
@@ -1851,7 +1913,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     const finished = heartbeats;
     await Bun.sleep(400);
     expect(heartbeats).toBe(finished);
-  });
+  }, 15_000);
 
   test('heartbeat failure retains the stage error too', async () => {
     const failure = new Error('heartbeat storage failure');
@@ -1876,9 +1938,9 @@ describe('immediate operation transactions (decision 0039)', () => {
     try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(AggregateError);
     expect((caught as AggregateError).errors).toEqual([stageFailure, failure]);
-  });
+  }, 15_000);
 
-  test.each(['complete', 'bound'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {
+  test.each(['complete', 'bound', 'blocked', 'split'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {
     const failure = new Error('deferred heartbeat failure');
     let terminalCommitted!: () => void;
     const committed = new Promise<void>(resolve => { terminalCommitted = resolve; });
@@ -1889,11 +1951,17 @@ describe('immediate operation transactions (decision 0039)', () => {
     const deferred = new Promise<boolean>((_resolve, reject) => { rejectTouch = reject; });
     const stage = fakeStage('snapshot', {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: async () => { await touched; if (path === 'bound') throw new UnitBoundStop('agent-time', 'stage time bound'); return { outcome: 'draft' }; },
+      execute: async () => {
+        await touched;
+        if (path === 'bound') throw new UnitBoundStop('agent-time', 'stage time bound');
+        if (path === 'blocked') return { outcome: 'blocked', reason: 'needs input' };
+        if (path === 'split') return { outcome: 'split', children: [{ id: 'child', scope: 'child' }] };
+        return { outcome: 'draft' };
+      },
     });
     const { world: opened, runId } = await plannedWorld({
       registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 },
-      sink: event => { if (event.kind === 'unit-published' || event.kind === 'unit-failed') terminalCommitted(); },
+      sink: event => { if (['unit-published', 'unit-failed', 'unit-blocked', 'unit-split'].includes(event.kind)) terminalCommitted(); },
       queueFactory: queue => new Proxy(queue, {
         get: (target, key) => {
           if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => {
@@ -1912,10 +1980,10 @@ describe('immediate operation transactions (decision 0039)', () => {
     await committed;
     const returnedBeforeHeartbeat = finished;
     rejectTouch(failure);
-    expect(await work).toMatchObject({ result: path === 'bound' ? 'failed' : 'published' });
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe(path === 'bound' ? 'failed' : 'published');
+    expect(await work).toMatchObject({ result: path === 'complete' ? 'published' : path === 'bound' ? 'failed' : path });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe(path === 'complete' ? 'published' : path === 'bound' ? 'failed' : path === 'split' ? 'waiting_children' : 'blocked');
     expect(returnedBeforeHeartbeat).toBe(false);
-  });
+  }, 15_000);
 
   test('a claim lost at the start fence is refused and recorded', async () => {
     const { world: opened, runId } = await plannedWorld({

@@ -233,7 +233,9 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // holds no manifest of its own runs the engine's starter set, as a repository that is no product does.
   // A product that holds no workflows manifest runs the engine's starter set, as a repository that is no product does.
   const workflow = files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages();
+  const minutes = declaredBounds.flatMap(plugin => plugin.bounds?.minutes === undefined ? [] : [plugin.bounds.minutes]);
   const wiring: ProductFillWiring = {
+    ...(minutes.length === 0 ? {} : { pluginMaxMinutes: Math.max(...minutes) }),
     graphContract: contract,
     operations:{setRunState:(runId,state)=>setProductOperationRunState(options.database,withAssertionContract(withManifestContract(contract)),runId,state),open:async({unit,plan,job,queue})=>{
       if(!pluginWiring)throw new Error(`${folder}/madarch/catalog.yaml:1: plugin operation requires declared product wiring`);
