@@ -228,7 +228,7 @@ test('shared evidence content is measured once per admission, retaining code-poi
   await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer},{...target,values:{content:text},...producer}],removals:[]}));
   for(const count of [2,20]){
    let splits=0;const original=String.prototype.split;
-   const spy=spyOn(String.prototype,'split').mockImplementation(function(this:string,...args:Parameters<typeof original>){if(String(this)===text&&args[0]==='\n')splits++;return original.apply(this,args);});
+   const spy=spyOn(String.prototype,'split').mockImplementation((function(this:string,separator:string|RegExp,limit?:number){if(String(this)===text&&separator==='\n')splits++;return Reflect.apply(original,this,[separator,limit]) as string[];}) as typeof original);
    try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:Array.from({length:count},(_,i)=>({kind:'batch.file',key:{path:`e-${count}-${i}`},keyEdges:{repository},values:{text:'plain'},evidence:[{target,locator:{end:2,lineEnd:2,digest:target.key.digest}}],...producer})),removals:[]}));}finally{spy.mockRestore();}
    expect(splits).toBe(1);
   }
