@@ -34,22 +34,30 @@ export function testFileImportViolations(root: string): ArchitectureViolation[] 
   const held = new Map<string, ArchitectureViolation>();
   for (const file of modules.modules) {
     if (!isTestCaseFile(file)) continue;
+    const pending: { file: string; chain: { file: string; line: number }[] }[] = [{ file, chain: [] }];
     const visited = new Set<string>([file]);
-    const pending: string[] = [file];
     while (pending.length > 0) {
-      const importer = pending.shift()!;
-      for (const statement of importStatementsOf(root, importer)) {
-        const target = resolveModuleSpecifier(modules, importer, statement.specifier);
+      const current = pending.shift()!;
+      for (const statement of importStatementsOf(root, current.file)) {
+        const target = resolveModuleSpecifier(modules, current.file, statement.specifier);
         if (target === null) continue;
+        const edge = { file: current.file, line: statement.line };
+        const chain = [...current.chain, edge];
         if (isTestCaseFile(target)) {
+          const symbol = [...chain.map(({ file: path, line }) => `${path}:${line}`), `${target}:${firstLineOfModule(root, target)}`].join(' → ');
           const key = `${file}\u0000${target}`;
-          if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file: importer, line: statement.line, symbol: target });
+          if (!held.has(key)) held.set(key, { rule: 'no-test-file-imports', file, line: chain[0]?.line ?? statement.line, symbol });
         } else if (!visited.has(target)) {
           visited.add(target);
-          pending.push(target);
+          pending.push({ file: target, chain });
         }
       }
     }
   }
   return orderedViolations([...held.values()]);
+}
+
+function firstLineOfModule(root: string, file: string): number {
+  const statements = importStatementsOf(root, file);
+  return statements[0]?.line ?? 1;
 }

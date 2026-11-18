@@ -452,12 +452,13 @@ describe('the architecture check', () => {
       writeModule(root, item.importer, plant);
       const report = await architectureCheck({ root, rules: ['no-test-file-imports'] });
       expect(architectureCheckPasses(report)).toBe(false);
-      const diagnosticFile = item.importer === 'test/chain.test.ts' ? 'test/helper.ts' : item.importer;
-      const diagnosticLines = item.importer === 'test/chain.test.ts' ? ["export { x } from './base.test.js';"] : plant;
-      const diagnosticToken = item.importer === 'test/chain.test.ts' ? 'base.test.js' : item.token;
-      const diagnostic = architectureProblemLines(report).find((line) => line.includes(`${join(root, diagnosticFile)}:`));
-      expect(diagnostic).toContain(`${join(root, diagnosticFile)}:${lineOf(diagnosticLines, diagnosticToken)}: no-test-file-imports:`);
+      const diagnostic = architectureProblemLines(report).find((line) => line.includes(`${join(root, item.importer)}:`));
+      expect(diagnostic).toContain(`${join(root, item.importer)}:${lineOf(plant, item.token)}: no-test-file-imports:`);
       expect(diagnostic).toContain(item.source);
+      if (item.importer === 'test/chain.test.ts') {
+        expect(report.comparison.unlisted[0]?.symbol).toBe('test/chain.test.ts:1 → test/helper.ts:1 → test/base.test.ts:1');
+        expect(diagnostic).toContain('test/chain.test.ts:1 → test/helper.ts:1 → test/base.test.ts:1');
+      }
       rmSync(join(root, item.importer));
     }
   });
