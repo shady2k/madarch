@@ -185,7 +185,6 @@ edges:
     from: [demo.repository]
     to: [demo.file]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
-    labels: { en: { out: links, in: linked }, ru: { out: связи, in: связан } }
 `);
     expect(error.message).toContain('the field "links_to" of the kind "demo.repository"');
     expect(error.message).toContain('the edge "links-to"');
@@ -201,7 +200,6 @@ kinds:
     title: name
 edges:
   - name: demo.contains
-    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.absent]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }

@@ -924,9 +924,6 @@
   "maintenance-window": [
     "https://www.rfc-editor.org/rfc/rfc8594.html"
   ],
-  "manifest.workflow-stage": [
-    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
-  ],
   "membership": [
     "https://www.w3.org/TR/vocab-org/"
   ],

@@ -617,6 +617,8 @@ type KindManifestCatalogue implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  publicationFingerprint: String
+  publicationFingerprintAssertions: [Assertion!]!
 }
 
 type KindManifestCatalogueConnection {
@@ -1345,6 +1347,124 @@ type KindSystemFillTransitionConnection {
 type KindSystemFillTransitionEdge {
   cursor: String!
   node: KindSystemFillTransition!
+}
+
+type KindSystemKindApplicability implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+}
+
+type KindSystemKindApplicabilityConnection {
+  edges: [KindSystemKindApplicabilityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemKindApplicabilityEdge {
+  cursor: String!
+  node: KindSystemKindApplicability!
+}
+
+type KindSystemMerge implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+}
+
+type KindSystemMergeAllocation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  direction: String
+  directionAssertions: [Assertion!]!
+}
+
+type KindSystemMergeAllocationConnection {
+  edges: [KindSystemMergeAllocationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeAllocationEdge {
+  cursor: String!
+  node: KindSystemMergeAllocation!
+}
+
+type KindSystemMergeConnection {
+  edges: [KindSystemMergeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeEdge {
+  cursor: String!
+  node: KindSystemMerge!
+}
+
+type KindSystemMergeQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+}
+
+type KindSystemMergeQuestionConnection {
+  edges: [KindSystemMergeQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeQuestionEdge {
+  cursor: String!
+  node: KindSystemMergeQuestion!
 }
 
 type KindSystemOperation implements Entity {
@@ -2085,6 +2205,14 @@ type Query {
   allSystemDisputeResolutionAggregate(where: KindSystemDisputeResolutionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemFillTransition(where: KindSystemFillTransitionWhere, orderBy: [KindSystemFillTransitionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemFillTransitionConnection!
   allSystemFillTransitionAggregate(where: KindSystemFillTransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemKindApplicability(where: KindSystemKindApplicabilityWhere, orderBy: [KindSystemKindApplicabilityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemKindApplicabilityConnection!
+  allSystemKindApplicabilityAggregate(where: KindSystemKindApplicabilityWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMerge(where: KindSystemMergeWhere, orderBy: [KindSystemMergeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeConnection!
+  allSystemMergeAggregate(where: KindSystemMergeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeAllocation(where: KindSystemMergeAllocationWhere, orderBy: [KindSystemMergeAllocationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeAllocationConnection!
+  allSystemMergeAllocationAggregate(where: KindSystemMergeAllocationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeQuestion(where: KindSystemMergeQuestionWhere, orderBy: [KindSystemMergeQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeQuestionConnection!
+  allSystemMergeQuestionAggregate(where: KindSystemMergeQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemOperation(where: KindSystemOperationWhere, orderBy: [KindSystemOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemOperationConnection!
   allSystemOperationAggregate(where: KindSystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProblem(where: KindSystemProblemWhere, orderBy: [KindSystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProblemConnection!
@@ -2897,9 +3025,24 @@ input KindManifestCatalogueOrder {
   nulls: NullsOrder
 }
 
+input KindManifestCataloguePublicationFingerprintFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input KindManifestCatalogueWhere {
   name: KindManifestCatalogueNameFilter
   declaration: KindManifestCatalogueDeclarationFilter
+  publicationFingerprint: KindManifestCataloguePublicationFingerprintFilter
 }
 
 input KindManifestDependencyDeclarationFilter {
@@ -3961,6 +4104,147 @@ input KindSystemFillTransitionWhere {
   generation: KindSystemFillTransitionGenerationFilter
   fence: KindSystemFillTransitionFenceFilter
   at: KindSystemFillTransitionAtFilter
+}
+
+input KindSystemKindApplicabilityOrder {
+  field: KindSystemKindApplicabilityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemKindApplicabilityReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityWhere {
+  state: KindSystemKindApplicabilityStateFilter
+  reason: KindSystemKindApplicabilityReasonFilter
+}
+
+input KindSystemMergeAllocationDirectionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeAllocationOrder {
+  field: KindSystemMergeAllocationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeAllocationWhere {
+  direction: KindSystemMergeAllocationDirectionFilter
+}
+
+input KindSystemMergeOrder {
+  field: KindSystemMergeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionOrder {
+  field: KindSystemMergeQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionWhere {
+  state: KindSystemMergeQuestionStateFilter
+  reason: KindSystemMergeQuestionReasonFilter
+}
+
+input KindSystemMergeReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeWhere {
+  state: KindSystemMergeStateFilter
+  reason: KindSystemMergeReasonFilter
 }
 
 input KindSystemOperationCanonicalRequestFilter {
@@ -5488,6 +5772,7 @@ enum KindKindOrderField {
 enum KindManifestCatalogueOrderField {
   name
   declaration
+  publicationFingerprint
 }
 
 enum KindManifestDependencyOrderField {
@@ -5613,6 +5898,25 @@ enum KindSystemFillTransitionOrderField {
   generation
   fence
   at
+}
+
+enum KindSystemKindApplicabilityOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeAllocationOrderField {
+  direction
+}
+
+enum KindSystemMergeOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeQuestionOrderField {
+  state
+  reason
 }
 
 enum KindSystemOperationOrderField {

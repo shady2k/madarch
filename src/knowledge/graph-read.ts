@@ -321,7 +321,8 @@ export class GraphReader {
 
   private async generatedEntities(decl:GeneratedKindRead, records:readonly import('../graph/records.js').AssertionRecord[]):Promise<GraphEntity[]> {
     if (records.length === 0) return [];
-    const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };    return records.map(row=>{
+    const evidenceRows = { rows: records.flatMap(record => record.assertions.flatMap(assertion => assertion.evidenceAttachments.map(attachment => ({ assertion_uid: assertion.id, target_uid: attachment.targetUid, locator: attachment.locator, key: attachment.key })))) };
+    return records.map(row=>{
       const properties:Record<string,unknown>={...row.key,...row.values};
       delete properties['$exists'];
       const keyValues=decl.key.map(f=>String(row.key[f]??''));
@@ -459,7 +460,8 @@ export class GraphReader {
         `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN entity k ON k.id = e.entity_id
          WHERE k.name = $1 AND e.${self} IN (SELECT id FROM node WHERE uid=ANY($2::uuid[])) ORDER BY e.${far}, e.id`,
         [graph.kind, entity.nodeIds],
-      ));      const edgeRecords = await this.records(tx, 'edge', graph.kind, this.generatedEdges?.get(graph.kind)?.columns ?? [], found.rows.map(edge => Number(edge.id)));
+      ));
+      const edgeRecords = await this.records(tx, 'edge', graph.kind, this.generatedEdges?.get(graph.kind)?.columns ?? [], found.rows.map(edge => Number(edge.id)));
       const active = new Set(edgeRecords.map(edge => String(edge.id)));
       const properties = new Map(edgeRecords.map(edge => [String(edge.id), Object.fromEntries(Object.entries(edge.values).filter(([property]) => property !== '$exists'))]));
       found.rows = found.rows.filter(e=>active.has(e.id));

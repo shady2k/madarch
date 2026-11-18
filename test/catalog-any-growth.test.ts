@@ -61,14 +61,19 @@ test('adding one kind to the full starter publishes only its own field, relation
       for (const relation of kind.relations) expectedPairs.add(JSON.stringify([MANIFEST_RELATION_EDGE, name, relation.to.split(':')[0], relation.type]));
       for (const dependency of kind.derivesFrom ?? []) expectedPairs.add(JSON.stringify([MANIFEST_DEPENDS_ON, name, dependency, '']));
     }
-    expect(expectedPairs.size).toBe(265); // The duplicate workflow-stages declaration is removed (0039 item 9).
+    for (const [name, kind] of before.manifest.catalog?.kinds ?? []) {
+      if (!before.manifest.kinds.has(name)) for (const dependency of kind.derivesFrom ?? []) {
+        expectedPairs.add(JSON.stringify([MANIFEST_DEPENDS_ON, name, dependency, '']));
+      }
+    }
+    expect(expectedPairs.size).toBe(813 + 185 + 1); // Whole catalogue dependencies, concrete edge endpoints, and a declared relation.
     expect(new Set(before.edges.map(one => JSON.stringify([one.kind, one.from.key['name'], one.to.key['name'], one.discriminator ?? ''])))).toEqual(expectedPairs);
-    expect(before.edges).toHaveLength(265);
+    expect(before.edges).toHaveLength(expectedPairs.size);
 
     // Keep every starter declaration. Add a product-owned kind in an existing catalogue group.
     const base = parse(readFileSync(join(folder, 'madarch/kinds/common/schema/responsibility.yaml'), 'utf8'));
     const file = join(folder, 'madarch/kinds/common/schema/fixture.growth.yaml');
-    writeFileSync(file, stringify({ ...base, id: 'fixture.growth',
+    writeFileSync(file, stringify({ ...base, id: 'fixture.growth', 'derives-from': [],
       labels: { en: { one: 'Growth fixture', many: 'Growth fixtures' }, ru: { one: 'Пример роста', many: 'Примеры роста' } },
       fields: [{ name: 'summary', type: 'text', nullable: true, producers: ['fixture'] }],
       relations: [{ type: 'mentions', to: 'code.file:example.ts' }],
