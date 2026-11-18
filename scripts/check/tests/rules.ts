@@ -100,7 +100,7 @@ export function unitReachViolations(context: RuleContext): TestViolation[] {
           rule: 'test-unit-reach',
           file,
           line: member.line,
-          message: `${start} reaches ${pathOf(paths, file)}, whose ${member.name} starts a process or a server; the unit layer reaches neither`,
+          message: `${reachedFrom(start, paths, file)}, whose ${member.name} starts a process or a server; the unit layer reaches neither`,
         });
       }
     }
@@ -117,7 +117,7 @@ export function unitReachViolations(context: RuleContext): TestViolation[] {
 export function integrationReachViolations(context: RuleContext): TestViolation[] {
   const violations: TestViolation[] = [];
   for (const start of context.modulesIn(INTEGRATION)) {
-    const { found } = reachSearch(context.graph, start, (target) => target.startsWith('puppeteer'));
+    const { found, paths } = reachSearch(context.graph, start, (target) => target.startsWith('puppeteer'));
     for (const reach of found) {
       violations.push({
         rule: 'test-integration-reach',
@@ -136,7 +136,7 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
             rule: 'test-integration-reach',
             file,
             line: edge.line,
-            message: `${start} reaches ${file}, which starts a process through ${edge.specifier}; the integration layer starts no process, and git runs through test/support/git.ts`,
+            message: `${reachedFrom(start, paths, file)}, which starts a process through ${edge.specifier}; the integration layer starts no process, and git runs through test/support/git.ts`,
           });
         }
         for (const member of membersMatching(context.syntaxOf(file), ['spawn'])) {
@@ -144,7 +144,7 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
             rule: 'test-integration-reach',
             file,
             line: member.line,
-            message: `${start} reaches ${file}, whose ${member.name} starts a process; the integration layer starts no process, and git runs through test/support/git.ts`,
+            message: `${reachedFrom(start, paths, file)}, whose ${member.name} starts a process; the integration layer starts no process, and git runs through test/support/git.ts`,
           });
         }
       }
@@ -155,7 +155,7 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
           rule: 'test-integration-reach',
           file,
           line: call.line,
-          message: `${start} reaches ${file}, which asks createTestDatabaseOwner for a store of its own; an integration case uses the pass's database, and a store folder belongs to an end-to-end case`,
+          message: `${reachedFrom(start, paths, file)}, which asks createTestDatabaseOwner for a store of its own; an integration case uses the pass's database, and a store folder belongs to an end-to-end case`,
         });
       }
     }
@@ -402,6 +402,11 @@ function closureOf(graph: ImportGraph, start: string): string[] {
 
 function pathOf(paths: ReadonlyMap<string, readonly string[]>, file: string): string {
   return (paths.get(file) ?? [file]).join(' > ');
+}
+
+/** The module as a reader finds it from the layer file: the file itself, or the chain of imports that reaches it. */
+function reachedFrom(start: string, paths: ReadonlyMap<string, readonly string[]>, file: string): string {
+  return file === start ? file : `${start} reaches ${pathOf(paths, file)}`;
 }
 
 /** What the unit layer's closure may not reach: a database, a child process, a socket, a browser, the run database's helpers. */
