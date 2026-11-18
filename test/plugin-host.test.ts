@@ -289,6 +289,25 @@ describe('the heartbeat', () => {
     }
   }, 30_000);
 
+  hostTest('cancel settles a unit waiting for facts.apply and clears its pending count', async () => {
+    let entered!: () => void;
+    const applying = new Promise<void>((resolve) => { entered = resolve; });
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 5_000, unitMs: 10_000 },
+      operations: { async apply() { entered(); return await new Promise(() => undefined); } },
+    });
+    try {
+      const running = session.runUnit(unit('operation-hang'));
+      await applying;
+      await session.cancel();
+      const outcome = await running;
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('session-cancelled');
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
   hostTest('the unit deadline still bounds a unit waiting for facts.apply', async () => {
     const session = await open(probeFolder, {
       limits: { heartbeatMs: 300, unitMs: 700 },

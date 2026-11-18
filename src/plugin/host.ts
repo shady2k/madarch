@@ -544,7 +544,7 @@ ${text === '' ? '(empty)' : text}` };
           if (held === undefined) return;
           // The host has answered the operation: the unit's silence is measured from here, not from before the wait.
           held.lastSign = Date.now();
-          held.pendingOperations -= 1;
+          held.pendingOperations = Math.max(0, held.pendingOperations - 1);
         });
         return;
       }
@@ -1140,6 +1140,11 @@ ${text === '' ? '(empty)' : text}` };
     await withSpan('plugin.cancel', { 'madarch.plugin.hash': this.closureHash }, async () => {
       this.closeRequested = true;
       if (this.timer !== undefined) { clearInterval(this.timer); this.timer = undefined; }
+      const cause: UnitCause = { code: 'session-cancelled', message: `${WHERE}:1: the session was cancelled while this unit was in flight: it was recorded as not extracted` };
+      for (const held of this.inFlight.values()) {
+        held.pendingOperations = 0;
+        held.settle(this.notExtracted(held, cause));
+      }
       this.write(notificationText('cancel'));
       this.sandbox?.kill();
       await this.agentBridge?.close();
