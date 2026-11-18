@@ -142,7 +142,7 @@ test('key checks read only changed ids of their keyed kind', async () => {
 
 test('relation active-id calls depend on kinds, not vertex count', async () => {
   const declared: GraphContract={...contract,edge:[{name:'related',table:generatedTableName('related','edge'),
-    from:['keyed'],to:['keyed'],cardinality:{from:'many',to:'many'},fields:[],capability:'fixture'}]};
+    from:['keyed'],to:['keyed'],cardinality:{from:'many',to:'many'},fields:[],capability:'fixture',repeats:false,labels:{en:{out:'related',in:'related'},ru:{out:'related',in:'related'}}}]};
   const calls:number[]=[];
   for(const n of [2,200]) {
     const owner=await createTestDatabaseOwner({graphContract:declared});

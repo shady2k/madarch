@@ -448,7 +448,7 @@ export function generateContractStatements(declared: GraphContract) {
       LOOP
 WITH vertex_groups AS MATERIALIZED (
         SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name,array_agg(n.id) AS ids
-        FROM unnest(checked_vertices) candidate(id) JOIN node n ON n.id=candidate.id
+        FROM unnest(checked_vertices) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=candidate.id OFFSET 0) n
         WHERE n.entity_id=ANY(vertex_kind_ids) GROUP BY n.entity_id
       ), active_edges AS MATERIALIZED (
         SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
