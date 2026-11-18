@@ -262,3 +262,21 @@ test('0039.32 nearest context merge state suppresses parent fallback outside its
  expect(await f.owner.transaction(SQL_TRANSACTION_KINDS.snapshot,tx=>readKindAssertions(tx,'vertex','sample',['note'],{contract,validAt:'2050-01-01T00:00:00.000Z'}))).toHaveLength(1);
  }finally{await f.owner.close();}
 },60000);
+
+
+test('producer read matches item 25 for merged identities, disputed values and unprojected keys',async()=>{
+ const f=await fixture();
+ try {
+  const {producerEntities,referenceOf}=await import('../src/graph/plugin-turns.js');
+  await f.execute(f.r,tx=>resolveDuplicate(tx,contract,f.r,f.input));
+  const actual=await producerEntities(f.owner,contract,'sample',f.a.sourceUid);
+  const expected=await f.owner.transaction('snapshot',async tx=>{
+   const rows=await readKindAssertions(tx,'vertex','sample',['name','note'],{contract});
+   expect(rows).toHaveLength(1);
+   expect(rows[0]!.assertions.filter(a=>a.property==='note')).toHaveLength(2);
+   expect(rows[0]!.assertions.filter(a=>a.property==='name').every(a=>a.originalSubjectId===rows[0]!.id)).toBe(true);
+   return await Promise.all(rows.filter(row=>row.activeSources.includes(f.a.sourceUid)).map(async row=>({key:row.key,uid:row.uid,keyEdges:(await referenceOf(tx,contract,'sample',row.id)).keyEdges??{},path:null})));
+  });
+  expect(actual as unknown[]).toEqual(expected as unknown[]);
+ } finally {await f.owner.close();}
+},60000);
