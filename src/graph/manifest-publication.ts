@@ -27,6 +27,7 @@ import { productEntityOf } from '../product/manifest.js';
 import { readPublicationFingerprint } from './startup-read.js';
 import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
 import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
+import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
 const PUBLICATION_REVISION = 2;
@@ -49,14 +50,12 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
   const contract = withAssertionContract(declared);
   await acquireGraphWriteLock(tx);
   await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]));
-  const installedAt = (await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string | Date }>('SELECT clock_timestamp() AS now'))).rows[0]!.now;
-  const identityCutoff = new Date(installedAt).toISOString();
   const products = await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.product' ORDER BY n.uid"));
   if (products.rows.length > 1) throw new Error(`${import.meta.path}:49: installation has more than one product identity`);
   const productUid = products.rows[0]?.uid ?? newUid();
   await bootstrapWriteIdentity(tx, 'system.product', productUid, productUid);
   const installation = JSON.stringify(['system-engine', producer]);
-  const plugins = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], { validAt: identityCutoff, recordedAt: identityCutoff })).filter(record => record.values['installation'] === installation && record.values['scope'] === productUid);
+  const plugins = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], await publicationReadSelector(tx, contract))).filter(record => record.values['installation'] === installation && record.values['scope'] === productUid);
   if (plugins.length > 1) throw new Error(`${import.meta.path}:56: ambiguous installed engine plugin ${producer}`);
   const sourceUid = plugins[0]?.uid ?? newUid();
   const operationUid = newUid();
@@ -306,11 +305,7 @@ export function publicationFingerprint(validated: ValidatedManifests, contract: 
 export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
   signal?.throwIfAborted();
   const publishing = signal === undefined ? owner : publicationDatabaseOwner(owner, signal);
-  const base = authored ?? graphContractOf(validated.manifest);
-  const fallback = cataloguePageTemplate();
-  const declared = pageTemplateKind(validated.manifest) !== undefined || base.vertex.some(vertex => vertex.name === fallback.name)
-    ? base : { ...base, vertex: [...base.vertex, fallback.vertex] };
-  const contract = withAssertionContract(withManifestContract(declared));
+  const contract = publicationContractOf(validated.manifest, authored);
   const home = homeKind(validated.manifest);
   const entity = home === undefined ? undefined : productEntityOf(validated.folder, { home }, undefined);
   const fingerprint = publicationFingerprint(validated, contract, entity ?? null);
@@ -338,7 +333,7 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 /** The declarations phase of the caller's publication transaction. */
 async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifests, authored?: GraphContract, signal?: AbortSignal): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => {
-    const contract = withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest)));
+    const contract = publicationContractOf(validated.manifest, authored);
     const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
@@ -349,8 +344,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
         fields.set(draft.kind, held);
       }
       const requests = [...fields].map(([kind, fields]) => ({ sort, kind, fields: [...fields] }));
-      const cutoff = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-      const records = await readKindsAssertions(tx, requests, { contract: publicationContract, validAt: cutoff, recordedAt: cutoff });
+      const records = await readKindsAssertions(tx, requests, await publicationReadSelector(tx, publicationContract));
       return new Map(requests.map((request, index) => [request.kind, records[index]!]));
     };
     const snapshots = await readPhase('vertex', [...new Set(validated.snapshots.map(draft => draft.kind))], validated.snapshots);
@@ -439,7 +433,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     const fallback = cataloguePageTemplate();
     const kindName = templateKind?.name ?? fallback.name;
     const nameRole = templateKind?.pageTemplate?.['name'] ?? fallback.nameField;
-    const currentTemplates = await readKindAssertions(tx, 'vertex', kindName, [], { contract: publicationContract });
+    const currentTemplates = await readKindAssertions(tx, 'vertex', kindName, [], await publicationReadSelector(tx, publicationContract));
     const wantedTemplates = new Set(validated.templates.map(draft => String(draft.key[nameRole])));
     const removedTemplates: VertexRemovalDraft[] = currentTemplates.filter(row => !wantedTemplates.has(String(row.key[nameRole]))).map(row => ({
       kind: kindName, key: row.key as VertexRemovalDraft['key'], producer: 'manifest',
