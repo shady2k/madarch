@@ -18,12 +18,14 @@ by that public binding too, rather than by an import barrel's path.
 
 All rules share the same resolver for named imports, import aliases, namespace
 members, local variable initializers, local named exports, named re-exports and
-star re-exports. Local bindings distinguish aliases from call results. Only the
-case API retains a stored call result's root when it resolves to `test` or `it`
-from `bun:test`. This includes `const hostTest = test.skipIf(...)` and
-`const t = test`. Process, Bun member, database and default-timeout checks follow
-local aliases, not stored call results. Parentheses and transparent TypeScript expression wrappers
-retain that root. Cycles stop the walk.
+star re-exports. Local bindings distinguish aliases such as `const t = test`
+from call results. Only the case API retains a stored call result's root when it
+resolves to `test` or `it` from `bun:test`, as in
+`const hostTest = test.skipIf(...)`. Process, Bun member, database,
+default-timeout, timing (`performance.now`, `Bun.nanoseconds`, `process.hrtime`)
+and `bound` checks follow local aliases, not stored call results. Parentheses
+and transparent TypeScript expression wrappers retain that root. Cycles stop
+the walk.
 
 A case rooted in `test` or `it` from `bun:test` names its third argument with
 `bound(ms, { measured, on, at })` from `test/support/deadline.ts`. A reachable

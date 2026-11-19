@@ -53,6 +53,8 @@ export interface ArgumentSyntax {
 /** One call: the callee as written (`test`, `bound`, `createTestDatabaseOwner`), and its arguments. */
 export interface CallSyntax {
   readonly name: string;
+  /** The callee without crossing a call result; process checks use this call's own arguments. */
+  readonly directName: string | null;
   /** True for the case invocation in test.each(...)(...) rather than the table setup. */
   readonly finalCall: boolean;
   /** The 1-based line the call starts on. */
@@ -146,7 +148,7 @@ export function moduleSyntaxOfSource(source: string, file: string, path: string)
       const span = node['span'] as { start: number } | undefined;
       if (callee !== null && span !== undefined) {
         const args = Array.isArray(node['arguments']) ? (node['arguments'] as Record<string, unknown>[]) : [];
-        const call = { name: callee, finalCall: !intermediate.has(node), line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) };
+        const call = { name: callee, directName: bindingKind(node['callee']) === 'alias' ? callee : null, finalCall: !intermediate.has(node), line: lineAt(bytes, span.start), arguments: args.map((argument) => argumentOf(argument, bytes)) };
         calls.push(call);
         const root = calleeRoot(node['callee']);
         if (root !== null) callNodes.set(root, call);

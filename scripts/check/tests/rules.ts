@@ -150,7 +150,7 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
           const binding = resolveBinding(context, file, reference.name);
           if (binding === null || !isChildProcess(binding.module)) continue;
           const call = reference.call;
-          const callee = call === null ? null : resolveBinding(context, file, call.name);
+          const callee = call?.directName == null ? null : resolveBinding(context, file, call.directName);
           const processCall = callee !== null && commands.has(callee.name.startsWith('default.') ? callee.name.slice(8) : callee.name);
           const command = call?.arguments[0]?.literal;
           if (processCall && command?.kind === 'string' && command.value === 'git') continue;
@@ -158,12 +158,13 @@ export function integrationReachViolations(context: RuleContext): TestViolation[
             message: `${reachedFrom(start, paths, file)}, whose ${reference.name} ${processCall ? `executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}` : 'is used outside a call with the literal git'}; process bindings must stay inside ${GIT_HELPER}` });
         }
         for (const call of syntax.calls) {
-          const [object, member] = (resolveBinding(context, file, call.name)?.name ?? '').split('.');
-          if (object !== 'Bun' || !commands.has(member ?? '')) continue;
+          if (call.directName === null) continue;
+          const binding = resolveBinding(context, file, call.directName);
+          if (binding === null || ![...commands].some((command) => binding.name === `Bun.${command}`)) continue;
           const command = call.arguments[0]?.elements[0]?.literal;
           if (command?.kind === 'string' && command.value === 'git') continue;
           violations.push({ rule: 'test-integration-reach', file, line: call.line,
-            message: `${reachedFrom(start, paths, file)}, whose ${call.name} executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}; only the git command is allowed through ${GIT_HELPER}` });
+            message: `${reachedFrom(start, paths, file)}, whose ${call.directName} executes ${command?.kind === 'string' ? JSON.stringify(command.value) : 'a nonliteral command'}; only the git command is allowed through ${GIT_HELPER}` });
         }
       }
       for (const call of context.syntaxOf(file).calls) {
@@ -571,16 +572,24 @@ function isStarterSet(file: string): boolean {
   return segments[0] === 'test' && segments[1] !== undefined && segments[2] === 'starter-set';
 }
 
-/** Static value paths, resolved by the same mechanism as calls and imports. */
+const resolvedMemberSets = new WeakMap<RuleContext, Map<string, { segments: readonly string[]; line: number }[]>>();
+
+/** Static value paths, resolved once per context and file, like the parsed syntax. */
 function resolvedMembers(context: RuleContext, file: string): { segments: readonly string[]; line: number }[] {
+  let files = resolvedMemberSets.get(context);
+  if (files === undefined) { files = new Map(); resolvedMemberSets.set(context, files); }
+  const cached = files.get(file);
+  if (cached !== undefined) return cached;
   const syntax = context.syntaxOf(file);
   const paths = [...syntax.members.map((member) => ({ name: member.segments.join('.'), line: member.line })),
     ...syntax.references.map((reference) => ({ name: reference.call?.name ?? reference.name, line: reference.line }))];
-  return paths.flatMap((path) => {
+  const found = paths.flatMap((path) => {
     const binding = resolveBinding(context, file, path.name);
     if (binding === null || binding.module !== file) return [];
     return [{ segments: binding.name.split('.'), line: path.line }];
   });
+  files.set(file, found);
+  return found;
 }
 
 /** Members that start a process, or a process and a server: `Bun.spawn*` and, when asked, `Bun.serve`. */

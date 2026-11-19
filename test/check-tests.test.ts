@@ -117,6 +117,42 @@ describe('test-integration-reach', () => {
     expect(await problemsOf(root, 'test-integration-reach')).toEqual([]);
   });
 
+  for (const expression of [
+    "Bun.spawnSync(['git', ...args]).stdout.toString()",
+    "Bun.spawnSync(['git', ...args]).stdout.toString().split('\\n')",
+    "Bun.spawnSync(['git', ...args]).stdout.toString().trim()",
+    "Bun.spawnSync(['git', ...args]).stdout?.toString()",
+    "execFileSync('git', args).toString()",
+    "spawnSync('git', args).stdout.toString().trim()",
+    "cp.execFileSync('git', args).toString('utf8').trim()",
+    "run(['git', ...args]).stdout.toString()",
+  ]) {
+    test(`git process call ignores its result chain: ${expression}`, async () => {
+      const root = project({
+        'test/support/git.ts': `import { execFileSync, spawnSync } from 'node:child_process';
+import * as cp from 'node:child_process';
+const run = Bun.spawnSync;
+export const git = (...args: string[]) => ${expression};`,
+        'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+      });
+      expect(await problemsOf(root, 'test-integration-reach')).toEqual([]);
+    });
+  }
+
+  test('a chained non-git process reports only the process call and its own line', async () => {
+    const root = project({
+      'test/support/git.ts': `export const git = () => (
+  Bun.spawnSync(['bun', '--version'])
+    .stdout.toString().trim()
+);`,
+      'test/integration/git.test.ts': "import { git } from '../support/git.js'; export const held = git;",
+    });
+    const problems = await problemsOf(root, 'test-integration-reach');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${join(root, 'test/support/git.ts')}:2: test-integration-reach:`);
+    expect(problems[0]).toContain('whose Bun.spawnSync executes "bun";');
+  });
+
   test('an integration file that asks for a store of its own fails at the call', async () => {
     const root = project({
       'test/test-database.ts': 'export function createTestDatabaseOwner(options: { store?: string } = {}): string {\n  return options.store ?? "pass";\n}',
