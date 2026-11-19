@@ -123,7 +123,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
            JOIN node edge_from ON edge_from.id=subject.from_node
            JOIN node edge_to ON edge_to.id=subject.to_node`;
       const mapped = sort === 'vertex' && selector?.projectMergedSubjects
-        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
+        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) OR NOT EXISTS(SELECT 1 FROM node merge_node JOIN entity merge_kind ON merge_kind.id=merge_node.entity_id WHERE merge_kind.name='system.merge') THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
       const repositoryStatements = repositoryKinds.map(edgeKind => {
         const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
         return `SELECT 0 AS request_index,e.id AS subject_id,e.id AS original_subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
