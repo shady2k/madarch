@@ -733,6 +733,8 @@ function readsAFile(description: string): boolean {
 const protectedContract = withAssertionContract(MANIFEST_CONTRACT);
 const protectedGraphKinds = new Set(protectedContract.vertex.map((kind) => kind.name));
 const protectedGraphEdges = new Set(protectedContract.edge.map((kind) => kind.name));
+/** The kinds the installed contract owns: the engine writes them, and a product neither declares nor produces them. */
+export const PROTECTED_KIND_NAMES: ReadonlySet<string> = protectedGraphKinds;
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 /**
@@ -2668,7 +2670,8 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   for (const [name, deps] of dependencies) {
     const kind = kinds.get(name) ?? catalogEntries.get(name)!;
     for (const dependency of deps) {
-      if (!dependencies.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
+      // A protected engine kind is a declared prerequisite the engine writes: the product neither declares nor fills it.
+      if (!dependencies.has(dependency) && !PROTECTED_KIND_NAMES.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
     }
   }
   const cycle = findDependencyCycle(dependencies);
@@ -2698,7 +2701,11 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   }
   for (const [name, edge] of edges) for (const field of edge.fields) checkField(name, field, edge.line, true);
   for (const plugin of plugins.values()) {
-    for (const output of plugin.outputs) if (!kinds.has(output)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is not a kind the manifest declares` });
+    for (const output of plugin.outputs) {
+      // A protected name is the engine's own unless the product declares an extension of it (decision 0039 item 9).
+      if (PROTECTED_KIND_NAMES.has(output) && !kinds.has(output)) { findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is a protected system kind: the engine writes it` }); continue; }
+      if (!kinds.has(output)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is not a kind the manifest declares` });
+    }
     for (const input of plugin.inputs) if (!kinds.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is not a kind the manifest declares` });
   }
   // `journal: { debug: true }` keeps every request a plugin makes, its reads included, in the journal; off by default,
