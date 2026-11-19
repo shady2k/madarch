@@ -7,7 +7,7 @@
  *
  * A reference is answered only while its target still does not resolve and its referring assertion is still open: a row
  * whose target a later publication declared, or whose producer withdrew the assertion that named it, is no longer a
- * problem. The reads page by their own key (the row id, or the assertion id and field), so a caller with a cursor walks the
+ * problem. The reads page by their own key (the row id, or the recorded sequence and field), so a caller with a cursor walks the
  * store without loading a whole kind.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -133,7 +133,7 @@ interface UnevidencedRow {
 
 /**
  * Every open assertion of a field whose contract requires evidence that rests on none: one row per assertion and field, one
- * page in numeric order of the assertion id and then by field name. The cursor is `(assertion id, field)`, so an assertion that
+ * page in recorded write order and then by code point order of the field name. The cursor is `(recorded sequence, field)`, so an assertion that
  * states two evidence-required fields is two rows across two pages. The declarations are the manifest's own — one per
  * kind and producer whose contract marks a field `evidence: true` — and every evidence-required key field is emitted,
  * several alike.
@@ -143,10 +143,10 @@ export async function unevidencedAssertions(owner: DatabaseOwner, declarations: 
   const limit = pageSize(query);
   const cursor = query.after === undefined ? undefined : (() => {
     const colon = query.after.indexOf(':');
-    return colon < 0 ? { id: query.after, field: '' } : { id: query.after.slice(0, colon), field: query.after.slice(colon + 1) };
+    return colon < 0 ? { sequence: BigInt(query.after), field: '' } : { sequence: BigInt(query.after.slice(0, colon)), field: query.after.slice(colon + 1) };
   })();
   return await withSpan('graph.consistency.unevidenced', {}, async () => await owner.transaction('snapshot', async (tx) => {
-    const out: { entity: PluginGraphAddress; field: string; producer: string; assertion: string; id: string }[] = [];
+    const out: { entity: PluginGraphAddress; field: string; producer: string; assertion: string; sequence: bigint }[] = [];
     const now = new Date().toISOString();
     for (const declaration of declarations) {
       const identities = await tx.query<{ id: string; key: unknown }>(
@@ -158,15 +158,15 @@ export async function unevidencedAssertions(owner: DatabaseOwner, declarations: 
         for (const assertion of selection.candidates) {
           const held = slot.find((row) => row.id === assertion.id)!;
           if (held.evidence.length > 0) continue;
-          const id = held.id;
-          if (cursor !== undefined && (byCodePoint(id, cursor.id) < 0 || (id === cursor.id && byCodePoint(field, cursor.field) <= 0))) continue;
-          out.push({ entity: addressOf(declaration.kind, node.key), field, producer: held.source, assertion: id, id });
+          const sequence = held.recordedSequence;
+          if (cursor !== undefined && (sequence < cursor.sequence || (sequence === cursor.sequence && byCodePoint(field, cursor.field) <= 0))) continue;
+          out.push({ entity: addressOf(declaration.kind, node.key), field, producer: held.source, assertion: held.id, sequence });
         }
       }
     }
-    out.sort((left, right) => byCodePoint(left.id, right.id) || byCodePoint(left.field, right.field));
+    out.sort((left, right) => (left.sequence < right.sequence ? -1 : left.sequence > right.sequence ? 1 : 0) || byCodePoint(left.field, right.field));
     const page = out.slice(0, limit);
     const last = page.at(-1);
-    return { rows: page.map(({ id: _id, ...row }) => row), ...(out.length > limit && last !== undefined ? { next: `${last.id}:${last.field}` } : {}) };
+    return { rows: page.map(({ sequence: _sequence, ...row }) => row), ...(out.length > limit && last !== undefined ? { next: `${last.sequence}:${last.field}` } : {}) };
   }));
 }
