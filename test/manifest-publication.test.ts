@@ -689,6 +689,7 @@ test('repeat publication adds a workflow stage beside an already published stage
     expect(after.map(row => [row.key['name'], row.values['position']]).sort())
       .toEqual([['fixture-second', 1], ['plugin-turns', 0]]);
     expect(after.find(row => row.key['name'] === 'plugin-turns')!.uid).toBe(before[0]!.uid);
+    // The third call checks the unchanged fingerprint shortcut, not stage matching.
     expect(await publishValidatedManifests(owner, second.value)).toBe(0);
   } finally { reader.mockRestore(); await owner.close(); }
 }, 30_000);

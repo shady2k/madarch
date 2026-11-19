@@ -30,7 +30,7 @@ import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
-const PUBLICATION_REVISION = 5;
+const PUBLICATION_REVISION = 6;
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -396,16 +396,20 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     await publish(tx, publicationContract, { vertices: missingSnapshots, removals: [] });
     const vertexRecords = await readPhase('vertex', MANIFEST_CONTRACT.vertex.map(kind => kind.name), validated.vertices);
     const held = new Map<string, VertexRemovalDraft>();
-    for (const kind of MANIFEST_CONTRACT.vertex) for (const row of vertexRecords.get(kind.name)!) {
-      const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
-      for (const role of kind.keyEdges ?? []) {
-        const parent = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.to_node JOIN entity pk ON pk.id=p.entity_id WHERE e.from_node=$1 AND ek.name=$2`, [row.id, role.edge]);
-        if (parent.rows.length !== 1) throw new Error(`${import.meta.path}:299: ${kind.name} ${row.uid} requires exactly one metadata parent`);
-        keyEdges[role.role] = { kind: parent.rows[0]!.kind, key: parent.rows[0]!.key };
+    const holdRecords = async (kinds: readonly import('./contract.js').VertexContract[], records: Map<string, AssertionRecord[]>): Promise<void> => {
+      for (const kind of kinds) for (const row of records.get(kind.name) ?? []) {
+        const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
+        for (const role of kind.keyEdges ?? []) {
+          const [subject, parent] = role.direction === 'from' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
+          const parents = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.${parent} JOIN entity pk ON pk.id=p.entity_id WHERE e.${subject}=$1 AND ek.name=$2`, [row.id, role.edge]);
+          if (parents.rows.length !== 1) throw new Error(`${import.meta.path}:405: ${kind.name} ${row.uid} requires exactly one parent for ${role.role}`);
+          keyEdges[role.role] = { kind: parents.rows[0]!.kind, key: parents.rows[0]!.key };
+        }
+        const draft = { kind: kind.name, key: row.key as Record<string, import('./contract.js').KeyValueDraft>, ...(kind.keyEdges?.length ? { keyEdges } : {}), uid: row.uid, producer: 'manifest' };
+        held.set(identity(draft), draft);
       }
-      const draft = { kind: kind.name, key: row.key as Record<string, import('./contract.js').KeyValueDraft>, ...(kind.keyEdges?.length ? { keyEdges } : {}), uid: row.uid, producer: 'manifest' };
-      held.set(identity(draft), draft);
-    }
+    };
+    await holdRecords(MANIFEST_CONTRACT.vertex, vertexRecords);
     const wanted = new Set(validated.vertices.map(identity));
     const removals = [...held].filter(([key]) => !wanted.has(key)).map(([, draft]) => draft)
       .sort((left, right) => Number(right.keyEdges !== undefined) - Number(left.keyEdges !== undefined) || byCodePoint(identity(left), identity(right)));
@@ -415,12 +419,9 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
       if ('key' in draft) {
         const prior = held.get(identity(draft));
         if (prior !== undefined) record = rows.find(row => row.uid === prior.uid);
-        else if (draft.keyEdges !== undefined) {
-          // The held map covers every published manifest vertex, including its parent identity.
-          if (MANIFEST_CONTRACT.vertex.some(kind => kind.name === draft.kind)) return undefined;
-          const resolved = resolveRef(draft);
-          record = rows.find(row => row.uid === resolved.uid);
-        } else record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
+        // Every key-edge kind in this phase is indexed by its existing key and parent identity.
+        // A missing draft is new, not an endpoint that can already be resolved.
+        else if (draft.keyEdges === undefined) record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
       }
       else {
         const from = resolveRef(draft.from);
@@ -477,7 +478,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0) {
       const records = await readPhase('vertex', [...valueKinds], validated.starterValues);
-      await prefetchRefs(validated.starterValues.filter(draft => draft.keyEdges !== undefined && (records.get(draft.kind)?.length ?? 0) > 0));
+      await holdRecords(publicationContract.vertex.filter(kind => valueKinds.has(kind.name)), records);
       await prefetchEvidence(validated.starterValues, records);
       const changed: VertexDraft[] = [];
       for (const draft of validated.starterValues) if (!await unchanged(draft, records.get(draft.kind)!)) changed.push(draft);
