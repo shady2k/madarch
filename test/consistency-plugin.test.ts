@@ -152,7 +152,7 @@ problems:
   writeFolderManifest(folder, declared.toString());
   // The fixture keeps the kinds its plugins fill and the records it writes itself, and no field nothing fills: the
   // starter kinds it merged last would otherwise carry the agent's field, and the product keeps no agent plugin.
-  useFixturePlugins(folder, ['disk', 'git', 'fixture-product', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
+  useFixturePlugins(folder, ['disk', 'git', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
   return closure;
 }
 
