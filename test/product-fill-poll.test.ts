@@ -87,6 +87,7 @@ test('optional producer outcome read failure does not fail status or poison its 
       return tx.query(sql, values);
     },
   }), options);
+  // Replace the private reader only to inject a database fault; clearing the memo forces the real snapshot path.
   const cached = reader as unknown as { reader: { owner: DatabaseOwner; seq: number }; fillStateMemo: unknown };
   const original = cached.reader;
   cached.reader = { ...original, owner: queryFault };
@@ -128,6 +129,7 @@ test('unreadable run state retains the last fill answer and does not fail fileTe
       }) };
     },
   }), options);
+  // Replace the private reader only to inject a database fault; clearing the memo forces the real snapshot path.
   const cached = reader as unknown as { reader: { owner: DatabaseOwner; seq: number }; fillStateMemo: unknown };
   const original = cached.reader;
   cached.reader = { ...original, owner: queryFault };
@@ -154,6 +156,7 @@ test('producer outcomes stay with the fill snapshot when a publication moves its
   await advanceRun(database, { runId: 'outcomes', event: { type: 'complete-partial', at: 504, evidence: { runnable: 0, inFlight: 0, waiting: 0, coverageMet: false } } });
   await writeFillEnd(database, { runId: 'outcomes', state: 'completed_partial' });
   const cached = reader as unknown as { followStoreFill: () => Promise<void>; fillStateMemo: unknown };
+  // Intercept the private follow boundary to commit deterministically between the snapshot and the outcome answer.
   const follow = cached.followStoreFill.bind(reader);
   cached.fillStateMemo = undefined;
   cached.followStoreFill = async () => {
