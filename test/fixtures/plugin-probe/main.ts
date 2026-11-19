@@ -5,7 +5,7 @@
  */
 import { definePlugin, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dlopen, FFIType, toArrayBuffer } from 'bun:ffi';
 
 /** The C library the sandbox binds read-only: the fixture's one way to a call Bun has no wrapper for. */
@@ -112,9 +112,23 @@ await definePlugin({
     edges: [{ kind: 'probe-link', from: 'probe', to: 'probe', cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'links', in: 'linked by' }, ru: { out: 'ссылается', in: 'ссылка от' } } }],
   },
   maxParallelUnits: 2,
-  async extract(unit) {
+  async extract(unit, context) {
     const behavior = behaviorOf(unit);
     if (behavior === 'normal') return normalAnswer(unit);
+    if (behavior === 'operation-wait') {
+      await context.facts.apply('wait', { vertices: [] });
+      return normalAnswer(unit);
+    }
+    if (behavior === 'operation-then-silence') {
+      await context.facts.apply('wait', { vertices: [] });
+      await Bun.sleep(typeof unit.key['silenceMs'] === 'number' ? unit.key['silenceMs'] : 0);
+      return normalAnswer(unit);
+    }
+    if (behavior === 'operation-hang') {
+      if (typeof unit.key['stderr'] === 'string') writeSync(2, unit.key['stderr']);
+      await context.facts.apply('wait', { vertices: [] });
+      await new Promise(() => undefined);
+    }
     if (behavior === 'partial-removal') {
       return { ...normalAnswer(unit), end: { state: 'partial', cause: 'read half the unit' } };
     }
