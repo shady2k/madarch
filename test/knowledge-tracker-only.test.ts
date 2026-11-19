@@ -96,7 +96,9 @@ describe('a product that is only a tracker', () => {
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'catalog.yaml'));
-      const unopened = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ entity(id: "idea:00000000-0000-4000-8000-000000000001") { id } }' }) });
+      // `entity(id:)` takes a UUID, not a key: an entity the graph does not hold is answered `null`.
+      const unopened = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ entity(id: "00000000-0000-4000-8000-00000000dead") { id } }' }) });
+      expect(unopened.status).toBe(200);
       expect((await unopened.json() as { data: { entity: unknown } }).data.entity).toBeNull();
 
       const store = productStoreFolder(product, knowledgeRootOf(home));

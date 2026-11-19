@@ -27,7 +27,7 @@ import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
-import { renderDiagram } from '../render/diagram-render.js';
+import { renderDiagram, type DiagramRequest } from '../render/diagram-render.js';
 import { diagramFailurePage } from '../render/diagram-failure.js';
 
 export interface KnowledgePart {
@@ -264,10 +264,9 @@ function fillRefusalCode(message: string): string | undefined {
       const url = new URL(request.url);
       const entity = url.searchParams.get('entity') ?? '';
       if (entity.trim() === '') return refused(400, { field: 'entity', message: `${here()}: "entity" is the id of the entity whose diagram is drawn` });
-      const format = url.searchParams.get('format') ?? '';
-      if (format !== 'likec4' && format !== 'mermaid' && format !== 'archify') {
-        return refused(400, { field: 'format', message: `${here()}: "format" is one of "likec4", "mermaid" and "archify"; it was ${JSON.stringify(format)}` });
-      }
+      // The door's generated contract refused a name outside the three before this handler ran (decision 0039, items
+      // 7 and 30), as it does for the answer and propose-task bodies: the handler reads the parsed name.
+      const format = (url.searchParams.get('format') ?? '') as DiagramRequest['format'];
       const askedDepth = url.searchParams.get('depth');
       const depth = askedDepth === null ? undefined : Number(askedDepth);
       if (depth !== undefined && (!Number.isInteger(depth) || depth !== 1)) {
