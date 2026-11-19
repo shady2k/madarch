@@ -53,6 +53,24 @@ describe('gate 1: the engine holds no product data', () => {
     ]);
   });
 
+  test('a field word is product data only in a module that names the kind declaring it', () => {
+    const body = 'id: practice.demo-task\nfields:\n  - name: statement\n    type: text\n';
+    const without = fixture({
+      ...catalogue('demo.task', body),
+      'src/without.ts': "export const field = 'statement';\n",
+    });
+    expect(productDataViolations(without)).toEqual([]);
+    const withKind = fixture({
+      ...catalogue('demo.task', body),
+      'src/with.ts': "export const kind = 'demo.task';\nexport const field = 'statement';\n",
+      'src/other.ts': "export const field = 'statement';\n",
+    });
+    expect(productDataViolations(withKind).map(({ file, line, symbol }) => [file, line, symbol])).toEqual([
+      ['src/with.ts', 1, 'demo.task'],
+      ['src/with.ts', 2, 'statement'],
+    ]);
+  });
+
   test('a word the manifest format declares is the engine\'s, and only a catalogue-only word is product data', async () => {
     const home = fixture({
       // The reader's own declaration: the format's vocabulary list and the property its type declares.
@@ -62,24 +80,29 @@ describe('gate 1: the engine holds no product data', () => {
         '',
       ].join('\n'),
       ...catalogue('demo.task', 'id: practice.demo-task\nfields:\n  - name: definition\n    type: text\n    producers: [person]\n  - name: labels\n    type: text\n    producers: [person]\n  - name: statement\n    type: text\n    producers: [person]\n'),
-      'src/a.ts': "export const format = ['definition', 'labels', 'descriptions'];\nexport const data = 'statement';\n",
+      'src/a.ts': "export const format = ['definition', 'labels', 'descriptions'];\nexport const data = 'statement';\nexport const kind = 'demo.task';\n",
     });
     // `definition`, `labels` and `descriptions` are the format's; `statement` only the catalogue declares, so it is data.
-    expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([['src/a.ts', 'statement']]);
+    expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([
+      ['src/a.ts', 'demo.task'], ['src/a.ts', 'statement'],
+    ]);
   });
 
   test('external wire declarations and help dispatch keep context, not global word exemptions', () => {
     const home = fixture({
       ...catalogue('demo.kind', 'fields:\n  - name: result\n    type: text\n  - name: binary\n    type: text\n  - name: help\n    type: text\n'),
-      'src/plugin/wire.ts': "export function isResponse(v: unknown): v is {jsonrpc: '2.0'; result?: unknown} { return typeof v === 'object' && v !== null && 'result' in v; }\nexport const product = 'result';\n",
-      'src/plugin/product-source.ts': "interface IndexedFile { form: 'text' | 'binary' | null }\nexport const product = 'binary';\n",
-      'src/product/cli.ts': "export function parse(args: string[]) { if(args[0] === 'help' || args[0] === '--help' || args[0] === '-h') return; }\nexport const product = 'help';\n",
-      'src/other.ts': "export const product = ['result', 'binary', 'help'];\n",
-      'src/render/likec4.ts': "const RESERVED = new Set(['result']); export function safe(name: string) { return RESERVED.has(name); }\nexport const product = 'result';\n",
+      'src/plugin/wire.ts': "export function isResponse(v: unknown): v is {jsonrpc: '2.0'; result?: unknown} { return typeof v === 'object' && v !== null && 'result' in v; }\nexport const product = 'result';\nexport const kind = 'demo.kind';\n",
+      'src/plugin/product-source.ts': "interface IndexedFile { form: 'text' | 'binary' | null }\nexport const product = 'binary';\nexport const kind = 'demo.kind';\n",
+      'src/product/cli.ts': "export function parse(args: string[]) { if(args[0] === 'help' || args[0] === '--help' || args[0] === '-h') return; }\nexport const product = 'help';\nexport const kind = 'demo.kind';\n",
+      'src/other.ts': "export const product = ['result', 'binary', 'help'];\nexport const kind = 'demo.kind';\n",
+      'src/render/likec4.ts': "const RESERVED = new Set(['result']); export function safe(name: string) { return RESERVED.has(name); }\nexport const product = 'result';\nexport const kind = 'demo.kind';\n",
     });
     expect(productDataViolations(home).map((finding) => [finding.file, finding.line, finding.symbol])).toEqual([
-      ['src/other.ts', 1, 'binary'], ['src/other.ts', 1, 'help'], ['src/other.ts', 1, 'result'],
-      ['src/plugin/product-source.ts', 2, 'binary'], ['src/plugin/wire.ts', 2, 'result'], ['src/product/cli.ts', 2, 'help'], ['src/render/likec4.ts', 1, 'result'],
+      ['src/other.ts', 1, 'binary'], ['src/other.ts', 2, 'demo.kind'], ['src/other.ts', 1, 'help'], ['src/other.ts', 1, 'result'],
+      ['src/plugin/product-source.ts', 2, 'binary'], ['src/plugin/product-source.ts', 3, 'demo.kind'],
+      ['src/plugin/wire.ts', 3, 'demo.kind'], ['src/plugin/wire.ts', 2, 'result'],
+      ['src/product/cli.ts', 3, 'demo.kind'], ['src/product/cli.ts', 2, 'help'],
+      ['src/render/likec4.ts', 3, 'demo.kind'], ['src/render/likec4.ts', 1, 'result'],
     ]);
   });
 
@@ -91,11 +114,12 @@ describe('gate 1: the engine holds no product data', () => {
         "export const Contract = Type.Object({ scope: Type.Literal('scope') });",
         "export const diagnostic = 'scope';",
         "const privateSchema = Type.Literal('scope');",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
-      'src/other.ts': "import { Type } from 'typebox'; export const Product = Type.Literal('scope');",
+      'src/other.ts': "import { Type } from 'typebox'; export const Product = Type.Literal('scope'); export const kind = 'demo.kind';",
     });
     expect(productDataViolations(home).map((finding) => [finding.file, finding.line])).toEqual([
-      ['src/other.ts', 1], ['src/plugin/protocol.ts', 3],
+      ['src/other.ts', 1], ['src/other.ts', 1], ['src/plugin/protocol.ts', 5], ['src/plugin/protocol.ts', 3],
     ]);
   });
 
@@ -109,14 +133,15 @@ describe('gate 1: the engine holds no product data', () => {
         "type B = DaemonFills['activity'];",
         "type C = Pick<DaemonFills, 'missing'>;",
         "const product = 'activity';",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => [finding.line, finding.symbol])).toEqual([[5, 'activity'], [4, 'missing']]);
+    expect(productDataViolations(home).map((finding) => [finding.line, finding.symbol])).toEqual([[5, 'activity'], [6, 'demo.kind'], [4, 'missing']]);
     const noAuthority = fixture({
       ...catalogue('demo.kind', 'fields:\n  - name: activity\n    type: text\n'),
-      'src/product/daemon.ts': "interface DaemonFills { activity(): void }; type A = Pick<DaemonFills, 'activity'>;",
+      'src/product/daemon.ts': "interface DaemonFills { activity(): void }; type A = Pick<DaemonFills, 'activity'>; export const kind = 'demo.kind';",
     });
-    expect(productDataViolations(noAuthority).map((finding) => finding.symbol)).toEqual(['activity']);
+    expect(productDataViolations(noAuthority).map((finding) => finding.symbol)).toEqual(['activity', 'demo.kind']);
   });
 
   test('IndexedFile comparison proofs reject unrelated and shadowed form values', () => {
@@ -128,9 +153,10 @@ describe('gate 1: the engine holds no product data', () => {
         "read(path: string) { const file = this.index.get(path); return file.form === 'binary'; }",
         "other() { const file = {form: 'ordinary'}; return file.form === 'binary'; }",
         '}',
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => [finding.line, finding.symbol])).toEqual([[4, 'binary']]);
+    expect(productDataViolations(home).map((finding) => [finding.line, finding.symbol])).toEqual([[4, 'binary'], [6, 'demo.kind']]);
   });
 
   test('PluginManifest diagnostic keys require the same schema member and typed body', () => {
@@ -142,19 +168,21 @@ describe('gate 1: the engine holds no product data', () => {
         'function parsePluginManifest(value: unknown) { const body = value as Partial<PluginManifest>;',
         "if (body.concurrency < 1) refuse('concurrency', 'bad value');",
         "const product = 'concurrency'; }",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([5]);
+    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([5, 6]);
   });
 
   test('protocol contexts reject unrelated strings inside guards and help branches', () => {
     const home = fixture({
       ...catalogue('demo.kind', 'fields:\n  - name: result\n    type: text\n  - name: help\n    type: text\n'),
-      'src/plugin/wire.ts': "export function isResponse(v: unknown): v is {jsonrpc: '2.0'; result?: unknown} { const product = 'result'; return 'result' in v; }",
-      'src/product/cli.ts': "function parse(args: string[]) { if(args[0] === 'help' || args[0] === '--help' || args[0] === '-h') { const product = 'help'; } }",
+      'src/plugin/wire.ts': "export function isResponse(v: unknown): v is {jsonrpc: '2.0'; result?: unknown} { const product = 'result'; return 'result' in v; } export const kind = 'demo.kind';",
+      'src/product/cli.ts': "function parse(args: string[]) { if(args[0] === 'help' || args[0] === '--help' || args[0] === '-h') { const product = 'help'; } } export const kind = 'demo.kind';",
     });
     expect(productDataViolations(home).map((finding) => [finding.file, finding.symbol])).toEqual([
-      ['src/plugin/wire.ts', 'result'], ['src/product/cli.ts', 'help'],
+      ['src/plugin/wire.ts', 'demo.kind'], ['src/plugin/wire.ts', 'result'],
+      ['src/product/cli.ts', 'demo.kind'], ['src/product/cli.ts', 'help'],
     ]);
   });
 
@@ -166,18 +194,19 @@ describe('gate 1: the engine holds no product data', () => {
         "export function main(args: string[]) { const command = args[0]!; if (!(command in COMMANDS)) return 2; if (command === 'remote') return; }",
         "async function whereHelp() { const { whereAmI } = await import('./lifecycle.js'); const context = whereAmI({}); if (context.outcome === 'product') return; }",
         "export const data = ['url', 'remote', 'product'];",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
       'src/product/lifecycle.ts': "export type WhereResult = {outcome: 'product'} | {outcome: 'none'}; export function whereAmI(): WhereResult { return {outcome: 'none'}; }",
     });
-    expect(productDataViolations(home).filter((finding) => finding.file === 'src/product/cli.ts').map((finding) => [finding.line, finding.symbol])).toEqual([[4, 'product'], [4, 'remote'], [4, 'url']]);
+    expect(productDataViolations(home).filter((finding) => finding.file === 'src/product/cli.ts').map((finding) => [finding.line, finding.symbol])).toEqual([[5, 'demo.kind'], [4, 'product'], [4, 'remote'], [4, 'url']]);
   });
 
   test('a command comparison without the closed dispatcher guard is refused', () => {
     const home = fixture({
       ...catalogue('demo.kind', 'fields:\n  - name: remote\n    type: text\n'),
-      'src/product/cli.ts': "export const COMMANDS = {remote: {positionals: []}}; export function main(args: string[]) { const command = args[0]; if(command === 'remote') return; }",
+      'src/product/cli.ts': "export const COMMANDS = {remote: {positionals: []}}; export function main(args: string[]) { const command = args[0]; if(command === 'remote') return; } export const kind = 'demo.kind';",
     });
-    expect(productDataViolations(home).map((finding) => finding.symbol)).toEqual(['remote']);
+    expect(productDataViolations(home).map((finding) => finding.symbol)).toEqual(['demo.kind', 'remote']);
   });
 
   test('plugin verb union and parser tests do not exempt unrelated literals', () => {
@@ -187,9 +216,10 @@ describe('gate 1: the engine holds no product data', () => {
         "interface PluginOptions { verb: 'check' | 'run' }",
         "function parse(args: string[]) { const verb = args[0]; if (verb !== 'check' && verb !== 'run') return 2; }",
         "const product = 'check';",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([3]);
+    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([3, 4]);
   });
 
   test('LikeC4 keywords require official grammar membership and the reserved-name adapter', () => {
@@ -199,11 +229,13 @@ describe('gate 1: the engine holds no product data', () => {
         "const RESERVED = new Set(['size', 'invented']);",
         'function identifier(name: string) { return RESERVED.has(name) ? name + "_" : name; }',
         "export const product = 'size';",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
-      'src/other.ts': "const RESERVED = new Set(['size']); export const check = RESERVED.has('anything');",
+      'src/other.ts': "const RESERVED = new Set(['size']); export const check = RESERVED.has('anything'); export const kind = 'demo.kind';",
     });
     expect(productDataViolations(home).map((finding) => [finding.file, finding.line, finding.symbol])).toEqual([
-      ['src/other.ts', 1, 'size'], ['src/render/likec4.ts', 1, 'invented'], ['src/render/likec4.ts', 3, 'size'],
+      ['src/other.ts', 1, 'demo.kind'], ['src/other.ts', 1, 'size'],
+      ['src/render/likec4.ts', 4, 'demo.kind'], ['src/render/likec4.ts', 1, 'invented'], ['src/render/likec4.ts', 3, 'size'],
     ]);
   });
 
@@ -227,6 +259,7 @@ describe('gate 1: the engine holds no product data', () => {
         "function scalar(row: unknown, field: string) { return row.values[field]; }",
         "function good() { const rows=semanticRecords(tx,'claim-projection',[]); return scalar(rows.find(row=>true),'ordinal'); }",
         "function wrong() { const rows=semanticRecords(tx,'other',[]); return scalar(rows.find(row=>true),'ordinal'); }",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
       'src/reader.ts': [
         "import {semanticEntities} from './knowledge/semantic-bindings.js';",
@@ -234,9 +267,12 @@ describe('gate 1: the engine holds no product data', () => {
         "claims.filter(row => true).sort((a,b) => Number(a.properties['ordinal']) - Number(b.properties['ordinal']));",
         "const other = await semanticEntities(graph, manifest, 'other');",
         "other.map(row => row.properties['ordinal']);",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => [finding.file, finding.line])).toEqual([['src/graph/records.ts', 6], ['src/reader.ts', 5]]);
+    expect(productDataViolations(home).map((finding) => [finding.file, finding.line])).toEqual([
+      ['src/graph/records.ts', 10], ['src/graph/records.ts', 6], ['src/reader.ts', 6], ['src/reader.ts', 5],
+    ]);
   });
 
   test('batch semantic slots follow checked request positions even when the helper is renamed', () => {
@@ -256,18 +292,18 @@ describe('gate 1: the engine holds no product data', () => {
       ...catalogue('demo.kind', 'fields:\n  - name: ordinal\n    type: integer\n'),
       'src/model/semantic-role-protocol.ts': schema,
       'src/knowledge/semantic-bindings.ts': "import {checkRoleProperties} from '../model/semantic-role-protocol.js'; export function semanticEntities(graph, manifest, role) { checkRoleProperties(role, {}); }",
-      'src/graph/records.ts': "import {checkRoleProperties} from '../model/semantic-role-protocol.js';\n" + helper + '\n' + reads,
+      'src/graph/records.ts': "import {checkRoleProperties} from '../model/semantic-role-protocol.js'; export const kind = 'demo.kind';\n" + helper + '\n' + reads,
     })).filter(finding => finding.file === 'src/graph/records.ts').map(finding => finding.line);
     const start = batch.split('\n').length + 2;
-    expect(findings(batch)).toEqual([start + 2]);
-    expect(findings(batch, protocol, read.split('\n')[3])).toEqual([start]);
-    expect(findings(batch.replace('checkRoleProperties(edgeRole === undefined ? role : `${role}.${edgeRole}`, values);', ''))).toEqual([start]);
-    expect(findings(batch, protocol.replace('return Value.Check(ROLE_BINDING_SCHEMA, properties);', 'return true;'))).toEqual([start]);
-    expect(findings(batch.replace('values[semantic] = row.values[actual];', 'values[actual] = row.values[actual];'))).toEqual([start]);
-    expect(findings(batch.replace('return plans.map(', 'return plans.reverse().map('))).toEqual([start]);
-    expect(findings(batch.replace('await readKindsAssertions(', 'await fakeRead('))).toEqual([start]);
-    expect(findings(batch.replace('plans.map(plan => plan.request)', 'plans.map(plan => unrelated)'))).toEqual([start]);
-    expect(findings(batch.replace('mappings}, index)', 'mappings}, wrongIndex)'))).toEqual([start]);
+    expect(findings(batch)).toEqual([1, start + 2]);
+    expect(findings(batch, protocol, read.split('\n')[3])).toEqual([1, start]);
+    expect(findings(batch.replace('checkRoleProperties(edgeRole === undefined ? role : `${role}.${edgeRole}`, values);', ''))).toEqual([1, start]);
+    expect(findings(batch, protocol.replace('return Value.Check(ROLE_BINDING_SCHEMA, properties);', 'return true;'))).toEqual([1, start]);
+    expect(findings(batch.replace('values[semantic] = row.values[actual];', 'values[actual] = row.values[actual];'))).toEqual([1, start]);
+    expect(findings(batch.replace('return plans.map(', 'return plans.reverse().map('))).toEqual([1, start]);
+    expect(findings(batch.replace('await readKindsAssertions(', 'await fakeRead('))).toEqual([1, start]);
+    expect(findings(batch.replace('plans.map(plan => plan.request)', 'plans.map(plan => unrelated)'))).toEqual([1, start]);
+    expect(findings(batch.replace('mappings}, index)', 'mappings}, wrongIndex)'))).toEqual([1, start]);
   });
 
   test('assertion schema names are scoped to exported typed declaration arrays', () => {
@@ -276,9 +312,10 @@ describe('gate 1: the engine holds no product data', () => {
       'src/graphql/schema.ts': [
         "export const ASSERTION_SCHEMA_TYPES: readonly TypeDef[] = [{name:'Assertion', fields:[{name:'question', type:'String'}]}];",
         "export const arbitrary: readonly TypeDef[] = [{name:'Other', fields:[{name:'question', type:'String'}]}];",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([2]);
+    expect(productDataViolations(home).map((finding) => finding.line)).toEqual([3, 2]);
   });
 
   test('protected system fields require their exact registry kind and storage helper', () => {
@@ -300,6 +337,7 @@ describe('gate 1: the engine holds no product data', () => {
       'src/graph/system-contract.ts': [
         "export const SYSTEM_OPERATION='system.operation';",
         "export const SYSTEM_VERTEX_DEFINITIONS=[{name:'system.operation',evidence:{digestField:'digest',contentField:'absent'},fields:[{name:'digest',type:'text'}]}];",
+        "export const kind='demo.kind';",
       ].join('\n'),
       'src/graph/fill-orchestration.ts': [
         "const fields={'system.operation':['digest']};",
@@ -307,11 +345,14 @@ describe('gate 1: the engine holds no product data', () => {
         "const wrong=['digest'];",
         "function read(tx,kind,uid) { return readKindAssertions(tx,'vertex',kind,kind==='system.operation'?known:kind==='system.unknown'?wrong:fields[kind]); }",
         "const arbitrary=['digest'];",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
     expect(productDataViolations(home).map(finding=>[finding.file,finding.line,finding.symbol])).toEqual([
+      ['src/graph/fill-orchestration.ts',6,'demo.kind'],
       ['src/graph/fill-orchestration.ts',3,'digest'],
       ['src/graph/system-contract.ts',2,'absent'],
+      ['src/graph/system-contract.ts',3,'demo.kind'],
     ]);
   });
 
@@ -322,6 +363,7 @@ describe('gate 1: the engine holds no product data', () => {
         "export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;",
         'export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];',
         "export const arbitrary = 'snapshot';",
+        "export const kind = 'demo.kind';",
       ].join('\n'),
       'src/adapters/database-owner.ts': [
         "import type {SqlTransactionKind} from '../sql-driver.js';",
@@ -333,21 +375,25 @@ describe('gate 1: the engine holds no product data', () => {
         "function run(database:Owner,kind:'snapshot'|'write',work:unknown){ const arbitrary='snapshot'; return database.transaction(kind,work); }",
         "run(database,'snapshot',work);",
         "const arbitrary='snapshot';",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3],['src/sql-driver.ts',3]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/reader.ts',6],['src/reader.ts',3],['src/sql-driver.ts',4],['src/sql-driver.ts',3],
+    ]);
   });
 
   test('the registry form declares no mode word without a typed owner consumer', () => {
     const driver=[
       "export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;",
       'export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];',
+      "export const kind = 'demo.kind';",
     ].join('\n');
     const tree={ ...catalogue('demo.kind','fields:\n  - name: snapshot\n    type: text\n'), 'src/sql-driver.ts': driver };
     const findings=(files:Readonly<Record<string,string>>)=>productDataViolations(fixture(files))
       .filter(finding=>finding.file==='src/sql-driver.ts').map(finding=>[finding.line,finding.symbol]);
-    expect(findings(tree)).toEqual([[1,'snapshot']]);
-    expect(findings({ ...tree, 'src/adapters/database-owner.ts': 'export interface DatabaseOwner { transaction(kind:string,work:unknown):void }' })).toEqual([[1,'snapshot']]);
+    expect(findings(tree)).toEqual([[3,'demo.kind'],[1,'snapshot']]);
+    expect(findings({ ...tree, 'src/adapters/database-owner.ts': 'export interface DatabaseOwner { transaction(kind:string,work:unknown):void }' })).toEqual([[3,'demo.kind'],[1,'snapshot']]);
   });
 
   test('logical state selectors require the exact system template projection', () => {
@@ -358,22 +404,28 @@ describe('gate 1: the engine holds no product data', () => {
         "const fields={unit:['scope'],run:['scope']};",
         "function rows(tx,kind){return readGraphRecords(tx,'vertex',`system.${kind}`,fields[kind]);}",
         "const arbitrary=['scope'];",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/graph/fill-state.ts',1]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/graph/fill-state.ts',4],['src/graph/fill-state.ts',1],
+    ]);
   });
 
   test('a typed FSM state subset retains canonical machine authority', () => {
     const home=fixture({
       ...catalogue('demo.kind','fields:\n  - name: skipped\n    type: text\n'),
-      'src/fill/fsm.ts': "export const UNIT_STATES=['skipped']; export type UnitState=typeof UNIT_STATES[number];",
+      'src/fill/fsm.ts': "export const UNIT_STATES=['skipped']; export type UnitState=typeof UNIT_STATES[number]; export const kind='demo.kind';",
       'src/reader.ts': [
         "import type {UnitState} from './fill/fsm.js';",
         "const subset:readonly UnitState[]=['skipped'];",
         "const arbitrary=['skipped'];",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/fill/fsm.ts',1],['src/reader.ts',3]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/fill/fsm.ts',1],['src/fill/fsm.ts',1],['src/reader.ts',4],['src/reader.ts',3],
+    ]);
   });
 
   test('protected row loops retain lexical collection and exact kind provenance', () => {
@@ -390,10 +442,13 @@ describe('gate 1: the engine holds no product data', () => {
         "const privateRows=await readGraphRecords(tx,'vertex','system.operation',['result']);",
         "const wrongRows=await readGraphRecords(tx,'vertex','other',['result']);",
         "privateRows.map(row=>project(row));",
+        "export const kind='demo.kind';",
 
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',4]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/reader.ts',10],['src/reader.ts',4],
+    ]);
   });
 
   test('private row projectors require agreement of every actual caller', () => {
@@ -407,9 +462,12 @@ describe('gate 1: the engine holds no product data', () => {
         "known.map(row=>project(row));",
         "const other=await readKindAssertions(tx,'vertex','other',[]);",
         "other.map(row=>project(row));",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',2]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/reader.ts',7],['src/reader.ts',2],
+    ]);
   });
 
   test('a forwarding row reader must call the imported assertion reader', () => {
@@ -420,9 +478,12 @@ describe('gate 1: the engine holds no product data', () => {
         "function unrelated(tx,sort,kind,fields){return arbitrary(tx,sort,kind,fields);}",
         "const records=await unrelated(tx,'vertex','system.operation',[]);",
         "records.map(row=>row.values['result']);",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/reader.ts',4],['src/reader.ts',3],
+    ]);
   });
 
   test('locator reads require earlier validation of the exact receiver', () => {
@@ -433,9 +494,12 @@ describe('gate 1: the engine holds no product data', () => {
         "import {validateEvidenceLocator} from './graph/evidence-locator.js';",
         "function good(proof){validateEvidenceLocator(proof.locator);return proof.locator['digest'];}",
         "function wrong(proof){validateEvidenceLocator(proof.other);return proof.locator['digest'];}",
+        "export const kind='demo.kind';",
       ].join('\n'),
     });
-    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3]]);
+    expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([
+      ['src/reader.ts',4],['src/reader.ts',3],
+    ]);
   });
 
   test('SourceText may declare the actual file-read protocol fields that collide with catalogue fields', () => {
@@ -458,14 +522,14 @@ describe('gate 1: the engine holds no product data', () => {
         "this.type('OtherType', [{ name: 'bytes', type: 'Int!' }]);",
         "this.type('SourceText', [{ name: 'text', type: 'bytes' }]);",
         "export const arbitrary = 'bytes';",
+        "export const kind = 'demo.task';",
       ].join('\n'),
-      'src/a.ts': "export const arbitrary = 'bytes';\n",
+      'src/a.ts': "export const arbitrary = 'bytes';\nexport const kind = 'demo.task';\n",
     });
     expect(productDataViolations(home).map(({ file, line, symbol }) => [file, line, symbol])).toEqual([
-      ['src/a.ts', 1, 'bytes'],
-      ['src/graphql/schema.ts', 4, 'bytes'],
-      ['src/graphql/schema.ts', 3, 'line'],
-      ['src/graphql/schema.ts', 2, 'statement'],
+      ['src/a.ts', 1, 'bytes'], ['src/a.ts', 2, 'demo.task'],
+      ['src/graphql/schema.ts', 4, 'bytes'], ['src/graphql/schema.ts', 7, 'demo.task'],
+      ['src/graphql/schema.ts', 3, 'line'], ['src/graphql/schema.ts', 2, 'statement'],
     ]);
   });
 
@@ -480,9 +544,9 @@ describe('gate 1: the engine holds no product data', () => {
       const home = fixture({
         ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
         'src/knowledge/file-text-shape.ts': 'export interface FileTextResult { readonly bytes: number; }',
-        'src/graphql/schema.ts': source,
+        'src/graphql/schema.ts': `${source} export const kind = 'demo.task';`,
       });
-      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes', 'demo.task']);
     }
   });
 
@@ -495,9 +559,9 @@ describe('gate 1: the engine holds no product data', () => {
       const home = fixture({
         ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
         'src/knowledge/file-text-shape.ts': declaration,
-        'src/graphql/schema.ts': "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+        'src/graphql/schema.ts': "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]); export const kind = 'demo.task';",
       });
-      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes', 'demo.task']);
     }
   });
 
