@@ -12,6 +12,7 @@ import { validateProductManifests, publishValidatedManifests } from '../src/grap
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
+import { byCodePoint } from '../src/model/order.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
@@ -29,11 +30,28 @@ test('a starter product publishes its catalogue and the page lists the new kinds
     const manifest = validation.value.manifest;
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(manifest)) });
     await publishValidatedManifests(owner, validation.value);
-    const total = await executeGraphql(owner, { manifest, folder }, { query: '{ allCatalogueEntity(first: 1) { totalCount } }' });
     // The page also lists the protected engine kinds the catalogue's declarations name (decision 0039, item 9):
     // `system.product`, the root every kind derives from after R1 (the owner's decision of 2026-11-19, 0b5028570), and
     // `system.problem`, the end of `task-problem`. Both are one vertex each, not duplicates of catalogue kinds.
-    expect((total.body as MessageBody).data).toMatchObject({ allCatalogueEntity: { totalCount: manifest.catalog!.kinds.size + 2 } });
+    // The names themselves, not a count (ALX-531): a catalogue that lost `system.problem` and showed another protected
+    // kind instead would keep the count, and the per-kind checks below reach none of the two.
+    const declared = new Set([...manifest.kinds.keys(), ...manifest.catalog!.kinds.keys()]);
+    const expectedNames = [...declared, 'system.product', 'system.problem'].sort(byCodePoint);
+    const listedNames: string[] = [];
+    let after: string | null = null;
+    for (;;) {
+      const page = await executeGraphql(owner, { manifest, folder }, {
+        query: 'query ($after: String) { allCatalogueEntity(first: 200, after: $after) { pageInfo { hasNextPage endCursor } edges { node { name } } } }',
+        variables: { after },
+      });
+      const body = page.body as MessageBody;
+      if (body.errors !== undefined) throw new Error(`${folder}:1: GraphQL HTTP ${String(page.status)}: ${JSON.stringify(body.errors)}`);
+      const held = (body.data as { allCatalogueEntity: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; edges: { node: { name: string } }[] } }).allCatalogueEntity;
+      for (const edge of held.edges) listedNames.push(edge.node.name);
+      if (!held.pageInfo.hasNextPage) break;
+      after = held.pageInfo.endCursor;
+    }
+    expect([...listedNames].sort(byCodePoint)).toEqual(expectedNames);
     // Every kind the owner agreed is a catalogue entity a reader reaches, with its name in both languages.
     for (const kind of ['person', 'role', 'permission', 'iam-role', 'activity', 'activity-node', 'class-diagram', 'logical-data-model', 'use-case-step', 'scenario-step', 'process-event', 'state-machine', 'state-event', 'proposed-kind', 'doc.decision', 'business-process', 'runtime-scenario', 'work-span', 'container-health-check']) {
       const page = await executeGraphql(owner, { manifest, folder }, { query: `{ catalogueEntity(name: "${kind}", lang: "ru") { name label } }` });
