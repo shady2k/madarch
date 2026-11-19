@@ -427,12 +427,51 @@ are the repository's installation, and each person's plugin and hooks are theirs
   owner's public email, then run `sh .shady2k/connect.sh`.
 - **CI:** GitHub Actions on every push of any branch, once (a pull request from
   this repository shows its branch's push run; `[skip ci]` in the pushed
-  commit's message skips unfinished work). `.github/workflows/ci.yml` runs the
-  root suite in five `bun test --shard=i/5` jobs balanced by
-  `.github/workflows/test-timings.json`; refresh the timings with
-  `bun test test/ --timings=.github/workflows/test-timings.json --update-timings`.
+  commit's message skips unfinished work). `.github/workflows/ci.yml` runs
+  `bun run test` (every test file `test/slow-files.json` does not name) in five
+  `--shard=i/5` jobs balanced by `.github/workflows/test-timings.json`, and a
+  separate non-blocking workflow `.github/workflows/slow-tests.yml` runs
+  `bun run test:slow` nightly and on demand; `.github/workflows/ci.yml` is
+  push-only so a manual slow run cannot satisfy the required `test` status.
+  Slow runs never cancel each other (unique concurrency group, cancel false),
+  and always publish a per-file summary, timings JSON and log artifact;
+  refresh the timings with
+  `bun run test --timings=.github/workflows/test-timings.json --update-timings`.
   The stable `test` job is green only when all five shards, the separate checks
-  job and the union-of-test-files check pass. The checks job keeps
+  job, the union-of-test-files check and merge-base growth control pass.
+  Growth is every added slow entry and every changed single-file evidence row.
+  The blocking `test` job measures only growth paths listed as green, because
+  these claim speed. Each file runs alone once; only a first measurement at or
+  below 30 000 ms triggers a second alone run with fresh temporary timings.
+  A finding requires both measurements at or below 30 000 ms, and names both
+  numbers and listed seconds. Any above-threshold run is not a speed finding,
+  whatever the listed seconds. Fresh times are noisy: on the same box
+  `test/manifest-publication.test.ts` measured 14 427 / 43 906 / 55 410 ms within
+  45 minutes (Teamlead measurement); a 100 ms fresh-run comparison cannot gate
+  that noise. The 100 ms comparison remains only between listed seconds and
+  committed evidence, which is internal and stable. Evidence and growth commands
+  do not set `MADARCH_SKIP_PERF`: committed rows were measured without it.
+  Red entries claim defects, not stable duration; their bound waits fluctuate,
+  and the nightly summary judges their outcomes instead. It exits 1 for a
+  claimed red file that runs green or a claimed green file that runs red.
+  A batch run at or below 30 s marks an exit candidate; removal needs a fresh
+  green single-file confirmation at or below 30 s, not historical evidence.
+  For an unlisted file a shard measures over 30 s, the blocking check runs the
+  file alone and reports a speed finding only if both runs exceed 30 s. The initial adoption has no
+  base manifests, so all rows are growth but only 21 green claims are measured
+  in the gate (about 1 347 s of committed evidence before any confirmation runs),
+  not the 282-file, roughly 177-minute serial pass. Normal PRs pay for a handful
+  of added/changed green claims. This design decision avoids treating known defect bound waits as speed
+  claims: red entries are judged by their observed outcomes nightly, not by fresh
+  duration comparisons. The owner's direction was to quarantine tests that slow
+  the run, not to prescribe this measurement design. Evidence for moved paths is deleted as move bookkeeping; the new paths
+  have their own rows. A confirmed fast inventory entry is reported for the
+  Teamlead, not automatically removed or rebaselined from one local run.
+  Produce a single-file evidence row with the exact command (add `--slow` after
+  `test` for an already listed file):
+  `scripts/plugin-sandbox-cgroup.sh bun run test --only test/e2e/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.
+  This target refuses updates without exactly one `--only`; a successful
+  measurement merges only that row and preserves all other rows. The checks job keeps
   `bun install --frozen-lockfile`, `bun run check`, the PostgreSQL service and
   test, `bun run views:check`, `bun run contract:check`, and the wiki app's own
   install, checks, tests and build. Workflow changes run CI so the workflow

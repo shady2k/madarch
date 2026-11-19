@@ -45,3 +45,21 @@ test('inventory refuses missing reason or ungrounded since metadata', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('the command inventories file exclusions with repair evidence and the exact manifest line', async () => {
+  const root = fixture("test('ordinary', () => {});\n");
+  const entry = { path: 'test/sample.test.ts', seconds: 41, reason: 'red-defect', result: 'red', owner: 'madarch-x9a7', defect: 'Named defect', replacement: 'Focused assertion', exit: 'Replacement passes' };
+  const text = JSON.stringify({ version: 1, measuredOn: '2026-11-18', files: [entry] }, null, 2);
+  const manifest = join(root, 'test/slow-files.json');
+  writeFileSync(manifest, text);
+  const child = Bun.spawn([process.execPath, new URL('../scripts/check-quarantine.ts', import.meta.url).pathname], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const output = await new Response(child.stdout).text();
+  const errors = await new Response(child.stderr).text();
+  expect(await child.exited).toBe(0);
+  expect(errors).toBe('');
+  const line = text.slice(0, text.indexOf(JSON.stringify(entry.path))).split('\n').length;
+  expect(output).toContain(`${manifest}:${line}`);
+  for (const value of [entry.path, entry.owner, entry.defect, entry.replacement, entry.exit]) expect(output).toContain(value);
+  expect(output).toContain('1 excluded files');
+});

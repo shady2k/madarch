@@ -27,6 +27,39 @@ describe('root test shard coverage', () => {
     ), ['test file ran in no shard: /repo/b.test.ts']);
   });
 
+  it('leaves the slow-list files out of the expected set', () => {
+    assert.deepEqual(checkShardCoverage(
+      ['a.test.ts', 'b.test.ts'],
+      manifests(['a.test.ts']),
+      1,
+      '/repo',
+      'shards',
+      ['b.test.ts'],
+    ), []);
+  });
+
+  it('refuses a blocking shard that ran a file the slow list excludes', () => {
+    assert.deepEqual(checkShardCoverage(
+      ['a.test.ts', 'b.test.ts'],
+      manifests(['a.test.ts', 'b.test.ts']),
+      1,
+      '/repo',
+      'shards',
+      ['b.test.ts'],
+    ), ['shard 1 ran /repo/b.test.ts, which the slow list excludes from the blocking run']);
+  });
+
+  it('names a slow entry that is not a tracked test file', () => {
+    assert.deepEqual(checkShardCoverage(
+      ['a.test.ts'],
+      manifests(['a.test.ts']),
+      1,
+      '/repo',
+      'shards',
+      ['gone.test.ts'],
+    ), ['the slow list names /repo/gone.test.ts, which is not a tracked test file']);
+  });
+
   it('refuses overlap, unknown files, and a missing shard manifest', () => {
     assert.deepEqual(checkShardCoverage(
       ['a.test.ts'],
