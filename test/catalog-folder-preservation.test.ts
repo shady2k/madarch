@@ -44,10 +44,15 @@ test('a template selects folders as well as kinds and rejects unknown selectors'
   const folderKinds = CATALOG_KINDS.filter((kind) => CATALOG_KIND_FILES[kind.name]?.startsWith('code/')).map((kind) => kind.name);
   const derivesFrom = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.derivesFrom ?? []]));
   const needed = new Set(kindClosure(folderKinds, (name) => derivesFrom.get(name)));
-  // A kind of the closure with no catalogue file is a protected engine kind: it is declared, but no file is written.
   const expected = CATALOG_KINDS.filter((kind) => needed.has(kind.name)).map((kind) => kind.name);
   expect([...names].sort(byCodePoint)).toEqual([...expected].sort(byCodePoint));
+  // Every kind the expectation keeps has a catalogue file, so the written `madarch/kinds/…` paths are these kinds' files.
+  const expectedFiles = expected.map((name) => {
+    const file = CATALOG_KIND_FILES[name];
+    if (file === undefined) throw new Error(`test/catalog-folder-preservation.test.ts:1: the catalogue holds no file for ${name}`);
+    return file;
+  });
   const written = starterFilesFor(template).filter((file) => file.path.startsWith('madarch/kinds/')).map((file) => file.path.slice('madarch/kinds/'.length));
-  expect(written.sort(byCodePoint)).toEqual(expected.map((name) => CATALOG_KIND_FILES[name]!).sort(byCodePoint));
+  expect(written.sort(byCodePoint)).toEqual(expectedFiles.sort(byCodePoint));
   expect(() => starterKindNames({...template, kinds: ['missing-folder']})).toThrow('unknown kind or folder');
 });
