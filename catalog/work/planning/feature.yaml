@@ -14,11 +14,13 @@ relation-constraints:
   - hasPart
   - implements
   - refines
+  - work.depends-on
   - feature.contains
   in:
   - partOf
   - refines
   - realises
+  - work.depends-on
   - feature.contains
 template-policy: page
 source: graph

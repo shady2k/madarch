@@ -514,6 +514,14 @@ value-types:
       $id: urn:madarch:value-type:value-set-value:v1
       type: string
       minLength: 1
+  value-set-value-list:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:value-set-value-list:v1
+      type: array
+      items:
+        $ref: urn:madarch:value-type:value-set-value:v1
   version:
     storage: text
     schema:
@@ -1079,6 +1087,7 @@ catalog:
     uses: {"labels": {"en": {"out": "uses", "in": "used by"}, "ru": {"out": "использует", "in": "используется"}}}
     usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "tool of"}, "ru": {"out": "использует инструмент", "in": "инструмент для"}}}
     verifies: {"labels": {"en": {"out": "verifies", "in": "verified by"}, "ru": {"out": "верифицирует", "in": "верифицировано"}}}
+    work.depends-on: {"labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
     domain.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
     software-system.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
     c4.component.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
@@ -4327,6 +4336,41 @@ edges:
     ru:
       out: содержит
       in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: work.depends-on
+  from:
+  - defect
+  - epic
+  - feature
+  - milestone
+  - stage
+  - task
+  to:
+  - defect
+  - epic
+  - feature
+  - milestone
+  - stage
+  - task
+  labels:
+    en:
+      out: depends on
+      in: depended on by
+    ru:
+      out: зависит от
+      in: от него зависят
+  fields:
+  - name: type
+    type: value-set-value
+    producers:
+    - person
+    - agent
   cardinality:
     from:
       min: 0

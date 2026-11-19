@@ -10,7 +10,7 @@ acquisition:
 - conversation
 relation-constraints:
   out:
-  - dependsOn
+  - work.depends-on
   - hasPart
   - refines
   - partOf
@@ -19,7 +19,7 @@ relation-constraints:
   in:
   - partOf
   - hasPart
-  - dependsOn
+  - work.depends-on
   - task.contains
 template-policy: page
 source: graph
@@ -81,7 +81,10 @@ fields:
   binding:
     agent: What has to hold for the task to be done, in the words of its acceptance.
 - name: labels
-  type: value-set-value
+  type: value-set-value-list
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:value-set-value-list:v1
   nullable: true
   binding:
     agent: The labels the task carries, by the keys of those value-set entries in the graph.

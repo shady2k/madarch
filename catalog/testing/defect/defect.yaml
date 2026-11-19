@@ -12,9 +12,11 @@ relation-constraints:
   - affects
   - fixedBy
   - hasPart
+  - work.depends-on
   in:
   - foundBy
   - partOf
+  - work.depends-on
 template-policy: page
 source: graph
 fields:

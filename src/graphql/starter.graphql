@@ -5703,6 +5703,8 @@ type KindDefect implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindDefectConnection {
@@ -6183,6 +6185,8 @@ type KindEpic implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindEpicConnection {
@@ -6315,6 +6319,8 @@ type KindFeature implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindFeatureConnection {
@@ -7658,6 +7664,8 @@ type KindMilestone implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindMilestoneConnection {
@@ -8983,6 +8991,8 @@ type KindStage implements Entity {
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
   stageContains(first: Int, after: String): StageContainsConnection!
   stageContainsOf(first: Int, after: String): StageContainsConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindStageConnection {
@@ -10326,7 +10336,7 @@ type KindTask implements Entity {
   scopeAssertions: [Assertion!]!
   doneCriterion: String
   doneCriterionAssertions: [Assertion!]!
-  labels: String
+  labels: JSON
   labelsAssertions: [Assertion!]!
   queuePosition: Int
   queuePositionAssertions: [Assertion!]!
@@ -10345,6 +10355,8 @@ type KindTask implements Entity {
   taskContains(first: Int, after: String): TaskContainsConnection!
   taskContainsOf(first: Int, after: String): TaskContainsConnection!
   taskProblem(first: Int, after: String): TaskProblemConnection!
+  workDependsOn(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
+  workDependsOnOf(where: WorkDependsOnEdgeWhere, orderBy: [WorkDependsOnEdgeOrder!], first: Int, after: String): WorkDependsOnConnection!
 }
 
 type KindTaskConnection {
@@ -11867,6 +11879,27 @@ type ValueSetEntrySetEdge {
 type VertexIdentity {
   id: ID!
   entity: Entity!
+}
+
+type WorkDependsOnConnection {
+  edges: [WorkDependsOnConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type WorkDependsOnConnectionEdge {
+  cursor: String!
+  node: WorkDependsOnEdge!
+}
+
+type WorkDependsOnEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  type: String
+  typeAssertions: [Assertion!]!
+  node: Entity!
 }
 
 type WorkSpanWhoConnection {
@@ -23054,16 +23087,8 @@ input KindTaskKeyFilter {
 }
 
 input KindTaskLabelsFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
+  _eq: JSON
+  _neq: JSON
   _is_null: Boolean
 }
 
@@ -23835,6 +23860,30 @@ input RelatedOrder {
   field: String!
   direction: OrderDirection
   nulls: NullsOrder
+}
+
+input WorkDependsOnEdgeOrder {
+  field: WorkDependsOnEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input WorkDependsOnEdgeTypeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input WorkDependsOnEdgeWhere {
+  type: WorkDependsOnEdgeTypeFilter
 }
 
 enum AssertionOperation {
@@ -25129,4 +25178,8 @@ enum PackageDependsOnEdgeOrderField {
   version
   scope
   exact
+}
+
+enum WorkDependsOnEdgeOrderField {
+  type
 }
