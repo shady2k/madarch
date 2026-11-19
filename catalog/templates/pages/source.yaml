@@ -27,14 +27,13 @@ sections:
         }
       }
     params:
-      path: related.edges.0.node
       rows:
-        - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
-        - { label: { en: Path, ru: Путь }, path: path }
-        - { label: { en: Language, ru: Язык }, path: language }
-        - { label: { en: Lines, ru: Строки }, path: lines, format: number }
-        - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
-        - { label: { en: Commit, ru: Коммит }, path: related.edges.0.node, format: commit }
+        - { label: { en: Repository, ru: Репозиторий }, path: related.edges.0.node.codeFileRepository.edges.0.node.node.label }
+        - { label: { en: Path, ru: Путь }, path: related.edges.0.node.path }
+        - { label: { en: Language, ru: Язык }, path: related.edges.0.node.language }
+        - { label: { en: Lines, ru: Строки }, path: related.edges.0.node.lines, format: number }
+        - { label: { en: Last change, ru: Последнее изменение }, path: related.edges.0.node.lastChange, format: date }
+        - { label: { en: Commit, ru: Коммит }, path: related.edges.0.node.related.edges.0.node, format: commit }
   - id: source
     component: source-page
     title: { en: Source, ru: Исходный код }

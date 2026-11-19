@@ -2,13 +2,14 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { buildSchema, parse, validate, visit, type FieldNode } from 'graphql';
+import { buildSchema, parse, validate, visit, type FieldNode, type InlineFragmentNode } from 'graphql';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { composePage, readTemplate, type Bootstrap } from '../src/page-contract/index.js';
 import { starterSchema } from '../scripts/graphql-starter.js';
 import { MAX_NODES, queryCost } from '../src/graph/graphql-execute.js';
+import { kindTypeNameOf } from '../src/graphql/names.js';
 
 const folder = join(import.meta.dir, '../catalog/templates/pages');
 const bindings = [
@@ -95,13 +96,20 @@ test('every related query uses a declared edge with reachable source and target 
     const manifest = read.manifest;
     expect(manifest.findings).toEqual([]);
     const contract = graphContractOf(manifest);
+    const kindOfType = new Map([...manifest.kinds.values()].map((declared) => [kindTypeNameOf(declared.name), declared.name]));
     const failures: string[] = [];
     const includes = (ends: readonly string[], kind: string): boolean => ends.includes(kind) || ends.includes('any');
     for (const [name, kind] of bindings) {
       const source = readFileSync(join(folder, `${name}.yaml`), 'utf8');
       for (const section of page(kind).sections) {
         if (section.query === undefined) continue;
+        // A nested related inside `... on KindX` reads from X, not from the page's root kind.
+        const fragments: string[] = [];
         visit(parse(`query Fixture { ${section.query} }`), {
+          InlineFragment: {
+            enter(node: InlineFragmentNode) { fragments.push(kindOfType.get(node.typeCondition?.name.value ?? '') ?? fragments.at(-1) ?? kind); },
+            leave() { fragments.pop(); },
+          },
           Field(node: FieldNode) {
             if (node.name.value !== 'related') return;
             const argument = (name: string) => node.arguments?.find((one) => one.name.value === name)?.value;
@@ -115,7 +123,8 @@ test('every related query uses a declared edge with reachable source and target 
             if (edge === undefined) { failures.push(`${at}: undeclared edge ${named.value}`); return; }
             const from = reversed ? edge.to : edge.from;
             const to = reversed ? edge.from : edge.to;
-            if (!includes(from, kind)) failures.push(`${at}: ${kind} is not a source of ${named.value}`);
+            const fromKind = fragments.at(-1) ?? kind;
+            if (!includes(from, fromKind)) failures.push(`${at}: ${fromKind} is not a source of ${named.value}`);
             const kinds = argument('kinds');
             if (kinds?.kind === 'ListValue') for (const value of kinds.values) {
               if (value.kind === 'StringValue' && !includes(to, value.value)) failures.push(`${at}: ${value.value} is not a target of ${named.value}`);
