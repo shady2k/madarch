@@ -15,10 +15,12 @@ test('a plugin turn leaves an absent optional pattern to the plugin default', as
   try {
     const declaration = { name: 'pattern-probe', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Probe', fields: '*', partition: 'key' }] };
     const contract = { vertices: [{ kind: 'Probe', key: ['name'], fields: [] }], edges: [] };
+    // The SDK introduces a writing plugin with the graph right and these reads (src/plugin-sdk.ts:747); the contract grants them.
+    const rights = { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] };
     writeFileSync(join(root, 'plugin.json'), JSON.stringify(declaration));
-    writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: declaration.name, version: declaration.version, outputs: contract }));
+    writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: declaration.name, version: declaration.version, outputs: contract, rights }));
     writeFileSync(join(root, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
-await definePlugin({ name: 'pattern-probe', version: '1.0.0', contract: ${JSON.stringify(contract)},
+await definePlugin({ name: 'pattern-probe', version: '1.0.0', contract: ${JSON.stringify(contract)}, graph: true, graphReads: ['files', 'value', 'ownFacts'],
   planOutput(unit) {
     if ('pattern' in unit.inputs || unit.inputs.patterns.length !== 0) throw new Error('absent pattern was replaced');
     return { partitions: [] };
@@ -30,6 +32,8 @@ await definePlugin({ name: 'pattern-probe', version: '1.0.0', contract: ${JSON.s
     const kind = { name: 'Probe', key: ['name'], fields: [] };
     const wiring = {
       productFolder: root,
+      // plugin-turns.ts:469 reads the run's pins before the unit's turn; this double pins no repository.
+      snapshots: { pins: async () => [], open: async () => { throw new Error('no repository'); } },
       manifest: { file: join(root, 'kinds.yaml'), kinds: new Map([['Probe', kind]]), plugins: new Map([[plugin.id, plugin]]) },
       locks: new Map([[plugin.id, { id: plugin.id, version: '1.0.0', closure: closure.hash }]]),
       owner,

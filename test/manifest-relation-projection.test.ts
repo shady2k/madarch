@@ -34,10 +34,11 @@ kinds:
     expect(edges.map((one) => [one.from.key, one.to.key, one.discriminator])).toEqual([
       [{ name: 'page' }, { name: 'page' }, 'related'],
     ]);
-    const declaration = edges[0]!.values!['declaration'] as { relations: { to: string }[] };
+    // manifest-publication.ts:157,232 stores the declaration as JSON text inside the row's values.
+    const declaration = JSON.parse(edges[0]!.values!['declaration'] as string) as { relations: { to: string }[] };
     expect(declaration.relations.map((one) => one.to)).toEqual(['page:{label}', 'page:{title}']);
     expect(edges[0]!.evidence).toHaveLength(2);
     const wildcard = read.value.vertices.find((one) => one.kind === 'manifest.relation' && one.key['name'] === JSON.stringify(['edge', 'mentions']));
-    expect(wildcard?.values!['declaration']).toMatchObject({ name: 'mentions', from: ['any'], to: ['any'] });
+    expect(JSON.parse(wildcard?.values!['declaration'] as string)).toMatchObject({ name: 'mentions', from: ['any'], to: ['any'] });
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });

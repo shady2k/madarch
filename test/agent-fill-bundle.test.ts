@@ -35,7 +35,8 @@ plugins:
     try {
       seedStarterSet(root);
       const document = parse(starterManifestText());
-      const { terms: _terms, semantics: _semantics, ...base } = document.kinds['doc.term'];
+      // doc.term's key-edge names an edge that belongs to doc.term; a copied kind keeps no role the example does not declare.
+      const { terms: _terms, semantics: _semantics, 'key-edges': _keyEdges, ...base } = document.kinds['doc.term'];
       document.kinds['example.topic'] = {
         ...base, id: 'example.topic', definition: 'A topic supported by graph evidence.',
         source: 'graph',

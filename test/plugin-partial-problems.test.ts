@@ -34,10 +34,10 @@ await definePlugin({ name: 'partial-probe', version: '1.0.0', readOnly: true, co
       // is the turn's, and the process's environment stays what the run gave it.
       unconfined: true,
     } as unknown as PluginTurnWiring;
-    const writes: { kind: string; value: unknown }[] = [];
-    const draft = { write(write: { kind: string; value: unknown }) { writes.push(write); }, writes() { return { writes: [] }; } };
-    await runPluginTurn(wiring, 'partial-probe:Probe', draft as never, undefined, undefined, undefined, undefined);
-    const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string; reason?: string } | undefined;
+    // Since ff84f4659 the third argument is the outcome callback itself, not a draft that records it.
+    const outcomes: { outcome?: string; reason?: string }[] = [];
+    await runPluginTurn(wiring, 'partial-probe:Probe', (outcome) => { outcomes.push(outcome); }, undefined, undefined, undefined, undefined);
+    const outcome = outcomes[0];
     expect(outcome?.outcome).toBe('abstained');
     expect(outcome?.reason).toContain('the rest could not be read');
     expect(outcome?.reason).toContain('app/src/a.ts:2:3 it broke');
