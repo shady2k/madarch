@@ -266,7 +266,24 @@ export class KnowledgeProduct {
       for (const run of snapshot.runs.filter(run => FINAL_RUN_STATES.includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
         ends.set(run.runId, await readFillEnd(database, run.runId).catch(() => null));
       }
-      return { owner, snapshot, configuration, outcomes: new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>(), ends };
+      const outcomes = await withSpan('fill.producer-outcomes.snapshot', {}, async () => {
+        const outcomes = new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>();
+        const runIds = new Set([latest?.runId, this.fillRunId, snapshot.chain?.context.activeRunId]);
+        for (const runId of runIds) {
+          if (runId === undefined || runId === null) continue;
+          // Optional metrics must not abort the core snapshot, even on an SQL error.
+          await tx.query('SAVEPOINT producer_outcomes');
+          try {
+            outcomes.set(runId, await readProducerOutcomes(database, { runId }));
+          } catch {
+            await tx.query('ROLLBACK TO SAVEPOINT producer_outcomes');
+          } finally {
+            await tx.query('RELEASE SAVEPOINT producer_outcomes');
+          }
+        }
+        return outcomes;
+      });
+      return { owner, snapshot, configuration, outcomes, ends };
     });
     const previous = this.fillStateMemo;
     if (previous?.owner === owner && previous.snapshot.stamp !== '-' && memo.snapshot.stamp !== '-' && BigInt(previous.snapshot.stamp) > BigInt(memo.snapshot.stamp)) return previous;
@@ -274,23 +291,10 @@ export class KnowledgeProduct {
     return memo;
   }
 
-  /** Optional producer metrics cannot abort the core fill snapshot or be cached under another revision. */
+  /** Producer metrics belong to the same snapshot as the fill state they describe. */
   private async producerOutcomes(owner: DatabaseOwner, runId: string) {
     const memo = this.fillStateMemo;
-    if (memo?.owner !== owner) return undefined;
-    const held = memo.outcomes.get(runId);
-    if (held !== undefined) return held;
-    try {
-      const outcomes = await owner.transaction('snapshot', async tx => {
-        const database: Pick<DatabaseOwner, 'transaction'> = { transaction: async (_kind, work) => await work(tx) };
-        if (await readStoreStamp(database) !== memo.snapshot.stamp) return undefined;
-        return await readProducerOutcomes(database, { runId });
-      });
-      if (outcomes !== undefined) memo.outcomes.set(runId, outcomes);
-      return outcomes;
-    } catch {
-      return undefined;
-    }
+    return memo?.owner === owner ? memo.outcomes.get(runId) : undefined;
   }
 
   private opening: Promise<void> | undefined;

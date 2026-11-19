@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRun, advanceRun } from '../src/graph/fill-state.js';
+import { createRun, advanceRun, createUnit, putFillVertexIn, readUnitGraphUidIn } from '../src/graph/fill-state.js';
 import { appendProgress, writeFillEnd } from '../src/graph/fill-orchestration.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
@@ -139,4 +139,30 @@ test('unreadable run state retains the last fill answer and does not fail fileTe
     expect(await reader.fileText('poll', 'missing.txt')).toBeUndefined();
     expect(invalidStates).toBeGreaterThan(0);
   } finally { cached.reader = original; cached.fillStateMemo = undefined; }
+}, 60_000);
+
+test('producer outcomes stay with the fill snapshot when a publication moves its stamp', async () => {
+  await createRun(database, { runId: 'outcomes', product: 'poll', at: 500 });
+  await createUnit(database, { unitId: 'outcome-unit', product: 'poll', runId: 'outcomes', stageId: 'fixture', scopeKey: 'note', inputsDigest: 'fixture', retries: 0, at: 501 });
+  await database.transaction('write', async tx => {
+    const uid = await readUnitGraphUidIn(tx, 'outcome-unit', 1);
+    if (uid === undefined) throw new Error('fixture unit missing');
+    await putFillVertexIn(tx, 'system.unit', uid, { producer: 'fixture', produced_kind: 'note', outcome: 'completed', produced: 3 });
+  });
+  await advanceRun(database, { runId: 'outcomes', event: { type: 'plan', at: 502, configuration: 'fixture' } });
+  await advanceRun(database, { runId: 'outcomes', event: { type: 'start', at: 503, stages: 1 } });
+  await advanceRun(database, { runId: 'outcomes', event: { type: 'complete-partial', at: 504, evidence: { runnable: 0, inFlight: 0, waiting: 0, coverageMet: false } } });
+  await writeFillEnd(database, { runId: 'outcomes', state: 'completed_partial' });
+  const cached = reader as unknown as { followStoreFill: () => Promise<void>; fillStateMemo: unknown };
+  const follow = cached.followStoreFill.bind(reader);
+  cached.fillStateMemo = undefined;
+  cached.followStoreFill = async () => {
+    await follow();
+    await appendProgress(database, { runId: 'outcomes', at: 502, stage: '', unitId: 'fixture', generation: null, kind: 'unit-published', summary: 'published 0 facts' });
+  };
+  try {
+    expect((await reader.status()).fill.outcomes).toEqual([
+      { runId: 'outcomes', unitId: 'outcome-unit', generation: 1, plugin: 'fixture', kind: 'note', outcome: 'completed', produced: 3 },
+    ]);
+  } finally { cached.followStoreFill = follow; cached.fillStateMemo = undefined; }
 }, 60_000);
