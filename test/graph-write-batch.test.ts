@@ -124,14 +124,14 @@ test('ALX-142: fixed admission phases name the first failing draft within each p
   const evidence={...file(2),evidence:[{target:snapshot,locator:{start:0,end:content.length+1}}]};
   const absent=(i:number):VertexDraft=>({...file(i),evidence:[{target:{...snapshot,key:{digest:'missing'}},locator:{}}]});
   const cases=[
-   {vertices:[file(1),evidence,absent(3),{...file(4),values:{size:'x' as unknown as number}},file(5)],code:'TYPE_MISMATCH',index:4},
+   {vertices:[file(1),evidence,absent(3),{...file(4),values:{size:'x' as unknown as number}},file(5)],code:'SCHEMA_INVALID',index:4},
    {vertices:[file(1),evidence,absent(3),file(5)],code:'MISSING_ENDPOINT',index:3},
    {vertices:[file(1),evidence,file(5)],code:'EVIDENCE_INVALID',index:2},
    {vertices:[file(1),absent(2),file(3),absent(4),file(5)],code:'MISSING_ENDPOINT',index:2},
   ];
-  for(const scenario of cases){const before=await counts();let error='';try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:scenario.vertices,removals:[]}));}catch(cause){error=String(cause);}
+  for(const scenario of cases){const before=await counts();let error='';let refusal:unknown;try{await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:scenario.vertices,removals:[]}));}catch(cause){refusal=cause;error=String(cause);}
    console.log('ALX-142 phase error',scenario.code,scenario.index,error);
-   expect(await counts()).toEqual(before);expect(error).toContain(scenario.code);expect(error).toContain('batch.file');expect(error).toContain(ids[scenario.index-1]!.uid);
+   expect(await counts()).toEqual(before);if(scenario.code==='SCHEMA_INVALID')expect(refusal).toMatchObject({code:'SCHEMA_INVALID',path:'/values/size',expected:'integer',actual:'x',retryable:false});else expect(error).toContain(scenario.code);expect(error).toContain('batch.file');expect(error).toContain(ids[scenario.index-1]!.uid);
   }
  }finally{await owner.close();}
 },30000);
