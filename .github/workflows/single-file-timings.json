@@ -203,7 +203,7 @@
     "test/product-upgrade.test.ts": 8600,
     "test/product-version.test.ts": 7000,
     "test/product-wiki-manifestless.test.ts": 6200,
-    "test/product-wiki-serve.test.ts": 23700,
+    "test/product-wiki-serve.test.ts": 72851,
     "test/quarantine-inventory.test.ts": 6200,
     "test/quarantine-runner.test.ts": 6700,
     "test/quarantine.test.ts": 6400,

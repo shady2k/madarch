@@ -416,6 +416,16 @@
       "exit": "Rewrite test/product-serve.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/product-wiki-serve.test.ts",
+      "seconds": 72.9,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The linked-README case passes but seeds a starter set, commits it, prepares a product store and runs a full plugin-turn fill; after the fill the wiki starts its graph validation, whose evidence read waits on the file-text queue that no role answers in this test, so it waits the 30 s file-text deadline inside server.stop().",
+      "replacement": "Reuse one prepared store per file and keep the test's file-text role answering while the post-fill validation reads, so the case asserts the fill, the GraphQL list and the source read without its 30 s stop wait.",
+      "exit": "Rewrite test/product-wiki-serve.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/queue.test.ts",
       "seconds": 47.8,
       "reason": "red-defect",
