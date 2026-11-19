@@ -522,7 +522,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   // How long this plugin's agent unit may run: the product's own minutes, or the host's thirty (owner's decision,
   // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
   const agentMinutes = unit.plugin.bounds?.minutes;
-  let committedEntries = 0;
+  let asserted = 0;
+  let retired = 0;
   const host = new PluginHost({
     ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, evidenceContracts: wiring.contract.vertex, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
@@ -558,7 +559,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         // removeEntity retires what this source alone stated, while the key stays identity.
         removals: (operation.removals ?? []).map(ref => ({ ...ref, evidence: draftEvidence(ref.evidence), producer: unit.plugin.id })),
       }, 1, { author: `${unit.plugin.id}@${unit.lock.version}` }), preconditions);
-      committedEntries += checked.unit.vertices.length + checked.unit.edges.length + checked.unit.removals.length;
+      asserted += checked.unit.vertices.length + checked.unit.edges.length;
+      retired += checked.unit.removals.length;
       return written;
     } },
     workRoot,
@@ -614,7 +616,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         throw unitStopped(id, outcome.cause.code, outcome.cause.message);
       }
       if (outcome.result.end.state === 'inapplicable') {
-        if (committedEntries !== 0) throw new Error(`${location}: inapplicable result cannot contain instances`);
+        if (asserted !== 0) throw new Error(`${location}: inapplicable result cannot contain instances`);
         const execute = wiring.executeOperation;
         if (execute === undefined) throw new Error(`${location}: applicability operation authority is unavailable`);
         await execute(id,'applicability',outcome.result.end,async tx => {
@@ -626,7 +628,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'empty',produced:0,reason:outcome.result.end.searched});
         return;
       }
-      producedCount = committedEntries;
+      producedCount = asserted;
       // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
       // makes the rest of the answer a silence, and the reason is where a person finds what was left out. A partial unit
       // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
@@ -638,7 +640,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const partialReason = outcome.result.end.state === 'partial'
         ? (problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`)
         : undefined;
-      const producedEntries = committedEntries;
+      const producedEntries = asserted;
       if (producedEntries > 0) {
         const execute = wiring.executeOperation;
         if (execute === undefined || wiring.sourceUid === undefined) throw new Error(`${location}: applicability operation authority is unavailable`);
@@ -657,7 +659,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       }
       if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? (priorFactCount > 0 ? 'unchanged' : 'empty') : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) });
+      completeOutcome( { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries > 0 ? 'completed' : retired > 0 ? 'empty' : priorFactCount > 0 ? 'unchanged' : 'empty', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) });
     } finally {
       signal?.removeEventListener('abort', cancel);
       const stderr = session.stderr();

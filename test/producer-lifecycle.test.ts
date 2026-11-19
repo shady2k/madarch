@@ -72,13 +72,17 @@ plugins:
   - { id: lifecycle, version: 1, path: plugins/lifecycle, inputs: [], outputs: [Document, FixtureProblem], closure: [plugins/lifecycle/contract.json, plugins/lifecycle/main.ts, plugins/lifecycle/plugin.json] }
 `);
   const author = { target: { kind: 'system.content-snapshot', key: { digest: sourceDigest } }, path: 'source.md', lineStart: 1, lineEnd: 1 };
-  const configure = (mode: 'bad' | 'good' | 'partial' | 'failed') => {
+  const configure = (mode: 'bad' | 'good' | 'partial' | 'failed' | 'inapplicable') => {
     writeFileSync(join(plugin, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
 await definePlugin({name:'lifecycle', version:'1.0.0', reads:'whole-graph', graph:true, graphReads:['value'], contract:${JSON.stringify(contract)},
 async extract(unit, context) {
   if (unit.kind === 'Document') return {vertices:[{kind:'Document',key:{id:'source'},values:{condition:${JSON.stringify(mode)}},evidence:${JSON.stringify(author)}}],end:{state:'complete'}};
   const mode = await context.graph.value('Document', {id:'source'}, 'condition');
   if (mode === 'failed') throw new Error('scripted check failure');
+  if (mode === 'inapplicable') {
+    await context.facts.apply('retire-finding', {removals:[{kind:'FixtureProblem',key:{id:'finding'}}]});
+    return {vertices:[],end:{state:'inapplicable',searched:'No applicable document',evidence:[${JSON.stringify(author)}]}};
+  }
   if (mode === 'partial') return {vertices:[{kind:'FixtureProblem',key:{id:'partial-answer'},values:{title:'Partial finding'}}],end:{state:'partial',cause:'scripted abstention'}};
   return {vertices:mode === 'bad' ? [{kind:'FixtureProblem',key:{id:'finding'},values:{title:'Bad document',detail:'grounded'},evidence:${JSON.stringify(author)}}] : [],end:{state:'complete'}};
 }});`);
@@ -102,7 +106,7 @@ async extract(unit, context) {
       await bindTestWriteCapability(tx, graph);
       await publishGraphDrafts(tx, graph, { vertices: [{ kind: 'system.content-snapshot', key: { digest: sourceDigest }, values: { content: sourceContent }, producer: 'fixture', producerVersion: '1' }], removals: [] });
     });
-    const run = async (runId: string) => await runFill({ product, database: owner, releaseHashes: [release], steps: ['plugin-turns'], targets: { kinds: ['FixtureProblem'] }, runId, home, store,
+    const run = async (runId: string) => await runFill({ product, database: owner, releaseHashes: [release], steps: ['plugin-turns'], targets: { kinds: ['FixtureProblem'] }, runId, home, store, limits: { retryDelayMs: 0 },
       prepareContract: async (held) => { await prepareStore(owner, { contract: held }); } });
     // One row per producing plugin, as the opinion read shows it: every opinion the plugin still holds of the entity,
     // with the title and detail it states and the evidence what it states stands on.
@@ -172,19 +176,30 @@ async extract(unit, context) {
     // `problems()` reports only the rows a producer still states a title or a detail of; a retraction that removed those
     // fields but left the `$exists` assertion true would still be a live FixtureProblem, so the vertex itself is read.
     expect(await owner.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'FixtureProblem', [], { contract: graph }))).toEqual([]);
-    // The entries a complete answer retires are entries it committed (a2c14d9f0): the empty answer clears the finding's
-    // existence and the detail it held, so the outcome is completed, and the graph holds no problem of it.
-    expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'completed', produced: 2 })]));
+    // Retiring prior findings produces no entities: both the outcome and the graph are empty.
+    expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'empty', produced: 0 })]));
     expect(await readProducerOutcomes(owner, { runId: 'bad' })).toEqual(history);
     const releasePreparation = await retainTestStorePreparationOwner();
     const reader = new KnowledgeProduct({ productFolder: product, storeRoot });
     try {
       const status = await reader.status();
-      expect(status.fill.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'completed', produced: 2 })]));
+      expect(status.fill.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'empty', produced: 0 })]));
     } finally { await reader.close(); await releasePreparation(); }
     release = configure('bad'); await run('bad-again');
     expect((await problems()).map((row) => row.title)).toEqual(['Bad document']);
-    release = configure('failed'); await run('failed');
+    release = configure('inapplicable'); const inapplicable = await run('inapplicable');
+    expect(inapplicable.ok).toBe(true);
+    if (!inapplicable.ok) throw new Error(JSON.stringify(inapplicable));
+    expect(inapplicable.settled).toBe(true);
+    expect(inapplicable.state).toBe('succeeded');
+    expect(await readProducerOutcomes(owner, { runId: 'inapplicable' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'empty', produced: 0, reason: 'No applicable document' })]));
+    expect(await owner.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'FixtureProblem', [], { contract: graph }))).toEqual([]);
+    release = configure('bad'); await run('bad-before-failed');
+    release = configure('failed'); const failedRun = await run('failed');
+    expect(failedRun.ok).toBe(true);
+    if (!failedRun.ok) throw new Error(JSON.stringify(failedRun));
+    expect(failedRun.settled).toBe(true);
+    expect(failedRun.state).not.toBe('succeeded');
     expect(await readProducerOutcomes(owner, { runId: 'failed' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'failed' })]));
     expect((await problems()).map((row) => row.title)).toEqual(['Bad document']);
   } finally { await owner.close(); }
