@@ -11,6 +11,7 @@ import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, MANUAL_GRAPH_QUEUE, ownerDatab
 /** Queue declarations installed by store preparation. Clients may update their mutable settings. */
 const FILL_QUEUES: readonly QueueDeclaration[] = [
   MANUAL_GRAPH_QUEUE,
+  { name: 'file-texts', leaseSeconds: 120, retries: 1, retryDelaySeconds: 1, retryBackoff: false },
   { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
   { name: 'fill-units', leaseSeconds: UNIT_JOB_ATTEMPT_SECONDS, heartbeatSeconds: RUN_JOB_HEARTBEAT_SECONDS, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
 ];
