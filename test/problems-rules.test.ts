@@ -355,7 +355,22 @@ describe('the rule set as data', () => {
   });
 
   test('the three sections have their rules, and every code and documents finding offers a task', () => {
-    expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'code').length).toBe(13);
+    expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'code').map((rule) => rule.id).sort()).toEqual([
+      'config.required-dev-value',
+      'contract.operation-without-route',
+      'contract.route-without-operation',
+      'dead-export',
+      'debt.fixme',
+      'debt.todo',
+      'dependency.cycle',
+      'dependency.declared-unused',
+      'dependency.used-undeclared',
+      'evidence-applicability',
+      'hotspot',
+      'large-file',
+      'security.export-route',
+      'security.sql-input',
+    ]);
     expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'documents').length).toBe(4);
     expect(STARTER_PROBLEM_RULES.filter((rule) => rule.section === 'wiki').length).toBe(6);
     for (const rule of STARTER_PROBLEM_RULES) if (rule.section !== 'wiki') expect(rule.action).toBe('task');
