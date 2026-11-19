@@ -41,5 +41,10 @@
       }
     ],
     "edges": []
+  },
+  "rights": {
+    "network": "none",
+    "graph": true,
+    "graphReads": ["files", "value", "ownFacts"]
   }
 }

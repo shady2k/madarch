@@ -22,12 +22,15 @@ async function fixture(agent: boolean): Promise<string> {
   mkdirSync(folder, { recursive: true });
   writeFileSync(join(folder, 'plugin.json'), JSON.stringify({
     name: 'probe-slow', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version },
+    // An agent is outside access, and a plugin that declares an agent part declares the capability the host runs it
+    // for (decision 0038): the host refuses an agent part beside no "agents" declaration.
+    capabilities: agent ? ['agents'] : [],
     produces: [{ kind: 'probe.slow', fields: '*', reads: [] }],
     ...(agent ? { agent: { prompt: 'prompt.md', roots: ['.'] } } : {}),
   }));
   writeFileSync(join(folder, 'prompt.md'), 'Fill the slow kind.');
   const outputs = { vertices: [{ kind: 'probe.slow', key: ['id'], fields: [{ name: 'title', type: 'text', meaning: 'the title', example: 'x', required: true }] }], edges: [] };
-  writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-slow', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
+  writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-slow', version: '1.0.0', outputs, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({ name: 'probe-slow', version: '1.0.0', graph: true, contract: ${JSON.stringify(outputs)}, async extract(unit) { await Bun.sleep(Number(unit.key['id'])); return { vertices: [{ kind: 'probe.slow', key: unit.key, values: { title: 'slow' } }], end: { state: 'complete' } }; } });\n`);
   return folder;
 }
@@ -39,6 +42,10 @@ async function run(folder: string, limits: { readonly unitMs: number; readonly a
     trust: 'production', releaseHashes: [closureOf(folder).hash],
     limits: { handshakeMs: 10_000, heartbeatMs: 1_000, maxMessageBytes: 65_536, ...limits },
     env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' },
+    // The fixture reconciles its output (decision 0039): the host answers the unit's own facts, none here, and admits
+    // the operations the plugin's reconciliation sends.
+    graph: { ownFacts: async () => ({ vertices: [], edges: [] }), files: async () => [], value: async () => null },
+    operations: { async apply() { return { accepted: true }; } },
   });
   const session = await host.open();
   try {

@@ -118,7 +118,8 @@
     "graph": true,
     "graphReads": [
       "removedEnds",
-      "unevidenced"
+      "unevidenced",
+      "ownFacts"
     ]
   }
 }

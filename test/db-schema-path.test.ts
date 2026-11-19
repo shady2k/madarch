@@ -116,6 +116,8 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
+        // The plugin reconciles what it produced before (decision 0039): the host answers the unit's own facts, none here.
+        ownFacts: async () => ({ vertices: [], edges: [] }),
         files: async (pattern) => (pattern.endsWith('.ts') ? [{ kind: 'code.file', key: { path: 'src/schema.ts' }, keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} }] : []),
         value: async (_kind, _key, field) => field === 'blob' ? 'blob-src/schema.ts' : null,
       },
@@ -197,6 +199,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       trust: 'production', releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
+        ownFacts: async () => ({ vertices: [], edges: [] }),
         files: async (pattern) => {
           requested.push(pattern);
           return Object.keys(sources).filter((path) => pattern === 'src/*.ts' ? path.startsWith('src/') : true)

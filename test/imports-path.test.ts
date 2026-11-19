@@ -80,6 +80,8 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
       releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
+        // The plugin reconciles what it produced before (decision 0039): the host answers the unit's own facts, none here.
+        ownFacts: async () => ({ vertices: [], edges: [] }),
         files: async () => [...Object.keys(FILES), 'src/absent.ts'].map((path) => ({ kind: 'code.file', key: { path }, keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'app'}}} })),
         value: async (_kind, key, field) => field === 'blob' ? `blob-${String(key['path'])}` : null,
       },

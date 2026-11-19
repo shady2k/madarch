@@ -41,8 +41,9 @@ function product(options: { readonly link?: string } = {}): { folder: string; re
   mkdirSync(reader, { recursive: true });
   const outputs = { vertices: [{ kind: 'probe.read', key: ['id'], fields: [{ name: 'length', type: 'integer', meaning: 'the text length', example: 1, required: true }] }], edges: [] };
   writeFileSync(join(reader, 'plugin.json'), JSON.stringify({ name: 'reader', version: '1.0.0', tier: 'ordinary', capabilities: ['git'], entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.read', fields: '*', reads: [] }] }));
-  // The plugin reads no graph: its one read is the file the host answers.
-  writeFileSync(join(reader, 'contract.json'), JSON.stringify({ id: 'reader', version: '1.0.0', outputs, rights: { network: 'none' } }));
+  // The plugin reads its own facts to reconcile them (decision 0039), so its contract declares exactly the graph rights
+  // the SDK's introduction repeats beside the file read it asks the host for.
+  writeFileSync(join(reader, 'contract.json'), JSON.stringify({ id: 'reader', version: '1.0.0', outputs, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
   writeFileSync(join(reader, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
 await definePlugin({ name: 'reader', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract(unit, context) {
   try {
@@ -79,7 +80,8 @@ async function run(fixture: ReturnType<typeof product>): Promise<{ state: string
     trust: 'production', releaseHashes: [closureOf(fixture.reader).hash],
     operations: { async apply(_unitId, _key, operation) { operations.push(operation as FactsOperation); return { accepted: true }; } },
     env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' },
-    graph: { files: async () => [], value: async () => null },
+    // The reader reconciles what it produced before (decision 0039): the host answers the unit's own facts, none here.
+    graph: { ownFacts: async () => ({ vertices: [], edges: [] }), files: async () => [], value: async () => null },
   });
   try {
     const session = await host.open();

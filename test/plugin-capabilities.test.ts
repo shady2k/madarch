@@ -99,10 +99,25 @@ describe('the host grants exactly what is declared', () => {
     await expect(host.open()).rejects.toThrow('declares an agent part and declares no "agents" capability: an agent is outside access, and the host runs one only for a plugin that declares it');
   });
 
-  test('a plugin with no source is refused a blob read, and the refusal names the plugin and the access', async () => {
+  test('a plugin that introduces itself with rights its contract does not declare is refused at once, not at the deadline', async () => {
+    // A refusal at the introduction is the open's answer: the host must settle it the moment the introduction is refused,
+    // never hold the caller until the handshake deadline turns the same refusal into a timeout.
     const folder = scratch();
     writeFileSync(join(folder, 'plugin.json'), manifest({ tier: 'ordinary', capabilities: [] }));
     writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe', version: '1.0.0', outputs: { vertices: [], edges: [] }, rights: { network: 'none' } }));
+    writeFileSync(join(folder, 'entry.ts'), "import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe',version:'1.0.0',graph:true,contract:{vertices:[],edges:[]},extract:()=>({end:{state:'complete'}})});");
+    const host = new PluginHost({ pluginFolder: folder, repository: folder, workRoot: join(folder, 'work'), trust: 'production', releaseHashes: [closureOf(folder).hash], limits: { handshakeMs: 30_000 }, env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' } });
+    const started = Date.now();
+    await expect(host.open()).rejects.toMatchObject({ code: 'rights-mismatch' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 15_000);
+
+  test('a plugin with no source is refused a blob read, and the refusal names the plugin and the access', async () => {
+    const folder = scratch();
+    writeFileSync(join(folder, 'plugin.json'), manifest({ tier: 'ordinary', capabilities: [] }));
+    // The contract declares exactly the rights the SDK's introduction repeats (decision 0039): a plugin that reconciles
+    // reads its own facts, and its contract says so before the process starts.
+    writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe', version: '1.0.0', outputs: { vertices: [], edges: [] }, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
     writeFileSync(join(folder, 'entry.ts'), "import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe',version:'1.0.0',contract:{vertices:[],edges:[]},read:(request)=>({text:'x',lines:1,bytes:1,binary:false}),extract:()=>({end:{state:'complete'}})});");
     const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
     process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
