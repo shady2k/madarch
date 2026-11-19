@@ -14,8 +14,8 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import { deferredEdgesOf, pageTemplateKind, type KindsManifest } from '../../product/manifest/kinds.js';
-import { cataloguePageTemplate } from '../../knowledge/page-template-kind.js';
+import { deferredEdgesOf, type KindsManifest } from '../../product/manifest/kinds.js';
+import { productPageTemplate } from '../../knowledge/page-template-kind.js';
 import { fillKindsOf, planFillDeclarations } from '../../plugin/fill-declarations.js';
 import { inheritProtectedContract } from '../../graph/system-contract.js';
 
@@ -42,10 +42,8 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     if (fields.length === 0 && base === undefined) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
     vertex.push({ ...base, ...(kind.duplicateSubjectEdge===undefined?{}:{duplicateSubjectEdge:kind.duplicateSubjectEdge}), ...(kind.semantics==='term'?{duplicateSubjectRequired:true}:{}), ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : base!.capability });
   }
-  if (pageTemplateKind(manifest) === undefined) {
-    const fallback = cataloguePageTemplate();
-    if (!vertex.some(kind => kind.name === fallback.name)) vertex.push(fallback.vertex);
-  }
+  const { fallback } = productPageTemplate(manifest);
+  if (fallback !== undefined && !vertex.some(kind => kind.name === fallback.name)) vertex.push(fallback);
   return inheritProtectedContract({ vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) }, {
     vertex: [...manifest.kinds.values()].flatMap(kind => kind.systemBase === undefined ? [] : [kind.systemBase]),
     edge: [], dictionary: [],

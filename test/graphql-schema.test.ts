@@ -45,6 +45,24 @@ function refusalOf(text: string): SchemaRefusal {
 }
 
 describe('the schema of a published manifest', () => {
+  test('exposes the catalogue template kind as Entity when the product declares none', () => {
+    const published = publishedManifestOf(manifestOf('kinds:\n  demo.page: { source: graph, title: label }\n'));
+    const schema = buildSchema(graphqlSchemaOf(published));
+    const template = schema.getType('KindPageTemplate') as GraphQLObjectType;
+    expect(template).toBeDefined();
+    expect(template.getInterfaces().map(type => type.name)).toContain('Entity');
+    expect(template.getFields()['body']?.type.toString()).toBe('String');
+  });
+
+  test('uses a product template kind without adding the catalogue fallback', () => {
+    const manifest = manifestOf('kinds:\n  demo.template:\n    source: graph\n    title: name\n    key: [name]\n    page-template: { name: name, body: content }\n    fields:\n      - { name: name, type: text, producers: [person] }\n      - { name: content, type: text, producers: [person] }\n');
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(manifest)));
+    const template = schema.getType('KindDemoTemplate') as GraphQLObjectType;
+    expect(template.getInterfaces().map(type => type.name)).toContain('Entity');
+    expect(template.getFields()['content']?.type.toString()).toBe('String');
+    expect(schema.getType('KindPageTemplate')).toBeUndefined();
+  });
+
   test('reproduces the golden SDL byte for byte', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(fixtureManifest()));
     expect(sdl).toBe(readFileSync(join(import.meta.dir, 'graphql/fixture.golden.graphql'), 'utf8'));
