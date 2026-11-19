@@ -141,7 +141,8 @@ export function TableSection({ context }: { readonly context: SectionContext }):
         const more = nextOf(value);
         return <>
           {linked.map((edge, at2) => {
-            const target = (edge['node'] ?? edge) as Record<string, unknown>;
+            const linkedNode = (edge['node'] ?? edge) as Record<string, unknown>;
+            const target = (linkedNode['node'] ?? linkedNode) as Record<string, unknown>;
             const address = entityHref(target);
             const label = String(target['label'] ?? '');
             return <TextLink key={String(target['id'] ?? at2)} href={address === undefined ? undefined : context.base + address} {...(address === undefined ? {} : follow(context.open, context.base + address))}>{label}{at2 + 1 < linked.length ? ', ' : ''}</TextLink>;

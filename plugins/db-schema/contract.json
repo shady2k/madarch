@@ -295,7 +295,7 @@
             "in": "входит в"
           }
         },
-        "kind": "code.index-column",
+        "kind": "code.index-columns",
         "from": "code.index",
         "to": "code.column",
         "fields": [

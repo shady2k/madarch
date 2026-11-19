@@ -83,13 +83,15 @@ sections:
     ru: Индексы
   query: |
     related(id: $id, edge: "code.has-index", inverse: false, kinds: ["code.index"], first: $indexes_first, after: $indexes_after) {
-      edges { node { id kind label ... on KindCodeIndex { name unique columns: related(edge: "code.index-columns", first: 100) { edges { node { id kind label } } pageInfo { hasNextPage endCursor } totalCount } where } } }
+      edges { node { id kind label ... on KindCodeIndex { name unique columns: codeIndexColumns(orderBy: [{field: position}], first: 100) { edges { node { node { id kind label } } } pageInfo { hasNextPage } totalCount } where } } }
       pageInfo { hasNextPage endCursor }
       totalCount
     }
   params:
     path: .
-    pageSize: 20
+    # Fewer than 600 nodes remain below 5,000; each new field in the nested index
+    # connection costs 4 × 100, so another column there exceeds the page budget.
+    pageSize: 4
     emptyText:
       en: No records
       ru: Нет записей
