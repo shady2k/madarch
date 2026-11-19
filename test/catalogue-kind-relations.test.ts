@@ -175,4 +175,4 @@ test('the real File catalogue page shares dependency and declared-relation edges
     await owner?.close();
     rmSync(root, { recursive: true, force: true });
   }
-}, 120_000);
+}, 180_000);

@@ -4,12 +4,18 @@ import { classOfPath, excludedPath, readRepositoryTree, type FileClassRule, type
 
 /** Reads pinned objects itself; the host supplies only read-only mounts and pin metadata. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] }; paths?: readonly string[]; keys?: readonly { repository: string; path: string }[]; classRules?: readonly FileClassRule[]; exclude?: readonly string[] };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[]; keyEdges?: readonly { role: string }[] }[]; edges: readonly { kind: string }[] }; declaredKeyEdges?: Readonly<Record<string, readonly string[]>>; paths?: readonly string[]; keys?: readonly { repository?: string; path: string }[]; classRules?: readonly FileClassRule[]; exclude?: readonly string[] };
   if (!Array.isArray(inputs?.repositories)) throw new Error('disk needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [], snapshots: { digest: string; content: string; about: import('madarch-plugin-sdk').EntityRef[] }[] = [];
+  // A narrowed product declares only the kinds it holds; the immutable blob is its evidence support, and the selected
+  // contract says whether it is installed. Evidence itself always stands on that snapshot (0039, item 31).
+  const blobs = inputs.contract.vertices.some(vertex => vertex.kind === 'code.blob');
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('disk extraction cancelled');
-    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file', ...(inputs.keys === undefined ? {} : { paths: inputs.keys.filter(key => key.repository === pin.repository).map(key => key.path) }) });
+    // A partitioned key is the kind's own key: after 0039 the repository is the key edge, not a field of the key, so a
+    // key that names no repository belongs to every pinned repository and the tree read decides which one holds it.
+    const wanted = inputs.keys === undefined ? undefined : [...new Set(inputs.keys.filter(key => key.repository === undefined || key.repository === pin.repository).map(key => key.path))];
+    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file', ...(wanted === undefined ? {} : { paths: wanted }) });
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
     const inventory = [...tree.files.map(file => [file.path, file.blob]), ...tree.gitlinks.map(link => [link.path, link.commit])].sort((left, right) => left[0]! < right[0]! ? -1 : left[0]! > right[0]! ? 1 : 0);
     const treeSnapshot = tree.gaps.length === 0 && inputs.keys === undefined && inputs.paths === undefined ? createHash('sha256').update(JSON.stringify(inventory)).digest('hex') : undefined;
@@ -63,6 +69,43 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const selectedVertices = vertices.filter(vertex => vertex.kind === unit.kind).map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   const edgeOutputs = new Set(inputs.edgeOutputs.map(edge => JSON.stringify([edge.kind, edge.from, edge.to])));
   const selectedEdges = edges.filter(edge => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind])));
-  const support = snapshots.filter(snapshot => selectedVertices.some(vertex => vertex.evidence?.target.key['digest'] === snapshot.digest) || selectedEdges.some(edge => edge.evidence?.target.key['digest'] === snapshot.digest));
-  return { vertices: [...new Map(support.map(snapshot => [snapshot.digest, { kind: 'code.blob', key: { digest: snapshot.digest }, values: { content: snapshot.content } }])).values(), ...selectedVertices], edges: [...support.flatMap(snapshot => snapshot.about.map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to }))), ...selectedEdges], end: problems.length ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
+  // A narrowed product declares only the kinds it holds: support (an immutable blob and its about edges) is published
+  // only where the selected contract and edge outputs declare it, never because the plugin's own contract knows it.
+  const declaredEdges = new Set(inputs.contract.edges.map(edge => edge.kind));
+  const support = blobs
+    ? snapshots.filter(snapshot => selectedVertices.some(vertex => vertex.evidence?.target.key['digest'] === snapshot.digest) || selectedEdges.some(edge => edge.evidence?.target.key['digest'] === snapshot.digest))
+    : [];
+  const supportEdges = declaredEdges.has('code.blob-about')
+    ? support.flatMap(snapshot => snapshot.about.map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to })))
+    : [];
+  // A parent role is the product's declaration too: after 0039 the reference is a key edge, and a narrowed product that
+  // holds no such edge publishes an entity keyed by its own fields alone.
+  type Keyed = { kind: string; key: Record<string, unknown>; keyEdges?: Record<string, import('madarch-plugin-sdk').EntityRef> };
+  const pruned = <T extends Keyed>(entity: T): T => {
+    if (entity.keyEdges === undefined) return entity;
+    // The host states the product's key-edge roles for every kind a fact reaches; a caller that states none keeps the
+    // plugin's own contract, which is the direct-call shape of this extraction.
+    const roles = inputs.declaredKeyEdges !== undefined
+      ? inputs.declaredKeyEdges[entity.kind]
+      : inputs.contract.vertices.find(vertex => vertex.kind === entity.kind)?.keyEdges?.map(edge => edge.role);
+    if (roles === undefined) return entity;
+    const kept = Object.fromEntries(Object.entries(entity.keyEdges).filter(([role]) => roles.includes(role)).map(([role, parent]) => [role, pruned(parent)]));
+    const { keyEdges: _dropped, ...rest } = entity;
+    return (Object.keys(kept).length === 0 ? rest : { ...rest, keyEdges: kept }) as T;
+  };
+  const fact = <T>(held: T): T => {
+    const record = held as Record<string, unknown>;
+    const evidence = record['evidence'] as { target?: Keyed } | undefined;
+    return {
+      ...record,
+      ...(record['from'] === undefined ? {} : { from: pruned(record['from'] as Keyed) }),
+      ...(record['to'] === undefined ? {} : { to: pruned(record['to'] as Keyed) }),
+      ...(evidence?.target === undefined ? {} : { evidence: { ...evidence, target: pruned(evidence.target) } }),
+    } as T;
+  };
+  return {
+    vertices: [...new Map(support.map(snapshot => [snapshot.digest, { kind: 'code.blob', key: { digest: snapshot.digest }, values: { content: snapshot.content } }])).values(), ...selectedVertices].map(vertex => fact(pruned(vertex))),
+    edges: [...supportEdges, ...selectedEdges].map(edge => fact(edge)),
+    end: problems.length ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' },
+  };
 }

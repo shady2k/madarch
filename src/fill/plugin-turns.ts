@@ -415,6 +415,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
+  // The product's declared key-edge roles, by kind: a fact may reach a parent kind the unit does not output, and the
+  // plugin prunes a role the product's declaration does not hold (0039, item 2) from facts it returns.
+  const declaredKeyEdges = Object.fromEntries(wiring.contract.vertex.map(vertex => [vertex.name, (vertex.keyEdges ?? []).map(edge => edge.role)]));
   const support = declaredSupport(wiring, unit);
   const supportOutputs = support.vertices;
   // An edge is published in the turn of the later of its ends' kinds; an edge between two kinds the plugin reads rather
@@ -575,7 +578,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : catalogueAgent
         ? agentTaskOf(unit.kind, outputs)
         : { contract: outputs, kinds: [unit.kind], kind: unit.kind, files: [] };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();

@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
-import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import type { StartedServer } from '../src/server/http.js';
@@ -35,12 +35,28 @@ const errors: string[] = [];
 function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
-  const manifest = parse(readFolderManifestText(draft.folder)) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: { id: string; outputs: string[] }[] };
-  const declared = [...kinds];
+  type DraftKind = {
+    fields?: { name?: string; binding?: unknown; producers?: string[]; reference?: string }[];
+    'derives-from'?: string[];
+    'key-edges'?: { role: string; edge: string; side: 'from' | 'to' }[];
+    'file-text'?: Record<string, string>;
+  };
+  type DraftBinding = { kind: string; fields: Record<string, string>; edges?: Record<string, { kind: string; direction: 'from' | 'to' }>; values?: Record<string, Record<string, string | number | boolean>> };
+  const manifest = parse(readFolderManifestText(draft.folder)) as {
+    kinds: Record<string, DraftKind>;
+    edges?: { name: string; from: string[]; to: string[] }[];
+    'semantic-bindings'?: Record<string, DraftBinding>;
+    plugins: { id: string; outputs: string[] }[];
+  };
+  // The disk plugin's evidence support is a mechanism entry the product installs beside the kinds the test names: every
+  // fact it writes stands on an immutable snapshot, and no code kind is published without one (0039, evidence).
+  const declared = [...kinds, 'code.blob'];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
+  manifest.edges = (manifest.edges ?? []).filter((edge) => edge.from.every((kind) => declared.includes(kind)) && edge.to.every((kind) => declared.includes(kind)));
+  const edges = new Map(manifest.edges.map((edge) => [edge.name, edge]));
   for (const kind of Object.values(manifest.kinds)) {
     if (kind['derives-from'] !== undefined) kind['derives-from'] = kind['derives-from'].filter((dependency) => declared.includes(dependency));
-    if (kind.fields !== undefined) for (const field of kind.fields as { binding?: unknown; producers?: string[]; reference?: string }[]) {
+    if (kind.fields !== undefined) for (const field of kind.fields) {
       if (field.reference !== undefined && !declared.includes(field.reference)) delete field.reference;
       // The fixture keeps the disk plugin alone: a field another producer would fill is a person's own writing here,
       // so the plan leaves it unfilled instead of failing the kind for a producer the product does not hold.
@@ -51,19 +67,53 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
         field.producers = ['person'];
       }
     }
+    // A parent role names an edge the fixture keeps and an end the remaining declaration still holds.
+    if (kind['key-edges'] !== undefined) {
+      kind['key-edges'] = kind['key-edges'].filter((role) => edges.get(role.edge) !== undefined);
+      if (kind['key-edges'].length === 0) delete kind['key-edges'];
+    }
+    // A file's text is read through the repository edge; a fixture without that edge states no text role at all.
+    if (kind['file-text'] !== undefined && !edges.has(kind['file-text']['repository'] ?? '')) delete kind['file-text'];
   }
-  manifest.edges = (manifest.edges ?? []).filter((edge) => edge.from.every((kind) => declared.includes(kind)) && edge.to.every((kind) => declared.includes(kind)));
+  // A semantic binding names a kind and edges the fixture keeps; a binding whose kind left is no part of this product.
+  if (manifest['semantic-bindings'] !== undefined) {
+    for (const [role, binding] of Object.entries(manifest['semantic-bindings'])) {
+      const kind = manifest.kinds[binding.kind];
+      if (kind === undefined) { delete manifest['semantic-bindings'][role]; continue; }
+      for (const [property, edge] of Object.entries(binding.edges ?? {})) {
+        const held = edges.get(edge.kind);
+        if (held === undefined || !held[edge.direction].includes(binding.kind)) delete binding.edges![property];
+      }
+      if (binding.edges !== undefined && Object.keys(binding.edges).length === 0) delete binding.edges;
+      for (const [property, field] of Object.entries(binding.fields)) {
+        if (!(kind.fields ?? []).some((candidate) => candidate.name === field)) delete binding.fields[property];
+      }
+      for (const property of Object.keys(binding.values ?? {})) if (binding.fields[property] === undefined) delete binding.values![property];
+    }
+  }
   const pluginFolder = join(draft.folder, 'plugins', 'disk');
   const declarationFile = join(pluginFolder, 'plugin.json');
   const declaration = JSON.parse(readFileSync(declarationFile, 'utf8'));
-  declaration.produces = declaration.produces.filter((output: { kind: string }) => kinds.includes(output.kind));
+  declaration.produces = declaration.produces.filter((output: { kind: string }) => kinds.includes(output.kind))
+    .map((output: { support?: { vertices?: string[]; edges?: string[] } }) => ({
+      ...output,
+      support: {
+        vertices: (output.support?.vertices ?? []).filter((kind) => declared.includes(kind)),
+        edges: (output.support?.edges ?? []).filter((kind) => edges.has(kind)),
+      },
+    }));
   writeFileSync(declarationFile, JSON.stringify(declaration, null, 2));
   const contractFile = join(pluginFolder, 'contract.json');
   const contract = JSON.parse(readFileSync(contractFile, 'utf8'));
-  contract.outputs.vertices = contract.outputs.vertices.filter((output: { kind: string }) => kinds.includes(output.kind));
+  contract.outputs.vertices = contract.outputs.vertices.filter((output: { kind: string }) => declared.includes(output.kind))
+    .map((output: { keyEdges?: { role: string; edge: string }[] }) => {
+      if (output.keyEdges === undefined) return output;
+      const kept = output.keyEdges.filter((role) => edges.has(role.edge));
+      return kept.length === 0 ? { ...output, keyEdges: undefined } : { ...output, keyEdges: kept };
+    });
   contract.outputs.edges = [];
   writeFileSync(contractFile, JSON.stringify(contract, null, 2));
-  manifest.plugins = manifest.plugins.filter((plugin) => plugin.id === 'disk').map((plugin) => ({ ...plugin, outputs: plugin.outputs.filter((kind) => kinds.includes(kind)) }));
+  manifest.plugins = manifest.plugins.filter((plugin) => plugin.id === 'disk').map((plugin) => ({ ...plugin, outputs: plugin.outputs.filter((kind) => declared.includes(kind)) }));
   writeFileSync(join(draft.folder, 'madarch', 'plugins.lock'), stringify({ plugins: [{
     id: 'disk', version: declaration.version, path: 'plugins/disk', closure: closureOf(pluginFolder).hash,
   }] }));
@@ -93,18 +143,6 @@ async function fillInProcess(product: string, productHome: string) {
   } finally { await owner.close(); }
 }
 
-async function tables(store: string): Promise<string[]> {
-  const owner: DatabaseOwner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
-  try {
-    const found = await owner.run((tx) => tx.query<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`,
-    ));
-    return found.rows.map((row) => row.table_name);
-  } finally {
-    await owner.close().catch(() => undefined);
-  }
-}
-
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-declared-entities-'));
   home = join(root, 'products');
@@ -121,37 +159,45 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
+/** One GraphQL answer as the status and body a reader sees, so a refused undeclared kind is an answer too. */
+async function graphql(product: string, query: string): Promise<{ status: number; body: Record<string, any> }> {
+  const answer = await fetch(`${server!.url}/products/${product}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) });
+  return { status: answer.status, body: (await answer.json()) as Record<string, any> };
+}
+
 describe('a manifest declares one code kind and not the other', () => {
-  test('code.file without code.repository fills: files are published, no repository table stands', async () => {
+  test('code.file without code.repository fills: files are published, no repository kind answers', async () => {
     const product = join(home, 'files-only');
-    const filled = await fillInProcess(product, home);
+    await fillInProcess(product, home);
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
-    expect(status.filled, JSON.stringify({ filled, status, errors })).toBe(true);
+    expect(status.filled, JSON.stringify({ status, errors })).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.file')?.count).toBeGreaterThan(0);
     expect(status.kinds.some((kind) => kind.kind === 'code.repository')).toBe(false);
-    const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
-    expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(true);
-    expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(false);
-    // Its reads: the product's status answers, and no statement names a table the manifest did not make (madarch-hsqs
-    // stage C: the declared contract, not a caught 42P01). The graph itself is read through `/graphql`.
-    const graph = await fetch(`${server!.url}/products/files-only/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeFile(first: 1) { totalCount } }' }) });
-    expect(graph.status, JSON.stringify({ body: await graph.clone().text(), errors })).toBe(200);
+    // Its reads: the declared kind answers through `/graphql`, and no statement names storage the manifest did not make
+    // (madarch-hsqs stage C: the declared contract, not a caught 42P01). A kind the manifest leaves out has no door.
+    const files = await graphql('files-only', '{ allCodeFile(first: 1) { totalCount } }');
+    expect(files.status, JSON.stringify({ body: files.body, errors })).toBe(200);
+    expect(files.body['data']['allCodeFile']['totalCount']).toBeGreaterThan(0);
+    const repository = await graphql('files-only', '{ allCodeRepository(first: 1) { totalCount } }');
+    expect(repository.status).toBe(400);
+    expect(JSON.stringify(repository.body)).toContain('allCodeRepository');
     expect(errors.filter((line) => /does not exist|42P01/i.test(line))).toEqual([]);
   }, 60_000);
 
-  test('code.repository without code.file fills: the repository is published, no file table stands', async () => {
+  test('code.repository without code.file fills: the repository is published, no file kind answers', async () => {
     const product = join(home, 'repos-only');
     await fillInProcess(product, home);
     const status = await (await fetch(`${server!.url}/products/repos-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.repository')?.count).toBe(1);
     expect(status.kinds.some((kind) => kind.kind === 'code.file')).toBe(false);
-    const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
-    expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(true);
-    expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(false);
-    // The one declared kind answers through the graph, and nothing names a file or commit table.
-    const graph = await fetch(`${server!.url}/products/repos-only/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeRepository(first: 1) { totalCount } }' }) });
-    expect(graph.status, JSON.stringify({ body: await graph.text(), errors })).toBe(200);
+    // The one declared kind answers through the graph; the kind the manifest leaves out has no door.
+    const repositories = await graphql('repos-only', '{ allCodeRepository(first: 1) { totalCount } }');
+    expect(repositories.status, JSON.stringify({ body: repositories.body, errors })).toBe(200);
+    expect(repositories.body['data']['allCodeRepository']['totalCount']).toBe(1);
+    const files = await graphql('repos-only', '{ allCodeFile(first: 1) { totalCount } }');
+    expect(files.status).toBe(400);
+    expect(JSON.stringify(files.body)).toContain('allCodeFile');
     expect(errors.filter((line) => /does not exist|42P01/i.test(line))).toEqual([]);
   }, 60_000);
 });
