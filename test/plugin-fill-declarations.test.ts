@@ -47,8 +47,9 @@ test('person-authored prerequisites remain selected without scheduling a produce
     expect(plan.order).toEqual(['index']);
     expect(plan.errors).toEqual([]);
     expect(plan.skipped).toEqual([]);
+    expect(plan.selectedKinds).toContain('Product');
+    expect([...plan.fieldProducers('Product').keys()]).toEqual(['title']);
   }
-  expect(manifest.kinds.get('Product')!.fields!.map(field => field.name)).toEqual(['title']);
 });
 
 test('S1: universal agent capability does not schedule covered deterministic output', () => {

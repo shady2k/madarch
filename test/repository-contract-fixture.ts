@@ -1,9 +1,8 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /** Ordinary starter declarations used by graph mechanism tests; no built-in repository schema. */
 import { parseDocument } from 'yaml';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { STARTER_FILES, type StarterFile } from '../src/knowledge/seed.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { fixtureProductFiles, withFixtureProduct } from './product-producer-fixture.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf, declaredKindReads, declaredEdgeReads } from '../src/fill/stages/plugin-contract.js';
 
@@ -15,16 +14,6 @@ function repositoryDeclarations(text: string): string {
   const body = document.toJS();
   document.set('kinds', document.createNode(Object.fromEntries(Object.entries(body.kinds).filter(([name]) => repositoryKinds.has(name)))));
   for(const [role,binding] of Object.entries(body['semantic-bindings']??{}) as [string,{kind:string}][]) if(!repositoryKinds.has(binding.kind)) document.deleteIn(['semantic-bindings',role]);
-  const plugins = body.plugins.filter((plugin: { id: string }) => ['disk', 'git', 'fixture-product'].includes(plugin.id));
-  if (!plugins.some((plugin: { id: string }) => plugin.id === 'fixture-product')) {
-    plugins.push({ id: 'fixture-product', version: 1, path: 'plugins/fixture-product', inputs: [], outputs: ['product'],
-      closure: productFiles.map(file => file.path) });
-  }
-  document.set('plugins', plugins);
-  for (const [index] of body.kinds.product.fields.entries()) {
-    document.deleteIn(['kinds', 'product', 'fields', index, 'binding']);
-    document.setIn(['kinds', 'product', 'fields', index, 'producers'], ['fixture-product']);
-  }
   document.set('edges', body.edges.filter((edge: { name: string; capability: string }) => edge.name === 'profile-product' || ['disk', 'git'].includes(edge.capability)));
   const edges = new Set(document.toJS().edges.map((edge: { name: string }) => edge.name));
   for (const [role, binding] of Object.entries(document.toJS()['semantic-bindings'] ?? {}) as [string, { edges?: Record<string, { kind: string }> }][]) {
@@ -39,13 +28,11 @@ export function restrictRepositoryDeclarations(folder: string): void {
   writeFolderManifest(folder, repositoryDeclarations(readFolderManifestText(folder)));
 }
 
-// The in-memory manifest needs the same real root producer as the on-disk repository fixture.
-const productFiles: StarterFile[] = ['plugin.json', 'contract.json', 'main.ts'].map(name => ({
-  path: `plugins/fixture-product/${name}`,
-  content: readFileSync(join(import.meta.dir, 'fixtures/plugin-product', name), 'utf8'),
-}));
-const files = new Map([...STARTER_FILES, ...productFiles].map(file => [file.path, file]));
-export const repositoryManifest = parseKinds(repositoryDeclarations(starterManifestText()), 'madarch/catalog.yaml', '/fixture', {
+// Only the in-memory fixture installs the root producer here; disk fixtures keep their installed declarations.
+const starter = parseDocument(starterManifestText());
+starter.set('plugins', starter.toJS().plugins.filter((plugin: { id: string }) => ['disk', 'git'].includes(plugin.id)));
+const files = new Map([...STARTER_FILES, ...fixtureProductFiles].map(file => [file.path, file]));
+export const repositoryManifest = parseKinds(withFixtureProduct(repositoryDeclarations(starter.toString())), 'madarch/catalog.yaml', '/fixture', {
   has: path => files.has(path),
   text: path => files.get(path)?.content,
   size: path => files.get(path)?.bytes?.length ?? files.get(path)?.content.length ?? null,

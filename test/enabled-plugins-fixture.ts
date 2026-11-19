@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { closureOf } from '../src/plugin/closure.js';
 import { parseDocument } from 'yaml';
 import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
+import { fixtureProductFiles, withFixtureProduct } from './product-producer-fixture.js';
 
 /** Keeps only exercised plugins; excluded bindings become passive provenance, with every field retained. */
 export function useFixturePlugins(folder: string, ids: readonly string[], keepKinds: readonly string[] = []): void {
@@ -167,23 +168,10 @@ function seedFixtureProduct(folder: string): void {
   const relative = 'plugins/fixture-product';
   const target = join(folder, relative);
   mkdirSync(target, { recursive: true });
-  for (const name of ['plugin.json', 'contract.json', 'main.ts']) {
-    writeFileSync(join(target, name), readFileSync(join(import.meta.dir, 'fixtures/plugin-product', name)));
+  for (const file of fixtureProductFiles) {
+    writeFileSync(join(folder, file.path), file.content);
   }
-  const manifest = parseDocument(readFolderManifestText(folder));
-  const plugins = manifest.toJS().plugins ?? [];
-  if (!plugins.some((plugin: { id: string }) => plugin.id === 'fixture-product')) {
-    plugins.push({ id: 'fixture-product', version: 1, path: relative, inputs: [], outputs: ['product'],
-      closure: ['plugin.json', 'contract.json', 'main.ts'].map(name => `${relative}/${name}`) });
-  }
-  manifest.set('plugins', plugins);
-  // Preserve the starter's fields, but bind their fixture values to the producer that actually supplies them.
-  const fields = manifest.toJS().kinds.product.fields as { name: string }[];
-  for (const [index] of fields.entries()) {
-    manifest.deleteIn(['kinds', 'product', 'fields', index, 'binding']);
-    manifest.setIn(['kinds', 'product', 'fields', index, 'producers'], ['fixture-product']);
-  }
-  writeFolderManifest(folder, manifest.toString());
+  writeFolderManifest(folder, withFixtureProduct(readFolderManifestText(folder)));
   const file = join(folder, 'madarch/plugins.lock');
   const lock = parseDocument(readFileSync(file, 'utf8'));
   const locked = (lock.toJS().plugins ?? []).filter((plugin: { id: string }) => plugin.id !== 'fixture-product');
