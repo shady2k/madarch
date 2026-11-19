@@ -16,16 +16,6 @@
       "exit": "Rewrite test/agent-usage-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/api-role-first-page.test.ts",
-      "seconds": 57.0,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The single case passes but seeds a product store whose fill wrote a 150 000-span trace, and the setup costs 46-57 s before one bounded status answer.",
-      "replacement": "Write the trace rows in one bulk insert and keep the 5 s bound on the first status answer and the cached reading of the following polls.",
-      "exit": "Rewrite test/api-role-first-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/authored-http.test.ts",
       "seconds": 52.1,
       "reason": "red-defect",
@@ -176,16 +166,6 @@
       "exit": "Rewrite test/fill-states.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/fill-trace.test.ts",
-      "seconds": 44.2,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The file passes but its trace case runs a full starter fill to assert the OTLP span shape, the log and the progress fold, costing 30-44 s.",
-      "replacement": "Write the spans through the run's own trace writer for a one-unit product and fold them with TraceSpanReader, keeping the per-line OTLP, log and cached-fold assertions.",
-      "exit": "Rewrite test/fill-trace.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/fill-updates-before-fill.test.ts",
       "seconds": 73.2,
       "reason": "red-defect",
@@ -256,16 +236,6 @@
       "exit": "Rewrite test/graphql-writes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/init-language.test.ts",
-      "seconds": 73.7,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The file passes but two cases start the CLI's init from source, and the --json init case costs 38-52 s.",
-      "replacement": "Build the CLI once for the file and start that artifact for both language paths, asserting the JSON facts, the remembered language and the manifest language.",
-      "exit": "Rewrite test/init-language.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/knowledge-close-verdict.test.ts",
       "seconds": 45.0,
       "reason": "red-defect",
@@ -286,16 +256,6 @@
       "exit": "Rewrite test/knowledge-declared-entities.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/knowledge-entity-ids.test.ts",
-      "seconds": 48.0,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The single case passes but prepares a store and runs a fill over two linked repositories to read two directory ids.",
-      "replacement": "Publish the two repositories' directory opinions through the graph writer and assert the two ids and their repository references without a fill.",
-      "exit": "Rewrite test/knowledge-entity-ids.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/knowledge-reset.test.ts",
       "seconds": 59.7,
       "reason": "red-defect",
@@ -314,16 +274,6 @@
       "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
       "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/owner-fill-path.test.ts",
-      "seconds": 79.0,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The single case passes but walks the whole owner path: init, a linked repository, serve, catalogue, fill press and graph read, costing 69-79 s.",
-      "replacement": "Prepare the product once and drive the fill through the server, asserting the same HTTP and GraphQL answers without repeating init and serve for each phase.",
-      "exit": "Rewrite test/owner-fill-path.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-agent-fill.test.ts",
@@ -364,16 +314,6 @@
       "defect": "The continued-range and linked-out-repository cases time out after rights-mismatch rejects graph read rights absent from the contract, before checking byte continuation and confinement refusal.",
       "replacement": "Complete the plugin handshake before requests, then assert successive bounded byte ranges reconstruct the file and an out-of-product repository link is refused with its name.",
       "exit": "Rewrite test/plugin-file-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/plugin-fill-scenarios.test.ts",
-      "seconds": 58.1,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The file passes but runs real plugin processes and system Git scenarios; the two real-plugin cases cost about 14 s each and the file 56-58 s.",
-      "replacement": "Run the two real-plugin cases on one prepared store and keep the Git scenarios on their small folders, asserting the same durable producer outcomes.",
-      "exit": "Rewrite test/plugin-fill-scenarios.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-host.test.ts",
@@ -516,16 +456,6 @@
       "exit": "Rewrite test/server-templates.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/source-follows-fill.test.ts",
-      "seconds": 73.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The single case passes but prepares a product, runs two plugin fills and serves the file-text queue, costing 71-74 s.",
-      "replacement": "Seed the published commit and the two blob opinions through the graph writer, keeping the source read's text and commit assertions without the fills.",
-      "exit": "Rewrite test/source-follows-fill.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/starter-value-sets.test.ts",
       "seconds": 52.3,
       "reason": "red-defect",
@@ -534,16 +464,6 @@
       "defect": "The value-set parent-edge case reads disputable assertions without an explicit graph contract and throws before checking scalar assignments.",
       "replacement": "Read the published fixture contract and pass it to assertion reads, then assert every declared value-set entry has its parent edge and assignments remain scalar typed values.",
       "exit": "Rewrite test/starter-value-sets.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/status-work.test.ts",
-      "seconds": 103.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The file passes but its published-page cases commit a page and wait for the post-fill publication loop, costing 21-24 s each and the file 99-104 s.",
-      "replacement": "Prepare the product and publish the page opinions once, then assert the manifest read counts and graph revisions on the running server without waiting for a fill publication.",
-      "exit": "Rewrite test/status-work.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/stop-databases.test.ts",
