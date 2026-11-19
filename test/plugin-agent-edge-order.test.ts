@@ -14,12 +14,15 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { runFill } from '../src/fill/run.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
+import { sha256Hex } from '../src/graph/digest.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -31,7 +34,9 @@ const fields = [
   { name: 'title', type: 'text', meaning: 'The statement read from the documents.', example: 'Alpha and Beta', required: true, evidence: true },
 ];
 const outputs = { vertices: [{ kind: 'probe.summary', key: ['id'], fields }], edges: [] };
-const answer = { vertices: [{ kind: 'probe.summary', key: { id: 'joined' }, values: { title: 'Alpha and Beta' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } };
+const alphaContent = 'Alpha\n';
+const alphaDigest = sha256Hex(Buffer.from(alphaContent));
+const answer = { vertices: [{ kind: 'probe.summary', key: { id: 'joined' }, values: { title: 'Alpha and Beta' }, evidence: { target: { kind: 'system.content-snapshot', key: { digest: alphaDigest } }, path: 'docs/a.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } };
 
 /** Independent ACP framing; each assertion is conditional on actual host file answers. */
 const FAKE = `import { createInterface } from 'node:readline';
@@ -68,7 +73,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const key = keyOf(kind);
     const field = (declared.fields ?? []).find((one) => !(declared.key ?? []).includes(one.name));
     // A catalogue task names no field type: the agent states the key there, and the fields of a plugin's contract.
-    const vertex = { kind, key, ...(field === undefined || task.contract === undefined ? {} : { values: { [field.name]: field.type === 'json' ? [] : stated(field.name, kind) } }), evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
+    const vertex = { kind, key, ...(field === undefined || task.contract === undefined ? {} : { values: { [field.name]: field.type === 'json' ? [] : stated(field.name, kind) } }), evidence: { target: { kind: 'system.content-snapshot', key: { digest: ${JSON.stringify(alphaDigest)} } }, path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
     // The fixture's own edge is the one this case is about: the agent states it in the turn of its later end.
     const edges = contract.edges.filter((edge) => edge.kind.startsWith('probe.')).map((edge) => ({ kind: edge.kind, from: { kind: edge.from, key: keyOf(edge.from) }, to: { kind: edge.to, key: keyOf(edge.to) }, evidence: vertex.evidence }));
     const result = ok ? { vertices: [vertex], edges, end: { state: 'complete' } } : { end: { state: 'partial', cause: JSON.stringify({ kind, a, b, outside, write }) } };
@@ -129,16 +134,16 @@ kinds:
       - { name: id, type: text, binding: "probe-summary@1.id" }
       - { name: title, type: text, binding: "probe-summary@1.title" }
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
-  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git, cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } } }
+  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git, cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } } }
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
 `;
   writeFolderManifest(product, manifestText);
   const manifest = parseDocument(readFolderManifestText(product));
   const starter = parseDocument(starterManifestText()).toJS();
-  for (const key of ['catalog', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
-  for (const name of ['code.repository', 'product-profile', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
+  for (const key of ['catalog', 'value-types', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
+  for (const name of ['code.repository', 'product-profile', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']) {
     manifest.setIn(['kinds', name], starter.kinds[name]);
   }
   writeFolderManifest(product, manifest.toString());
@@ -171,7 +176,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],
     });
     // Every edge declares the words it reads as at each end, in both interface languages (catalogue R7).
-    manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill', labels: { en: { out: 'links', in: 'linked from' }, ru: { out: 'ссылается на', in: 'упомянут' } } }]);
+    manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill', labels: { en: { out: 'links', in: 'linked from' }, ru: { out: 'ссылается на', in: 'упомянут' } }, cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } } }]);
     manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: ['code.file'], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
     writeFolderManifest(f.product, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
@@ -182,9 +187,15 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     expect(declarations.manifest.findings).toEqual([]);
     execFileSync('git', ['-C', f.product, 'add', '-A']);
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'dependent kinds']);
-    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
-    const sessions: PluginAgentReport[] = [];
+    const contract = await readPinnedGraphContract(f.product);
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: contract });
     try {
+      const sessions: PluginAgentReport[] = [];
+      await prepareStore(owner, { contract });
+      await owner.transaction('write', async (tx) => {
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'system.content-snapshot', key: { digest: alphaDigest }, values: { content: alphaContent }, producer: 'fixture', producerVersion: '1' }], removals: [] });
+      });
       const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
@@ -193,8 +204,16 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       expect(run.ok).toBe(true);
       if (!run.ok) throw new Error(JSON.stringify(run));
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
-      const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
-      expect(rows.rows).toHaveLength(1);
+      // Schema 0039 keeps a relation's identity in `edge` and its currency in the `$exists` assertion, and the retired
+      // `e_*` tables are dropped at installation: the live link is read like any other kind's records.
+      const [links, sources, targets] = await owner.transaction('snapshot', async (tx) => [
+        await readKindAssertions(tx, 'edge', 'probe.link', [], { contract }),
+        await readKindAssertions(tx, 'vertex', 'probe.a', [], { contract }),
+        await readKindAssertions(tx, 'vertex', 'probe.b', [], { contract }),
+      ]);
+      expect(links).toHaveLength(1);
+      expect(links[0]!.from).toBe(sources.find((row) => row.key['id'] === 'probe.a')!.id);
+      expect(links[0]!.to).toBe(targets.find((row) => row.key['id'] === 'probe.b')!.id);
       // The agent fills the two fixture kinds and nothing of code.file: every field of a code kind has its producer,
       // and the state machines are a kind of their own (madarch-64o5.114).
       expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
