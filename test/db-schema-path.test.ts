@@ -1,13 +1,3 @@
-import { createHash } from 'node:crypto';
-import { STARTER_FILES } from '../src/knowledge/seed.js';
-import { dirname } from 'node:path';
-import { composePage, splitResponse, type Bootstrap } from '../src/page-contract/index.js';
-import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
-import { bindTestWriteCapability } from './write-capability-fixture.js';
-import type { PluginEvidence } from '../src/plugin/protocol.js';
-
-import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The db-schema path end to end (decision 0035, items 6, 7, 15, 17 and 18; task madarch-47vw.3): the plugin reads the SQL
  * its TypeScript literals hold with parsers — a TypeScript parser for the literals, libpg_query for the SQL — and answers
@@ -18,12 +8,20 @@ import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fi
  * A literal the parsers cannot read whole is a partial unit naming its file and its line, never a smaller answer: the
  * case runs the plugin in the sandbox with a source it holds and reads the cause it answers with.
  */
+import { createHash } from 'node:crypto';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { composePage, splitResponse, type Bootstrap } from '../src/page-contract/index.js';
+import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import type { PluginEvidence } from '../src/plugin/protocol.js';
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
@@ -383,7 +381,7 @@ describe.skipIf(sandboxProblem !== undefined)('db-schema output in the table pag
   for (const width of [1, 11]) test(`all ${width} index columns reach the page cell through the declared edge`, async () => {
     const work = mkdtempSync(join(tmpdir(), 'madarch-index-page-'));
     const folder = join(work, 'product');
-    const names = width === 1 ? ['parent_id'] : Array.from({ length: width }, (_, i) => `column_${String(i + 1).padStart(2, '0')}`);
+    const names = width === 1 ? ['parent_id'] : ['zeta', 'alpha', 'mid', 'beta', 'theta', 'delta', 'omega', 'eta', 'gamma', 'iota', 'epsilon'];
     const source = width === 1 ? STATIC_SOURCE : `export const sql = \`CREATE TABLE child (${names.map(name => `${name} bigint`).join(', ')}); CREATE INDEX child_parent ON child USING btree (${names.join(', ')});\`;`;
     for (const file of STARTER_FILES) {
       const path = join(folder, file.path);
@@ -446,12 +444,12 @@ describe.skipIf(sandboxProblem !== undefined)('db-schema output in the table pag
       const body = answer.body as MessageBody;
       expect(body.errors).toBeUndefined();
       const data = splitResponse(page, body.data as Record<string, unknown> | undefined);
-      const indexes = data['indexes'] as { edges: { node: { name: string; columns: { edges: { node: { label: string } }[]; totalCount: number; pageInfo: { hasNextPage: boolean } } } }[] };
+      const indexes = data['indexes'] as { edges: { node: { name: string; columns: { edges: { node: { node: { label: string } } }[]; totalCount: number; pageInfo: { hasNextPage: boolean } } } }[] };
       const index = indexes.edges.find(edge => edge.node.name === 'child_parent')?.node;
       expect(index).toBeDefined();
       const cell = page.sections.find(section => section.id === 'indexes')?.params['columns'] as { path: string; format?: string }[];
       expect(cell.find(column => column.path === 'node.columns')?.format).toBe('links');
-      expect(index!.columns.edges.map(edge => edge.node.label).sort()).toEqual([...names].sort());
+      expect(index!.columns.edges.map(edge => edge.node.node.label)).toEqual(names);
       expect(index!.columns.totalCount).toBe(width);
       expect(index!.columns.pageInfo.hasNextPage).toBe(false);
     } finally {
