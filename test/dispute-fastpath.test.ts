@@ -158,6 +158,12 @@ test('an anchor on a merged-away member still visits a single-source slot', asyn
       };
       try { await reconcileDisputes(tx, contract, []); } finally { tx.query = query; }
       expect(visits).toBeGreaterThan(0);
+      const { selectAssertions } = await import('../src/graph/assertion-selection.js');
+      const at = (await tx.query<{ at: string }>('SELECT clock_timestamp()::text AS at')).rows[0]!.at;
+      const state = (await loadAssertions(tx, 'vertex', question.kind, ['state'])).filter(row => row.subject.type === 'vertex' && row.subject.uid === question.uid);
+      expect(selectAssertions(state, { validAt: at, recordedAt: at, contexts: [1] }).selected?.value).toBe('DISMISSED');
+      const existence = (await loadAssertions(tx, 'vertex', question.kind, ['$exists'])).filter(row => row.subject.type === 'vertex' && row.subject.uid === question.uid);
+      expect(existence).toHaveLength(1);
     });
   } finally { await owner.close(); }
 }, 30000);

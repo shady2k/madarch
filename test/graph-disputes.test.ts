@@ -26,11 +26,18 @@ test('0039.16: writer stores one question for overlapping cross-source disagreem
   expect(await view()).toBeNull();
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:3,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   const question=await view();expect(question?.state).toBe('OPEN');expect(question?.candidates).toHaveLength(2);
+  const unchangedCandidate=(await amount()).find(row=>row.source===a&&row.value===2)!.id;
+  const expectSingleExistence=async()=>await owner.transaction('snapshot',async tx=>{
+   expect((await loadAssertions(tx,'edge','system.dispute-candidate',['$exists'])).filter(row=>row.subject.type==='edge'&&row.subject.from===question!.id&&row.subject.to===unchangedCandidate)).toHaveLength(1);
+   expect((await loadAssertions(tx,'vertex','system.dispute-question',['$exists'])).filter(row=>row.subject.type==='vertex'&&row.subject.uid===question!.id)).toHaveLength(1);
+  });
+  await expectSingleExistence();
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:3,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   expect((await view())?.id).toBe(question!.id);
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'retract',validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   expect((await view())?.state).toBe('DISMISSED');
   expect((await view())?.id).toBe(question!.id);
+  await expectSingleExistence();
   await owner.transaction('snapshot',async tx=>{
    const {readKindAssertions}=await import('../src/graph/records.js');
    const [record]=await readKindAssertions(tx,'vertex','sample',['amount'],{contract});
@@ -39,6 +46,7 @@ test('0039.16: writer stores one question for overlapping cross-source disagreem
   });
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:4,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   expect((await view())?.state).toBe('OPEN');expect((await view())?.id).toBe(question!.id);
+  await expectSingleExistence();
   await owner.transaction('snapshot',async tx=>expect((await tx.query(`SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.dispute-question'`)).rows).toHaveLength(1));
   await expect(owner.transaction('write',async tx=>{bind(tx,a);await resolveDispute(tx,contract,{} as ProducerBinding,{questionUid:question!.id,chosenAssertionUid:question!.candidates[0]!,expectedCandidates:question!.candidates,rationale:'A reason',evidence:[]});})).rejects.toThrow('does not permit resolve');
  }finally{await owner.close();}
@@ -80,6 +88,7 @@ for(const withdraw of [false,true])test(`0039.17/27: durable resolution survives
     await resolveDispute(tx,contract,unrelatedScope,input);
    })).rejects.toThrow('assertion outside authenticated scope');
    const uid=await executeResolution(host,contract,gr,{key:'resolve',input});
+   await owner.transaction('snapshot',async tx=>expect((await loadAssertions(tx,'vertex','system.dispute-question',['$exists'])).filter(row=>row.subject.type==='vertex'&&row.subject.uid===question.id)).toHaveLength(1));
    expect(await executeResolution(host,contract,gr,{key:'resolve',input})).toBe(uid);
    await expect(executeResolution(host,contract,gr,{key:'stale',input:{...input,expectedCandidates:[]}})).rejects.toThrow('REVISION_CONFLICT');
   }finally{await queue.stop();}
