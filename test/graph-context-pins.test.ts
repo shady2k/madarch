@@ -80,7 +80,7 @@ test('typed assertions use the same ordered sequence as pinned parent snapshots'
   const { generatedTableName } = await import('../src/graph/contract.js');
   const declared: import('../src/graph/contract.js').GraphContract = { vertex: [{ name: 'fixture', table: generatedTableName('fixture', 'vertex'),
     key: ['name'], fields: [{ name: 'name', type: 'text' }], capability: 'fixture' }], edge: [], dictionary: [] };
-  const owner = await createTestDatabaseOwner({ authenticated: false });
+  const owner = await createTestDatabaseOwner();
   try {
     await prepareGraphSchema(owner, declared);
     const write = async (remove = false) => await owner.transaction('write', async (tx) => {
