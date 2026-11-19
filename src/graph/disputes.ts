@@ -67,6 +67,14 @@ async function save(tx:SqlExecutor,contract:GraphContract,kind:string,uid:string
  }
  });
 }
+async function recordQuestionState(tx:SqlExecutor,contract:GraphContract,questionUid:string,state:DisputeView['state'],newEdges:readonly {kind:string;target:string;targetKind:string}[],segment:Segment):Promise<void>{
+ return await withSpan('graph.dispute.record-question-state',{},async()=>{
+ const binding=requireWriteCapability(tx);
+ if(newEdges.length)await publishGraphDrafts(tx,contract,{vertices:[],edges:newEdges.map(edge=>({kind:edge.kind,from:{kind:'system.dispute-question',uid:questionUid,key:{}},to:{kind:edge.targetKind,uid:edge.target,key:{}},discriminator:edge.target,validFrom:'0001-01-01T00:00:00.000Z',producer:binding.sourceUid,producerVersion:'1'})),removals:[]},binding.context);
+ const node=(await tx.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[questionUid])).rows[0]!;
+ await writeAssertion(tx,contract,{sort:'vertex',kind:'system.dispute-question',subjectId:node.id,property:'state',operation:'assert',value:state,validFrom:segment.from,validTo:segment.to},binding.context);
+ });
+}
 function segmentAt(rows:readonly AssertionRow[],at:string):Segment{
  const point=Date.parse(at);const bounds=rows.flatMap(row=>[row.validFrom,...(row.validTo===null?[]:[row.validTo])]).map(Date.parse).sort((a,b)=>a-b);
  return {from:new Date(Math.max(...bounds.filter(b=>b<=point),-62135596800000)).toISOString(),to:bounds.find(b=>b>point)===undefined?null:new Date(bounds.find(b=>b>point)!).toISOString()};
@@ -116,7 +124,7 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
     if(repeated){matching=resolution;chosen=repeated.id;}
    }
   }
-  return {id,state:matching===null?'OPEN':'RESOLVED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
+  return {id,state:matching!==null?'RESOLVED':selected.contested?'OPEN':'DISMISSED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
  }
  return null;
  });
@@ -192,7 +200,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
    const desired=existing.state;
    const held=(await records(tx,'system.dispute-question',segmentSelectors)).get(existing.id);
    if(held?.['state']!==desired){
-    if(desired==='OPEN')for(const resolution of existing.supersededResolutions){
+    if(desired!=='RESOLVED')for(const resolution of existing.supersededResolutions){
      const assertion=await loadResolutionAssertion(tx,contract,resolution,rows,segmentSelectors);if(!assertion)continue;
      const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...segmentSelectors,validAt:now});
      const from=evidenceValid?segmentAt(candidateRows,validAt).from:assertion.validFrom;
@@ -208,7 +216,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
      const edge=(await tx.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name='system.dispute-candidate' AND origin.uid=$1::uuid AND target.uid=$2::uuid`,[existing.id,candidate])).rows[0];
      if(edge)await writeAssertion(tx,contract,{sort:'edge',kind:'system.dispute-candidate',subjectId:edge.id,property:'$exists',operation:'retract',validFrom:'0001-01-01T00:00:00.000Z'},binding.context);
     }
-    await save(tx,contract,'system.dispute-question',existing.id,{state:desired},selection.candidates.map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),undefined,segmentAt(candidateRows,validAt));
+    await recordQuestionState(tx,contract,existing.id,desired,selection.candidates.filter(row=>!oldCandidates.includes(row.id)).map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),segmentAt(candidateRows,validAt));
 
    }
    continue;
@@ -272,7 +280,7 @@ export async function resolveDispute(tx:SqlExecutor,declared:GraphContract,bindi
   ],input.evidence);
  },true);
  await internal(tx,contract,async()=>{
-  await save(tx,contract,'system.dispute-question',input.questionUid,{state:'RESOLVED'},[{kind:'system.dispute-question-resolution',target:uid,targetKind:'system.dispute-resolution'}],undefined,currentSegment);
+  await recordQuestionState(tx,contract,input.questionUid,'RESOLVED',previous.includes(uid)?[]:[{kind:'system.dispute-question-resolution',target:uid,targetKind:'system.dispute-resolution'}],currentSegment);
  });return uid;
  });
 }

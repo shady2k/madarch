@@ -6,7 +6,7 @@ import { loadAssertions, loadAssertionsBatch, type AssertionReadRequest, type St
 import { withSpan } from '../obs/trace.js';
 type Selectors = AssertionSqlSelector;
 export interface DisputeView {
-  readonly id:string; readonly state:'OPEN'|'RESOLVED'; readonly candidates:readonly string[];
+  readonly id:string; readonly state:'OPEN'|'RESOLVED'|'DISMISSED'; readonly candidates:readonly string[];
   readonly resolution:string|null; readonly supersededResolutions:readonly string[];
   readonly selectedAssertionUid:string|null;
 }
@@ -39,7 +39,7 @@ async function disputeSnapshot(tx:SqlExecutor,selectors:Selectors,requests:reado
    const history=links(id,'system.dispute-question-resolution');
    const superseded=new Set(history.flatMap(uid=>links(uid,'system.dispute-supersedes')));
    const resolution=fields['state']==='RESOLVED'?(history.find(uid=>!superseded.has(uid))??null):null;
-   return {id,state:fields['state']==='RESOLVED'?'RESOLVED':'OPEN',candidates:links(id,'system.dispute-candidate'),resolution,supersededResolutions:history.filter(uid=>uid!==resolution),selectedAssertionUid:resolution===null?null:links(resolution,'system.resolution-assertion')[0]??null};
+   return {id,state:fields['state'] as DisputeView['state'],candidates:links(id,'system.dispute-candidate'),resolution,supersededResolutions:history.filter(uid=>uid!==resolution),selectedAssertionUid:resolution===null?null:links(resolution,'system.resolution-assertion')[0]??null};
   }
   return null;
  };

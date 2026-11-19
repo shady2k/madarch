@@ -4,7 +4,8 @@ import { testHostBinding } from './host-binding-fixture.js';
  * each relation in the words the catalogue declares, in Russian and in English, and never in the relation's key.
  */
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { parse, stringify } from 'yaml';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createDraft } from '../src/product/draft.js';
@@ -96,3 +97,65 @@ test("a starter product's domain page and diagram name relations in the declared
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('manifest.kind has no duplicate kind type or list root', async () => {
+  const { graphqlSchemaOf } = await import('../src/graphql/schema.js');
+  const { buildSchema } = await import('graphql');
+  const schema = buildSchema(graphqlSchemaOf({ kinds: [{name:'manifest.kind',key:['name'],fields:[{name:'name',type:'text'}]}],edges:[],relations:[] }));
+  expect(schema.getType('KindManifestKind')).toBeUndefined();
+  expect(schema.getQueryType()!.getFields()['allManifestKind']).toBeUndefined();
+});
+
+test('explicit manifest.kind edge ends use the single catalogue entity type', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-catalogue-end-'));
+  let owner: Awaited<ReturnType<typeof createTestDatabaseOwner>> | undefined;
+  try {
+    const { mkdirSync } = await import('node:fs');
+    const folder = root;
+    mkdirSync(join(folder, 'madarch/kinds/demo/core'), { recursive: true });
+    const cataloguePath = join(folder, 'madarch/catalog.yaml');
+    const declared = parse(readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8'));
+    declared.edges.push({ ...declared.edges.find((edge: {name:string}) => edge.name === 'mentions'), name: 'catalogue-link', from: ['demo.repository'], to: ['manifest.kind'] });
+    writeFileSync(cataloguePath, stringify(declared));
+    for (const name of ['demo.repository', 'demo.file', 'doc.term', 'demo.note']) {
+      writeFileSync(join(folder, 'madarch/kinds/demo/core', `${name}.yaml`), readFileSync(join(import.meta.dir, 'graphql', `fixture-product-${name}.yaml`), 'utf8'));
+    }
+    const { execFileSync } = await import('node:child_process');
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-qm', 'fixture']]) execFileSync('git', args, { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
+    const validation = validateProductManifests(folder);
+    if (!validation.ok) throw new Error(JSON.stringify(validation.findings));
+    if (validation.value === undefined) throw new Error(`${folder}:1: no manifest`);
+    const manifest = validation.value.manifest;
+    const { graphqlSchemaOf } = await import('../src/graphql/schema.js');
+    const { buildSchema, isObjectType } = await import('graphql');
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(manifest)));
+    const catalogue = schema.getType('CatalogueEntity');
+    expect(isObjectType(catalogue) && catalogue.getFields()['catalogueLinkOf']).toBeTruthy();
+    expect(schema.getType('KindManifestKind')).toBeUndefined();
+    expect(schema.getQueryType()!.getFields()['allManifestKind']).toBeUndefined();
+    const contract = withManifestContract(graphContractOf(manifest));
+    owner = await createTestDatabaseOwner({ graphContract: contract });
+    await publishValidatedManifests(owner, validation.value);
+    const target = (await owner.run(tx => tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='manifest.kind' AND n.key->>'name'='demo.repository'`))).rows[0]!;
+    const producer = { producer: 'fixture', producerVersion: '1' };
+    const source = { kind: 'demo.repository', key: { name: 'app' } };
+    const binding = await testHostBinding(owner, contract, 'fixture');
+    await owner.transaction('write', tx => publishGraphDrafts(tx, contract, {
+      vertices: [{ ...source, ...producer }], removals: [],
+      edges: [{ kind: 'catalogue-link', from: source, to: { kind: 'manifest.kind', uid: target.uid, key: {} }, discriminator: 'fixture:1', ...producer }],
+    }, 1, { binding, author: 'fixture@1' }));
+    const answer = await executeGraphql(owner, { manifest, folder }, {
+      query: `query($id: ID!) { entity(id: $id) { __typename ... on CatalogueEntity { catalogueLinkOf(first: 5) { totalCount edges { node { node { id } } } } } } }`,
+      variables: { id: target.uid },
+    });
+    const body = answer.body as MessageBody;
+    expect(body.errors).toBeUndefined();
+    const entity = (body.data as {entity:{__typename:string;catalogueLinkOf:{totalCount:number;edges:{node:{node:{id:string}}}[]}}}).entity;
+    expect(entity.__typename).toBe('CatalogueEntity');
+    expect(entity.catalogueLinkOf.totalCount).toBe(1);
+    expect(entity.catalogueLinkOf.edges[0]!.node.node.id).toBeDefined();
+  } finally {
+    if (owner !== undefined) await owner.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30_000);

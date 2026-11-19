@@ -166,6 +166,33 @@ test('ALX-142: scalar evidence keeps locator and target admission checks',async(
  }finally{await owner.close();}
 },30000);
 
+test('batch publication accepts mentions in a text key and records their backlinks',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try{
+  const target=await owner.transaction('write',async tx=>{
+   await publishGraphDrafts(tx,contract,{vertices:[{...repository,...producer}],removals:[]});
+   return ensureVertex(tx,contract,repository);
+  });
+  const token=`[[uid:${target.uid}]]`;
+  const subject={kind:'batch.repository',key:{name:`😀 ${token}`}};
+  const accepted=await owner.transaction('write',async tx=>{
+   await publishGraphDrafts(tx,contract,{vertices:[{...subject,...producer}],removals:[]});
+   return ensureVertex(tx,contract,subject);
+  });
+  const backlinks=await owner.run(tx=>tx.query<{property:string;discriminator:string;target:string}>(`
+   SELECT a.property,mention.discriminator,target.uid::text AS target
+   FROM node n JOIN edge subject ON subject.to_node=n.id
+   JOIN entity sk ON sk.id=subject.entity_id AND sk.name='system.assertion-subject'
+   JOIN assertion a ON a.assertion_id=subject.from_node
+   JOIN edge mention ON mention.from_node=a.assertion_id
+   JOIN entity mk ON mk.id=mention.entity_id AND mk.name='system.assertion-mentions'
+   JOIN node target ON target.id=mention.to_node WHERE n.uid=$1::uuid`,[accepted.uid]));
+  expect(backlinks.rows.map(row=>({property:row.property,occurrence:JSON.parse(row.discriminator),target:row.target}))).toEqual([
+   {property:'name',occurrence:{path:'/values/name',start:2,end:2+token.length},target:target.uid},
+  ]);
+ }finally{await owner.close();}
+},30000);
+
 test('ALX-142: malformed mentions retain their structured refusal',async()=>{
  const owner=await createTestDatabaseOwner({graphContract:contract});
  try{

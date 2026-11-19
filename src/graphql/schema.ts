@@ -389,12 +389,14 @@ class Builder {
 
   private buildKinds(): void {
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
+      if (kind.name === 'manifest.kind') continue;
       const name = kindTypeNameOf(kind.name);
       this.registry.claimType(name, `the kind "${kind.name}"`);
       this.kindTypes.set(kind.name, name);
       this.type(name, [], ['Entity']);
     }
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
+      if (kind.name === 'manifest.kind') continue;
       const name = this.kindTypes.get(kind.name)!;
       const fields: FieldDef[] = [...entityFields()];
       for (const field of kind.fields) {
@@ -495,14 +497,14 @@ class Builder {
       for (const from of edge.from.includes('any') ? ['any'] : edge.from) {
         const fieldName = fieldNameOf(edge.name);
         if (from === 'any') { addEverywhere(fieldName, `the edge "${edge.name}"`, false); continue; }
-        const type = this.kindTypes.get(from)!;
+        const type = from === 'manifest.kind' ? 'CatalogueEntity' : this.kindTypes.get(from)!;
         this.registry.claimField(type, fieldName, `the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }
       for (const to of edge.to.includes('any') ? ['any'] : edge.to) {
         const fieldName = `${fieldNameOf(edge.name)}Of`;
         if (to === 'any') { addEverywhere(fieldName, `the inverse of the edge "${edge.name}"`, true); continue; }
-        const type = this.kindTypes.get(to)!;
+        const type = to === 'manifest.kind' ? 'CatalogueEntity' : this.kindTypes.get(to)!;
         this.registry.claimGeneratedField(type, fieldName, `the inverse of the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }
@@ -514,6 +516,7 @@ class Builder {
       { name: 'entity', type: 'Entity', args: [{ name: 'id', type: 'ID!' }, { name: 'lang', type: 'String' }] },
     ];
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
+      if (kind.name === 'manifest.kind') continue;
       const type = this.kindTypes.get(kind.name)!;
       // The list is named by the kind's own encoding, not by the type's family: `allCodeFile` for `KindCodeFile`.
       const name = `all${typeNameOf(kind.name)}`;

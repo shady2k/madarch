@@ -304,6 +304,7 @@ export class ReadContext {
     this.lang = lang ?? manifest.language ?? 'en';
     this.fallbackLang = manifest.language ?? 'en';
     for (const kind of published.kinds) {
+      if (kind.name === 'manifest.kind') continue;
       const type = kindTypeNameOf(kind.name);
       this.kindByType.set(type, kind);
       this.kindByRoot.set(`all${typeNameOf(kind.name)}`, kind);
@@ -315,14 +316,14 @@ export class ReadContext {
     for (const edge of published.edges) {
       // An `any` end stands on the Entity interface: the field answers on every entity, the catalogue's too.
       for (const from of edge.from) {
-        for (const type of from === 'any' ? everyType : [kindTypeNameOf(from)]) {
+        for (const type of from === 'any' ? everyType : [from === 'manifest.kind' ? 'CatalogueEntity' : kindTypeNameOf(from)]) {
           const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
           held.set(fieldNameOf(edge.name), { edge, side: 'from' });
           this.relationByType.set(type, held);
         }
       }
       for (const to of edge.to) {
-        for (const type of to === 'any' ? everyType : [kindTypeNameOf(to)]) {
+        for (const type of to === 'any' ? everyType : [to === 'manifest.kind' ? 'CatalogueEntity' : kindTypeNameOf(to)]) {
           const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
           held.set(`${fieldNameOf(edge.name)}Of`, { edge, side: 'to' });
           this.relationByType.set(type, held);

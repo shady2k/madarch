@@ -26,14 +26,33 @@ test('0039.16: writer stores one question for overlapping cross-source disagreem
   expect(await view()).toBeNull();
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:3,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   const question=await view();expect(question?.state).toBe('OPEN');expect(question?.candidates).toHaveLength(2);
+  const unchangedCandidate=(await amount()).find(row=>row.source===a&&row.value===2)!.id;
+  const expectSingleExistence=async()=>await owner.transaction('snapshot',async tx=>{
+   expect((await loadAssertions(tx,'edge','system.dispute-candidate',['$exists'])).filter(row=>row.subject.type==='edge'&&row.subject.from===question!.id&&row.subject.to===unchangedCandidate)).toHaveLength(1);
+   expect((await loadAssertions(tx,'vertex','system.dispute-question',['$exists'])).filter(row=>row.subject.type==='vertex'&&row.subject.uid===question!.id)).toHaveLength(1);
+  });
+  await expectSingleExistence();
   await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:3,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
   expect((await view())?.id).toBe(question!.id);
+  await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'retract',validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
+  expect((await view())?.state).toBe('DISMISSED');
+  expect((await view())?.id).toBe(question!.id);
+  await expectSingleExistence();
+  await owner.transaction('snapshot',async tx=>{
+   const {readKindAssertions}=await import('../src/graph/records.js');
+   const [record]=await readKindAssertions(tx,'vertex','sample',['amount'],{contract});
+   const {selectAssertions}=await import('../src/graph/assertion-selection.js');
+   expect(selectAssertions(record!.assertions.filter(row=>row.property==='amount'),{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}).contested).toBe(false);expect(record?.values['amount']).toBe(2);
+  });
+  await owner.transaction('write',async tx=>{bind(tx,b);await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:id,property:'amount',operation:'assert',value:4,validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);});
+  expect((await view())?.state).toBe('OPEN');expect((await view())?.id).toBe(question!.id);
+  await expectSingleExistence();
   await owner.transaction('snapshot',async tx=>expect((await tx.query(`SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.dispute-question'`)).rows).toHaveLength(1));
   await expect(owner.transaction('write',async tx=>{bind(tx,a);await resolveDispute(tx,contract,{} as ProducerBinding,{questionUid:question!.id,chosenAssertionUid:question!.candidates[0]!,expectedCandidates:question!.candidates,rationale:'A reason',evidence:[]});})).rejects.toThrow('does not permit resolve');
  }finally{await owner.close();}
 },30000);
 
-test('0039.17/27: durable resolution survives repeats, reopens on changed value, and preserves historical snapshot',async()=>{
+for(const withdraw of [false,true])test(`0039.17/27: durable resolution survives repeats, ${withdraw?'dismisses on withdrawal':'reopens on changed value'}, and preserves historical snapshot`,async()=>{
  const owner=await createTestDatabaseOwner({graphContract:contract});
  try{
   const {startupBinding}=await import('../src/graph/manifest-publication.js');
@@ -41,7 +60,7 @@ test('0039.17/27: durable resolution survives repeats, reopens on changed value,
   const a=await registerSystemSource(owner,contract,{type:'plugin',installationKey:'a',scope:productScope,version:'1'});
   const b=await registerSystemSource(owner,contract,{type:'plugin',installationKey:'b',scope:productScope,version:'1'});
   const resolver=await registerSystemSource(owner,contract,{type:'plugin',installationKey:'resolver',scope:productScope,version:'1'});
-  const grant=(principal:typeof a.principal,resolve=false)=>bindGraphProducer(owner,contract,{principal,vertices:{sample:['amount'],'system.content-snapshot':['digest','content']},edges:{},actions:resolve?['assert','resolve']:['assert']});
+  const grant=(principal:typeof a.principal,resolve=false)=>bindGraphProducer(owner,contract,{principal,vertices:{sample:['amount'],'system.content-snapshot':['digest','content']},edges:{},actions:resolve?['assert','resolve']:['assert','retract-own']});
   const ga=grant(a.principal),gb=grant(b.principal),gr=grant(resolver.principal,true);
   const write=async(binding:ProducerBinding,value:number)=>await owner.transaction('write',async tx=>{await activateGraphProducer(tx,contract,binding);await publishGraphDrafts(tx,contract,{vertices:[{kind:'sample',key:{name:'one'},values:{amount:value},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'}],removals:[]});await reconcileDisputes(tx,contract);});
   await write(ga,1);await write(gb,2);
@@ -69,6 +88,7 @@ test('0039.17/27: durable resolution survives repeats, reopens on changed value,
     await resolveDispute(tx,contract,unrelatedScope,input);
    })).rejects.toThrow('assertion outside authenticated scope');
    const uid=await executeResolution(host,contract,gr,{key:'resolve',input});
+   await owner.transaction('snapshot',async tx=>expect((await loadAssertions(tx,'vertex','system.dispute-question',['$exists'])).filter(row=>row.subject.type==='vertex'&&row.subject.uid===question.id)).toHaveLength(1));
    expect(await executeResolution(host,contract,gr,{key:'resolve',input})).toBe(uid);
    await expect(executeResolution(host,contract,gr,{key:'stale',input:{...input,expectedCandidates:[]}})).rejects.toThrow('REVISION_CONFLICT');
   }finally{await queue.stop();}
@@ -92,13 +112,19 @@ test('0039.17/27: durable resolution survives repeats, reopens on changed value,
   });
   const cutoff=new Date().toISOString();
   await write(gb,2);const repeated=(await view())!;expect(repeated.id).toBe(question.id);expect(repeated.state).toBe('RESOLVED');expect(repeated.resolution).toBe(resolved.resolution);
-  await write(gb,3);const reopened=(await view())!;expect(reopened.id).toBe(question.id);expect(reopened.state).toBe('OPEN');expect(reopened.supersededResolutions).toContain(resolved.resolution!);
+  if(withdraw)await owner.transaction('write',async tx=>{
+   await activateGraphProducer(tx,contract,gb);
+   const rows=await loadAssertions(tx,'vertex','sample',['amount']);const target=rows.find(row=>row.id===question.candidates[0])!;
+   await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:String(target.subjectId),property:'amount',operation:'retract',validFrom:'2020-01-01T00:00:00Z'});await reconcileDisputes(tx,contract);
+  });else await write(gb,3);
+  const reopened=(await view())!;expect(reopened.id).toBe(question.id);expect(reopened.state).toBe(withdraw?'DISMISSED':'OPEN');expect(reopened.supersededResolutions).toContain(resolved.resolution!);
   expect((await view(cutoff))!.state).toBe('RESOLVED');
   await owner.transaction('snapshot',async tx=>{
    const rows=await loadAssertions(tx,'vertex','sample',['amount'],undefined,{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]});
    const original=rows.find(row=>row.id===question.candidates[0])!;
-   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.value).toBe(3);
-   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.source).toBe(gb.sourceUid);
+   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.value).toBe(withdraw?1:3);
+   expect(rows.find(row=>row.selected&&row.subjectId===original.subjectId)?.source).toBe(withdraw?ga.sourceUid:gb.sourceUid);
+   expect(rows.find(row=>row.id===resolved.selectedAssertionUid)?.selected).toBe(false);
   });
  }finally{await owner.close();}
 },30000);
