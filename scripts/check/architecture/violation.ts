@@ -43,6 +43,7 @@ export const ARCHITECTURE_RULES = [
   'no-product-data',
   'no-regex',
   'no-retired-surfaces',
+  'no-test-file-imports',
   'no-unreachable-code',
   'one-command-list',
   'one-fill-entry',

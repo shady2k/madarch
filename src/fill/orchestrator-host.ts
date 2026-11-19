@@ -49,6 +49,7 @@ import { createOrchestratorSchema, readProgress, type RunSnapshot } from '../gra
 import type { QueueService } from './queue.js';
 import { readChain, readLatestRun, readRun, readRunUnits, type FillStateSnapshotDatabase } from '../graph/fill-state.js';
 import type { StageRegistry } from './registry.js';
+import type { UnitState } from './fsm.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 
 /** One product a fill runs for. */
@@ -162,7 +163,7 @@ const DEFAULT_FILL_QUEUE = 'fill-units';
 export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
-const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
+const TERMINAL_UNIT_STATES: readonly (UnitState | 'superseded')[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
 
 /** The most wall-clock time a host spends waiting for a run's own retry moments before it reports the run as it stands. */
 const RETRY_WAIT_BUDGET_MS = 60_000;
@@ -178,7 +179,7 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
   let waited = 0;
   while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
     const status = await runStatus(orchestrator, request.runId);
-    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.includes(unit.state));
+    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.some((state) => state === unit.state));
     if (live.length === 0) break;
     const due = live.flatMap((unit) => (unit.retryAt === null ? [] : [unit.retryAt]));
     const now = orchestrator.clock();

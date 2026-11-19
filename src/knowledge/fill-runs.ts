@@ -3,7 +3,7 @@ import { type FillStateDatabase, readRun, readRunUnitHistory } from '../graph/fi
 import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../graph/fill-orchestration.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
 import type { FillRunView } from './model.js';
-import { isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
+import { SKIPPED_UNIT_PHASE, type UnitState, isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
 
 
 export async function readFillRunDetail(owner: FillStateDatabase, runId: string, options: { readonly now: number; readonly agentUsage?: AgentUsageReport | null; readonly summary?: FillRunView }) {
@@ -15,11 +15,12 @@ export async function readFillRunDetail(owner: FillStateDatabase, runId: string,
   const phase = runPhaseOf(run.state);
   const finished = isFinalRunPhase(phase);
   const selected = run.context.selection;
+  const statePriority: readonly (UnitState | 'superseded')[] = ['running', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded', 'skipped'];
   const groups = (selected?.groups ?? []).map((group) => {
     const ids = new Set(plans.filter((plan) => plan.stageUnitId === group.stageUnitId).map((plan) => `${plan.unitId}@${plan.generation}`));
     const matching = units.filter((unit) => ids.has(`${unit.unitId}@${unit.generation}`));
-    const state = matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : ['running', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded', 'skipped'].find((held) => matching.some((unit) => unit.state === held))!;
-    return { kind: group.kind, group: group.group, plugin: group.plugin, done: matching.filter((unit) => unit.state === 'published').length, total: matching.length, state, phase: state === 'unplanned' ? 'waiting' : state === 'published' ? 'done' : state === 'superseded' ? 'skipped' : unitPhaseOf(state as import('../fill/fsm.js').UnitState) };
+    const state = matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : statePriority.find((held) => matching.some((unit) => unit.state === held))!;
+    return { kind: group.kind, group: group.group, plugin: group.plugin, done: matching.filter((unit) => unit.state === 'published').length, total: matching.length, state, phase: state === 'unplanned' ? 'waiting' : state === 'published' ? 'done' : state === 'superseded' ? SKIPPED_UNIT_PHASE : unitPhaseOf(state as import('../fill/fsm.js').UnitState) };
   });
   const completed = units.filter((unit) => unit.state === 'published').length;
   const elapsedMs = Math.max(0, (finished || run.state === 'paused' ? run.updatedAt : options.now) - run.createdAt);

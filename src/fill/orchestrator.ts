@@ -2125,7 +2125,8 @@ export async function runEvidence(orchestrator: RunControlContext, runId: string
   // cancelled or stale. A run that planned nothing because every unit it would plan already stands
   // published has lost nothing, and a stage whose plan found nothing is reported as such separately —
   // the registry's own distinction between "no producer" and "producer found nothing".
-  const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale', 'skipped'].includes(unit.state));
+  const lostStates: readonly UnitState[] = ['blocked', 'failed', 'cancelled', 'stale', 'skipped'];
+  const lost = units.filter((unit) => lostStates.includes(unit.state));
   const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
   return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)) };
 }

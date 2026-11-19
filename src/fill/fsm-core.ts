@@ -68,9 +68,11 @@ interface GuardSpec<Context, Event extends FillEventObject> {
  * A named action. `effect` is performed by the caller after the new state is
  * persisted; `context` is a pure update XState applies while it steps.
  */
+export const CONTEXT_ACTION = 'context';
+
 type ActionSpec<Context, Event extends FillEventObject> =
   | { readonly kind: 'effect'; readonly describe: string }
-  | { readonly kind: 'context'; readonly describe: string; readonly apply: (context: Context, event: Event) => Context };
+  | { readonly kind: typeof CONTEXT_ACTION; readonly describe: string; readonly apply: (context: Context, event: Event) => Context };
 
 /** A machine declaration: its states, its allowed transitions and every name they use. */
 export interface MachineSpec<State extends string, Event extends FillEventObject, Context> {
@@ -210,7 +212,7 @@ export function createFillMachine<State extends string, Event extends FillEventO
   }
   const machineActions: Record<string, unknown> = {};
   for (const [name, action] of Object.entries(spec.actions)) {
-    if (action.kind === 'context') {
+    if (action.kind === CONTEXT_ACTION) {
       machineActions[name] = assign(({ context, event }: { context: Context; event: Event }) => action.apply(context, event) as never);
     }
   }

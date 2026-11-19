@@ -16,6 +16,7 @@ import { fillEntryViolations } from './fill-entry.js';
 import { graphWriteViolations } from './graph-writes.js';
 import { schemaPreparationViolations } from './schema-preparation.js';
 import { starterDataViolations } from './starter-data.js';
+import { testFileImportViolations } from './test-file-imports.js';
 import { productFileReaderViolations } from './product-file-readers.js';
 import { kindNameViolations, routeViolations, RULE_FOLDERS } from './read-surfaces.js';
 import {
@@ -85,6 +86,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
     const modules = moduleSet(root);
     found.push(...(await dependencyRuleViolations(root, rules, modules)));
   }
+  if (rules.includes('no-test-file-imports')) found.push(...testFileImportViolations(root));
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
   if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
@@ -243,6 +245,14 @@ function describe(violation: ArchitectureViolation): string {
       return `${violation.file} spells ${JSON.stringify(violation.symbol ?? '?')}, a kind id, kind name or field name the starter catalogue declares, and the engine holds no product data: the catalogue is the product's, read from its own files`;
     case 'no-regex':
       return `${violation.file} parses text with the regular expression ${violation.symbol ?? '?'}, and the engine parses with a syntax tree, never with a pattern`;
+    case 'no-test-file-imports': {
+      const chain = violation.symbol ?? '?';
+      const paths = chain.split(' → ');
+      const target = (paths[paths.length - 1] ?? '?').slice(0, (paths[paths.length - 1] ?? '?').lastIndexOf(':'));
+      if (paths.length === 2) return `${violation.file} imports the test file ${target}, and bun registers every case it reaches: test code two files share is a helper module, not a *.test.ts`;
+      const helpers = paths.slice(1, -1).map((step) => step.slice(0, step.lastIndexOf(':'))).join(', ');
+      return `${violation.file} imports the test file ${target} through ${helpers} (${chain}), and bun registers every case it reaches: test code two files share is a helper module, not a *.test.ts`;
+    }
     case 'one-table-source':
       return `${violation.file} creates the table ${violation.symbol ?? '?'}, and only the graph core's installation and the generator from the manifest make a table: everything else is a vertex or an edge`;
     case 'catalogue-pointers':

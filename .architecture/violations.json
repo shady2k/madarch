@@ -657,22 +657,12 @@
   {
     "rule": "no-product-data",
     "file": "src/fill/fsm.ts",
-    "symbol": "context"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/fsm.ts",
     "symbol": "skipped"
   },
   {
     "rule": "no-product-data",
     "file": "src/fill/orchestrator-host.ts",
     "symbol": "registry"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "skipped"
   },
   {
     "rule": "no-product-data",
@@ -683,11 +673,6 @@
     "rule": "no-product-data",
     "file": "src/fill/orchestrator.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator.ts",
-    "symbol": "skipped"
   },
   {
     "rule": "no-product-data",
@@ -803,11 +788,6 @@
     "rule": "no-product-data",
     "file": "src/knowledge/catalog-starter.ts",
     "symbol": "document"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/fill-runs.ts",
-    "symbol": "skipped"
   },
   {
     "rule": "no-product-data",
@@ -1333,11 +1313,6 @@
     "rule": "no-product-data",
     "file": "wiki/app/src/components/ui/breadcrumb.tsx",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/button.tsx",
-    "symbol": "content"
   },
   {
     "rule": "no-product-data",

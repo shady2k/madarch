@@ -20,7 +20,7 @@
  * `chainMachine.mermaid()`).
  */
 import type { MachineSpec, TransitionSpec } from './fsm-core.js';
-import { createFillMachine, transition } from './fsm-core.js';
+import { CONTEXT_ACTION, createFillMachine, transition } from './fsm-core.js';
 
 // ---------------------------------------------------------------------------------------------
 // Unit machine
@@ -187,32 +187,32 @@ const cancelActions = ['revoke-authority', 'revoke-lease', 'emit-progress'] as c
 /** Every unit action, named: context updates XState applies, then effects the orchestrator performs. */
 const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   'take-fence': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records the supplied queue attempt fence and attempt number',
     apply: (context, event) => (event.type === 'start' ? { ...context, fence: event.fence, attempt: event.attempt ?? context.attempt + 1 } : context),
   },
   'spend-retry': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'spends one retry of the generation',
     apply: (context) => ({ ...context, retriesLeft: Math.max(0, context.retriesLeft - 1) }),
   },
   'wait-for-retry': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records the moment the retry may run',
     apply: (context, event) => ({ ...context, retryAt: event.type === 'retry' ? event.retryAt : context.retryAt }),
   },
   'clear-retry': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'clears the retry time an earlier attempt set',
     apply: (context) => ({ ...context, retryAt: null }),
   },
   'link-replacement': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'links this generation to the one that replaces it',
     apply: (context, event) => ({ ...context, replacedBy: event.type === 'invalidate' ? event.replacement : context.replacedBy }),
   },
   'record-skip': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records why the run skipped this generation',
     apply: (context, event) => ({ ...context, skippedBecause: event.type === 'skip' ? event.cause : context.skippedBecause ?? null }),
   },
@@ -465,17 +465,17 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
 /** Every run action, named. */
 const runActions: MachineSpec<RunState, RunEvent, RunContext>['actions'] = {
   'close-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'marks the run\'s planning epoch closed',
     apply: (context) => ({ ...context, planningClosed: true }),
   },
   'bump-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'opens the next planning epoch number',
     apply: (context) => ({ ...context, planningEpoch: context.planningEpoch + 1 }),
   },
   'reopen-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'marks the run\'s planning epoch open again',
     apply: (context) => ({ ...context, planningClosed: false }),
   },
@@ -655,6 +655,9 @@ export function isFinalRunState(state: RunState): boolean {
 export const UNIT_PHASES = ['waiting', 'running', 'done', 'failed', 'skipped', 'cancelled'] as const;
 export type UnitPhase = typeof UNIT_PHASES[number];
 
+/** The public phase of a unit the run did not execute. */
+export const SKIPPED_UNIT_PHASE: UnitPhase = 'skipped';
+
 /** Every transition of the public unit machine, with the reason it carries. */
 const UNIT_PHASE_TRANSITIONS: readonly { readonly from: UnitPhase; readonly event: string; readonly to: UnitPhase; readonly reason: string }[] = [
   { from: 'waiting', event: 'start', to: 'running', reason: 'a worker took the unit' },
@@ -679,7 +682,7 @@ export function unitPhaseOf(state: UnitState): UnitPhase {
   switch (state) {
     case 'published': return 'done';
     case 'failed': return 'failed';
-    case 'skipped': case 'stale': return 'skipped';
+    case 'skipped': case 'stale': return SKIPPED_UNIT_PHASE;
     case 'cancelled': return 'cancelled';
     case 'running': return 'running';
     case 'planned': case 'ready': case 'waiting_children': case 'retry_wait': case 'blocked': return 'waiting';
@@ -737,12 +740,12 @@ const chainGuards: MachineSpec<ChainState, ChainEvent, ChainContext>['guards'] =
 /** Every chain action, named. */
 const chainActions: MachineSpec<ChainState, ChainEvent, ChainContext>['actions'] = {
   'record-active-run': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records the run the chain follows',
     apply: (context, event) => ({ ...context, activeRunId: 'runId' in event ? event.runId : context.activeRunId }),
   },
   'clear-active-run': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'clears the run the chain followed',
     apply: (context) => ({ ...context, activeRunId: null }),
   },
