@@ -136,11 +136,13 @@ function protocolFixture(): { root: string; words: string[] } {
     "export const SYSTEM_CONTRACT: GraphContract = { vertex: [...OPERATIONAL_KINDS.map(name => ({name})), ...IDENTITY_KINDS.map(identityKind), { name: 'scope' }] };",
     "const diagnostic = { name: 'catalogue-only' };",
     "const UNRELATED_KINDS = ['arbitrary-array'];",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/graph/producer-binding.ts', [
     "export type ProducerAction = 'assert' | 'merge';",
     "type Private = 'private-type';",
     "export type Unrelated = 'unrelated-type';",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/graph/evidence-targets.ts', [
     "export interface EvidenceTargetKinds { readonly repository: string; }",
@@ -158,6 +160,7 @@ function protocolFixture(): { root: string; words: string[] } {
   writeModule(root, 'src/protected-read-invalid.ts', [
     "import { loadAssertions } from './graph/assertion-read.js';",
     "loadAssertions(null, 'vertex', 'system.fixture-b', ['json']);",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/conditional-use.ts', [
     "import { loadAssertions } from './graph/assertion-read.js';",
@@ -168,6 +171,7 @@ function protocolFixture(): { root: string; words: string[] } {
     "import { loadAssertions } from './graph/assertion-read.js';",
     "async function records(tx: any, kind: string) { const properties = kind === 'system.fixture-a' ? ['json'] : ['scope']; return loadAssertions(tx, 'vertex', kind, properties); }",
     "records(null, 'system.fixture-a'); records(null, 'arbitrary-product');",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';"]);
   writeModule(root, 'src/graph/contract.ts', [
@@ -180,35 +184,42 @@ function protocolFixture(): { root: string; words: string[] } {
     "export function invalid(field: any) { switch (field.type) { case 'json': return 1; } }",
     "export function scalar(type: FieldType) { return type === 'json'; }",
     "export function scalarInvalid(type: string) { return type === 'json'; }",
+    "export const kind = 'example';",
   ]);
-  writeModule(root, 'src/protocol-use.ts', words.map(word => `consume('${word}');`));
+  writeModule(root, 'src/protocol-use.ts', [...words.map(word => `consume('${word}');`), "export const kind = 'example';"]);
   writeModule(root, 'src/owner-use.ts', [
     "import type { DatabaseOwner } from './adapters/database-owner.js';",
     "export function valid(owner: DatabaseOwner) { return owner.transaction('snapshot', async () => {}); }",
     "export function invalid(owner: any) { return owner.transaction('snapshot', async () => {}); }",
     "consume('snapshot');",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/counterfeit-use.ts', [
     "interface FieldContract { type: string }",
     "export function counterfeit(field: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/wrong-import-use.ts', [
     "import type { FieldContract } from './unrelated.js';",
     "export function counterfeit(field: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/lexical-use.ts', [
     "import type { FieldContract } from './graph/contract.js';",
     "export function invalid(field: any, unrelated: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/shadow-use.ts', [
     "import type { FieldContract } from './graph/contract.js';",
     "export function shadow(field: FieldContract) { return ((field: any) => field.type === 'json')({}); }",
+    "export const kind = 'example';",
   ]);
   writeModule(root, 'src/comparison-use.ts', [
     "import type { SqlTransactionKind } from './sql-driver.js';",
     "export function valid(kind: SqlTransactionKind) { return kind === 'snapshot'; }",
     "export function invalid(kind: string) { return kind === 'snapshot'; }",
     "export function unrelated(kind: SqlTransactionKind) { return kind === 'repository'; }",
+    "export const kind = 'example';",
   ]);
   return { root, words };
 }
@@ -226,10 +237,11 @@ describe('the architecture check', () => {
           '    const statement = `CREATE TRIGGER dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION dirty()`;',
           '  }',
           '}',
-        ] : ["export const unrelated = 'context';"]),
+        ] : ["export const unrelated = 'context';", "export const kind = 'example';"]),
       ]);
       expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual(loop ? [] : [
         { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 2, symbol: 'context' },
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 3, symbol: 'example' },
       ]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -263,8 +275,10 @@ describe('the architecture check', () => {
         '    const statement = `CREATE TRIGGER ${table} BEFORE INSERT ON context FOR EACH ROW EXECUTE FUNCTION dirty()`;',
         '  }',
         '}',
+        "export const kind = 'example';",
       ]);
       expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 7, symbol: 'example' },
         { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 3, symbol: 'node' },
       ]);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -292,31 +306,38 @@ describe('the architecture check', () => {
   test('system kinds and explicit protocol declarations are engine vocabulary, not arbitrary implementation literals', async () => {
     const { root, words } = protocolFixture();
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
-    expect(report.found.filter(one => one.file === 'src/protocol-use.ts').map(one => one.symbol)).toEqual([...words].sort());
+    expect(report.found.filter(one => one.file === 'src/protocol-use.ts').map(one => one.symbol)).toEqual([...words, 'example'].sort());
     expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([]);
     expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'merge')).toBe(false);
     expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'unrelated-type')).toBe(true);
     expect(report.found.some(one => one.file === 'src/graph/evidence-targets.ts' && one.symbol === 'blob')).toBe(false);
     expect(report.found.some(one => one.file === 'src/graph/system-contract.ts' && one.symbol === 'catalogue-only')).toBe(true);
-    expect(report.found.filter(one => one.file === 'src/graph/system-contract.ts').map(one => one.symbol)).toEqual(['arbitrary-array', 'catalogue-only']);
+    expect(report.found.filter(one => one.file === 'src/graph/system-contract.ts').map(one => one.symbol)).toEqual(['arbitrary-array', 'catalogue-only', 'example']);
     expect(report.found.filter(one => ['src/counterfeit-use.ts', 'src/wrong-import-use.ts', 'src/lexical-use.ts', 'src/shadow-use.ts'].includes(one.file))).toEqual([
+      { rule: 'no-product-data', file: 'src/counterfeit-use.ts', line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/counterfeit-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/lexical-use.ts', line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/lexical-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/shadow-use.ts', line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/shadow-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/wrong-import-use.ts', line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/wrong-import-use.ts', line: 2, symbol: 'json' },
     ]);
     expect(report.found.filter(one => one.file === 'src/protected-read.ts')).toEqual([]);
-    expect(report.found.filter(one => one.file === 'src/protected-read-invalid.ts').map(one => one.symbol)).toEqual(['json']);
+    expect(report.found.filter(one => one.file === 'src/protected-read-invalid.ts').map(one => one.symbol)).toEqual(['example', 'json']);
     expect(report.found.filter(one => one.file === 'src/conditional-use.ts')).toEqual([]);
-    expect(report.found.filter(one => one.file === 'src/conditional-invalid.ts').map(one => one.symbol)).toEqual(['json', 'scope']);
+    expect(report.found.filter(one => one.file === 'src/conditional-invalid.ts').map(one => one.symbol)).toEqual(['example', 'json', 'scope']);
     expect(report.found.filter(one => one.file === 'src/field-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/field-use.ts', line: 6, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/field-use.ts', line: 3, symbol: 'json' },
     ]);
     expect(report.found.filter(one => one.file === 'src/comparison-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export const kind'), symbol: 'example' },
       { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export function unrelated'), symbol: 'repository' },
       { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export function invalid'), symbol: 'snapshot' },
     ]);
     expect(report.found.filter(one => one.file === 'src/owner-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/owner-use.ts', line: lineOf(readFileSync(join(root, 'src/owner-use.ts'), 'utf8').split('\n'), 'export const kind'), symbol: 'example' },
       { rule: 'no-product-data', file: 'src/owner-use.ts', line: lineOf(readFileSync(join(root, 'src/owner-use.ts'), 'utf8').split('\n'), 'export function invalid'), symbol: 'snapshot' },
     ]);
     rmSync(root, { recursive: true, force: true });
@@ -328,6 +349,7 @@ describe('the architecture check', () => {
     const sqlDriver = readFileSync(join(root, 'src/sql-driver.ts'), 'utf8').split('\n');
     const owner = readFileSync(join(root, 'src/adapters/database-owner.ts'), 'utf8').trimEnd().split('\n');
     writeModule(root, 'src/adapters/database-owner.ts', owner.filter(line => !line.includes('  transaction<T>')));
+    writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';", "export const kind = 'example';"]);
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
     expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
       { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
@@ -340,6 +362,7 @@ describe('the architecture check', () => {
     const sqlDriver = readFileSync(join(root, 'src/sql-driver.ts'), 'utf8').split('\n');
     const owner = readFileSync(join(root, 'src/adapters/database-owner.ts'), 'utf8').trimEnd().split('\n');
     writeModule(root, 'src/adapters/database-owner.ts', owner.map(line => line.replace('kind: SqlTransactionKind', 'kind: string')));
+    writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';", "export const kind = 'example';"]);
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
     expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
       { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
@@ -365,6 +388,7 @@ describe('the architecture check', () => {
       "export function documentOpinions(graph: any, manifest: any, role: 'document' = 'document') { return semanticEntities(graph, manifest, role); }",
       "export function valid(document: DocumentOpinion) { return document.properties['anchors']; }",
       "export function invalid(document: any) { return document.properties['anchors']; }",
+      "export const kind = 'example';",
     ]);
     writeModule(root, 'src/role-use.ts', [
       "import { semanticEntities, semanticBinding } from './knowledge/semantic-bindings.js';",
@@ -372,20 +396,25 @@ describe('the architecture check', () => {
       "consume('repository');",
       "const binding = semanticBinding(null, 'document'); binding.fields['repository'];",
       "binding.fields['repository'];",
+      "export const kind = 'example';",
     ]);
     writeModule(root, 'src/role-shadow.ts', [
       "import { semanticBinding } from './knowledge/semantic-bindings.js';",
       "function counterfeit(semanticBinding: any) { const other = semanticBinding(null, 'document'); return other.fields['repository']; }",
+      "export const kind = 'example';",
     ]);
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
     expect(report.found.filter(one => one.file === 'src/role-shadow.ts')).toEqual([
       { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 2, symbol: 'document' },
+      { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 2, symbol: 'repository' },
     ]);
     expect(report.found.filter(one => one.file === 'src/knowledge/anchors.ts')).toEqual([
       { rule: 'no-product-data', file: 'src/knowledge/anchors.ts', line: 5, symbol: 'anchors' },
+      { rule: 'no-product-data', file: 'src/knowledge/anchors.ts', line: 6, symbol: 'example' },
     ]);
     expect(report.found.filter(one => one.file === 'src/role-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/role-use.ts', line: 6, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/role-use.ts', line: 3, symbol: 'repository' },
     ]);
     rmSync(root, { recursive: true, force: true });
@@ -400,9 +429,12 @@ describe('the architecture check', () => {
       "const WRITE_TOOLS = [{inputSchema: {properties: {preconditions: PRECONDITIONS}}}];",
       "export const PRODUCT_TOOLS = [...WRITE_TOOLS];",
       "function check(input: unknown) { const args = input as Record<string, unknown>; const value = args['preconditions']; if (!Value.Check(PRECONDITIONS, value)) throw new WriteRefusal('invalid', 'preconditions'); }",
+      "export const kind = 'example';",
     ];
     writeModule(root, 'src/mcp/authored.ts', source);
-    expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([]);
+    expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([
+      { rule: 'no-product-data', file: 'src/mcp/authored.ts', line: 6, symbol: 'example' },
+    ]);
     for (const change of [
       (line: string) => line.replace('Value.Check(PRECONDITIONS, value)', 'Value.Check(OTHER, value)'),
       (line: string) => line.replace('[...WRITE_TOOLS]', '[]'),
@@ -428,18 +460,21 @@ describe('the architecture check', () => {
       "function valid(): OperationRequest { return { key: 'request', request: {} }; }",
       "function unknown() { return { key: 'request', request: {} }; }",
       "operationReceipt(tx, contract, unit, 'request');",
+      "export const kind = 'example';",
     ]);
     for (const [name, body] of [
       ['unknown', "function unknown() { return { key: 'request', request: {} }; }"],
       ['wrong', "function wrong(): OperationRequest { return { key: 'other', request: 'request' }; }"],
       ['slot', "operationReceipt(tx, contract, 'request', key);"],
       ['shadow', "function shadow(operationReceipt: any) { operationReceipt(tx, contract, unit, 'request'); }"],
-    ]) writeModule(root, `src/receipt-${name}.ts`, ["import { operationReceipt, type OperationRequest } from './graph/operation-host.js';", body!]);
+    ]) writeModule(root, `src/receipt-${name}.ts`, ["import { operationReceipt, type OperationRequest } from './graph/operation-host.js';", body!, "export const kind = 'example';"]);
     const report = await architectureCheck({ root, rules: ['no-product-data'] });
     expect(report.found.filter(one => one.file === 'src/receipt.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/receipt.ts', line: 5, symbol: 'example' },
       { rule: 'no-product-data', file: 'src/receipt.ts', line: 3, symbol: 'request' },
     ]);
     for (const name of ['unknown', 'wrong', 'slot', 'shadow']) expect(report.found.filter(one => one.file === `src/receipt-${name}.ts`)).toEqual([
+      { rule: 'no-product-data', file: `src/receipt-${name}.ts`, line: 3, symbol: 'example' },
       { rule: 'no-product-data', file: `src/receipt-${name}.ts`, line: 2, symbol: 'request' },
     ]);
     rmSync(root, { recursive: true, force: true });
@@ -457,9 +492,11 @@ describe('the architecture check', () => {
       writeModule(root, 'src/receipt.ts', [
         "import { operationReceipt, type OperationRequest } from './graph/operation-host.js';",
         "function request(): OperationRequest { return { key: 'request' }; }",
+        "export const kind = 'example';",
       ]);
       const report = await architectureCheck({ root, rules: ['no-product-data'] });
       expect(report.found.filter(one => one.file === 'src/receipt.ts')).toEqual([
+        { rule: 'no-product-data', file: 'src/receipt.ts', line: 3, symbol: 'example' },
         { rule: 'no-product-data', file: 'src/receipt.ts', line: 2, symbol: 'request' },
       ]);
       rmSync(root, { recursive: true, force: true });

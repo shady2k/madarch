@@ -2023,21 +2023,48 @@ export const ENGINE_WORDS: readonly string[] = ['secret'];
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
   const format = new Set([...manifestFormatWords(root), ...ENGINE_WORDS]);
   const protocolFields = fileTextProtocolFields(modules);
+  // A kind's own name is product data wherever it stands. A field name is product data only where the module names a
+  // literal of a kind that declares it: a word such as `model` or `statement` is the engine's unless that module also
+  // speaks of the catalogue kind the field belongs to.
   const names = new Set<string>();
+  const fieldKinds = new Map<string, Set<string>>();
   for (const kind of catalogueKinds(root)) {
     // A word the manifest format itself declares is the engine's vocabulary, not product data (`labels`, `definition`).
-    if (!format.has(kind.name)) names.add(kind.name);
+    const kindIsFormat = format.has(kind.name);
+    if (!kindIsFormat) names.add(kind.name);
     if (kind.id !== undefined && !format.has(kind.id)) names.add(kind.id);
-    for (const field of kind.fields) if (!format.has(field.name)) names.add(field.name);
+    if (kindIsFormat) continue;
+    for (const field of kind.fields) {
+      if (format.has(field.name)) continue;
+      let declaring = fieldKinds.get(field.name);
+      if (declaring === undefined) {
+        declaring = new Set<string>();
+        fieldKinds.set(field.name, declaring);
+      }
+      declaring.add(kind.name);
+    }
   }
   const found: ArchitectureViolation[] = [];
   for (const module of modules.values()) {
+    const literals = new Set<string>();
+    for (const node of nodesOf(module.tree)) {
+      const value = stringValue(node);
+      if (value !== undefined) literals.add(value);
+    }
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
       // The trusted system catalogue declares engine kinds, not product vocabulary.
       // Its words must not exempt the same literals in any other engine module.
       if (module.file === 'src/product/manifest/system-catalogue.ts') continue;
-      if (value === undefined || !names.has(value) || externalProtocolLiteral(module, node, modules) || protocolFields.has(node)) continue;
+      if (value === undefined) continue;
+      if (!names.has(value)) {
+        const declaring = fieldKinds.get(value);
+        if (declaring === undefined) continue;
+        let named = false;
+        for (const kind of declaring) if (literals.has(kind)) { named = true; break; }
+        if (!named) continue;
+      }
+      if (externalProtocolLiteral(module, node, modules) || protocolFields.has(node)) continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
     for (const node of nodesOf(module.tree)) {
