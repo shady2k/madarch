@@ -14,7 +14,7 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { runFill } from '../src/fill/run.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
@@ -189,13 +189,13 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'dependent kinds']);
     const contract = await readPinnedGraphContract(f.product);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: contract });
-    const sessions: PluginAgentReport[] = [];
-    await prepareStore(owner, { contract });
-    await owner.transaction('write', async (tx) => {
-      await bindTestWriteCapability(tx, contract);
-      await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'system.content-snapshot', key: { digest: alphaDigest }, values: { content: alphaContent }, producer: 'fixture', producerVersion: '1' }], removals: [] });
-    });
     try {
+      const sessions: PluginAgentReport[] = [];
+      await prepareStore(owner, { contract });
+      await owner.transaction('write', async (tx) => {
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'system.content-snapshot', key: { digest: alphaDigest }, values: { content: alphaContent }, producer: 'fixture', producerVersion: '1' }], removals: [] });
+      });
       const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
@@ -204,8 +204,16 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       expect(run.ok).toBe(true);
       if (!run.ok) throw new Error(JSON.stringify(run));
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
-      const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
-      expect(rows.rows).toHaveLength(1);
+      // Schema 0039 keeps a relation's identity in `edge` and its currency in the `$exists` assertion, and the retired
+      // `e_*` tables are dropped at installation: the live link is read like any other kind's records.
+      const [links, sources, targets] = await owner.transaction('snapshot', async (tx) => [
+        await readKindAssertions(tx, 'edge', 'probe.link', [], { contract }),
+        await readKindAssertions(tx, 'vertex', 'probe.a', [], { contract }),
+        await readKindAssertions(tx, 'vertex', 'probe.b', [], { contract }),
+      ]);
+      expect(links).toHaveLength(1);
+      expect(links[0]!.from).toBe(sources.find((row) => row.key['id'] === 'probe.a')!.id);
+      expect(links[0]!.to).toBe(targets.find((row) => row.key['id'] === 'probe.b')!.id);
       // The agent fills the two fixture kinds and nothing of code.file: every field of a code kind has its producer,
       // and the state machines are a kind of their own (madarch-64o5.114).
       expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);

@@ -169,6 +169,9 @@ async extract(unit, context) {
     expect((await problems()).map((row) => row.title as string | null)).toEqual(['Partial finding', null]);
     release = configure('good'); const clean = await run('good'); expect(clean.ok).toBe(true);
     expect(await problems()).toEqual([]);
+    // `problems()` reports only the rows a producer still states a title or a detail of; a retraction that removed those
+    // fields but left the `$exists` assertion true would still be a live FixtureProblem, so the vertex itself is read.
+    expect(await owner.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'FixtureProblem', [], { contract: graph }))).toEqual([]);
     // The entries a complete answer retires are entries it committed (a2c14d9f0): the empty answer clears the finding's
     // existence and the detail it held, so the outcome is completed, and the graph holds no problem of it.
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'completed', produced: 2 })]));
