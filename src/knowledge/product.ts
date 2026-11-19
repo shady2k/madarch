@@ -55,7 +55,7 @@ import { readFillRunDetail } from './fill-runs.js';
 import { runPhaseOf } from '../fill/fsm.js';
 import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../graph/fill-orchestration.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
-import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../graph/fill-state.js';
+import { createRun, readProductFillState, readRuns, hasSuccessfulFill, readRun, readLiveRun, readStoreStamp } from '../graph/fill-state.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
@@ -245,6 +245,54 @@ export class KnowledgeProduct {
   private generation = 0;
   /** The store's own stamp when this process last read it: a publication moves it, whoever ran the fill. */
   private storeStamp: string | undefined;
+  private fillStateMemo: {
+    owner: DatabaseOwner;
+    snapshot: Awaited<ReturnType<typeof readProductFillState>>;
+    configuration: Awaited<ReturnType<typeof readRunConfiguration>>;
+    outcomes: Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>;
+    ends: Map<string, Awaited<ReturnType<typeof readFillEnd>>>;
+  } | undefined;
+
+  /** All fill reads share the stamp of the transaction that read them, not a preflight stamp. */
+  private async productFillState(owner: DatabaseOwner, product: string) {
+    const revision = await readStoreStamp(owner);
+    if (this.fillStateMemo?.owner === owner && this.fillStateMemo.snapshot.stamp === revision) return this.fillStateMemo;
+    const memo = await owner.transaction('snapshot', async tx => {
+      const database: Pick<DatabaseOwner, 'transaction'> = { transaction: async (_kind, work) => await work(tx) };
+      const snapshot = await readProductFillState(database, product);
+      const latest = snapshot.runs[0];
+      const configuration = latest === undefined ? null : await readRunConfiguration(database, latest.runId);
+      const ends = new Map<string, Awaited<ReturnType<typeof readFillEnd>>>();
+      for (const run of snapshot.runs.filter(run => ['succeeded', 'failed'].includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
+        ends.set(run.runId, await readFillEnd(database, run.runId));
+      }
+      return { owner, snapshot, configuration, outcomes: new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>(), ends };
+    });
+    const previous = this.fillStateMemo;
+    if (previous?.owner === owner && previous.snapshot.stamp !== '-' && memo.snapshot.stamp !== '-' && BigInt(previous.snapshot.stamp) > BigInt(memo.snapshot.stamp)) return previous;
+    this.fillStateMemo = memo;
+    return memo;
+  }
+
+  /** Optional producer metrics cannot abort the core fill snapshot or be cached under another revision. */
+  private async producerOutcomes(owner: DatabaseOwner, runId: string) {
+    const memo = this.fillStateMemo;
+    if (memo?.owner !== owner) return undefined;
+    const held = memo.outcomes.get(runId);
+    if (held !== undefined) return held;
+    try {
+      const outcomes = await owner.transaction('snapshot', async tx => {
+        const database: Pick<DatabaseOwner, 'transaction'> = { transaction: async (_kind, work) => await work(tx) };
+        if (await readStoreStamp(database) !== memo.snapshot.stamp) return undefined;
+        return await readProducerOutcomes(database, { runId });
+      });
+      if (outcomes !== undefined) memo.outcomes.set(runId, outcomes);
+      return outcomes;
+    } catch {
+      return undefined;
+    }
+  }
+
   private opening: Promise<void> | undefined;
   private storeOpening: Promise<DatabaseOwner | null> | undefined;
   /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
@@ -744,6 +792,7 @@ export class KnowledgeProduct {
     await this.swapping.catch(() => undefined);
     if (this.storeOpening !== held) return;
     this.reader = undefined;
+    this.fillStateMemo = undefined;
     this.opening = undefined;
     // The store's fill-run queue is opened on this reader's owner and asks it for statements on pg-boss's own
     // timer: it stops before the owner it borrows closes (madarch-8bdc.12), or the timer throws into the process.
@@ -1866,6 +1915,7 @@ export class KnowledgeProduct {
         await this.storeOpening?.then((owner) => owner?.close());
         this.storeOpening = undefined;
         this.reader = undefined;
+        this.fillStateMemo = undefined;
         this.opening = undefined;
         await requestStoreReset(storeDatabasePath(this.storeFolder()), contract);
         const fresh = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
@@ -2091,10 +2141,10 @@ export class KnowledgeProduct {
     // to a later revision, and these counts must not be remembered under that later one.
     const statusSeq = this.reader?.seq ?? 0;
     const read = await this.manifestRead(product.folder);
-    const run = await this.runViewOf();
+    const run = await this.runViewOf(undefined, this.fillStateMemo);
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
     const runId = this.fillRunId ?? run?.runId;
-    const outcomes = runId === undefined ? undefined : await readProducerOutcomes(await this.fillDatabase(this.reader!.owner), { runId }).catch(() => undefined);
+    const outcomes = runId === undefined ? undefined : await this.producerOutcomes(this.reader!.owner, runId);
     const counts = await this.repositoryCounts();
     this.fillExtras = {
       ...(counts === undefined ? {} : { counts }),
@@ -2115,7 +2165,7 @@ export class KnowledgeProduct {
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: await hasSuccessfulFill(this.reader!.owner, product.name),
+      filled: this.fillStateMemo?.snapshot.runs.some(run => run.state === 'succeeded') ?? false,
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
       fill: { ...fill, ...(run === null ? {} : { run }) },
       writer: this.writerOf(),
@@ -2286,40 +2336,29 @@ export class KnowledgeProduct {
     if (this.reader === undefined) return;
     // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
-    let moved = false;
-    try {
-      const stamp = await readStoreStamp(this.reader.owner);
-      if (this.storeStamp !== stamp) {
-        moved = true;
-        this.storeStamp = stamp;
+    const identity = this.product();
+    if ('message' in identity) return;
+    const memo = await this.productFillState(this.reader.owner, identity.name);
+    const moved = this.storeStamp !== memo.snapshot.stamp;
+    if (moved) {
+      try {
+        this.storeStamp = memo.snapshot.stamp;
         this.generation += 1;
         this.kindCountsCache.clear();
+        this.countsMemo = undefined;
         this.reader = { owner: this.reader.owner, seq: this.generation };
         await this.loadPins(this.reader.owner).catch(() => undefined);
-        // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
-        // the answer, never inside it — a status during a fill answers within its own bound (madarch-64o5.3).
         void this.warmReader().catch(() => undefined);
+      } catch {
+        // Retain the last known publication when its reader cannot refresh.
       }
-    } catch {
-      // The store cannot be read: the answer is what this process last knew.
     }
-    let named: Awaited<ReturnType<typeof readRun>>;
-    try {
-      const identity = this.product();
-      if ('message' in identity) return;
-      const chain = await readChain(this.reader.owner, identity.name);
-      named = chain !== null && chain.state === 'active' && chain.context.activeRunId !== null
-        ? await readRun(this.reader.owner, chain.context.activeRunId)
-        : (await readRuns(this.reader.owner, identity.name))[0] ?? null;
-    } catch {
-      return;
-    }
-    // A publication from another process carries the units it wrote: one notice per unit publication, so a page open
-    // while a fill runs sees each kind and its counts without waiting for the run's end (madarch-64o5.91). A status
-    // poll can see the store move before the run's progress row is committed, so an active run is read on every poll
-    // (the run page already reads it once a second) and a new run is read on its first sight.
-    const activeRun = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(named.state);
-    if (named !== null && (moved || activeRun || this.progressNotice?.runId !== named.runId)) {
+    const { chain, runs } = memo.snapshot;
+    const named = chain?.state === 'active' && chain.context.activeRunId !== null
+      ? runs.find(run => run.runId === chain.context.activeRunId) ?? null : runs[0] ?? null;
+    // Progress is now graph assertions too: every committed progress publication moves the stamp,
+    // including one committed after the run transition. An unchanged poll has no new events to read.
+    if (named !== null && (moved || this.progressNotice?.runId !== named.runId)) {
       await this.announceUnitPublications(named.runId).catch(() => undefined);
     }
     // A run that starts, pauses or ends may also move the product's files and templates: a structure notice lets the
@@ -2349,7 +2388,7 @@ export class KnowledgeProduct {
     }
     // A run may finish between polls. Adopt its published end, not a terminal row whose store work is still settling.
     const namedEnd = named !== null && (named.state === 'succeeded' || named.state === 'failed')
-      ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
+      ? memo.ends.get(named.runId) ?? null : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;
       this.fill = { state: 'running', runPhase: runPhaseOf(named.state), runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
@@ -2358,7 +2397,7 @@ export class KnowledgeProduct {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
       // run row's terminal state alone is not the store's publication, because the pins a page reads land after it. A run
       // the process has not ended here yet keeps this answer `running`.
-      const end = namedEnd ?? await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
+      const end = namedEnd ?? memo.ends.get(this.fillRunId) ?? null;
       if (end === null) return;
       await this.published(undefined).catch(() => undefined);
       // The answer that reads the settled run warms the worker and the repository aggregates: the page a person opens
@@ -2378,7 +2417,7 @@ export class KnowledgeProduct {
   }
 
   /** The persisted run is authoritative; its trace only supplies metrics. */
-  private async runViewOf(runId?: string): Promise<FillRunView | null> {
+  private async runViewOf(runId?: string, current?: KnowledgeProduct['fillStateMemo']): Promise<FillRunView | null> {
     if (!existsSync(storeDatabasePath(this.storeFolder()))) return null;
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
@@ -2386,9 +2425,10 @@ export class KnowledgeProduct {
     const preparing = publication !== undefined && publication.status !== 'published';
     const owner = preparing ? await this.openStore(true) : await this.openStore();
     if (owner === null) return null;
-    const record = runId === undefined ? await readLatestRun(owner, product.name) : await readRun(owner, runId);
+    const memo = runId === undefined ? current ?? await this.productFillState(owner, product.name) : undefined;
+    const record = runId === undefined ? memo!.snapshot.runs[0] ?? null : await readRun(owner, runId);
     if (record === null || record.product !== product.name) return null;
-    const configuration = await readRunConfiguration(owner, record.runId);
+    const configuration = memo === undefined ? await readRunConfiguration(owner, record.runId) : memo.configuration;
     const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
     let run: ReturnType<typeof readTraceRunSummary> | undefined;
     if (chosenEntry !== undefined) {
@@ -2424,7 +2464,7 @@ export class KnowledgeProduct {
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
-      const detail = (await readFillRunDetail(await this.fillDatabase(owner), run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
       const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
       return { ...detail, agentExchanges: exchanges };
     }));
@@ -2814,6 +2854,7 @@ export class KnowledgeProduct {
     await this.storeOpening?.then((owner) => owner?.close()).catch(() => undefined);
     this.storeOpening = undefined;
     this.reader = undefined;
+    this.fillStateMemo = undefined;
     this.opening = undefined;
   }
 }

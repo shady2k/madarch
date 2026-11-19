@@ -317,21 +317,38 @@ export async function createRun(database:FillStateDatabase,options:{readonly run
 export async function readRunIn(tx:SqlExecutor,runId:string):Promise<RunRecord|null>{const row=await runNode(tx,runId);return row?await runRecord(tx,row):null;}
 export async function readRun(database:FillStateSnapshotDatabase,runId:string):Promise<RunRecord|null>{return await snapshotRun(here(),database,`readRun(${runId})`,tx=>readRunIn(tx,runId));}
 /** A product's runs, from its chain: the chain names its runs by its own edges (0039.25). */
-async function productRuns(tx: SqlExecutor, product: string): Promise<RunRecord[]> {
-  const chain = (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product);
-  if (chain === undefined) return [];
+async function productRuns(tx: SqlExecutor, product: string, chainNode?: AssertionRecord | null): Promise<RunRecord[]> {
+  const chain = chainNode === undefined ? (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product) : chainNode;
+  if (chain == null) return [];
   const edges = await edgeRowsIn(tx, 'system.chain-run', 'from', [chain.id]);
   const runs = await readRecordsIn(tx, 'vertex', 'system.run', fields.run, edges.map(edge => edge.to));
   return await Promise.all(runs.filter(row => row.values['product_name'] === product).map(row => runRecord(tx, row)));
 }
 const newest=(a:RunRecord,b:RunRecord):number=>b.createdAt-a.createdAt||byCodePoint(b.runId,a.runId);
+/** The fill records and their invalidation stamp belong to one committed graph snapshot. */
+export async function readProductFillState(database: FillStateSnapshotDatabase, product: string): Promise<{
+  readonly stamp: string; readonly chain: ChainRecord | null; readonly runs: readonly RunRecord[];
+}> {
+  return await snapshotRun(here(), database, `readProductFillState(${product})`, async tx => {
+    const stamp = await storeStampIn(tx);
+    const chain = await readChainIn(tx, product);
+    const runs = (await productRuns(tx, product, chain?.node ?? null)).sort(newest);
+    return { stamp, chain: chain?.record ?? null, runs };
+  });
+}
 export async function readRuns(database:FillStateSnapshotDatabase,product:string):Promise<readonly RunRecord[]>{return await snapshotRun(here(),database,`readRuns(${product})`,async tx=>(await productRuns(tx,product)).sort(newest));}
 export async function readLatestRun(database:FillStateSnapshotDatabase,product:string):Promise<RunRecord|null>{return (await readRuns(database,product))[0]??null;}
 const LIVE_RUN_STATES: readonly RunState[] = ['created','planning','running','pausing','cancelling'];
 export async function readLiveRun(database:FillStateSnapshotDatabase,product:string):Promise<RunRecord|null>{return await snapshotRun(here(),database,'readLiveRun',async tx=>(await productRuns(tx,product)).filter(r=>LIVE_RUN_STATES.includes(r.state)).sort(newest)[0]??null);}
 /** Whether a run of this product has ever succeeded: the chain's runs, never every run of the store. */
 export async function hasSuccessfulFill(database:FillStateSnapshotDatabase,product:string):Promise<boolean>{return await snapshotRun(here(),database,'hasSuccessfulFill',async tx=>(await productRuns(tx,product)).some(r=>r.state==='succeeded'));}
-export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await withSpan('graph.fill.stamp', {}, async () => await snapshotRun(here(),database,'readStoreStamp',async tx=>{const result=await tx.query<{stamp:string}>("SELECT coalesce(max(recorded_sequence)::text,'-') AS stamp FROM assertion");return result.rows[0]?.stamp??'-';}));}
+async function storeStampIn(tx: SqlExecutor): Promise<string> {
+  return await withSpan('graph.fill.stamp', {}, async () => {
+    const result = await tx.query<{stamp:string}>("SELECT coalesce(max(recorded_sequence)::text,'-') AS stamp FROM assertion");
+    return result.rows[0]?.stamp ?? '-';
+  });
+}
+export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await snapshotRun(here(),database,'readStoreStamp',storeStampIn);}
 export async function advanceRun(database:FillStateDatabase,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState}):Promise<StoreStep<RunRecord,RunState>>{
   const at=here();return await run(at,database,`advanceRun(${options.runId})`,async tx=>{
     const node=await runNode(tx,options.runId);if(!node)raise(`graph system.run: no run ${options.runId}`);const current=await runRecord(tx,node);

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 
@@ -48,6 +48,21 @@ async function expectAsyncError(work: () => Promise<unknown>): Promise<Error> {
   }
   throw new Error('expected the call to raise');
 }
+
+
+test('product fill state reads its stamp, chain and newest-first runs in one snapshot', async () => {
+  await createRun(database, { runId: 'snapshot-old', product: 'snapshot-product', at: NOW });
+  await createRun(database, { runId: 'snapshot-new', product: 'snapshot-product', at: NOW + 1 });
+  const transactions: string[] = [];
+  const snapshot = await readProductFillState({ transaction: (kind, work) => {
+    transactions.push(kind);
+    return database.transaction(kind, work);
+  } }, 'snapshot-product');
+  expect(transactions).toEqual(['snapshot']);
+  expect(snapshot.stamp).toBe(await readStoreStamp(database));
+  expect(snapshot.chain?.product).toBe('snapshot-product');
+  expect(snapshot.runs.map(run => run.runId)).toEqual(['snapshot-new', 'snapshot-old']);
+});
 
 describe('the chain of runs', () => {
   
