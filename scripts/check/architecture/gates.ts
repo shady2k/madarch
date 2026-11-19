@@ -2033,7 +2033,6 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
     const kindIsFormat = format.has(kind.name);
     if (!kindIsFormat) names.add(kind.name);
     if (kind.id !== undefined && !format.has(kind.id)) names.add(kind.id);
-    if (kindIsFormat) continue;
     for (const field of kind.fields) {
       if (format.has(field.name)) continue;
       let declaring = fieldKinds.get(field.name);

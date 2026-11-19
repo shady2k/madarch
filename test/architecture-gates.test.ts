@@ -53,6 +53,21 @@ describe('gate 1: the engine holds no product data', () => {
     ]);
   });
 
+  test('a kind named by a format word still makes its fields product data', () => {
+    const home = fixture({
+      'src/product/manifest/kinds.ts': "export const PRODUCERS = ['person', 'task'];\n",
+      ...catalogue('person', 'fields:\n  - name: identity\n    type: text\n'),
+      ...catalogue('task', 'fields:\n  - name: done_criterion\n    type: text\n  - name: queue_position\n    type: text\n'),
+      'src/person.ts': "export const value = { kind: 'person', fields: ['identity'] };\n",
+      'src/task.ts': "export const value = { kind: 'task', fields: ['done_criterion', 'queue_position'] };\n",
+    });
+    expect(productDataViolations(home).map(({ file, line, symbol }) => [file, line, symbol])).toEqual([
+      ['src/person.ts', 1, 'identity'],
+      ['src/task.ts', 1, 'done_criterion'],
+      ['src/task.ts', 1, 'queue_position'],
+    ]);
+  });
+
   test('a field word is product data only in a module that names the kind declaring it', () => {
     const body = 'id: practice.demo-task\nfields:\n  - name: statement\n    type: text\n';
     const without = fixture({
