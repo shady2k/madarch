@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>One work set — revised static tracker concept</title>
+  <style>
+    :root { --ink:#172c39; --muted:#506270; --line:#cfdbdf; --paper:#fff; --wash:#f2f6f6; --accent:#13675d; --soft:#e5f2ed; --amber:#604112; --amber-bg:#fff5df; --blue:#245e87; --blue-bg:#eaf2fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--wash); font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow-wrap:anywhere; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:focus-visible,summary:focus-visible { outline:3px solid #236dbe; outline-offset:4px; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:clamp(1.7rem,3vw,2.25rem); line-height:1.2; letter-spacing:-.025em; }
+    h2 { font-size:1.3rem; line-height:1.3; }
+    h3 { font-size:1rem; }
+    p + p { margin-top:8px; }
+    small,.small { font-size:.875rem; }
+    .muted { color:var(--muted); }
+    .eyebrow { font-size:.8rem; font-weight:750; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    .concept { padding:12px 24px; background:#18343d; color:#f7ffff; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .concept a { color:#d7f5e8; }
+    .shell { max-width:1320px; padding:26px 24px 40px; margin:auto; }
+    header { margin-bottom:22px; }
+    header p { margin-top:8px; }
+    nav { display:flex; flex-wrap:wrap; gap:4px 20px; margin-top:12px; }
+    nav a { display:inline-block; padding:11px 0; min-height:44px; }
+    section { scroll-margin-top:16px; }
+    .panel { padding:22px; margin-top:22px; border:1px solid var(--line); border-radius:12px; background:var(--paper); }
+    .section-head,.toolbar { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; align-items:center; margin-bottom:16px; }
+    .section-head p { margin-top:5px; }
+    .actions,.tags { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .actions { margin-top:12px; }
+    button { max-width:100%; font:inherit; font-weight:650; min-height:44px; padding:9px 13px; border-radius:7px; border:1px solid var(--line); background:#fff; color:var(--ink); white-space:normal; overflow-wrap:anywhere; }
+    button:disabled { opacity:1; cursor:not-allowed; }
+    button.selected { background:var(--ink); color:#fff; border-color:var(--ink); }
+    button.primary { color:#fff; background:var(--accent); border-color:var(--accent); }
+    .tag { display:inline-block; border:1px solid var(--line); padding:2px 8px; border-radius:5px; font-size:.8rem; font-weight:650; }
+    .tag.green { color:#215643; background:var(--soft); border-color:#bedbcc; }
+    .tag.amber { color:var(--amber); background:var(--amber-bg); border-color:#e4cf9d; }
+    .tag.blue { color:var(--blue); background:var(--blue-bg); border-color:#c4d9e9; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:8px; background:#f9fbfb; }
+    .card h3 { margin-bottom:8px; }
+    .card .tags { margin-top:10px; }
+    .notice { padding:12px 14px; border-radius:8px; border:1px solid #e4cf9d; background:var(--amber-bg); color:var(--amber); margin:16px 0; }
+    .notice p { margin-top:5px; }
+    label { display:block; margin:12px 0 5px; font-size:.9rem; font-weight:650; }
+    textarea { display:block; width:100%; resize:none; font:inherit; font-size:.94rem; color:var(--ink); border:1px solid #bccbd0; border-radius:6px; padding:10px; background:#fff; }
+    textarea:disabled { opacity:1; -webkit-text-fill-color:var(--ink); }
+    .verbatim { white-space:pre-wrap; margin:10px 0; border-left:3px solid var(--accent); padding:10px 12px; background:#f0f6f3; }
+    .queue { padding-left:24px; margin:12px 0; }
+    .queue li { padding:7px 0; }
+    .workspace { display:grid; grid-template-columns:minmax(250px,.8fr) minmax(0,1.7fr); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .tree-panel { padding:16px; border-right:1px solid var(--line); background:#f9fbfb; }
+    .tree { list-style:none; padding:0; margin:14px 0; }
+    .tree ul { list-style:none; margin:6px 0 0 9px; padding:0 0 0 12px; border-left:2px solid #d9e2e4; }
+    .tree li { margin:6px 0; }
+    .tree-row { padding:9px; border:1px solid transparent; border-radius:7px; }
+    .tree-row strong { display:block; font-size:.94rem; }
+    .tree-row .tags { margin-top:5px; }
+    .tree-row.active { background:#e8f2ef; border-color:#a9cdc0; }
+    .tree-row.proposed { border:1px dashed #98b4b1; background:#fff; }
+    .id { color:var(--muted); font-size:.8rem; font-weight:650; }
+    .detail { padding:20px; min-width:0; }
+    .detail h2 { margin:5px 0 8px; }
+    .facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:18px 0; }
+    dt { color:var(--muted); font-size:.8rem; margin:8px 0 3px; }
+    dd { margin:0; font-size:.94rem; }
+    dd span { display:block; }
+    code { font-size:.88em; overflow-wrap:anywhere; background:#edf2f3; padding:1px 3px; border-radius:3px; }
+    .save-bar { margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+    .save-bar .small { margin-top:9px; }
+    details { margin-top:16px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    summary { padding:14px 16px; cursor:pointer; font-weight:650; min-height:44px; }
+    .disclosure { padding:0 16px 16px; }
+    .evidence { padding-left:22px; }
+    .evidence li { margin:7px 0; }
+    footer { margin-top:22px; color:var(--muted); font-size:.875rem; }
+    @media (max-width:950px) {
+      .three,.facts { grid-template-columns:1fr; }
+      .workspace { grid-template-columns:minmax(220px,.8fr) minmax(0,1.4fr); }
+      .detail .grid { grid-template-columns:1fr; }
+    }
+    @media (max-width:650px) {
+      .concept { padding:12px 16px; font-size:.9rem; }
+      .shell { padding:20px 12px 30px; }
+      .panel,.detail { padding:16px; }
+      .workspace,.grid { grid-template-columns:1fr; }
+      .tree-panel { border-right:0; border-bottom:1px solid var(--line); }
+      .tree ul { padding-left:8px; margin-left:4px; }
+      .actions { align-items:stretch; }
+      .actions button { flex:1 1 180px; }
+    }
+    @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
+  </style>
+</head>
+<body>
+  <div class="concept">
+    <span><strong>Static proposal · not implemented.</strong> Fictional data. All business controls are disabled; only links and disclosures work.</span>
+    <a href="human-interface.md">Read the human-interface proposal</a>
+  </div>
+  <div class="shell">
+    <header>
+      <p class="eyebrow">Madarch / Atlas product / one human + agent work set</p>
+      <h1>Capture freely. Order deliberately. Work together.</h1>
+      <p class="muted">PostgreSQL work data · illustrative shared snapshot 08 Nov, 10:00 UTC · connected example, not a live connection</p>
+      <nav aria-label="Navigate this static page">
+        <a href="#intake">Intake &amp; triage</a><a href="#planning">Tree &amp; decomposition</a><a href="#priority">Priority &amp; ready</a><a href="#workflow">Workflows</a><a href="#review">Acceptance lanes</a><a href="#activity">Comments &amp; time</a><a href="#problems">Problems</a><a href="#states">Recovery</a>
+      </nav>
+    </header>
+    <main>
+      <section id="intake" class="panel" aria-labelledby="intake-title">
+        <div class="section-head"><div><p class="eyebrow">Any product participant can create work · H01, H03</p><h2 id="intake-title">Your words are enough to start.</h2><p class="small muted">No planner gate, complete criteria or agent conversation required.</p></div><span class="tag green">Original text retained verbatim</span></div>
+        <div class="grid">
+          <div class="card">
+            <h3>AT-60 · Jo's saved request</h3>
+            <blockquote class="verbatim">Exports lose my rows. Please stop that.
+I don't know which export option causes it.</blockquote>
+            <p class="small muted">Saved in PostgreSQL · no criteria supplied · title and structured summary can be added later without replacing these words.</p>
+            <label for="intake-text">New request · illustrative composer</label><textarea id="intake-text" rows="3" disabled>Describe what you need in your own words.</textarea>
+            <div class="actions"><button class="primary" disabled>Create work</button><button disabled>Add optional details</button></div>
+          </div>
+          <div class="card">
+            <h3>Agent triage · queue order is visible</h3>
+            <ol class="queue"><li><strong>AT-59 · Export option confusion</strong><br><span class="small">Current triage · agent-11 · discovery question recorded</span></li><li><strong>AT-60 · Jo's request</strong><br><span class="small">Next · position 2 · not silently skipped</span></li></ol>
+            <p class="small"><strong>AT-59 proposal P9:</strong> possible duplicate of AT-40; investigate the conflicting descriptions before proposing criteria and children. This does not close AT-59.</p>
+            <div class="actions"><button disabled>Inspect proposal</button><button disabled>Apply with amendments</button><button disabled>Return with reason</button></div>
+            <p class="small muted">Human response and agent attribution remain in history. Intake order is not delivery priority.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="planning" class="panel" aria-labelledby="planning-title">
+        <div class="section-head"><div><p class="eyebrow">Hierarchy, not leaf-only work · H04–H07, H13–H15</p><h2 id="planning-title">Reserve the useful scope. Keep the structure.</h2></div><span class="tag">Illustrative labels and item revisions</span></div>
+        <div class="toolbar"><div class="actions" aria-label="Illustrative view choices; disabled"><button disabled>Backlog</button><button class="selected" disabled>Tree · shown</button><button disabled>Board</button></div><p class="small muted">4 existing feature items · 2 proposed children · same stable keys in every view</p></div>
+        <div class="workspace">
+          <aside class="tree-panel" aria-label="Atlas work hierarchy">
+            <h3>Reliable export</h3>
+            <ul class="tree">
+              <li><div class="tree-row"><span class="id">AT-40 · reservation root</span><strong>Reliable export</strong><div class="tags"><span class="tag">L1 feature</span><span class="tag blue">Whole subtree reserved</span></div></div>
+                <ul>
+                  <li><div class="tree-row"><span class="id">AT-41</span><strong>Export contract</strong><div class="tags"><span class="tag green">Prerequisite guard met</span></div></div></li>
+                  <li><div class="tree-row"><span class="id">AT-42</span><strong>Export implementation</strong><div class="tags"><span class="tag">Evidence · example status</span><span class="tag amber">Lane B · human approval missing</span></div></div></li>
+                  <li><div class="tree-row active"><span class="id">AT-43 · selected</span><strong>Validate export</strong><div class="tags"><span class="tag">L1 inherited</span><span class="tag blue">Covered by AT-40</span></div></div>
+                    <ul>
+                      <li><div class="tree-row proposed"><span class="id">AT-44 · proposed child</span><strong>Invalid-row coverage</strong><span class="tag">Will inherit AT-40 grant</span></div></li>
+                      <li><div class="tree-row proposed"><span class="id">AT-45 · proposed child</span><strong>Large-export coverage</strong><span class="tag">Will inherit AT-40 grant</span></div></li>
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+            <p class="small muted">Containment is not a dependency. AT-43 and the proposed children explicitly wait for AT-42's configured prerequisite guard.</p>
+            <div class="actions"><button disabled>Add child</button><button disabled>Move to parent…</button></div>
+          </aside>
+          <article class="detail" aria-labelledby="detail-title">
+            <p class="eyebrow">Task detail / AT-43 / item_revision 7</p><h2 id="detail-title">Validate export</h2><p class="small muted">Source scope: export fixtures, snapshot <code>a13f9e2</code>. Source evidence is not Git authority for task text.</p>
+            <dl class="facts">
+              <div><dt>Responsible human</dt><dd><strong>Mira Chen</strong><span class="small muted">Accountable for outcome</span></dd></div>
+              <div><dt>Executor agent</dt><dd><strong>agent-21</strong><span class="small muted">Replaceable under the same grant</span></dd></div>
+              <div><dt>Reservation</dt><dd><strong>AT-40 + all descendants</strong><span class="small muted">Does not expire · new children inherit</span></dd></div>
+            </dl>
+            <div class="actions"><button disabled>Replace executor…</button><button disabled>Inspect protected scope</button></div>
+            <details><summary>Ownership details · not a third assignment field</summary><div class="disclosure small"><p>Stable holder authorization <code>holder-mira</code> · reservation generation 4 · executor generation 2 · attempt A2. Replacing agent-21 rotates executor/attempt authorization, not this subtree reservation. Old executor writes are refused.</p><p><strong>Q2 tentative:</strong> overlapping grants are refused even for another session of the same holder. Use the ancestor grant. Another holder needs explicit release/restructure first; there is no implicit child delegation.</p></div></details>
+            <div class="notice"><strong>Not independently free</strong><p class="small">Covered by AT-40; AT-42 prerequisite still unmet. A second descendant take is refused. The existing holder can coordinate work under its subtree grant; parenthood itself is not an execution ban.</p></div>
+            <section aria-labelledby="preview-title">
+              <div class="section-head"><div><p class="eyebrow">Atomic PostgreSQL planning operation</p><h3 id="preview-title">Two children, one reviewed change</h3></div><span class="tag amber">Preview only · not applied</span></div>
+              <div class="grid">
+                <article class="card"><span class="id">ADD AT-44</span><h3>Invalid-row coverage</h3><dl><dt>Coverage</dt><dd>C1 → identify the exact failing row</dd><dt>Scope</dt><dd><code>tests/export/invalid-rows</code></dd><dt>Inherited policy</dt><dd>AT-40 reservation · effective L1 · lane floor B</dd></dl></article>
+                <article class="card"><span class="id">ADD AT-45</span><h3>Large-export coverage</h3><dl><dt>Coverage</dt><dd>C2 → retain every exported row</dd><dt>Scope</dt><dd><code>tests/export/large-files</code></dd><dt>Inherited policy</dt><dd>AT-40 reservation · effective L1 · lane floor B</dd></dl></article>
+              </div>
+              <p class="small" style="margin-top:12px"><strong>Residual parent review:</strong> C3 assesses both cases together. No format/infrastructure scope is added. Both children explicitly depend on AT-42; completing them does not automatically accept AT-43.</p>
+              <div class="save-bar"><div class="actions"><button class="primary" disabled>Apply decomposition · 2 children</button><button disabled>Revise preview</button></div><p class="small muted">Recheck item, structure and policy revisions; apply all or none. A stale preview preserves the proposal for comparison. No Git definition publication and no execution-approval step.</p></div>
+            </section>
+          </article>
+        </div>
+      </section>
+
+      <section id="priority" class="panel" aria-labelledby="priority-title">
+        <div class="section-head"><div><p class="eyebrow">Owner-managed queue · H09–H12, H31</p><h2 id="priority-title">Features and debt share priority levels.</h2><p class="small muted">Example scale: L1 highest, then L2, L3. Equal levels support parallelism. Ready requester: export area; illustrative people-per-feature cap 2.</p></div><button disabled>Owner: move feature level…</button></div>
+        <div class="grid three">
+          <article class="card"><span class="id">AT-50 · debt</span><h3>Export parser repair</h3><p><strong>Effective L1 · base L3</strong></p><p class="small">Free, suitable, unblocked. Inherits urgency because it blocks L1 AT-40. Base L3 is preserved.</p><div class="tags"><span class="tag green">Ready candidate</span><span class="tag">Feature people: 1 / 2</span></div><div class="actions"><button disabled>Request subtree reservation</button></div></article>
+          <article class="card"><span class="id">AT-51 · task</span><h3>Export diagnostics</h3><p><strong>Effective L1 · base L1</strong></p><p class="small">Free, suitable, unblocked. Same level as AT-50, not forced behind it by list position. Each take rechecks the cap.</p><div class="tags"><span class="tag green">Ready candidate</span><span class="tag">Equal-level parallelism</span></div><div class="actions"><button disabled>Request subtree reservation</button></div></article>
+          <article class="card"><span class="id">AT-70 · feature</span><h3>Report polish</h3><p><strong>Effective L2 · base L2</strong></p><p class="small">Free and suitable, but higher suitable work is free. Taking it now needs an explicit product-owner exception.</p><div class="tags"><span class="tag amber">Lower-priority take refused</span></div><div class="actions"><button disabled>Ask owner for exception</button></div></article>
+        </div>
+        <div class="notice"><strong>Refused · example operation op-take-70</strong><p class="small">AT-50 and AT-51 are higher suitable free work. Take one of them or obtain Mira's scoped product-owner exception with a reason. An agent cannot grant its own exception. No exception has been granted here.</p></div>
+        <p class="small muted">WSJF or another configured estimator only suggests initial placement. Moving AT-40 moves its work consistently; removing AT-50's blocking relationship removes that urgency contribution, not its owner's base level. The queue grants start permission; no per-task execution approval exists.</p>
+      </section>
+
+      <section id="workflow" class="panel" aria-labelledby="workflow-title">
+        <div class="section-head"><div><p class="eyebrow">Product manifest · Q1 agreement pending · H08</p><h2 id="workflow-title">Different labels. One workflow rule and engine.</h2></div></div>
+        <div class="grid">
+          <article class="card"><h3>Task kind · illustrative columns</h3><p>Queued → Doing → Evidence</p><p class="small muted">AT-42 is shown in Evidence. Column changes request named transitions and recheck configured guards.</p><div class="actions"><button disabled>Request configured transition…</button></div></article>
+          <article class="card"><h3>Discovery kind · illustrative columns</h3><p>Investigating → Findings</p><p class="small muted">Not a separate engine or required first profile. Product-defined status IDs and transitions may differ from all these labels.</p><div class="actions"><button disabled>Inspect manifest rule</button></div></article>
+        </div>
+        <p class="small muted" style="margin-top:12px">Readiness, reservation and Problems are separate facts, not universal board columns. A refused transition leaves the card in place and names the unmet guard. Keyboard actions accompany any future dragging.</p>
+      </section>
+
+      <section id="review" class="panel" aria-labelledby="review-title">
+        <div class="section-head"><div><p class="eyebrow">Review / AT-42 · H20–H23</p><h2 id="review-title">Lane B: human merge approval is still missing.</h2><p class="small muted">Fictional submission R6 · item_revision 4 · attempt A2 · source a13f9e2. Submission does not release AT-40's subtree.</p></div><span class="tag amber">Not merge-eligible</span></div>
+        <div class="grid">
+          <div class="card"><h3>Evidence and inherited policy</h3><ul class="evidence"><li><strong>Green MR:</strong> example MR-12, reported check artifacts E11/E12; not run by this page.</li><li><strong>Independent agent review:</strong> agent-31 / model-beta reviews agent-21 / model-alpha.</li><li><strong>Human merge approval:</strong> missing, required for B.</li><li><strong>Graph criticality:</strong> linked export subject imposes inherited floor B. Agent suggestion C is shown but cannot silently bypass it.</li></ul><p class="small muted">The real interface verifies evidence and authority against the pinned basis. Opening an artifact is not acceptance.</p></div>
+          <div class="card"><h3>Human review decision</h3><label for="review-reason">Review or lane-correction reason</label><textarea id="review-reason" rows="3" disabled>Example: retain B because export criticality requires human merge approval.</textarea><div class="actions"><button class="primary" disabled>Record human merge approval</button><button disabled>Return with reason</button><button disabled>Correct proposed lane…</button></div><p class="small muted">No generic “allow self-review” switch. Result acceptance, return and merge use configured capabilities, not a fixed status sequence.</p></div>
+        </div>
+        <div class="grid three" style="margin-top:16px">
+          <article class="card"><h3>C · maintainer minimum</h3><p class="small">Green MR + another agent on another model. Agent may merge once requirements pass.</p></article>
+          <article class="card"><h3>B · maintainer minimum</h3><p class="small">C's requirements + human merge approval.</p></article>
+          <article class="card"><h3>A · maintainer minimum</h3><p class="small">Human mandatory + another responsible reviewer. Sole-developer exception concerns the second responsible reviewer.</p></article>
+        </div>
+        <div class="notice"><strong>Q3 is tentative, not agreed policy</strong><p class="small">Recommendation: strictest touched/inherited lane, with C technical evidence retained for A. Composition, exception authority and sole-developer qualification still need agreement. Audited lane correction is not a silent mandatory-floor bypass.</p></div>
+      </section>
+
+      <section id="activity" class="panel" aria-labelledby="activity-title">
+        <div class="section-head"><div><p class="eyebrow">AT-43 / shared PostgreSQL history · H24</p><h2 id="activity-title">Discussion and time belong to the work.</h2></div></div>
+        <div class="grid">
+          <article class="card"><h3>Comments</h3><p class="small"><strong>Jo · 07 Nov, 06:10 UTC:</strong> “The invalid-row fixture reproduces the missing row.”</p><p class="small"><strong>agent-21 · 07 Nov, 06:14 UTC:</strong> “Linked to proposed criterion C1; no change to the original request.”</p><label for="comment">Add an attributed comment</label><textarea id="comment" rows="2" disabled>Example comment; not submitted.</textarea><div class="actions"><button disabled>Add comment</button></div></article>
+          <article class="card"><h3>Recorded time · not last-seen duration</h3><p class="small"><strong>T8:</strong> agent-21 recorded 35 minutes on AT-43.</p><p class="small"><strong>Correction T9 by Mira:</strong> 30 minutes; reason: remove 5 minutes attributed to another item.</p><p><strong>Effective recorded total: 30 minutes</strong></p><p class="small muted">Original record and correction stay in history. Replaying the same operation does not add another 30 minutes.</p><div class="actions"><button disabled>Record time</button><button disabled>Correct with reason</button></div></article>
+        </div>
+      </section>
+
+      <section id="problems" class="panel" aria-labelledby="problems-title">
+        <div class="section-head"><div><p class="eyebrow">Problems / observed inactivity · H17, H19</p><h2 id="problems-title">Investigate silence. Never expire ownership.</h2></div><span class="tag amber">1 unresolved inactivity observation</span></div>
+        <div class="grid">
+          <article class="card"><span class="id">Problem P-12 / reservation AT-40</span><h3>No synchronization for 27 hours</h3><p class="small">Observed source: AT-40 reservation synchronization stream. Product default/effective threshold: <strong>24 hours</strong>. This entry updates on repeated observations.</p><div class="tags"><span class="tag blue">Still reserved · no expiry</span><span class="tag">Investigator: Alex / CTO role</span></div><div class="actions"><button disabled>Investigate</button><button disabled>Authorized unlock with reason…</button></div><p class="small muted">Explicit unlock names the whole subtree and fences old authorization. An old timestamp is not proof of death or permission to take work.</p></article>
+          <article class="card"><span class="id">AT-80 · separate item</span><h3>Leave coverage override</h3><p class="small">Per-item no-sync threshold: <strong>72 hours</strong>. Reason: scheduled leave. Last synchronization: 27 hours ago, below this effective threshold.</p><p class="small muted">Override changes the warning policy, not a lease duration. Roles and thresholds are product data. Later synchronization updates observation history, not ownership.</p><div class="actions"><button disabled>Edit authorized item override</button></div></article>
+        </div>
+      </section>
+
+      <details id="states" open>
+        <summary>Refusals and recovery · explanatory examples, not live errors</summary>
+        <div class="disclosure grid three">
+          <div><h3>Stale preview · H04</h3><p class="small">AT-43 changed from item_revision 7 to 8. No children applied. Keep the proposal, compare base/current/proposed and confirm a fresh preview.</p></div>
+          <div><h3>Shared take uncertain · H16</h3><p class="small">op-take-40 has no confirmed remote outcome. Do not execute. Query its identity; only durable arbitration confirmation establishes the grant.</p></div>
+          <div><h3>Offline local work · H26</h3><p class="small">Label cached snapshot and pending PostgreSQL records. Keep planning, comments and time; cached ready cannot grant a new shared take. Reconnect shows each accepted/refused/pending result.</p></div>
+          <div><h3>Obsolete executor · H15</h3><p class="small">agent-21's write is refused after replacement by agent-22. AT-40 stays reserved. Preserve rejected evidence for explicit current-basis reconciliation.</p></div>
+          <div><h3>Authority or history changed · H25, H27</h3><p class="small">Permission is rechecked on apply. Retain allowed local edits; reveal no restricted titles. A retained-history gap requires an authoritative snapshot, never a revived old grant.</p></div>
+          <div><h3>Early import / local-first · H28</h3><p class="small">Preview br import mappings and collisions; preserve original words and stable keys. Local planning can start alongside fill, before shared-claim transport is ready.</p></div>
+        </div>
+      </details>
+    </main>
+    <footer>Two first-class surfaces, one work authority. Q1 manifest/tables, Q2 reservation refinement, Q3 lane composition and Q4 arbitration proof remain proposals for agreement. Git transports operation-log segments only, outside working trees; there are no Git-authored task definitions. Generated wiki prose stays read-only. This page has no scripts, external assets, live data or functional business operations.</footer>
+  </div>
+</body>
+</html>
