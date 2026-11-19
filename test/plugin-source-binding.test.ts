@@ -13,9 +13,11 @@ test('plugin publication derives authority from installed declarations, not draf
   const wiring = { owner, contract: repositoryContract, manifest: repositoryManifest, locks, productFolder: '/fixture' } as unknown as PluginTurnWiring;
   try {
     const authority = pluginTurnAuthority(wiring, 'disk:code.repository');
+    if (authority === undefined) throw new Error('a declared plugin turn requires authority');
     const first = await owner.transaction('write', async tx => await startupBinding(tx, repositoryContract, authority.sourceName, authority.permissions));
     locks.set('disk', { id: 'disk', version: '2.0.0', path: 'plugins/disk', line: 1, closure: 'b'.repeat(64) });
     const newer = pluginTurnAuthority(wiring, 'disk:code.repository');
+    if (newer === undefined) throw new Error('a declared plugin turn requires authority');
     expect(newer.version).toBe('2.0.0');
     const second = await owner.transaction('write', async tx => await startupBinding(tx, repositoryContract, newer.sourceName, newer.permissions));
     expect(second.binding.sourceUid).toBe(first.binding.sourceUid);

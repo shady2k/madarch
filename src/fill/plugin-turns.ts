@@ -129,7 +129,8 @@ function declaredSupport(wiring: PluginTurnWiring, unit: PluginTurnUnit) {
 }
 
 /** Runtime-only authority, resolved from the selected plugin declaration rather than producer input. */
-export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } {
+export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } | undefined {
+  if (id.startsWith(MISSING_KIND_UNIT)) return undefined;
   const unit = unitOf(wiring, id);
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const fields = plan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];

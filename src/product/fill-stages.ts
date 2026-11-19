@@ -243,7 +243,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       const fullContract=withAssertionContract(withManifestContract(contract));
       const parents=await readSplitParents(options.database,unit.unitId,unit.generation);
       const opened=await withSpan('fill.operation.open',{},async()=>await options.database.transaction('write',async tx=>{
-        const {binding:capability}=await startupBinding(tx,fullContract,authority.sourceName,authority.permissions);
+        const {binding:capability}=await startupBinding(tx,fullContract,authority?.sourceName ?? unit.stageId,authority?.permissions ?? []);
         const parentUids:string[]=[];
         for(const parent of parents)parentUids.push((await resolveOperationScope(tx,fullContract,capability,{runId:unit.runId,unitId:parent.unitId,generation:parent.generation})).unitUid);
         const scope=await resolveOperationScope(tx,fullContract,capability,{runId:unit.runId,unitId:unit.unitId,generation:unit.generation,scope:plan.stageUnitId,parentUids});

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
 import { runFill } from '../src/fill/run.js';
+import { pluginTurnAuthority, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { executeGraphql } from '../src/graph/graphql-execute.js';
 import { byCodePoint } from '../src/model/order.js';
 import { generatedTableName } from '../src/graph/contract.js';
@@ -162,6 +163,10 @@ function fixture() {
 }
 
 describe('the agent fill reads the graph through madarch\'s MCP server', () => {
+  test('a missing-kind unit receives no plugin authority', () => {
+    expect(pluginTurnAuthority({} as PluginTurnWiring, 'missing:domain')).toBeUndefined();
+  });
+
   test('domain and code.module are filled from the graph, the task is the kind and no path, and the agent reads with tools', async () => {
     const f = fixture();
     const declarations = readKinds(f.product);
