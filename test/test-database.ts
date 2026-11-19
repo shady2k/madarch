@@ -22,8 +22,12 @@
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 const schemaOwners = new WeakMap<DatabaseOwner,DatabaseOwner>();
+/** Forgets the write capability a fixture owner took, for a store that was reset under it. */
+const capabilityForgetters = new WeakMap<DatabaseOwner,() => void>();
 /** Prepare schema before fixture source operations, through the unbound owner. */
 export async function prepareTestStore(owner:DatabaseOwner,options:Parameters<typeof prepareStore>[1]={}) {
+  // A reset drops the graph the capability's identities stand in: the next write transaction takes them again.
+  if (options.reset === true) capabilityForgetters.get(owner)?.();
   const result = await prepareStore(schemaOwners.get(owner)??owner,options);
   if (options.contract !== undefined) Object.assign(owner, { graphContract: withAssertionContract(options.contract) });
   return result;
@@ -34,6 +38,7 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
 export type TestDatabaseOwner = DatabaseOwner & FillStateDatabase;
 import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { bindWriteCapability, type WriteCapability } from '../src/graph/write.js';
 import { clusterEndpoint, clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
 import { graphSchemaStamp, SCHEMA_REVISION } from '../src/adapters/schemas/graph-definition.js';
 import { hasSchema } from '../src/adapters/store-readiness.js';
@@ -445,16 +450,44 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     }
     if (own) await dropOwnDatabase();
   };
+  /**
+   * The case's write capability. The fixture is the store's host, as `madarch serve` is: its identity is installed once,
+   * in a transaction of its own that commits before the case's transaction, so the rows are the store's, never pending
+   * trigger events of the transaction that runs the case. A capability written inside the case's transaction left
+   * deferred `graph_relations` events on `node`, `edge`, `assertion` and `context`, and the schema preparation of the
+   * same transaction was then refused (`CREATE INDEX ... pending trigger events`, SQLSTATE 55006, ALX-464 root R4). The
+   * product prepares a store's schema before any capability stands; the fixture now takes one lazily, at the store's
+   * first write transaction, and every later write transaction installs it without a statement of its own.
+   */
+  let capability: Promise<WriteCapability> | undefined;
+  const writeCapability = async (): Promise<WriteCapability> => {
+    if (capability === undefined) {
+      const made = (async (): Promise<WriteCapability> => {
+        let held: WriteCapability | undefined;
+        await openedOwner.transaction('write', async tx => { held = await bindTestWriteCapability(tx, options.graphContract ?? EMPTY_CONTRACT); });
+        if (held === undefined) throw new Error(`test/test-database.ts:1: the fixture's write capability was not taken for ${openedOwner.location}`);
+        return held;
+      })();
+      capability = made;
+      // A capability that failed is not kept: the next write transaction tries again instead of inheriting the failure.
+      void made.catch(() => { if (capability === made) capability = undefined; });
+    }
+    return await capability;
+  };
   const fixtureOwner:TestDatabaseOwner = {
     graphContract,
     location: openedOwner.location,
     ready: openedOwner.ready,
     allowConcurrentSnapshots: openedOwner.allowConcurrentSnapshots,
     hasVector: openedOwner.hasVector,
-    transaction: (kind, work) => openedOwner.transaction(kind, async tx => {
-      if (kind === 'write' && options.authenticated !== false) await bindTestWriteCapability(tx, options.graphContract ?? EMPTY_CONTRACT);
-      return await work(tx);
-    }),
+    transaction: async (kind, work) => {
+      if (kind !== 'write' || options.authenticated === false) return await openedOwner.transaction(kind, work);
+      const held = await writeCapability();
+      return await openedOwner.transaction(kind, async tx => {
+        bindWriteCapability(tx, held);
+        return await work(tx);
+      });
+    },
     run: (work) => openedOwner.run(work),
     exec: (text) => openedOwner.exec(text),
     close: () => {
@@ -475,6 +508,7 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     },
   };
   schemaOwners.set(fixtureOwner,openedOwner);
+  capabilityForgetters.set(fixtureOwner,() => { capability = undefined; });
   return fixtureOwner;
 }
 
