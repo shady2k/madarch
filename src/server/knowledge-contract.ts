@@ -15,7 +15,8 @@ export const commandRequests: Readonly<Record<string, z.ZodType>> = {
   'pause the fill': z.strictObject({}),
   'stop the fill': z.strictObject({ confirm: z.boolean().optional() }),
   'choose the agent': z.strictObject({ agent: z.string().nullable(), install: z.boolean().optional() }),
-  'read the settings': z.strictObject({ role: text }),
+  // The settings command is one answer of two: the reader's role, or this machine's isolation answer (madarch-64o5.86).
+  'read the settings': z.strictObject({ role: text.optional(), pluginsUnconfined: z.boolean().optional() }).refine(value => (value.role === undefined) !== (value.pluginsUnconfined === undefined), 'role or pluginsUnconfined, and not both'),
   'start over': z.strictObject({ preview: plan.optional() }),
   'save the answer': z.strictObject({ question: text, text: z.string() }),
   'save the correction': z.strictObject({ statement: text, reason: z.string() }),
