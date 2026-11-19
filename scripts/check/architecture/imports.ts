@@ -33,6 +33,8 @@ export interface ImportStatement {
    * name the module exports is reachable through it.
    */
   readonly wholeModule: boolean;
+  /** True when Bun erases the entire edge, including every named specifier. */
+  readonly typeOnly: boolean;
 }
 
 /** One call whose first argument is a string literal: the module name the call hands over, and its line. */
@@ -91,17 +93,19 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
         else wholeModule = true;
       }
       if (item.specifiers.length === 0) wholeModule = true;
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ImportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule, typeOnly });
     } else if (item.type === 'ExportNamedDeclaration') {
       if (item.source === null || item.source === undefined) continue;
       const names = item.specifiers.flatMap((specifier) => (specifier.type === 'ExportSpecifier' ? [specifier.orig.value] : []));
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false });
+      const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ExportSpecifier' && specifier.isTypeOnly));
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false, typeOnly });
     } else if (item.type === 'ExportAllDeclaration') {
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true, typeOnly: 'typeOnly' in item && item.typeOnly === true });
     }
   }
-  for (const dynamic of dynamicImportsOf(module)) {
-    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true });
+  for (const dynamic of moduleLoadsOf(module)) {
+    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true, typeOnly: false });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
   return { imports: statements, literalCalls };
@@ -131,13 +135,18 @@ interface DynamicImport {
   readonly start: number;
 }
 
+/** Whether an SWC call loads a module via dynamic import() or CommonJS require(). */
+function isModuleLoadCallee(callee: Record<string, unknown> | undefined): boolean {
+  return callee !== null && typeof callee === 'object' &&
+    (callee['type'] === 'Import' || (callee['type'] === 'Identifier' && callee['value'] === 'require'));
+}
+
 /**
- * Every `import('…')` call in a module's body, wherever it stands: a module that
- * loads a runner that way starts that runner as surely as one that imports it at
- * the top. A call with a computed specifier is not an import this repository can
- * name, and is left to the reader.
+ * Every dynamic `import('…')` or CommonJS `require('…')` call in a module's body,
+ * wherever it stands. A computed specifier is not a module name this repository
+ * can resolve, and is left to the reader.
  */
-function dynamicImportsOf(node: unknown): DynamicImport[] {
+function moduleLoadsOf(node: unknown): DynamicImport[] {
   const found: DynamicImport[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -147,7 +156,7 @@ function dynamicImportsOf(node: unknown): DynamicImport[] {
     if (value === null || typeof value !== 'object') return;
     const held = value as Record<string, unknown>;
     const callee = held['callee'] as Record<string, unknown> | undefined;
-    if (held['type'] === 'CallExpression' && callee !== null && typeof callee === 'object' && callee['type'] === 'Import') {
+    if (held['type'] === 'CallExpression' && isModuleLoadCallee(callee)) {
       const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
       const expression = first?.['expression'] as Record<string, unknown> | undefined;
       const span = held['span'] as { start: number } | undefined;
