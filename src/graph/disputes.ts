@@ -116,7 +116,7 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
     if(repeated){matching=resolution;chosen=repeated.id;}
    }
   }
-  return {id,state:matching===null?'OPEN':'RESOLVED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
+  return {id,state:matching!==null?'RESOLVED':selected.contested?'OPEN':'DISMISSED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
  }
  return null;
  });
@@ -192,7 +192,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
    const desired=existing.state;
    const held=(await records(tx,'system.dispute-question',segmentSelectors)).get(existing.id);
    if(held?.['state']!==desired){
-    if(desired==='OPEN')for(const resolution of existing.supersededResolutions){
+    if(desired!=='RESOLVED')for(const resolution of existing.supersededResolutions){
      const assertion=await loadResolutionAssertion(tx,contract,resolution,rows,segmentSelectors);if(!assertion)continue;
      const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...segmentSelectors,validAt:now});
      const from=evidenceValid?segmentAt(candidateRows,validAt).from:assertion.validFrom;
