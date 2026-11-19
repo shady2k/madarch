@@ -102,7 +102,8 @@ for (const check of ['subject', 'value', 'key'] as const) {
             const subject = (await tx.query<{ id: string }>(`SELECT id::text FROM node
               WHERE entity_id=(SELECT id FROM entity WHERE name='keyed') AND key='{"name":"standing-0"}'::jsonb`)).rows[0]!.id;
             await writeAssertion(tx, contract, { sort: 'vertex', kind: 'keyed', subjectId: subject,
-              property: check === 'subject' ? '$exists' : 'amount', operation: 'assert', value: check === 'subject' ? true : 99 });
+              property: check === 'subject' ? '$exists' : 'amount', operation: 'assert', value: check === 'subject' ? true : 99,
+              ...(check === 'subject' ? { validFrom: '0001-01-01T00:00:00.000Z' } : {}) });
           }
           const reads = async () => (await tx.query<{ table: string; reads: number }>(`SELECT relname AS table,
             (seq_tup_read+idx_tup_fetch)::integer AS reads FROM pg_stat_xact_user_tables
