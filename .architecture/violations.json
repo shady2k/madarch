@@ -621,53 +621,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/fill/acp-choices.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "command"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "mode"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/fill/facts.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/fsm-core.ts",
-    "symbol": "context"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/fsm.ts",
-    "symbol": "skipped"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator-host.ts",
-    "symbol": "registry"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator.ts",
-    "symbol": "guard"
   },
   {
     "rule": "no-product-data",
@@ -693,11 +648,6 @@
     "rule": "no-product-data",
     "file": "src/fill/read-record.ts",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/registry.ts",
-    "symbol": "concurrency"
   },
   {
     "rule": "no-product-data",
@@ -731,16 +681,6 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/graph/consistency.ts",
-    "symbol": "email"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/consistency.ts",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/graph/manifest-contract.ts",
     "symbol": "workflow"
   },
@@ -756,18 +696,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/graph/one-graph.ts",
-    "symbol": "context"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/graph/read-worker.ts",
     "symbol": "stage"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "binary"
   },
   {
     "rule": "no-product-data",
@@ -776,38 +706,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/history-assertions.ts",
-    "symbol": "environment"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/agents.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/knowledge/catalog-starter.ts",
     "symbol": "document"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "binary"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "anchor"
   },
   {
     "rule": "no-product-data",
@@ -932,32 +832,12 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/graph-verdicts.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-verdicts.ts",
     "symbol": "span"
   },
   {
     "rule": "no-product-data",
     "file": "src/knowledge/index/queries.ts",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "digest"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/product.ts",
-    "symbol": "model"
   },
   {
     "rule": "no-product-data",
@@ -971,48 +851,13 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/knowledge/semantics.ts",
-    "symbol": "decision"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/semantics.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "email"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "place"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/loop/graph.ts",
     "symbol": "why"
   },
   {
     "rule": "no-product-data",
-    "file": "src/loop/impact.ts",
-    "symbol": "statement"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/loop/plan.ts",
     "symbol": "correction"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/tasks.ts",
-    "symbol": "statement"
   },
   {
     "rule": "no-product-data",
@@ -1026,43 +871,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/page-contract/compose.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/template.ts",
-    "symbol": "on"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/template.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/agent.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/plugin/repository-input.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "why"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/tools.ts",
-    "symbol": "bytes"
   },
   {
     "rule": "no-product-data",
@@ -1112,27 +922,7 @@
   {
     "rule": "no-product-data",
     "file": "src/problems/code.ts",
-    "symbol": "marker"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
     "symbol": "test"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "subject"
   },
   {
     "rule": "no-product-data",
@@ -1148,11 +938,6 @@
     "rule": "no-product-data",
     "file": "src/product/demo.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/draft.ts",
-    "symbol": "model"
   },
   {
     "rule": "no-product-data",
@@ -1182,22 +967,12 @@
   {
     "rule": "no-product-data",
     "file": "src/product/manifest.ts",
-    "symbol": "anchor"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/manifest.ts",
     "symbol": "branch"
   },
   {
     "rule": "no-product-data",
     "file": "src/product/manifest.ts",
     "symbol": "tag"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/manifest.ts",
-    "symbol": "url"
   },
   {
     "rule": "no-product-data",
@@ -1211,18 +986,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "size"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/product/own-wiki.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/mermaid.ts",
-    "symbol": "class"
   },
   {
     "rule": "no-product-data",
@@ -1237,22 +1002,7 @@
   {
     "rule": "no-product-data",
     "file": "src/server/http.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/http.ts",
     "symbol": "protocol"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "statement"
   },
   {
     "rule": "no-product-data",
@@ -1281,43 +1031,13 @@
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/facts.tsx",
-    "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/facts.tsx",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/format.ts",
-    "symbol": "bytes"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/prepare.tsx",
     "symbol": "product"
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/run.tsx",
-    "symbol": "skipped"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/settings.tsx",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/ui/breadcrumb.tsx",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/shell.tsx",
-    "symbol": "content"
   },
   {
     "rule": "no-regex",
