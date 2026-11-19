@@ -465,8 +465,14 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   if(input.operation==='assert'){validate(field,input.value);validateFieldValue(contract,field,input.value);}else if(input.value!==undefined)throw new Error(`${WHERE}:117: RETRACTION_VALUE`);
   return {...input,uid:newUid(),field,mentions:scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`)};
  });
- const tables=new Map<string,{kind:string;sort:'vertex'|'edge';property:string}>();
- for(const input of assertions)tables.set(assertionValueTableName(input.kind,input.sort,input.property),{kind:input.kind,sort:input.sort,property:input.property});
+ const tables=new Map<string,{kind:string;sort:'vertex'|'edge';property:string;inputs:BatchAssertion[]}>();
+ const slots=new Map<string,string>();
+ for(const input of assertions){
+  const slot=JSON.stringify([input.kind,input.sort,input.property]);
+  let table=slots.get(slot);
+  if(table===undefined){table=assertionValueTableName(input.kind,input.sort,input.property);slots.set(slot,table);tables.set(table,{kind:input.kind,sort:input.sort,property:input.property,inputs:[]});}
+  tables.get(table)!.inputs.push(input);
+ }
  const literal=(value:string)=>"'"+value.replaceAll("'","''")+"'";
  const streamParts=[...tables].map(([table,slot])=>`SELECT ${literal(slot.sort)}::text AS sort,wanted.subject::text AS subject,a.property,a.language,a.operation,a.valid_from::text,a.valid_to::text,a.recorded_sequence::text,n.uid::text,a.assertion_id::text AS id,CASE WHEN pg_typeof(v.value)::text='bigint' THEN to_jsonb(v.value::text) ELSE to_jsonb(v.value) END AS value
  FROM (SELECT DISTINCT subject,language FROM jsonb_to_recordset($1::jsonb) x(sort text,kind text,subject bigint,property text,language text) WHERE sort=${literal(slot.sort)} AND kind=${literal(slot.kind)} AND property=${literal(slot.property)}) wanted
@@ -520,17 +526,20 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  }
  // Validate evidence only after all immutable support values in this batch are known.
  const evidenceTargets=new Map<EvidenceDraft,BatchNode>();
+ const contentMeasures=new Map<string,{points?:number;lines?:number;digest?:string}>();
  for(const input of assertions)for(const evidence of input.evidence??[]){
   let target:BatchNode|undefined;
   if(evidence.target.uid)target=nodes.get(evidence.target.uid);
   else {const uid=await refUid(executor,contract,evidence.target,context);target=nodes.get(uid);}
   if(!target)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind}`);
   evidenceTargets.set(evidence,target);const field=contract.vertex.find(kind=>kind.name===evidence.target.kind)!.evidence!.contentField;
-  const text=field?content.get(JSON.stringify([target.id,field]))?.value:undefined;
+  const contentKey=JSON.stringify([target.id,field]);
+  const text=field?content.get(contentKey)?.value:undefined;
   const locator=evidence.locator??{};
   if(typeof text==='string'){
-   if((typeof locator.end==='number'&&locator.end>[...text].length)||(typeof locator.lineEnd==='number'&&locator.lineEnd>text.split('\n').length))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content; subject ${input.kind} ${nodeIds.get(input.subjectId)?.uid??input.subjectId}`);
-   if(typeof locator.digest==='string'&&createHash('sha256').update(text,'utf8').digest('hex')!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);
+   const measures=contentMeasures.get(contentKey)??{};contentMeasures.set(contentKey,measures);
+   if((typeof locator.end==='number'&&locator.end>(measures.points??=Array.from(text).length))||(typeof locator.lineEnd==='number'&&locator.lineEnd>(measures.lines??=text.split('\n').length)))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content; subject ${input.kind} ${nodeIds.get(input.subjectId)?.uid??input.subjectId}`);
+   if(typeof locator.digest==='string'&&(measures.digest??=createHash('sha256').update(text,'utf8').digest('hex'))!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);
   }
  }
  const fresh=assertions.filter(input=>!input.repeat);
@@ -558,7 +567,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  ) SELECT id::text,uid::text FROM identities`,[JSON.stringify(data),JSON.stringify(structural),entities.get('node:system.assertion'),binding.productUid,context])).rows;
  const ids=new Map(made.map(row=>[row.uid,row.id]));
  for(const input of assertions)input.id=ids.get(input.uid)??input.id;
- for(const [table] of tables){const values=fresh.filter(input=>assertionValueTableName(input.kind,input.sort,input.property)===table&&input.operation==='assert');const field=values[0]?.field??assertions.find(input=>assertionValueTableName(input.kind,input.sort,input.property)===table)!.field;
+ for(const [table,slot] of tables){const values=slot.inputs.filter(input=>!input.repeat&&input.operation==='assert');const field=slot.inputs[0]!.field;
   const isJson=(field:FieldContract):boolean=>field.type==='json';
   const type=field.type==='timestamp'?'timestamptz':isJson(field)?'jsonb':field.type==='integer'?'integer':field.type==='bigint'?'bigint':field.type==='boolean'?'boolean':'text';
   if(isJson(field))await executor.query(`INSERT INTO "${table}"(assertion_id,value) SELECT id,value::jsonb FROM unnest($1::bigint[],$2::text[]) input(id,value)`,[values.map(input=>input.id),values.map(input=>JSON.stringify(input.value))]);
