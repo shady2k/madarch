@@ -343,6 +343,7 @@ export class GraphReader {
   }
 
   async kindCounts():Promise<{kind:string;count:number}[]> {
+    if ((this.generated?.size ?? 0) === 0) return [];
     return await this.run(async tx=>{const rows=[];for(const decl of this.generated?.values()??[])rows.push({kind:decl.kind,count:(await this.records(tx,'vertex',decl.kind,[])).length});return rows.sort((a,b)=>byCodePoint(a.kind,b.kind));});
   }
 

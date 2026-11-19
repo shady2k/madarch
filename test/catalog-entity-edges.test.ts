@@ -16,7 +16,10 @@ test('every actual edge declares endpoints, cardinality and bilingual forward/in
   for (const edge of edges) {
     expect(edge.from.length).toBeGreaterThan(0);
     expect(edge.to.length).toBeGreaterThan(0);
-    for (const endpoint of [...edge.from, ...edge.to]) expect(kinds.has(endpoint) || SYSTEM_VERTEX_DEFINITIONS.some((kind) => kind.name === endpoint)).toBe(true);
+    for (const side of ['from', 'to'] as const) for (const endpoint of edge[side]) {
+      if (endpoint === 'any') expect(edge[side]).toEqual(['any']);
+      else expect(kinds.has(endpoint) || SYSTEM_VERTEX_DEFINITIONS.some((kind) => kind.name === endpoint)).toBe(true);
+    }
     for (const side of ['from', 'to'] as const) {
       const bounds = edge.cardinality[side];
       expect(bounds.min).toBeGreaterThanOrEqual(0);

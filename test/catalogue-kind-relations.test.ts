@@ -35,7 +35,7 @@ test('the real File catalogue page shares dependency and declared-relation edges
     };
     const starter = validated();
     expect([...starter.manifest.kinds].filter(([, kind]) => kind.derivesFrom?.includes('code.file')).map(([name]) => name).sort())
-      .toEqual(['code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine']);
+      .toEqual(['code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine', 'review-finding']);
     // Two product-owned kinds extend the bundled File dependents in the backlink list.
     const basePath = join(folder, 'madarch/kinds/testing/case/code.test-quarantine.yaml');
     const base = parse(readFileSync(basePath, 'utf8'));
