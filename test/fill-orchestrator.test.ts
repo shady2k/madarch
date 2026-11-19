@@ -1,3 +1,4 @@
+import {readKindAssertions} from '../src/graph/records.js';
 /**
  * The fill's orchestrator with fake stages (madarch-tzte.19.5, decision 0027):
  * planning from the registry, admission within the concurrency slots by priority
@@ -998,6 +999,43 @@ describe('the service the background server owns', () => {
 });
 
 describe('what the review found, kept as tests', () => {
+  test('retry and completion machine assertions have only fill-state as their source', async () => {
+    let attempts = 0;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => { if (++attempts <= 2) throw new Error('transient producer failure'); return { outcome: 'draft' }; },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { retries: 2, retryDelayMs: 0 },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
+      await sweepUnits(opened.orchestrator, { runId });
+      await admitUnits(opened.orchestrator, { runId });
+    }
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+    await schedulerPass(opened.orchestrator, { runId });
+    const sources = await opened.owner.run(tx => tx.query<{kind:string;property:string;source:string}>(`
+      SELECT k.name AS kind,a.property,source.uid::text AS source
+      FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id
+      JOIN edge subject ON subject.id=av.subject_edge_id JOIN node n ON n.id=subject.to_node
+      JOIN entity k ON k.id=n.entity_id
+      JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lk ON lk.id=lineage.entity_id AND lk.name='system.assertion-source'
+      JOIN node source ON source.id=lineage.to_node
+      WHERE k.name IN ('system.chain','system.run','system.unit','system.fill-transition')
+      AND (k.name='system.fill-transition' OR a.property IN ('product_name','run_name','unit_name','stage_name','generation','scope','state','planning_epoch','planning_closed','has_selection','created_at','inputs_digest','fence','attempt','retries_left','retry_at','replacement_generation','skipped_because','published_at','stale_at','updated_at'))`));
+    const installed = await opened.owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex','plugin',['label']));
+    const sourceUid = installed.find(row => row.values.label === 'fill-state')!.uid;
+    for (const kind of ['system.unit','system.run','system.fill-transition']) expect(sources.rows.some(row => row.kind === kind)).toBe(true);
+    expect(sources.rows.filter(row => row.source !== sourceUid)).toEqual([]);
+    const disputes = await opened.owner.run(tx => tx.query(`
+      SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id
+      WHERE k.name='system.dispute-question'`));
+    expect(disputes.rows).toEqual([]);
+  }, 60_000);
+
+
   test('repeated operation retries stay retry_wait until the third failure exhausts the unit', async () => {
     let attempts = 0;
     const stage = fakeStage('snapshot', {

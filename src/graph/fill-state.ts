@@ -178,15 +178,20 @@ const ref = (kind: string, uid: string): EntityRefDraft => ({ kind, uid, key: {}
 export function fillEdge(kind: string, fromKind: string, from: string, toKind: string, to: string): EdgeDraft {
   return {kind, from: ref(fromKind, from), to: ref(toKind, to), ...(kind === 'system.chain-run' ? {discriminator: to} : {}), producer: 'fill-state', producerVersion: '1'};
 }
-const transactionBindings=new WeakMap<SqlExecutor,WriteCapability>();
-async function bind(tx: SqlExecutor): Promise<void> {
- let binding=transactionBindings.get(tx);
- if(!binding){binding=(await startupBinding(tx,contract,'fill-state')).binding;transactionBindings.set(tx,binding);}
- bindWriteCapability(tx,binding);
+const transactionBindings=new WeakMap<SqlExecutor,Map<GraphContract,WriteCapability>>();
+export interface GraphWriteContext { readonly contract: GraphContract; readonly operationUid: string; readonly unitUid: string; }
+/** Machine authority stays with fill-state; an operation supplies only assertion lineage. */
+export async function bindFillStateIn(tx: SqlExecutor, declared: GraphContract = contract, context?: Pick<GraphWriteContext,'operationUid'> & {readonly unitUid?:string}, assertionContext = 1): Promise<WriteCapability> {
+ let bindings=transactionBindings.get(tx);
+ if(!bindings){bindings=new Map();transactionBindings.set(tx,bindings);}
+ let binding=bindings.get(declared);
+ if(!binding){binding=(await startupBinding(tx,declared,'fill-state')).binding;bindings.set(declared,binding);}
+ const held={...binding,context:assertionContext,...(context?{operationUid:context.operationUid,unitUid:context.unitUid}:{})};
+ bindWriteCapability(tx,held);
+ return held;
 }
-export interface GraphWriteContext { readonly contract: GraphContract; readonly binding: WriteCapability; }
 export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[] = [], context?: GraphWriteContext): Promise<void> {
-  if(context) bindWriteCapability(tx,context.binding); else await bind(tx);
+  await bindFillStateIn(tx,context?.contract ?? contract,context);
   await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
 }
 async function rows(tx: SqlExecutor, kind: keyof typeof fields, subjectUids?: readonly string[]): Promise<AssertionRecord[]> { return await readGraphRecords(tx, 'vertex', `system.${kind}`, fields[kind],subjectUids); }
@@ -287,7 +292,7 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
     const current = await readChainIn(tx,options.product); if (!current) raise(`graph system.chain: no chain for ${options.product}`);
     const step=chainMachine.step(current.record,options.event); if(!step.ok)return {ok:false,record:current.record,refusal:step.refusal} as const;
     await putFillVertexIn(tx,'system.chain',current.node.uid,{state:step.state,updated_at:options.event.at});
-    await bind(tx);
+    await bindFillStateIn(tx);
     // The chain's own edges: the run it followed, and the runs it has made.
     for(const held of await edgeRowsIn(tx,'system.chain-active-run','from',[current.node.id])){
       const target=(await readRecordsIn(tx,'vertex','system.run',['run_name'],[held.to]))[0];

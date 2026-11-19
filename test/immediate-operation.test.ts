@@ -85,3 +85,33 @@ test('failed attempt records graph reason and settles queue without retracting c
   expect(state.find(row=>row.uid===unitUid)?.values.reason).toBe('exact failure');
  }finally{await queue.stop();await owner.close();}
 },60000);
+
+test('an operation capability cannot assert the fill machine state',async()=>{
+ const owner=await createTestDatabaseOwner({authenticated:false});
+ await prepareQueueSchema(owner,{declarations:[declaration]});
+ const queue=await createPgBossQueue({owner,supervise:false});
+ try{
+  await queue.declare(declaration);await queue.enqueue({queue:declaration.name,data:{}});
+  const [job]=await queue.claim({queue:declaration.name});
+  const {binding}=await owner.transaction('write',tx=>startupBinding(tx,EMPTY_CONTRACT,'fixture.untrusted',[]));
+  const runUid=newUid(),unitUid=newUid();
+  await owner.transaction('write',tx=>initializeOperationScope(tx,EMPTY_CONTRACT,binding,runUid,unitUid));
+  const host=createOperationHost({owner,queue,job:job!,contract:EMPTY_CONTRACT,capability:binding,runUid,unitUid});
+  await expect(host.execute({key:'machine-write',request:{}},async tx=>{
+   const subject=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[unitUid])).rows[0]!;
+   await writeAssertion(tx,EMPTY_CONTRACT,{sort:'vertex',kind:'system.unit',subjectId:subject.id,property:'state',operation:'assert',value:'failed'});
+  })).rejects.toThrow('FORBIDDEN_SOURCE');
+ }finally{await queue.stop();await owner.close();}
+},60000);
+
+test('machine authority preserves the operation host context',async()=>{
+ const owner=await createTestDatabaseOwner({authenticated:false});
+ try{
+  const {binding}=await owner.transaction('write',tx=>startupBinding(tx,EMPTY_CONTRACT,'fixture.context',[]));
+  await owner.run(tx=>tx.query("INSERT INTO context (id,ref) OVERRIDING SYSTEM VALUE VALUES (2,'operation-context')"));
+  const runUid=newUid(),unitUid=newUid();
+  await owner.transaction('write',tx=>initializeOperationScope(tx,EMPTY_CONTRACT,{...binding,context:2},runUid,unitUid,2));
+  const held=await owner.run(tx=>tx.query<{context_id:number}>(`SELECT a.context_id FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id JOIN edge s ON s.id=av.subject_edge_id JOIN node n ON n.id=s.to_node WHERE n.uid=$1::uuid AND a.property='state'`,[unitUid]));
+  expect(held.rows.map(row=>Number(row.context_id))).toEqual([2]);
+ }finally{await owner.close();}
+},60000);
