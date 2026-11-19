@@ -85,7 +85,7 @@ const headOf = (): string => git(repository, 'rev-parse', 'HEAD');
 const blobOf = (path: string): string => git(repository, 'rev-parse', `HEAD:${path}`);
 
 /** One file's blob, as a fill states it: the text of a file is read by the blob the graph names (decision 0037). */
-async function publishBlob(path: string, blob: string): Promise<void> {
+async function publishBlob(path: string, blob: string, previousCommit?: string): Promise<void> {
   const read = readKinds(folder);
   if (!read.present) throw new Error('the fixture manifest is absent');
   const contract = graphContractOf(read.manifest);
@@ -100,6 +100,8 @@ async function publishBlob(path: string, blob: string): Promise<void> {
       await publishGraphDrafts(tx, contract, { vertices: [{ ...source, ...provenance, values: { blob } }, { ...revision, ...provenance }], removals: [], edges: [
         { kind: 'source-repository', from: source, to: repository, ...provenance },
         { kind: 'source-commit', from: source, to: revision, ...provenance },
+      ], edgeRemovals: previousCommit === undefined ? [] : [
+        { kind: 'source-commit', from: source, to: { kind: 'code.commit', key: { hash: previousCommit } }, producer: provenance.producer },
       ] });
     });
   } finally { await owner.close(); }
@@ -160,7 +162,7 @@ test('a source read reports the commit of a fill another process published, with
     git(repository, 'commit', '-qm', 'second');
     const second = headOf();
     await fillInProcess(folder, home);
-    await publishBlob('src/a.ts', blobOf('src/a.ts'));
+    await publishBlob('src/a.ts', blobOf('src/a.ts'), first);
     // The text is read from the store; the commit and the kinds must be the store's too, without a status poll between.
     expect(await api.source('code', 'src/a.ts')).toEqual({ text: 'export const a = 2;\n', commit: second });
   } finally { await api.close(); }

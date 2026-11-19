@@ -125,7 +125,7 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if ((view.plan?.needsAgent ?? []).some((need) => ['code.repository', 'code.directory', 'code.file'].includes(need.kind))) throw new Error(`the plan names an agent need among the code kinds: ${JSON.stringify(view.plan?.needsAgent)}`);
   });
 
-  await step('3 the fill plan names the code kinds only, with plugin units and no agent', async () => {
+  await step('3 the fill plan names the code kinds and their product prerequisites, with plugin units and no agent', async () => {
     const answer = await fetch(`${address}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], agent: null, tokenCap: null, pluginsOnly: true }) });
     const body = (await answer.json()) as { runId?: string; order?: string[]; plan?: { needsAgent?: { kind: string; fields: string[] }[] }; error?: { message?: string } };
     if (answer.status !== 202) throw new Error(`POST /api/fill-selected answered ${String(answer.status)}: ${body.error?.message ?? JSON.stringify(body)}`);
@@ -134,7 +134,8 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if (left.length !== 0) throw new Error(`the press leaves code.file fields to the agent: ${JSON.stringify(left)}`);
     runId = body.runId;
     const order = [...(body.order ?? [])].sort();
-    if (JSON.stringify(order) !== JSON.stringify(['code.directory', 'code.file', 'code.repository'])) throw new Error(`the plan is ${JSON.stringify(order)}, not the three code kinds`);
+    // R1 (ALX-12): code kinds derive from system.product; product-profile remains a plugin prerequisite.
+    if (JSON.stringify(order) !== JSON.stringify(['code.directory', 'code.file', 'code.repository', 'product-profile', 'system.product'])) throw new Error(`the plan is ${JSON.stringify(order)}, not the code kinds and their product prerequisites`);
     // The units the run planned: the plugin stage only, and a producer on every group.
     const start = Date.now();
     let detail: any;

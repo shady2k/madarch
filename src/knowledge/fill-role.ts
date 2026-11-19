@@ -51,6 +51,15 @@ const ENDING_MS = 1_600;
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
 const PARENT_CHECK_MS = 50;
 
+/** Failed opens can start and stop PostgreSQL: retry each store separately, with pauses capped at five seconds. */
+const OPEN_RETRY_MS = 1_000;
+export const MAX_OPEN_RETRY_MS = 5_000;
+
+/** The next pause after a failed open, doubled until it reaches the ceiling. */
+export function nextOpenRetryDelay(previous?: number): number {
+  return Math.min(MAX_OPEN_RETRY_MS, (previous ?? OPEN_RETRY_MS / 2) * 2);
+}
+
 /** Whether a process is still there: one this process may not signal counts as there. */
 function alive(pid: number): boolean {
   try {
@@ -95,6 +104,8 @@ async function stopQueues(state: RoleState): Promise<void> {
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
+  const openingErrors = new Map<string, string>();
+  const openingRetries = new Map<string, { delay: number; after: number }>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
@@ -165,8 +176,10 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
         let held = watched.get(storeFolder);
         if (held === undefined) {
+          if (performance.now() < (openingRetries.get(storeFolder)?.after ?? 0)) continue;
+          let owner: StoreOwner | undefined;
           try {
-            const owner = await options.openStore(join(storeFolder, 'graph'));
+            owner = await options.openStore(join(storeFolder, 'graph'));
             state.owners.add(owner);
             state.databaseFolders.add(join(storeFolder, 'graph'));
             await owner.ready;
@@ -174,8 +187,20 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
+            openingErrors.delete(storeFolder);
+            openingRetries.delete(storeFolder);
           } catch (error) {
-            log(`madarch fill: the store ${storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+            if (owner !== undefined) {
+              await owner.close().catch(() => undefined);
+              state.owners.delete(owner);
+            }
+            const delay = nextOpenRetryDelay(openingRetries.get(storeFolder)?.delay);
+            openingRetries.set(storeFolder, { delay, after: performance.now() + delay });
+            const message = error instanceof Error ? error.message : String(error);
+            if (openingErrors.get(storeFolder) !== message) {
+              openingErrors.set(storeFolder, message);
+              log(`madarch fill: the store ${storeFolder} could not be opened: ${message}`);
+            }
             continue;
           }
         }
