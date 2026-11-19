@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet, starterFilesFor, starterKindNames } from '../src/knowledge/seed.js';
 import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
-import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
+import { CATALOG_KINDS, CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
+import { kindClosure } from '../src/knowledge/starter-templates.js';
+import { byCodePoint } from '../src/model/order.js';
 import sourcesBefore from './fixtures/starter-catalog-sources.json';
 
 // Captured from the integration baseline before its TypeScript tables were removed.
@@ -36,6 +38,16 @@ test('a template selects folders as well as kinds and rejects unknown selectors'
   const template = {id: 'custom', title: {en: '', ru: ''}, description: {en: '', ru: ''}, kinds: ['code']};
   const names = starterKindNames(template);
   expect(names.length).toBeGreaterThan(0);
-  expect(starterFilesFor(template).filter((file) => file.path.startsWith('madarch/kinds/')).every((file) => file.path.startsWith('madarch/kinds/code/'))).toBe(true);
+  // R1 (15e300356): a template that names a folder names what its kinds rest on too, so a folder's kinds are its own
+  // files plus their `derives-from` closure — product-profile lives outside `kinds/code/` and is written with them. The
+  // closure is the seed's own `kindClosure`, so this expectation cannot drift from it.
+  const folderKinds = CATALOG_KINDS.filter((kind) => CATALOG_KIND_FILES[kind.name]?.startsWith('code/')).map((kind) => kind.name);
+  const derivesFrom = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.derivesFrom ?? []]));
+  const needed = new Set(kindClosure(folderKinds, (name) => derivesFrom.get(name)));
+  // A kind of the closure with no catalogue file is a protected engine kind: it is declared, but no file is written.
+  const expected = CATALOG_KINDS.filter((kind) => needed.has(kind.name)).map((kind) => kind.name);
+  expect([...names].sort(byCodePoint)).toEqual([...expected].sort(byCodePoint));
+  const written = starterFilesFor(template).filter((file) => file.path.startsWith('madarch/kinds/')).map((file) => file.path.slice('madarch/kinds/'.length));
+  expect(written.sort(byCodePoint)).toEqual(expected.map((name) => CATALOG_KIND_FILES[name]!).sort(byCodePoint));
   expect(() => starterKindNames({...template, kinds: ['missing-folder']})).toThrow('unknown kind or folder');
 });
