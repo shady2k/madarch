@@ -25,21 +25,22 @@ const request = (body: unknown) => new Request('http://localhost/api/answer', {
 
 test('answer and propose-task refuse malformed requests before calling the product', async () => {
   const { part, calls } = fixture();
-  for (const [handler, body] of [
-    [part.answer, null],
-    [part.answer, { text: 'answer' }],
-    [part.answer, { question: 42, text: 'answer' }],
-    [part.answer, { question: 'inquiry:stable', text: false }],
-    [part.answer, { question: 'inquiry:stable', text: 'answer', extra: true }],
-    [part.proposeTask, { question: 'inquiry:stable', choice: 'other' }],
-    [part.proposeTask, { question: 'inquiry:stable', choice: 'docs', language: 'invalid' }],
-    [part.proposeTask, { question: 'inquiry:stable', choice: 'code', extra: true }],
+  for (const [handler, body, path] of [
+    [part.answer, null, ''],
+    [part.answer, { text: 'answer' }, '/question'],
+    [part.answer, { question: 42, text: 'answer' }, '/question'],
+    [part.answer, { question: 'inquiry:stable', text: false }, '/text'],
+    [part.answer, { question: 'inquiry:stable', text: 'answer', extra: true }, '/extra'],
+    [part.proposeTask, { question: 'inquiry:stable', choice: 'other' }, '/choice'],
+    [part.proposeTask, { question: 'inquiry:stable', choice: 'docs', language: 'invalid' }, '/language'],
+    [part.proposeTask, { question: 'inquiry:stable', choice: 'code', extra: true }, '/extra'],
   ] as const) {
     const result = await handler(request(body));
     expect(result.response.status).toBe(400);
     const refused = await result.response.json();
-    expect(typeof refused.field).toBe('string');
-    expect(refused.message).toContain('/src/server/knowledge.ts:');
+    // The door's generated contract refuses before the handler runs (decision 0039, items 7 and 30): the body names the
+    // code and the field path of the refusal, never a source location.
+    expect(refused.error).toMatchObject({ code: 'SCHEMA_INVALID', path, retryable: false });
   }
   expect(calls).toEqual([]);
 });

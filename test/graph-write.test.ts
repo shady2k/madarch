@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { assertionValueTableName, generatedTableName, type GraphContract, type VertexDraft } from '../src/graph/contract.js';
 import { ensureVertex, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
+import type { SqlExecutor } from '../src/sql-driver.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
 
@@ -129,6 +130,15 @@ const wildcardGraph: GraphContract = {
   edge: [...graph.edge, { ...graph.edge[0]!, name: 'mentions', from: ['any'], to: ['any'], repeats: false }],
 };
 const snapshot = (): VertexDraft => ({ kind: 'fixture.snapshot', key: { digest: createHash('sha256').update('record').digest('hex') }, values: { content: 'record' }, producer: 'fixture', producerVersion: '1' });
+/**
+ * The graph's own rows: the fixture commits its identity vertices before the case's first write (R4, ALX-464).
+ * Whole rows, not counts, in the identity key's order (ALX-531): a refusal that changed a committed vertex or its
+ * assertion keeps the counts and must still show here.
+ */
+const graphSnapshot = async (tx: SqlExecutor) => ({
+  nodes: (await tx.query<Record<string, unknown>>('SELECT * FROM node ORDER BY entity_id, key, uid')).rows,
+  assertions: (await tx.query<Record<string, unknown>>('SELECT * FROM assertion ORDER BY assertion_id')).rows,
+});
 
 test.each([false, true])('ALX-65: wildcard mentions writes different declared record kinds (reverse=%s)', async reverse => {
   const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
@@ -165,22 +175,30 @@ test('ALX-65: wildcard mentions accepts built-in system records on both ends', a
 test.each(['mentions', 'fixture.undeclared'])('ALX-65: wildcard mentions refuses non-record endpoint kind %s and rolls back', async kind => {
   const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
   try {
-    await expect(owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
-      vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: { kind, key: {} }, producer: 'fixture', producerVersion: '1' }],
-    }))).rejects.toThrow(`UNKNOWN_KIND ${kind}`);
-    expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
-    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+    let before: Awaited<ReturnType<typeof graphSnapshot>> | undefined;
+    await expect(owner.transaction('write', async tx => {
+      // The refused write leaves the graph as it stood when the case's transaction began: the fixture's identity
+      // vertices are already committed (R4, ALX-464), so the rows before the write are the rows after the refusal.
+      before = await graphSnapshot(tx);
+      await publishGraphDrafts(tx, wildcardGraph, {
+        vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: { kind, key: {} }, producer: 'fixture', producerVersion: '1' }],
+      });
+    })).rejects.toThrow(`UNKNOWN_KIND ${kind}`);
+    expect(await owner.run(tx => graphSnapshot(tx))).toEqual(before!);
   } finally { await owner.close(); }
 });
 
 test('ALX-65: wildcard mentions still refuses a missing declared record and rolls back', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: wildcardGraph });
   try {
-    await expect(owner.transaction('write', tx => publishGraphDrafts(tx, wildcardGraph, {
-      vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: ref('missing'), producer: 'fixture', producerVersion: '1' }],
-    }))).rejects.toThrow('MISSING_ENDPOINT');
-    expect((await owner.run(tx => tx.query('SELECT * FROM node'))).rows).toEqual([]);
-    expect((await owner.run(tx => tx.query('SELECT * FROM assertion'))).rows).toEqual([]);
+    let before: Awaited<ReturnType<typeof graphSnapshot>> | undefined;
+    await expect(owner.transaction('write', async tx => {
+      before = await graphSnapshot(tx);
+      await publishGraphDrafts(tx, wildcardGraph, {
+        vertices: [term('a')], removals: [], edges: [{ kind: 'mentions', from: ref('a'), to: ref('missing'), producer: 'fixture', producerVersion: '1' }],
+      });
+    })).rejects.toThrow('MISSING_ENDPOINT');
+    expect(await owner.run(tx => graphSnapshot(tx))).toEqual(before!);
   } finally { await owner.close(); }
 });
 
