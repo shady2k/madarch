@@ -1,6 +1,7 @@
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { expect, test } from 'bun:test';
 import { evidenceCommand, growthMeasurementPaths, growthPaths, growthFindings, readShardTimings, slowFindings, type Timings } from '../../scripts/check-slow-tests.js';
 import type { SlowFile, SlowList } from '../../scripts/run-tests.js';
@@ -61,7 +62,7 @@ test('unknown, nonfinite, fast and exactly threshold measures are not slow', () 
 });
 test('shards do not serve as merge-base evidence and preserve manifest location', () => {
   expect(slowFindings([path], list([]), { ...evidence, kind: 'shard', files: {} }, { revision: 'abc', changedFiles: [path] })).toEqual([]);
-  expect(slowFindings([path], list([]), { ...evidence, kind: 'shard', locations: { [path]: '/shards/shard-1.json:7' } })).toEqual(['/shards/shard-1.json:7: test/a.test.ts took 31000 ms, more than 30 s, and is not in test/slow-files.json']);
+  expect(slowFindings([path], list([]), { ...evidence, kind: 'shard', locations: { [path]: '/shards/shard-1.json:7' } }, undefined, '', evidence)).toEqual(['/shards/shard-1.json:7: test/a.test.ts took 31000 ms in shard and 31000 ms alone, both more than 30 s, and is not in test/slow-files.json']);
 });
 test('missing path after multiple lines points at manifest root', () => {
   expect(slowFindings([path], list([]), { ...evidence, text: '{\n\n}', files: {} }, { revision: 'abc', changedFiles: [path] })).toEqual(['/evidence.json:1: test/a.test.ts changed since abc has no single-file evidence']);
@@ -75,7 +76,7 @@ test('shard schema is independent of manifest basename and reports actual source
     writeFileSync(join(folder, 'notes.txt'), 'not a manifest');
     const measured = readShardTimings(folder);
     expect(measured.kind).toBe('shard');
-    expect(slowFindings([path], list([]), measured)).toEqual([`${manifest}:4: test/a.test.ts took 35000 ms, more than 30 s, and is not in test/slow-files.json`]);
+    expect(slowFindings([path], list([]), measured, undefined, '', evidence)).toEqual([`${manifest}:4: test/a.test.ts took 35000 ms in shard and 31000 ms alone, both more than 30 s, and is not in test/slow-files.json`]);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
 
@@ -167,4 +168,35 @@ test('one fast alone run and one slow alone run is not a speed finding', () => {
 test('one fast run requires confirmation; a 43 second run never contradicts listed 31 seconds', () => {
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path])).toEqual([]);
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 43000 } }, [path])).toEqual([]);
+});
+
+test('shard outlier needs an independent above-threshold confirmation', () => {
+  const shard = { ...evidence, kind: 'shard' as const, files: { [path]: 35000 } };
+  expect(slowFindings([path], list([]), shard)).toEqual([]);
+  for (const ms of [6200, 30000]) {
+    expect(slowFindings([path], list([]), shard, undefined, '', { ...evidence, files: { [path]: ms } })).toEqual([]);
+  }
+  const result = slowFindings([path], list([]), shard, undefined, '', { ...evidence, files: { [path]: 30001 } }).join();
+  expect(result).toContain('35000');
+  expect(result).toContain('30001');
+  expect(result).toContain('not in test/slow-files.json');
+  expect(slowFindings([path], list([entry]), shard, undefined, '', evidence)).toEqual([]);
+});
+
+test('measured command confirms a shard outlier with real Bun before failing', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'slow-shard-command-'));
+  try {
+    for (const dir of ['test', 'scripts', 'shards']) mkdirSync(join(folder, dir));
+    writeFileSync(join(folder, path), "import { test } from 'bun:test'; test('fast', () => {});");
+    writeFileSync(join(folder, 'test/slow-files.json'), JSON.stringify(list([])));
+    writeFileSync(join(folder, 'shards/one.json'), JSON.stringify({ version: 1, files: { [path]: 35000 } }));
+    writeFileSync(join(folder, 'package.json'), JSON.stringify({ scripts: { test: `bun ${resolve(import.meta.dir, '../../scripts/run-tests.ts')}` } }));
+    const wrapper = join(folder, 'scripts/plugin-sandbox-cgroup.sh');
+    writeFileSync(wrapper, '#!/bin/sh\nexec "$@"\n');
+    chmodSync(wrapper, 0o755);
+    const result = spawnSync(process.execPath, [resolve(import.meta.dir, '../../scripts/check-slow-tests.ts'), '--measured', 'shards'], { cwd: folder, env: process.env, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`shard confirmation: ${path} milliseconds=`);
+    expect(result.stdout).toContain('no finding');
+  } finally { rmSync(folder, { recursive: true, force: true }); }
 });

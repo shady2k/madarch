@@ -8,12 +8,17 @@ const script = resolve(import.meta.dir, '../../scripts/summarize-slow-tests.ts')
 const a = 'test/a.test.ts';
 const b = 'test/b.test.ts';
 type Row = { path: string; result: 'red' | 'green'; seconds?: number };
-function summarize(rows: Row[], log: string, timings: Record<string, number>, independent: Record<string, number> = {}) {
+function summarize(rows: Row[], log: string, timings: Record<string, number>, independent: Record<string, number> = {}, realBun = false) {
   const folder = mkdtempSync(join(tmpdir(), 'slow-summary-'));
   try {
     mkdirSync(join(folder, 'test'), { recursive: true });
     mkdirSync(join(folder, '.github/workflows'), { recursive: true });
-    for (const row of rows) writeFileSync(join(folder, row.path), '');
+    for (const row of rows) writeFileSync(join(folder, row.path), `import { test } from 'bun:test'; test('fixture', () => { ${row.path === b ? "throw new Error('fixture failure');" : ''} });`);
+    if (realBun) {
+      const run = spawnSync(process.execPath, ['test', ...rows.map(row => './' + row.path)], { cwd: folder, env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' }, encoding: 'utf8' });
+      expect(run.status).toBe(1);
+      log = run.stdout + run.stderr;
+    }
     writeFileSync(join(folder, 'test/slow-files.json'), JSON.stringify({ version: 1, measuredOn: 'today', files: rows.map(row => ({ seconds: 45, reason: row.result === 'green' ? 'green-slow' : 'red-defect', ...row })) }));
     writeFileSync(join(folder, '.github/workflows/single-file-timings.json'), JSON.stringify({ files: independent }));
     writeFileSync(join(folder, 'timings.json'), JSON.stringify({ files: timings }));
@@ -53,11 +58,11 @@ ${b}:
   expect(result.status).toBe(0);
 });
 
-test('green single-file at threshold confirms removal in the claim column', () => {
+test('historical single-file evidence does not confirm removal from a batch run', () => {
   const result = summarize([{ path: a, result: 'green' }], `${a}:
 (pass) example
 `, { [a]: 45000 }, { [a]: 30000 });
-  expect(result.summary).toContain('| test/a.test.ts | 45.000 | 45 | GREEN | confirmed: green single-file ≤ 30 s — remove entry |');
+  expect(result.summary).toContain('| test/a.test.ts | 45.000 | 45 | GREEN | claimed, measurement matches |');
   expect(result.status).toBe(0);
 });
 
@@ -104,4 +109,17 @@ test('historical red single-file timing cannot confirm a newly green red claim',
   expect(result.summary).toContain('| GREEN — exit candidate | claimed red, ran green |');
   expect(result.summary).not.toContain('confirmed: green single-file');
   expect(result.status).toBe(1);
+});
+
+test('real Bun headings expose a fabricated fast red claim and keep files separate', () => {
+  const result = summarize([{ path: a, result: 'red', seconds: 31 }, { path: b, result: 'red', seconds: 31 }], '', {}, {}, true);
+  expect(result.status).toBe(1);
+  expect(result.summary).toContain('| test/a.test.ts | missing | 31 | GREEN | claimed red, ran green |');
+  expect(result.summary).toContain('| test/b.test.ts | missing | 31 | RED | claimed, measurement matches |');
+});
+
+test('dot-slash file headings retain nightly claim validation', () => {
+  const result = summarize([{ path: a, result: 'red', seconds: 31 }], `./${a}:\n(pass) fast\n`, {});
+  expect(result.status).toBe(1);
+  expect(result.summary).toContain('claimed red, ran green');
 });

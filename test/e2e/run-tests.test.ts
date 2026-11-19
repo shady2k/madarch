@@ -250,3 +250,10 @@ describe('the test runner', () => {
     }
   });
 });
+
+test('a missing Bun executable points at the runner, not the slow inventory', () => {
+  const result = Bun.spawnSync([process.execPath, RUNNER], { cwd: fixture, env: { ...process.env, PATH: '/nonexistent' }, stdout: 'pipe', stderr: 'pipe' });
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain(`${RUNNER}:1: bun test did not start:`);
+  expect(result.stderr.toString()).not.toContain('slow-files.json:1');
+});

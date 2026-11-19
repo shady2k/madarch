@@ -232,6 +232,11 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
       - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
@@ -240,6 +245,7 @@ jobs:
           echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
           sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
       - name: Measure growth files alone against the merge base
+        if: needs.test-shard.result == 'success'
         run: bun scripts/check-slow-tests.ts --growth
       - uses: actions/download-artifact@v8
         with:
@@ -248,9 +254,8 @@ jobs:
           merge-multiple: true
       - name: Verify every blocking test file ran exactly once
         run: node .shady2k/check-test-shards.mjs "$RUNNER_TEMP/shard-files" 5 --exclude test/slow-files.json
-      # A file the shards measured over 30 seconds must be in test/slow-files.json,
-      # so a new slow test cannot hide in the blocking run: the finding names the
-      # file and its measure.
+      # Confirm a shard outlier alone before requiring a slow-list entry.
+      # Both measurements must exceed 30 seconds to report a speed finding.
       - name: No test over 30 s hides outside the slow list
         run: bun scripts/check-slow-tests.ts --measured "$RUNNER_TEMP/shard-files"
       - name: Require every shard and CI check to pass

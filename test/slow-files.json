@@ -196,16 +196,6 @@
       "exit": "Rewrite test/fill-selection.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/fill-state-store.test.ts",
-      "seconds": 32.5,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The state-store suite passes but opens repeated database fixtures to exercise individual chain, run and unit transitions.",
-      "replacement": "Reuse a prepared schema with independent run identities and assert created-to-succeeded transitions, runnable-unit completion guards, cancellation, immutable terminal states and externally supplied retry attempts.",
-      "exit": "Rewrite test/fill-state-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/fill-states.test.ts",
       "seconds": 34.0,
       "reason": "red-defect",
@@ -364,16 +354,6 @@
       "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
       "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/manifest-publication.test.ts",
-      "seconds": 123.0,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The publication suite passes but repeatedly publishes large catalogue fixtures for each invalidation input.",
-      "replacement": "Prepare the catalogue once with independent revisions and assert unchanged reads do not write, foreign vertices do not change output and vertices, snapshots and starter values each invalidate the publication correctly.",
-      "exit": "Rewrite test/manifest-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/manifest-start.test.ts",
@@ -636,16 +616,6 @@
       "exit": "Rewrite test/stop-databases.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/store-preparation-owner.test.ts",
-      "seconds": 41.2,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Preparation-owner cases pass but each boots a separate role process and store for pinned-contract and shutdown checks.",
-      "replacement": "Use one explicitly owned prepared store to assert pinned-contract/source database preparation, attach-only client access and SIGTERM cancellation before store close with no surviving process.",
-      "exit": "Rewrite test/store-preparation-owner.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/trace-report.test.ts",
       "seconds": 46.2,
       "reason": "red-defect",
@@ -654,16 +624,6 @@
       "defect": "The step-report and span-coverage fill cases raise cannot CREATE INDEX node because it has pending trigger events before checking trace output or uncovered wall-clock fraction.",
       "replacement": "Prepare schema outside transactions with pending assertion triggers, run one fixture fill and assert named steps, wall clock, peak RSS, slowest spans and less than five percent uncovered root time.",
       "exit": "Rewrite test/trace-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/workflows-check.test.ts",
-      "seconds": 32.5,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Workflow CLI checks pass but repeatedly construct starter products and invoke commands for catalogue/workflow separation and argument errors.",
-      "replacement": "Validate workflow fixtures directly for missing manifests and catalogue isolation, retaining one CLI case that asserts counts, full manifest paths and unknown-argument exit two.",
-      "exit": "Rewrite test/workflows-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     }
   ]
 }

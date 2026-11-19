@@ -10,8 +10,9 @@
  * system, and reads measured durations from JSON: by default
  * `.github/workflows/single-file-timings.json`, independently measured single-file
  * runs, and in CI the `shard-*.json` manifests the shard jobs upload. A measured
- * file over 30 seconds that the slow list does not carry is named with its
- * measure and fails the check; so does a listed file whose own measure is not
+ * file over 30 seconds that the slow list does not carry needs an independent
+ * above-threshold confirmation before failing CI; committed evidence needs no
+ * fresh confirmation. So does a listed file whose own measure is not
  * over 30 seconds. Red entries carry concrete repair obligations. A shard's
  * elapsed time is contextual, so only independent single-file evidence is
  * compared with the list's seconds. Changed files since the git merge base
@@ -95,7 +96,7 @@ export function growthFindings(slow: SlowList, measured: Timings, paths: readonl
 }
 
 /** Inventory repair obligations and compare independent single-file evidence. */
-export function slowFindings(all: readonly string[], slow: SlowList, timings: Timings, base?: BaseChanges, slowText = ''): string[] {
+export function slowFindings(all: readonly string[], slow: SlowList, timings: Timings, base?: BaseChanges, slowText = '', confirmation?: Timings): string[] {
   const findings: string[] = [];
   const listed = new Set(slow.files.map(entry => entry.path));
   const slowLines = jsonArrayLocations(slowText);
@@ -118,7 +119,11 @@ export function slowFindings(all: readonly string[], slow: SlowList, timings: Ti
   const known = new Set(all);
   for (const [path, milliseconds] of Object.entries(timings.files)) {
     if (!known.has(path) || !Number.isFinite(milliseconds)) continue;
-    if (milliseconds > SLOW_THRESHOLD_SECONDS * 1000 && !listed.has(path)) findings.push(`${at(path)}: ${path} took ${String(milliseconds)} ms, more than 30 s, and is not in ${SLOW_LIST}`);
+    if (milliseconds <= SLOW_THRESHOLD_SECONDS * 1000 || listed.has(path)) continue;
+    if (timings.kind === 'shard') {
+      const second = confirmation?.files[path];
+      if (Number.isFinite(second) && second! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at(path)}: ${path} took ${milliseconds} ms in shard and ${second} ms alone, both more than 30 s, and is not in ${SLOW_LIST}`);
+    } else findings.push(`${at(path)}: ${path} took ${String(milliseconds)} ms, more than 30 s, and is not in ${SLOW_LIST}`);
   }
   return findings;
 }
@@ -197,7 +202,29 @@ function main(): void {
       base = { revision, changedFiles, slowPaths: oldSlow?.files.map(entry => entry.path) ?? [], evidence: oldEvidence?.files ?? {} };
     } catch (error) { fail(`cannot read git merge base origin/main or its data: ${error instanceof Error ? error.message : String(error)}`); }
   }
-  const findings = slowFindings(all, slow, timings, base, readFileSync(SLOW_LIST, 'utf8'));
+  const confirmation: Timings = { source: import.meta.path, kind: 'single-file', files: {} };
+  const measurementErrors: string[] = [];
+  if (measured !== undefined) {
+    const listed = new Set(slow.files.map(entry => entry.path));
+    const paths = all.filter(path => !listed.has(path) && timings.files[path]! > SLOW_THRESHOLD_SECONDS * 1000);
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-shard-confirmation-'));
+    try {
+      for (const [index, path] of paths.entries()) {
+        const output = join(folder, `${index}.json`);
+        const run = spawnSync('scripts/plugin-sandbox-cgroup.sh', ['bun', 'run', 'test', '--only', path, `--timings=${output}`, '--update-timings'], { stdio: 'inherit' });
+        if (run.error || run.status === null || !existsSync(output)) {
+          measurementErrors.push(`${resolve(path)}:1: shard confirmation produced no timing evidence (${run.error?.message ?? run.status})`);
+          continue;
+        }
+        const row = readTimings(output, 'single-file');
+        Object.assign(confirmation.files, row.files);
+        console.log(`shard confirmation: ${path} milliseconds=${row.files[path]} exit=${run.status}`);
+        if (!Number.isFinite(row.files[path])) measurementErrors.push(`${resolve(output)}:1: ${path} has no confirmation measurement`);
+        if (run.status !== 0) measurementErrors.push(`${resolve(path)}:1: shard confirmation exited ${run.status}`);
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  }
+  const findings = [...measurementErrors, ...slowFindings(all, slow, timings, base, readFileSync(SLOW_LIST, 'utf8'), confirmation)];
   if (measureGrowth && base) {
     const paths = growthMeasurementPaths(slow, timings, base).filter(path => all.includes(path));
     console.log(`growth: ${paths.length} green speed claims require alone runs; red claims are judged nightly`);

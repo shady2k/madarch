@@ -183,7 +183,7 @@ function main(): void {
     }
   }
   if (result.error !== undefined) {
-    console.error(`${SLOW_LIST}:1: bun test did not start: ${result.error.message}`);
+    console.error(`${import.meta.path}:1: bun test did not start: ${result.error.message}`);
     process.exit(2);
   }
   process.exit(result.status ?? 1);

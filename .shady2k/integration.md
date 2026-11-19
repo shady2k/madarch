@@ -454,14 +454,17 @@ are the repository's installation, and each person's plugin and hooks are theirs
   Red entries claim defects, not stable duration; their bound waits fluctuate,
   and the nightly summary judges their outcomes instead. It exits 1 for a
   claimed red file that runs green or a claimed green file that runs red.
-  A batch run at or below 30 s marks an exit candidate; only a green single-file
-  confirmation at or below 30 s confirms removal. The initial adoption has no
+  A batch run at or below 30 s marks an exit candidate; removal needs a fresh
+  green single-file confirmation at or below 30 s, not historical evidence.
+  For an unlisted file a shard measures over 30 s, the blocking check runs the
+  file alone and reports a speed finding only if both runs exceed 30 s. The initial adoption has no
   base manifests, so all rows are growth but only 21 green claims are measured
   in the gate (about 1 347 s of committed evidence before any confirmation runs),
   not the 282-file, roughly 177-minute serial pass. Normal PRs pay for a handful
-  of added/changed green claims. This owner-directed exception to literal
-  every-entry remeasurement avoids treating known defect bound waits as speed
-  claims. Evidence for moved paths is deleted as move bookkeeping; the new paths
+  of added/changed green claims. This design decision avoids treating known defect bound waits as speed
+  claims: red entries are judged by their observed outcomes nightly, not by fresh
+  duration comparisons. The owner's direction was to quarantine tests that slow
+  the run, not to prescribe this measurement design. Evidence for moved paths is deleted as move bookkeeping; the new paths
   have their own rows. A confirmed fast inventory entry is reported for the
   Teamlead, not automatically removed or rebaselined from one local run.
   Produce a single-file evidence row with the exact command (add `--slow` after

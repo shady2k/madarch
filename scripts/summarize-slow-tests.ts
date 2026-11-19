@@ -11,14 +11,14 @@ if (!timingsPath || !logPath || !process.env.GITHUB_STEP_SUMMARY) {
 const all = testFiles(process.cwd());
 const slow = readSlowList(process.cwd(), all);
 const files: Record<string, number> = existsSync(timingsPath) ? JSON.parse(readFileSync(timingsPath, 'utf8')).files : {};
-const independent: Record<string, number> = JSON.parse(readFileSync('.github/workflows/single-file-timings.json', 'utf8')).files;
 const log = existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
 type Observation = 'GREEN' | 'RED' | 'UNCONFIRMED';
 const observations = new Map<string, Observation>();
 const headings = new Map(all.map(path => [`${path}:`, path]));
 let current: string | undefined;
 for (const line of log.split('\n')) {
-  const heading = headings.get(line.trim());
+  const trimmed = line.trim();
+  const heading = headings.get(trimmed.startsWith('./') ? trimmed.slice(2) : trimmed);
   if (heading !== undefined) {
     current = heading;
   } else if (current !== undefined) {
@@ -37,10 +37,8 @@ for (const entry of slow.files) {
   const observed = observations.get(entry.path) ?? 'UNCONFIRMED';
   const mismatch = (entry.result === 'red' && observed === 'GREEN') || (entry.result === 'green' && observed === 'RED');
   if (mismatch) contradiction = true;
-  const confirmed = entry.result === 'green' && observed === 'GREEN' && Number.isFinite(independent[entry.path]) && independent[entry.path]! <= 30000;
-  const candidate = observed === 'GREEN' && Number.isFinite(ms) && ms! <= 30000 && !confirmed;
+  const candidate = observed === 'GREEN' && Number.isFinite(ms) && ms! <= 30000;
   const claim = mismatch ? `claimed ${entry.result}, ran ${observed.toLowerCase()}`
-    : confirmed ? 'confirmed: green single-file ≤ 30 s — remove entry'
     : observed === 'UNCONFIRMED' ? 'unconfirmed: no observed result'
     : 'claimed, measurement matches';
   const result = observed + (candidate ? ' — exit candidate' : '');
