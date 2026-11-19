@@ -18,11 +18,14 @@ import { runFill } from '../src/fill/run.js';
 import { pluginTurnAuthority, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { executeGraphql } from '../src/graph/graphql-execute.js';
 import { byCodePoint } from '../src/model/order.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
+import { parse, stringify } from 'yaml';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
+import { createHash } from 'node:crypto';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -85,16 +88,17 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
     const listed = await post({ jsonrpc: '2.0', id: ++sequence, method: 'tools/list', params: {} });
     tools = ((listed.result ?? {}).tools ?? []).map((one) => one.name);
-    const folders = await tool('graph_query', { query: '{ allCodeDirectory(where: {repository: {_eq: "app"}, path: {_like: "src/%"}}, orderBy: [{field: path}]) { edges { node { repository path } } } }' });
-    const files = await tool('graph_query', { query: '{ allCodeFile(where: {repository: {_eq: "app"}}, orderBy: [{field: path}]) { edges { node { repository path lines } } } }' });
-    const fileNodes = files.data.allCodeFile.edges.map((edge) => edge.node);
+    const folders = await tool('graph_query', { query: '{ allCodeDirectory(where: {path: {_like: "src/%"}}, orderBy: [{field: path}]) { edges { node { path codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
+    const files = await tool('graph_query', { query: '{ allCodeFile(orderBy: [{field: path}]) { edges { node { path lines codeBlobAboutOf(first: 1) { edges { node { node { ... on KindCodeBlob { digest } } } } } codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
+    const repositoryOf = (node, edge) => node[edge].edges[0]?.node.node.name;
+    const fileNodes = files.data.allCodeFile.edges.map((edge) => ({ ...edge.node, digest: edge.node.codeBlobAboutOf.edges[0]?.node.node.digest, repository: repositoryOf(edge.node, 'codeFileRepository') })).filter(node => node.repository === 'app');
     const first = fileNodes.find((node) => node.path.endsWith('create-order.ts')) ?? fileNodes[0];
-    const content = await tool('graph_text', { kind: 'code.file', key: { repository: first.repository, path: first.path }, field: 'content', lineStart: 1, lineEnd: Math.min(3, first.lines) });
+    const content = await tool('graph_text', { kind: 'code.blob', key: { digest: first.digest }, field: 'content', lineStart: 1, lineEnd: Math.min(3, first.lines) });
     // What the agent found: one folder per area of the code, its first file as the evidence of each entity.
-    const areas = folders.data.allCodeDirectory.edges.map((edge) => edge.node).filter((node) => /^src\\/[^/]+$/.test(node.path));
+    const areas = folders.data.allCodeDirectory.edges.map((edge) => ({ ...edge.node, repository: repositoryOf(edge.node, 'codeDirectoryRepository') })).filter((node) => node.repository === 'app' && /^src\\/[^/]+$/.test(node.path));
     const evidenceOf = (area) => {
       const held = fileNodes.find((node) => node.path.startsWith(area.path + '/'));
-      return { repository: area.repository, path: held.path, lineStart: 1, lineEnd: Math.min(2, held.lines) };
+      return { target: { kind: 'code.blob', key: { digest: held.digest } }, path: held.path, lineStart: 1, lineEnd: Math.min(2, held.lines) };
     };
     const domains = areas.map((area) => ({
       kind: 'domain',
@@ -105,18 +109,19 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const modules = areas.map((area) => ({
       kind: 'code.module',
       key: { name: area.path.split('/').pop() },
-      values: { folder: { kind: 'code.directory', key: { repository: area.repository, path: area.path } }, responsibility: 'The module held in ' + area.path + '.' },
+      values: { responsibility: 'The module held in ' + area.path + '.' },
       evidence: evidenceOf(area),
     }));
+    const directoryOf = (area) => ({ kind: 'code.directory', key: { path: area.path }, keyEdges: { 'code.directory-repository': { kind: 'code.repository', key: { name: area.repository } } } });
     const edges = domains.map((domain) => ({
       kind: 'domain.covers-folder',
       from: { kind: 'domain', key: domain.key },
-      to: { kind: 'code.directory', key: { repository: areas.find((area) => capitalised(area.path.split('/').pop()) === domain.key.name).repository, path: areas.find((area) => capitalised(area.path.split('/').pop()) === domain.key.name).path } },
+      to: directoryOf(areas.find((area) => capitalised(area.path.split('/').pop()) === domain.key.name)),
       evidence: domain.evidence,
     }));
     answer = task.kind === 'domain'
       ? { vertices: domains, edges, end: { state: 'complete' } }
-      : { vertices: modules, edges: [], end: { state: 'complete' } };
+      : { vertices: modules, edges: modules.map((module, index) => ({ kind: 'code.module-folder', from: { kind: module.kind, key: module.key }, to: directoryOf(areas[index]), evidence: module.evidence })), end: { state: 'complete' } };
     // The malformed mode: the entries the agent got right stand beside entries no contract can take — an undeclared
     // field, an undeclared kind, evidence at a file the graph does not hold, and an edge of no declared kind (owner's
     // rule, 2026-11-15: a produced result is never discarded, entry by entry).
@@ -124,7 +129,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       answer.vertices.push(
         { kind: 'domain', key: { name: 'Ghost' }, values: { colour: 'red' }, evidence: domains[0].evidence },
         { kind: 'nonsense', key: { name: 'Nothing' }, values: {}, evidence: domains[0].evidence },
-        { kind: 'domain', key: { name: 'Absent' }, values: { description: 'read from a file that is not there' }, evidence: { repository: 'app', path: 'src/absent.ts', lineStart: 1, lineEnd: 1 } },
+        { kind: 'domain', key: { name: 'Absent' }, values: { description: 'read from a file that is not there' }, evidence: { target: { kind: 'code.blob', key: { digest: '0'.repeat(64) } }, path: 'src/absent.ts', lineStart: 1, lineEnd: 1 } },
       );
       answer.edges.push({ kind: 'domain.links-to-nothing', from: { kind: 'domain', key: domains[0].key }, to: { kind: 'domain', key: domains[0].key }, evidence: domains[0].evidence });
     }
@@ -155,6 +160,23 @@ function fixture() {
   git(repository, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the fixture code');
   const home = join(root, 'home');
   const product = makeProduct(home, 'graph-agent', repository, 'app');
+  // The fixture tests these relations explicitly; the starter catalogue need not offer them to a new product.
+  const metadataPath = join(product, 'madarch/catalog.yaml');
+  const metadata = parse(readFileSync(metadataPath, 'utf8'));
+  const catalogue = parse(CATALOG_FILES['catalog.yaml']!);
+  const relations = ['domain.covers-folder', 'domain.covers', 'module.depends-on', 'code.module-folder'];
+  metadata.edges = [...metadata.edges.filter((edge: { name: string }) => !relations.includes(edge.name) && !['domain.contains', 'code.module.contains', 'class-diagram-module', 'component.implemented-by'].includes(edge.name)),
+    ...catalogue.edges.filter((edge: { name: string }) => relations.includes(edge.name))];
+  writeFileSync(metadataPath, stringify(metadata));
+  const domainPath = join(product, 'madarch/kinds/strategy/product/domain.yaml');
+  const domain = parse(readFileSync(domainPath, 'utf8'));
+  domain['derives-from'] = [...new Set([...(domain['derives-from'] ?? []), 'code.directory'])];
+  domain.description.en = 'A domain is an area of the business with its own responsibilities and language.';
+  writeFileSync(domainPath, stringify(domain));
+  const modulePath = join(product, 'madarch/kinds/code/structure/code.module.yaml');
+  const module = parse(readFileSync(modulePath, 'utf8'));
+  module['derives-from'] = [...new Set([...(module['derives-from'] ?? []), 'domain'])];
+  writeFileSync(modulePath, stringify(module));
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
   const fake = join(root, 'fake-acp.ts');
@@ -220,28 +242,46 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       // An edge between two kinds one agent fills belongs to the later unit's turn: the domain turn owns the edge to
       // the folder, which the repository plugins fill, and the module's turn owns the edge to the module.
       expect(domainTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers-folder']);
-      expect(moduleTurn.task.fields.map((field) => field.name)).toEqual(['name', 'folder', 'responsibility']);
+      expect(moduleTurn.task.fields.map((field) => field.name)).toEqual(['name', 'responsibility']);
       // The module's turn owns the edge from a domain to the module, as the later of the two agent-filled kinds' turns.
-      expect(moduleTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers', 'module.depends-on']);
+      expect(moduleTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers', 'module.depends-on', 'code.module-folder']);
 
       // What the graph holds: the domains with the folders they cover, and the modules with their folders.
       const graph = async (query: string) => await executeGraphql(owner, { manifest: declarations.manifest, folder: f.product }, { query });
       type Covered = { edges: { node: { node: { kind: string; path: string } } }[] };
-      const domains = await graph('{ allDomain(orderBy: [{field: name}]) { edges { node { name description domainCoversFolder(first: 10) { edges { node { node { kind ... on CodeDirectory { path } } } } } } } } }');
+      const domains = await graph('{ allDomain(first: 10, orderBy: [{field: name}]) { edges { node { name description domainCoversFolder(first: 10) { edges { node { node { kind ... on KindCodeDirectory { path } } } } } } } } }');
       expect(domains.status).toBe(200);
       const domainRows = (domains.body as { data: { allDomain: { edges: { node: { name: string; description: string; domainCoversFolder: Covered } }[] } } }).data.allDomain.edges.map((edge) => edge.node);
       expect(domainRows.map((node) => [node.name, node.domainCoversFolder.edges.map((held) => [held.node.node.kind, held.node.node.path])])).toEqual([['Identity', [['code.directory', 'src/identity']]], ['Orders', [['code.directory', 'src/orders']]]]);
       expect(domainRows[0]?.description).toContain('area of the product');
-      const modules = await graph('{ allCodeModule(orderBy: [{field: name}]) { edges { node { name responsibility folder { repository path } } } } }');
+      type RepositoryNode = { id: string; path: string; codeDirectoryRepository: { edges: { node: { node: { name: string } } }[] } };
+      const directories = await graph('{ allCodeDirectory(first: 10) { edges { node { id path codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
+      expect(directories.status).toBe(200);
+      const directoryRows = (directories.body as { data: { allCodeDirectory: { edges: { node: RepositoryNode }[] } } }).data.allCodeDirectory.edges.map((edge) => edge.node);
+      const modules = await graph('{ allCodeModule(first: 10, orderBy: [{field: name}]) { edges { node { name responsibility codeModuleFolder(first: 10) { edges { node { node { id ... on KindCodeDirectory { path } } } } } } } } }');
       expect(modules.status).toBe(200);
-      const moduleRows = (modules.body as { data: { allCodeModule: { edges: { node: { name: string; folder: { repository: string; path: string }; responsibility: string } }[] } } }).data.allCodeModule.edges.map((edge) => edge.node);
-      expect(moduleRows.map((node) => [node.name, node.folder.path, node.responsibility])).toEqual([['identity', 'src/identity', 'The module held in src/identity.'], ['orders', 'src/orders', 'The module held in src/orders.']]);
+      type ModuleFolder = { id: string; path: string };
+      const moduleRows = (modules.body as { data: { allCodeModule: { edges: { node: { name: string; codeModuleFolder: { edges: { node: { node: ModuleFolder } }[] }; responsibility: string } }[] } } }).data.allCodeModule.edges.map((edge) => edge.node);
+      expect(moduleRows.map((node) => [node.name, node.codeModuleFolder.edges.map((edge) => [directoryRows.find((directory) => directory.id === edge.node.node.id)?.codeDirectoryRepository.edges[0]?.node.node.name, edge.node.node.path]), node.responsibility])).toEqual([['identity', [['app', 'src/identity']], 'The module held in src/identity.'], ['orders', [['app', 'src/orders']], 'The module held in src/orders.']]);
       // Every entity names the graph file its fact rests on: the file the agent read through the server.
-      const evidence = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string; evidence: { repository: string; path: string; line_start: number; line_end: number }[] }>(
-        `SELECT n.key->>'name' AS name, v.evidence FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
-      expect(evidence.rows).toEqual([
-        { name: 'Identity', evidence: [expect.objectContaining({ repository: 'app', path: 'src/identity/login.ts', line_start: 1, line_end: 2 })] },
-        { name: 'Orders', evidence: [expect.objectContaining({ repository: 'app', path: 'src/orders/create-order.ts', line_start: 1, line_end: 2 })] },
+      const evidence = await graph('{ allDomain(first: 10, orderBy: [{field: name}]) { edges { node { name descriptionAssertions { selected evidence { locator target { kind ... on KindCodeBlob { digest } } } } } } } }');
+      expect(evidence.status).toBe(200);
+      const blobs = await graph('{ allCodeBlob(first: 10) { edges { node { digest codeBlobAbout(first: 10) { edges { node { node { id ... on KindCodeFile { path } } } } } } } } }');
+      expect(blobs.status).toBe(200);
+      const files = await graph('{ allCodeFile(first: 10) { edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
+      expect(files.status).toBe(200);
+      type FileNode = { id: string; path: string; codeFileRepository: { edges: { node: { node: { name: string } } }[] } };
+      const fileRows = (files.body as { data: { allCodeFile: { edges: { node: FileNode }[] } } }).data.allCodeFile.edges.map((edge) => edge.node);
+      type BlobNode = { digest: string; codeBlobAbout: { edges: { node: { node: { id: string; path: string } } }[] } };
+      const blobRows = (blobs.body as { data: { allCodeBlob: { edges: { node: BlobNode }[] } } }).data.allCodeBlob.edges.map((edge) => edge.node);
+      type Ground = { locator: { path: string; lineStart: number; lineEnd: number }; target: { kind: string; digest: string } };
+      const evidenceRows = (evidence.body as { data: { allDomain: { edges: { node: { name: string; descriptionAssertions: { selected: boolean; evidence: Ground[] }[] } }[] } } }).data.allDomain.edges.map(({ node }) => ({ name: node.name, evidence: node.descriptionAssertions.filter((assertion) => assertion.selected).flatMap((assertion) => assertion.evidence.map((ground) => ({
+        kind: ground.target.kind, digest: ground.target.digest, path: ground.locator.path, lineStart: ground.locator.lineStart, lineEnd: ground.locator.lineEnd,
+        files: blobRows.find((blob) => blob.digest === ground.target.digest)?.codeBlobAbout.edges.map((edge) => ({ path: edge.node.node.path, repository: fileRows.find((file) => file.id === edge.node.node.id)?.codeFileRepository.edges[0]?.node.node.name })),
+      }))) }));
+      expect(evidenceRows).toEqual([
+        { name: 'Identity', evidence: [{ kind: 'code.blob', digest: createHash('sha256').update(FILES['src/identity/login.ts']!).digest('hex'), path: 'src/identity/login.ts', lineStart: 1, lineEnd: 2, files: [{ repository: 'app', path: 'src/identity/login.ts' }] }] },
+        { name: 'Orders', evidence: [{ kind: 'code.blob', digest: createHash('sha256').update(FILES['src/orders/create-order.ts']!).digest('hex'), path: 'src/orders/create-order.ts', lineStart: 1, lineEnd: 2, files: [{ repository: 'app', path: 'src/orders/create-order.ts' }] }] },
       ]);
     } finally {
       await owner.close();
@@ -275,13 +315,14 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       expect(units.find((unit) => unit.state === 'failed')?.attempts).toBe(1);
       expect(run.state).toBe('completed_partial');
       // What the first agent produced stands, with its evidence: the cap took nothing away from it.
-      const domains = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
-      const modules = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('code.module', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
-      expect([domains.rows.map((row) => row.name), modules.rows.map((row) => row.name)].filter((held) => held.length > 0)).toEqual([expect.any(Array)]);
+      const entities = await executeGraphql(owner, { manifest: declarations.manifest, folder: f.product }, { query: '{ allDomain(first: 10, orderBy: [{field: name}]) { edges { node { name } } } allCodeModule(first: 10, orderBy: [{field: name}]) { edges { node { name } } } }' });
+      expect(entities.status).toBe(200);
+      const held = (entities.body as { data: { allDomain: { edges: { node: { name: string } }[] }; allCodeModule: { edges: { node: { name: string } }[] } } }).data;
+      expect([held.allDomain.edges.map((edge) => edge.node.name), held.allCodeModule.edges.map((edge) => edge.node.name)].filter((names) => names.length > 0)).toEqual([expect.any(Array)]);
       // The run says it went over, and the unit that went over the cap says why it ended.
-      const events = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; unit_id: string; summary: string }>('SELECT kind, unit_id, summary FROM fill_event ORDER BY seq'));
-      expect(events.rows.some((event) => event.kind === 'unit-progress' && event.summary.includes('went over its bound after producing'))).toBe(true);
-      const failed = events.rows.find((event) => event.kind === 'unit-failed' && event.unit_id === units.find((unit) => unit.state === 'failed')?.unitId);
+      const events = await readProgress(owner, run.runId);
+      expect(events.some((event) => event.kind === 'unit-progress' && event.summary.includes('went over its bound after producing'))).toBe(true);
+      const failed = events.find((event) => event.kind === 'unit-failed' && event.unitId === units.find((unit) => unit.state === 'failed')?.unitId);
       expect(failed?.summary).toContain('was stopped by its tokens bound and is not retried');
       expect(failed?.summary).toContain('cache reads are not counted');
       // Only one turn asked the model anything: the second unit ended before its prompt.
@@ -312,17 +353,18 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
       // The two entries that stand are published; the three the contract or the graph cannot take are not.
-      const domains = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
-      expect(domains.rows.map((row) => row.name)).toEqual(['Identity', 'Orders']);
-      const covered = await owner.transaction('snapshot', async (tx) => await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${generatedTableName('domain.covers-folder', 'edge')} WHERE state = 'open'`));
-      expect(covered.rows[0]?.count).toBe('2');
+      const domains = await executeGraphql(owner, { manifest: declarations.manifest, folder: f.product }, { query: '{ allDomain(first: 10, orderBy: [{field: name}]) { edges { node { name domainCoversFolder { totalCount } } } } }' });
+      expect(domains.status).toBe(200);
+      const domainRows = (domains.body as { data: { allDomain: { edges: { node: { name: string; domainCoversFolder: { totalCount: number } } }[] } } }).data.allDomain.edges.map((edge) => edge.node);
+      expect(domainRows.map((row) => row.name)).toEqual(['Identity', 'Orders']);
+      expect(domainRows.reduce((count, row) => count + row.domainCoversFolder.totalCount, 0)).toBe(2);
       // The run says the answer was partial, and names what was left out and why.
-      const events = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; summary: string }>('SELECT kind, summary FROM fill_event ORDER BY seq'));
-      const partial = events.rows.find((event) => event.kind === 'unit-progress' && event.summary.includes('answered partly and published what it held'));
+      const events = await readProgress(owner, run.runId);
+      const partial = events.find((event) => event.kind === 'unit-progress' && event.summary.includes('answered partly and published what it held'));
       expect(partial?.summary).toContain('published what it held (4)');
       expect(partial?.summary).toContain('declares no field "colour"');
       expect(partial?.summary).toContain('declares no vertex kind "nonsense"');
-      expect(partial?.summary).toContain('is no file of the graph');
+      expect(partial?.summary).toContain('it names no declared immutable graph content and line range as its evidence');
       expect(partial?.summary).toContain('declares no edge kind "domain.links-to-nothing"');
       // The record holds the whole answer the agent gave: five vertices and three edges, of which the two that stand were kept.
       const turns = readFileSync(f.record, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { answer: { vertices: unknown[]; edges: unknown[] } });
