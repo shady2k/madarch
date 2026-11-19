@@ -228,20 +228,44 @@ function vocabulary(modules: Map<string, GateModule>, file: string, name: string
     && entries.some(entry => value(entry?.expression) === word);
 }
 
+/** The exported SqlTransactionKind alias a literal declares: a word of its union, or a value of the const registry its indexed type reads. */
+function transactionKindDeclaration(module: GateModule, node: Node): Node | undefined {
+  const ancestors = parents(module, node);
+  const alias = context(module).nodes.find(part => part['type'] === 'TsTypeAliasDeclaration'
+    && named(part['id'], 'SqlTransactionKind') && exported(module, part));
+  if (alias === undefined) return undefined;
+  if (ancestors[0]?.['type'] === 'TsLiteralType') {
+    const type = alias['typeAnnotation'] as Node | undefined;
+    const parts = type?.['type'] === 'TsUnionType' ? type['types'] as Node[] : [type];
+    return parts.some(part => part?.['type'] === 'TsLiteralType' && part['literal'] === node) ? alias : undefined;
+  }
+  const property = ancestors[0], object = ancestors[1], assertion = ancestors[2], registry = ancestors[3];
+  if (property?.['type'] !== 'KeyValueProperty' || property['value'] !== node || object?.['type'] !== 'ObjectExpression'
+    || assertion?.['type'] !== 'TsConstAssertion' || assertion['expression'] !== object
+    || registry?.['type'] !== 'VariableDeclarator' || !named(registry['id'], 'SQL_TRANSACTION_KINDS')
+    || ancestors[4]?.['kind'] !== 'const' || ancestors[5]?.['type'] !== 'ExportDeclaration') return undefined;
+  const indexed = alias['typeAnnotation'] as Node | undefined;
+  const index = indexed?.['type'] === 'TsIndexedAccessType' ? indexed['indexType'] as Node : undefined;
+  const keyOf = index?.['type'] === 'TsTypeOperator' && index['op'] === 'keyof' ? index['typeAnnotation'] as Node : undefined;
+  if (keyOf?.['type'] !== 'TsTypeQuery' || !same(keyOf['exprName'] as Node, registry['id'] as Node)) return undefined;
+  const values = (object['properties'] as Node[]).map(part => part['type'] === 'KeyValueProperty' ? part['value'] as Node : undefined);
+  return values.every(part => value(part) !== undefined) ? alias : undefined;
+}
+
 /** Exact field boundary declarations, typed field comparisons and owner transaction argument zero. */
 export function declarationProtocolLiteral(module: GateModule, node: Node, modules: Map<string, GateModule>): boolean {
   const word = value(node);
   if (word === undefined) return false;
   const ancestors = parents(module, node), parent = ancestors[0];
-  if (module.file === 'src/sql-driver.ts' && parent?.['type'] === 'TsLiteralType') {
-    const alias = ancestors.find(part => part['type'] === 'TsTypeAliasDeclaration');
-    if (alias !== undefined && named(alias['id'], 'SqlTransactionKind') && exported(module, alias)) {
+  if (module.file === 'src/sql-driver.ts') {
+    const alias = transactionKindDeclaration(module, node);
+    if (alias !== undefined) {
       const owner = modules.get('src/adapters/database-owner.ts');
       const contract = owner === undefined ? undefined : context(owner).nodes.find(part => part['type'] === 'TsInterfaceDeclaration' && named(part['id'], 'DatabaseOwner') && exported(owner, part));
       const method = ((contract?.['body'] as Node | undefined)?.['body'] as Node[] | undefined)?.find(part => part['type'] === 'TsMethodSignature' && named(part['key'], 'transaction'));
       const parameter = (method?.['params'] as Node[] | undefined)?.[0];
       const consumed = owner === undefined ? undefined : reference(owner, typeOf(parameter), modules);
-      if (consumed?.module === module && consumed.node === alias && vocabulary(modules, module.file, 'SqlTransactionKind', word)) return true;
+      if (consumed?.module === module && consumed.node === alias) return true;
     }
   }
   if (snapshotFormLiteral(module, node, modules) || gitArgumentLiteral(module, node) || writtenAtMemberLiteral(module, node, modules)
