@@ -170,3 +170,31 @@ test('current statement assertion selection includes values newer than the trans
     });
   } finally { await owner.close(); }
 }, 30_000);
+
+test('supplied subjects use the subject indexes without merges', async () => {
+ const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
+ try {
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,graph);
+   await publishGraphDrafts(tx,graph,{vertices:Array.from({length:300},(_,i)=>({kind:'typed',key:{name:`subject-${i}`},values:{amount:i},producer:'fixture',producerVersion:'1'})),removals:[]});
+  });
+  await owner.run(async tx=>{
+   await tx.query('ANALYZE');
+   const id=Number((await tx.query<{id:string}>("SELECT id::text FROM node WHERE key->>'name'='subject-0'")).rows[0]!.id);
+   let statement='';let parameters:readonly unknown[]|undefined;
+   const executor={query:async <Row extends object>(sql:string,values?:readonly unknown[])=>{statement=sql;parameters=values;return tx.query<Row>(sql,values);}};
+   const rows=await loadAssertions(executor,'vertex','typed',['amount'],[id],{projectMergedSubjects:true});
+   expect(rows.map(row=>row.value)).toEqual([0]);
+   const explained=await tx.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`,parameters);
+   interface PlanNode { 'Index Name'?:string; 'Actual Loops':number; 'Actual Rows':number; 'Relation Name'?:string; Alias?:string; Plans?:PlanNode[] }
+   const plan=explained.rows[0]!['QUERY PLAN'] as {Plan:PlanNode}[];
+   const nodes:PlanNode[]=[];
+   const visit=(node:PlanNode):void=>{nodes.push(node);for(const child of node.Plans??[])visit(child);};
+   visit(plan[0]!.Plan);
+   if(process.env['MADARCH_READER_EXPLAIN']==='1')console.log('SUBJECT_PLAN',JSON.stringify(explained.rows));
+   expect(nodes.some(node=>node['Index Name']==='node_pkey'&&node.Alias?.startsWith('subject')&&node['Actual Loops']>0)).toBe(true);
+   expect(nodes.some(node=>node['Index Name']==='edge_to'&&node['Actual Loops']>0)).toBe(true);
+   expect(nodes.filter(node=>node['Relation Name']==='assertion').reduce((sum,node)=>sum+node['Actual Rows']*node['Actual Loops'],0)).toBeLessThan(10);
+  });
+ } finally {await owner.close();}
+},30000);

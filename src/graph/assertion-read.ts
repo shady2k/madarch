@@ -122,8 +122,10 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
            JOIN entity subject_kind ON subject_kind.id=subject.entity_id
            JOIN node edge_from ON edge_from.id=subject.from_node
            JOIN node edge_to ON edge_to.id=subject.to_node`;
-      const mapped = sort === 'vertex' && selector?.projectMergedSubjects
-        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) OR NOT EXISTS(SELECT 1 FROM node merge_node JOIN entity merge_kind ON merge_kind.id=merge_node.entity_id WHERE merge_kind.name='system.merge') THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
+      const mergeExists = `EXISTS(SELECT 1 FROM node merge_node JOIN entity merge_kind ON merge_kind.id=merge_node.entity_id WHERE merge_kind.name='system.merge')`;
+      const projected = sort === 'vertex' && selector?.projectMergedSubjects;
+      const mapped = projected
+        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
       const repositoryStatements = repositoryKinds.map(edgeKind => {
         const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
         return `SELECT 0 AS request_index,e.id AS subject_id,e.id AS original_subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
@@ -138,14 +140,24 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const kindParameter = param(kind);
       const propertiesParameter = param(properties);
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
-      statements.push(`SELECT ${requestIndex}::integer AS request_index, array_position(${propertiesParameter}::text[],assertion_rows.property) AS property_rank, assertion_rows.* FROM (
- SELECT assertion_node.uid::text AS id, subject.id AS original_subject_id, subject.uid::text AS original_subject_uid, ${mapped} AS subject_id, ${mapped === 'subject.id' ? 'subject.uid::text' : `(SELECT uid::text FROM node WHERE id=${mapped})`} AS subject_uid,
+      const branches = projected ? [{ subject: 'subject.id', guard: `NOT ${mergeExists}` }, { subject: mapped, guard: mergeExists }] : [{ subject: mapped, guard: 'TRUE' }];
+      for (const { subject, guard } of branches) {
+        const indexedSubjects = projected && subject === 'subject.id' && subjectIds !== undefined;
+        // Keep a subject lookup from becoming a scan of every assertion of the kind.
+        const assertionFrom = indexedSubjects
+          ? `node subject JOIN entity subject_kind ON subject_kind.id=subject.entity_id
+             CROSS JOIN LATERAL (SELECT e.id FROM edge e WHERE e.to_node=subject.id OFFSET 0) subject_edge
+             CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment
+             JOIN assertion a ON a.assertion_id=attachment.assertion_id`
+          : `assertion a ${subjectJoin}`;
+        statements.push(`SELECT ${requestIndex}::integer AS request_index, array_position(${propertiesParameter}::text[],assertion_rows.property) AS property_rank, assertion_rows.* FROM (
+ SELECT assertion_node.uid::text AS id, subject.id AS original_subject_id, subject.uid::text AS original_subject_uid, ${subject} AS subject_id, ${subject === 'subject.id' ? 'subject.uid::text' : `(SELECT uid::text FROM node WHERE id=${subject})`} AS subject_uid,
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
         ${repositories} AS repository_targets,value_row.value,value_row.value_type,
         lineage.source,lineage.author,lineage.unit,lineage.operation_uid,lineage.evidence,lineage.evidence_attachments
-        FROM assertion a JOIN node assertion_node ON assertion_node.id=a.assertion_id
-        ${subjectJoin} LEFT JOIN LATERAL (${values} OFFSET 0) value_row ON TRUE
+        FROM ${assertionFrom} JOIN node assertion_node ON assertion_node.id=a.assertion_id
+        LEFT JOIN LATERAL (${values} OFFSET 0) value_row ON TRUE
         LEFT JOIN LATERAL (
           SELECT (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-source')) AS scalar(value)) AS source,
                  (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-author')) AS scalar(value)) AS author,
@@ -157,8 +169,9 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
           WHERE lineage.from_node=a.assertion_id
             AND k.name IN ('system.assertion-source','system.assertion-author','system.assertion-unit','system.assertion-operation','system.assertion-evidence')
         ) lineage ON TRUE
-        WHERE subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND (${mapped})=ANY(${subjectsParameter}::bigint[])`}
+        WHERE ${guard} AND subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND (${subject})=ANY(${subjectsParameter}::bigint[])`}
         ORDER BY array_position(${propertiesParameter}::text[],a.property),a.recorded_sequence) assertion_rows`);
+      }
     }
     if (statements.length === 0) return result;
     const { rows } = await executor.query<{

@@ -5,6 +5,7 @@ import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { activateGraphProducer } from '../src/graph/producer-binding.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
 import {readDispute} from '../src/graph/dispute-read.js';
 import { sha256Hex } from '../src/graph/digest.js';
@@ -136,6 +137,17 @@ test('generated pages use persisted evidence-valid label and existence resolutio
         expect(question?.state).toBe('RESOLVED');
         expect(question?.resolution).toBe(resolutions[index]);
       }
+      const statements: string[] = [];
+      const measured = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
+        if (parameters?.some(value => Array.isArray(value) && value.includes('body'))) statements.push(sql);
+        return await tx.query<Row>(sql, parameters);
+      } };
+      const body = await readKindAssertions(measured, 'vertex', 'fixture.page', ['body'], {
+        contract: labelledContract, identities: [{ id: Number(kept.id), uid: '', key: { slug: 'kept' } }],
+      });
+      expect(body[0]?.values['body']).toBe('body kept');
+      // Resolved label/existence slots outside this batch must not repeat hydration.
+      expect(statements.filter(sql => sql.includes('AS property_rank'))).toHaveLength(1);
       const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, tx, undefined, labelledGenerated, undefined, owner.graphContract);
       const page = await reader.list('fixture.page', { limit: 1 });
       expect(page.rows.map(row => [row.key, row.label])).toEqual([['fixture.page:kept', 'Chosen title']]);

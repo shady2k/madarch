@@ -56,25 +56,27 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));
     if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:72: product assertion reads require an explicit graph contract for dispute resolution`);
     let snapshot: { now: string | Date; anchored: boolean } | undefined;
-    // A page already supplied its identities. Probe for persisted questions in its
-    // assertion statement; only an anchored dispute needs the full lineage read.
-    const pageExecutor: SqlExecutor = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
+    // Pages and fill lookups already supplied identities. Probe for persisted questions
+    // in their assertion statement; only an anchored dispute needs the full lineage read.
+    const suppliedIdentityExecutor: SqlExecutor = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
       const result = await tx.query<Row & { now: string | Date; anchored: boolean; id: string | null }>(`
         WITH page_snapshot AS MATERIALIZED (
           SELECT transaction_timestamp() AS now,
             EXISTS(SELECT 1 FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.dispute-anchor') AS anchored
         ) SELECT assertions.*,page_snapshot.now,page_snapshot.anchored
-          FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE`, parameters);
+          FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE
+          ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
       snapshot = result.rows[0];
       return { rows: result.rows.filter(row => row.id !== null) };
     } };
     const load = async (resolvedAssertionIds: readonly string[], executor: SqlExecutor = tx) => await loadAssertionsBatch(executor, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)), unprojectedProperties: selector.contract?.vertex.find(kind => kind.name === request.kind)?.key ?? [] })), { ...selector, projectMergedSubjects: hasMerges, resolvedAssertionIds });
     let loaded: StoredAssertion[][] | undefined;
-    if (suppliedIdentities) loaded = await load([], pageExecutor);
+    if (suppliedIdentities) loaded = await load([], suppliedIdentityExecutor);
     const now = disputable && (!suppliedIdentities || snapshot?.anchored) ? new Date(snapshot?.now ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString() : undefined;
     const disputes = disputable && (!suppliedIdentities || snapshot?.anchored) ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), { validAt: selector.validAt ?? now!, recordedAt: selector.recordedAt ?? now!, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) }) : [];
     const resolvedAssertionIds = disputes.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
-    if (loaded === undefined || resolvedAssertionIds.length > 0) loaded = await load(resolvedAssertionIds);
+    const resolved = new Set(resolvedAssertionIds);
+    if (loaded === undefined || loaded.some(batch => batch.some(assertion => resolved.has(assertion.id)))) loaded = await load(resolvedAssertionIds);
     const bySubject = loaded.map(assertions => {
       const grouped = new Map<number, StoredAssertion[]>();
       for (const assertion of assertions) {
