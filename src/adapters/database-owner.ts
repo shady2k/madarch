@@ -151,6 +151,14 @@ export interface DatabaseOwner {
    */
   exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]>;
   /**
+   * Registers work that runs when this owner closes, before its pool is given up:
+   * an adapter that keeps background passes of its own on the owner's database —
+   * the queue's supervision timer — stops them here, so nothing keeps asking a
+   * database the process has closed (madarch-64o5.74). A failure of the work is
+   * reported with the close once the pool is given up, never instead of it.
+   */
+  onClose(work: () => Promise<void> | void): void;
+  /**
    * Stops accepting work, releases the pool and gives up this owner's hold of the store's server: the server stops only
    * when no process of the binary uses it any more, and keeps answering for the ones that do.
    */
@@ -208,6 +216,9 @@ function postgresLocation(options: PoolConfig): string {
   return `postgres://${host}:${port}/${database}`;
 }
 
+/** An owner called from inside its own transaction: nothing it was asked to close was closed. */
+class OwnWorkError extends Error {}
+
 class PostgresOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = true;
   readonly hasVector: boolean;
@@ -217,6 +228,8 @@ class PostgresOwner implements DatabaseOwner {
   private readonly ownWork = new AsyncLocalStorage<true>();
   private closing = false;
   private closePromise: Promise<void> | undefined;
+  /** Work a lent adapter stops with this owner, in registration order (`onClose`). */
+  private readonly attached: (() => Promise<void> | void)[] = [];
 
   constructor(private readonly pool: Pool, private readonly options: PoolConfig, hasVector = true, store?: string) {
     this.location = store === undefined ? postgresLocation(options) : `${store} (${postgresLocation(options)})`;
@@ -258,6 +271,10 @@ class PostgresOwner implements DatabaseOwner {
     return this.execWork<Row>(text);
   }
 
+  onClose(work: () => Promise<void> | void): void {
+    this.attached.push(work);
+  }
+
   private ensureOpen(): void {
     if (this.closing) throw new Error(`the database owner "${this.location}" is closed`);
   }
@@ -270,7 +287,7 @@ class PostgresOwner implements DatabaseOwner {
    */
   private ensureOutsideOwnWork(): void {
     if (this.ownWork.getStore() === true) {
-      throw new Error(`the database owner "${this.location}" was called from inside its own transaction; pass that transaction to the operation instead of opening another, or its statements would run outside it and commit separately`);
+      throw new OwnWorkError(`the database owner "${this.location}" was called from inside its own transaction; pass that transaction to the operation instead of opening another, or its statements would run outside it and commit separately`);
     }
   }
 
@@ -456,8 +473,21 @@ class PostgresOwner implements DatabaseOwner {
     this.ensureOutsideOwnWork();
     if (this.closePromise !== undefined) return this.closePromise;
     this.closing = true;
-    this.closePromise = this.pool.end();
-    return this.closePromise;
+    const work = (async () => {
+      // The work lent adapters stop with this owner runs first, while their
+      // statements can still reach the pool, and every piece of it runs even
+      // when an earlier one failed: the pool is given up either way, and the
+      // first failure is the one the close reports.
+      let failure: unknown;
+      for (const stop of this.attached.splice(0)) {
+        try { await stop(); }
+        catch (error) { failure ??= error; }
+      }
+      await this.pool.end();
+      if (failure !== undefined) throw failure;
+    })();
+    this.closePromise = work;
+    return work;
   }
 }
 
@@ -538,15 +568,27 @@ class ServerStoreOwner implements DatabaseOwner {
     });
   }
 
+  onClose(work: () => Promise<void> | void): void {
+    this.inner.onClose(work);
+  }
+
   close(): Promise<void> {
     if (this.closePromise !== undefined) return this.closePromise;
     const work = (async () => {
-      // The server is given up only when the pool really closed: a close the
-      // owner refused (one called from inside the owner's own transaction)
-      // leaves the pool and its connections in use, and a process that still
-      // holds connections is a process that still uses the server — giving the
-      // hold up here would let another process stop the server under it.
-      await this.inner.close();
+      try {
+        await this.inner.close();
+      } catch (error) {
+        // A close the owner refused (one called from inside the owner's own
+        // transaction) closed nothing: the pool and its connections are in use,
+        // and giving the server hold up would let another process stop the
+        // server under them.
+        if (error instanceof OwnWorkError) throw error;
+        // Everything else came after the borrows were given up — the pool asked
+        // to end, or a client attached to it failed to stop on the way — and this
+        // owner's hold of the server is still its own to give up.
+        await this.release();
+        throw error;
+      }
       await this.release();
     })();
     // A close the owner refused closed nothing: the next close asks again rather

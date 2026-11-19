@@ -183,9 +183,24 @@ async function openWorld(options: {
   };
 }
 
+/** The services the cases opened: one stopped at its deadline leaves no client or store of its own behind. */
+const services: ReturnType<typeof createFillOrchestratorService>[] = [];
+/** The owners a case lent to a service: teardown closes them when the case never returns (madarch-64o5.74). */
+const lentOwners: TestDatabaseOwner[] = [];
+/** The service a case opens, tracked so the file's teardown stops it even when the case never returns (madarch-64o5.74). */
+function trackedService(options: Parameters<typeof createFillOrchestratorService>[0]): ReturnType<typeof createFillOrchestratorService> {
+  const opened = createFillOrchestratorService(options);
+  services.push(opened);
+  return opened;
+}
+
 const worlds: World[] = [];
 afterEach(async () => {
   while (worlds.length > 0) await worlds.pop()!.close();
+  // The queue and the owner a service opened stop with it; a case stopped at its
+  // deadline runs no `finally`, so the file's teardown is the only stop it gets.
+  while (services.length > 0) await services.pop()!.stop().catch(() => undefined);
+  while (lentOwners.length > 0) await lentOwners.pop()!.close().catch(() => undefined);
 });
 
 async function world(options: Parameters<typeof openWorld>[0]): Promise<World> {
@@ -885,7 +900,7 @@ describe('the service the background server owns', () => {
   test('a service with nothing wired refuses a run and names what is missing, and opens nothing', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
     try {
-      const service = createFillOrchestratorService({ registry: basicRegistry() });
+      const service = trackedService({ registry: basicRegistry() });
       const refused = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-1' });
       expect(refused.ok).toBe(false);
       if (refused.ok) return;
@@ -917,7 +932,7 @@ describe('the service the background server owns', () => {
     try {
       const graph = fakeGraph();
       const applied: string[] = [];
-      const service = createFillOrchestratorService({
+      const service = trackedService({
         databasePath,
         registry: basicRegistry(),
         wiring: (_product, { owner }) => ({
@@ -961,7 +976,7 @@ describe('the service the background server owns', () => {
   test('a service given no store refuses a run by name and opens nothing', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-nostore-'));
     try {
-      const service = createFillOrchestratorService({
+      const service = trackedService({
         registry: basicRegistry(),
         wiring: (_product, { owner }) => ({
           graphContract: withAssertionContract(EMPTY_CONTRACT),
@@ -1748,6 +1763,7 @@ describe('immediate operation transactions (decision 0039)', () => {
   test('a product declaring 45 minutes keeps a 40-minute unit claim', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'madarch-long-unit-'));
     const owner = await createTestDatabaseOwner();
+    lentOwners.push(owner);
     const clock = testClock();
     const pinned = await pinnedBoundWiring(folder, owner, 'minutes: 45');
     const stage = fakeStage('snapshot', {
@@ -1760,7 +1776,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     });
     let attemptSeconds = DEFAULT_ORCHESTRATOR_LIMITS.attemptSeconds;
     const registry = new StageRegistry().register(stage);
-    const service = createFillOrchestratorService({
+    const service = trackedService({
       owner, registry, clock: clock.now,
       queueFactory: async owner => {
         const queue = await createPgBossQueue({ owner, supervise: false });
@@ -1791,9 +1807,10 @@ describe('immediate operation transactions (decision 0039)', () => {
   test('a plugin without minutes preserves a caller-lowered attempt ceiling', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'madarch-short-unit-'));
     const owner = await createTestDatabaseOwner();
+    lentOwners.push(owner);
     const pinned = await pinnedBoundWiring(folder, owner, 'tokens: 100');
     let attemptSeconds = 0;
-    const service = createFillOrchestratorService({
+    const service = trackedService({
       owner, registry: new StageRegistry(), limits: { attemptSeconds: 12 },
       queueFactory: async owner => {
         const queue = await createPgBossQueue({ owner, supervise: false });

@@ -7,7 +7,7 @@
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,17 @@ import { execFileSync } from 'node:child_process';
 
 const work = mkdtempSync(join(tmpdir(), 'madarch-fill-language-'));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+/**
+ * The owners a case opened. A case stopped at its deadline runs no `finally`,
+ * and the queue a store carries keeps asking its closed owner on a timer, so the
+ * file's teardown closes them (madarch-64o5.74).
+ */
+const openOwners: { close(): Promise<void> }[] = [];
+function tracked<T extends { close(): Promise<void> }>(owner: T): T { openOwners.push(owner); return owner; }
+afterEach(async () => {
+  while (openOwners.length > 0) await openOwners.pop()!.close().catch(() => undefined);
+});
 
 /** The root span of one run's trace, as the run wrote it. */
 function rootSpanOf(traceFile: string): { name: string; attributes: { key: string; value: { stringValue?: string } }[] } {
@@ -52,7 +63,7 @@ test('the language a press names is the one the run records', async () => await 
   const graphFolder = join(storeFolder, 'graph');
   const graphContract = withAssertionContract(await readPinnedGraphContract(product));
   await requestStorePreparation(graphFolder, graphContract);
-  const owner = Object.assign(await createDatabaseOwner({ store: graphFolder, connectOnly: true }), { graphContract });
+  const owner = tracked(Object.assign(await createDatabaseOwner({ store: graphFolder, connectOnly: true }), { graphContract }));
   let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     queue = await openFillRunQueue(owner);
@@ -90,7 +101,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
   const knowledgeRoot = join(work, 'redelivery-knowledge');
   const storeFolder = join(knowledgeRoot, 'ended');
   const graphFolder = join(storeFolder, 'graph');
-  const owner = await createTestDatabaseOwner({ store: graphFolder });
+  const owner = tracked(await createTestDatabaseOwner({ store: graphFolder }));
   const queue = await openFillRunQueue(owner);
   const job = { product: join(work, 'missing-redelivered-product'), store: storeFolder, runId: 'ended-run' };
   const original = { runId: job.runId, state: 'failed', message: 'The original failure must remain exact.' };

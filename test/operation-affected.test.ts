@@ -37,7 +37,7 @@ test('affected assertions publish in one batch and keep the graph lock until com
     const observed: DatabaseOwner = {
       location: owner.location, ready: owner.ready, hasVector: owner.hasVector,
       allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-      run: work => owner.run(work), exec: text => owner.exec(text), close: () => owner.close(),
+      run: work => owner.run(work), exec: text => owner.exec(text), onClose: work => owner.onClose(work), close: () => owner.close(),
       transaction: (kind, work, options) => owner.transaction(kind, tx => {
         const decorated: OuterTransaction = {
           afterCommit: callback => tx.afterCommit?.(callback),

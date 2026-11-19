@@ -119,6 +119,7 @@ function reasonOf(output: object | null): string | null {
 
 class PgBossQueue implements QueueService {
   private readonly declared = new Map<string, QueueDeclaration>();
+  private stopping: Promise<void> | undefined;
 
   constructor(
     private readonly boss: PgBossInstance,
@@ -349,7 +350,12 @@ class PgBossQueue implements QueueService {
   }
 
   async stop(): Promise<void> {
-    await this.boss.stop({ graceful: false });
+    // One stop, answered to every caller: the owner this client is lent to stops
+    // it as it closes (madarch-64o5.74), and a case that stopped it on its own
+    // path before that asks a second time.
+    if (this.stopping !== undefined) return await this.stopping;
+    this.stopping = this.boss.stop({ graceful: false });
+    return await this.stopping;
   }
 }
 
@@ -378,6 +384,19 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     if (options.log !== undefined) options.log(line);
     else console.error(line);
   });
-  await boss.start();
-  return new PgBossQueue(boss, owner, schema);
+  try {
+    await boss.start();
+  } catch (error) {
+    // A start that failed halfway may have armed a pass already: stop what it armed.
+    await boss.stop({ graceful: false }).catch(() => undefined);
+    throw error;
+  }
+  const queue = new PgBossQueue(boss, owner, schema);
+  // The client's own passes stop with the owner that lent it the database. An
+  // owner closed ahead of its client — a case abandoned at its deadline, a role
+  // that ends and gives the store up — would otherwise leave them asking a closed
+  // owner once per interval, which is the error flood one timeout left in a shard
+  // (madarch-64o5.74).
+  owner.onClose(async () => { await queue.stop(); });
+  return queue;
 }

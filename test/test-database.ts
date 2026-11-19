@@ -490,6 +490,7 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     },
     run: (work) => openedOwner.run(work),
     exec: (text) => openedOwner.exec(text),
+    onClose: (work) => openedOwner.onClose(work),
     close: () => {
       // Settled once and the same promise after: a close that succeeded is never retried, and one that failed retries
       // only the work it did not finish — a closed pool is not closed again, and a dropped database is not dropped
