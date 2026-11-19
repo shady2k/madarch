@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { PluginHost, type GraphAnswerer } from '../src/plugin/host.js';
 import { closureOf } from '../src/plugin/closure.js';
 
-async function run(source: string, readOnly = false, graph?: GraphAnswerer) {
+async function run(source: string, readOnly = false, graph?: GraphAnswerer, retainApplied = false) {
   const root = mkdtempSync(join(tmpdir(), 'madarch-reconciliation-host-'));
   try {
     writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'writer-probe', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, readOnly, produces: [{ kind: 'Probe', fields: '*' }] }));
@@ -15,7 +15,7 @@ async function run(source: string, readOnly = false, graph?: GraphAnswerer) {
     const closure = closureOf(root);
     const operations: import('../src/plugin-sdk.js').FactsOperation[] = [];
     let removed = false;
-    const liveGraph = graph === undefined ? undefined : { ...graph, ownFacts: async (query: Parameters<NonNullable<GraphAnswerer['ownFacts']>>[0]) => removed ? { vertices: [], edges: [] } : await graph.ownFacts!(query) };
+    const liveGraph = graph === undefined ? undefined : { ...graph, ownFacts: async (query: Parameters<NonNullable<GraphAnswerer['ownFacts']>>[0]) => retainApplied ? { vertices: operations.flatMap(operation => operation.vertices ?? []), edges: [] } : removed ? { vertices: [], edges: [] } : await graph.ownFacts!(query) };
     const host = new PluginHost({ operations: { async apply(_unit, _key, operation) { operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); removed = true; return { accepted: true }; } }, pluginFolder: root, closure, repository: root, workRoot: join(root, 'work'), trust: 'production', releaseHashes: [closure.hash], env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, graph: liveGraph });
     const session = await host.open();
     try { const outcome = await session.runUnit({ unitId: 'u1', kind: 'Probe', key: { id: 'one' }, inputs: { repositories: [{ repository: 'sample', commit: 'current' }] } }); return { outcome, operations }; }
@@ -51,6 +51,26 @@ test('explicit edge removals retain operation and immutable historical evidence'
   expect(operations).toHaveLength(1);
   expect(operations[0]?.edgeRemovals?.[0]).toMatchObject({ kind: 'link', evidence: { target: { kind: 'blob', key: { digest: 'retained' } }, commit: 'old' } });
   expect(outcome.result).not.toHaveProperty('writes');
+});
+
+test('an immediate operation is not retracted by its empty terminal answer', async () => {
+  const { outcome, operations } = await run(`await context.facts.apply('publish',{vertices:[{kind:'Probe',key:{id:'one'}}]}); return {end:{state:'complete'}};`, false, graph, true);
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([{ vertices: [{ kind: 'Probe', key: { id: 'one' } }] }]);
+});
+
+test('terminal duplicate identities are refused after immediate writes', async () => {
+  const { outcome } = await run(`await context.facts.apply('publish',{vertices:[{kind:'Probe',key:{id:'one'}}]}); return {vertices:[{kind:'Probe',key:{id:'one'}},{kind:'Probe',key:{id:'one'}}],end:{state:'complete'}};`, false, graph, true);
+  expect(outcome.state).toBe('not-extracted');
+  if (outcome.state === 'not-extracted') expect(outcome.cause.message).toContain('duplicate vertex identity');
+});
+
+test('empty terminal arrays do not widen explicit reconciliation scope', async () => {
+  const { outcome, operations } = await run(`await context.reconcile({end:{state:'complete'}},{parent:{kind:'Probe',key:{id:'one'}}}); return {vertices:[],edges:[],end:{state:'complete'}};`, false, {
+    ...graph, ownFacts: async () => ({ vertices: [{ kind: 'Probe', key: { id: 'outside' } }], edges: [] }),
+  });
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([]);
 });
 
 test('partial reconciliation never applies removals', async () => {

@@ -291,7 +291,8 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
       // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
       // reconciliation must not withdraw it merely because the extract names no such edge of its own.
       const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
-      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
+      const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
+      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
       if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
       return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges);
     },
