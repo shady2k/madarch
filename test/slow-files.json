@@ -16,16 +16,6 @@
       "exit": "Rewrite test/agent-usage-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/architecture-repository.test.ts",
-      "seconds": 91.8,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The repository-debt comparison passes but runs the full architecture toolchain to compare the discovered violations with the tracked list.",
-      "replacement": "Separate tool invocation from comparison and assert exact violation membership, stale-entry refusal and code-point ordering with captured graph fixtures; keep one explicit repository toolchain check.",
-      "exit": "Rewrite test/architecture-repository.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/authored-http.test.ts",
       "seconds": 52.1,
       "reason": "red-defect",
@@ -34,16 +24,6 @@
       "defect": "The authored create/update/delete case expects error.field to name title, but invalid numeric title input returns SCHEMA_INVALID with path /values/title instead.",
       "replacement": "Assert the structured SCHEMA_INVALID title-path refusal before exercising creation, conditional update, deletion and GraphQL reads with valid authored values.",
       "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/catalog-check.test.ts",
-      "seconds": 146.0,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The catalogue command suite passes but starts a fresh CLI and starter product for each invalid declaration.",
-      "replacement": "Exercise declaration validation directly for omitted fields, missing edge translations and subgroup bounds, retaining one CLI assertion for counts and full file/line diagnostics.",
-      "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/consistency-plugin.test.ts",
@@ -226,16 +206,6 @@
       "exit": "Rewrite test/graph-records.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/graph-write.test.ts",
-      "seconds": 41.6,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The graph-write suite passes but repeatedly prepares typed contracts and source identities across transaction-level assertion cases.",
-      "replacement": "Use a small prepared contract and isolated transactions to assert authenticated producers, typed key identity, source lineage/history, source-local retraction and complete rollback on invalid values.",
-      "exit": "Rewrite test/graph-write.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/graphql-executor.test.ts",
       "seconds": 124.2,
       "reason": "red-defect",
@@ -264,16 +234,6 @@
       "defect": "The natural-text-key case raises TARGET_MISSING for a mention, the disagreement case receives no contested description, and the catalogue-endpoint query is rejected for undeclared fields.",
       "replacement": "Create valid mention targets and use declared catalogue fields, then assert atomic text-key writes and backlinks, both conflicting opinions, stable returned identities and accepted catalogue edge endpoints.",
       "exit": "Rewrite test/graphql-writes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/history-change-report.test.ts",
-      "seconds": 42.674,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The history replay property case passes but drives twenty seeds through thousands of store operations while comparing every resulting assertion set.",
-      "replacement": "Retain deterministic multi-source add/replace/retract histories and assert literal change-report replay equals current assertions after each step, with the larger seed sweep separated from blocking regression cases.",
-      "exit": "Rewrite test/history-change-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-close-verdict.test.ts",
@@ -436,16 +396,6 @@
       "exit": "Rewrite test/product-daemon.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/product-draft.test.ts",
-      "seconds": 36.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Draft-product cases pass but combine cheap home-resolution assertions with repeated Git-backed template product creation.",
-      "replacement": "Keep home precedence and blank-override cases pure, create one reusable immutable template source and assert independent drafts preserve identity, selected template contents and repository links.",
-      "exit": "Rewrite test/product-draft.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/product-reset.test.ts",
       "seconds": 55.5,
       "reason": "red-defect",
@@ -484,26 +434,6 @@
       "defect": "The disk JSON attribution replay case raises selected kind product has no enabled producer before asserting unknown language history and no-change replay.",
       "replacement": "Declare the product producer and assert disk JSON attribution preserves unknown language assertions, adds the known language transition and replays the same repository without new changes.",
       "exit": "Rewrite test/repository-language-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/schema-stamp.test.ts",
-      "seconds": 66.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Schema-stamp cases pass but create twenty stores with eight concurrent clients each to establish preparation and no-DDL behavior.",
-      "replacement": "Retain one real prepared/unprepared-store boundary case and bounded concurrent clients, asserting no client DDL/retries, serialized transaction admission and savepoint recovery; separate the larger store-count stress sweep.",
-      "exit": "Rewrite test/schema-stamp.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/server-sources.test.ts",
-      "seconds": 46.3,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Source-name and store-reopen cases pass but create separate store clusters while also covering pure filename encoding checks.",
-      "replacement": "Keep separator, case, control-character and canonical-encoding checks pure; use one dedicated store lifecycle case to assert encoded source names persist and reopen without collisions or path escape.",
-      "exit": "Rewrite test/server-sources.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/server-templates.test.ts",
