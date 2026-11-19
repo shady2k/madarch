@@ -27,14 +27,17 @@ export interface ImportStatement {
   readonly line: number;
   /** The names the statement brings in, as the exporting module writes them. */
   readonly names: readonly string[];
+  /** Local binding paired with its exported name; re-exports pair the public name with the original. */
+  readonly bindings: readonly { readonly local: string; readonly imported: string }[];
+  readonly reExport: boolean;
+  /** True when every name the statement brings in is a type: `import type`, or every specifier written `type`. */
+  readonly typeOnly: boolean;
   /**
    * True when the statement takes the module as a whole — `import * as store`,
    * `export * from`, a side-effect `import 'x'`, or `await import('x')` — so every
    * name the module exports is reachable through it.
    */
   readonly wholeModule: boolean;
-  /** True when Bun erases the entire edge, including every named specifier. */
-  readonly typeOnly: boolean;
 }
 
 /** One call whose first argument is a string literal: the module name the call hands over, and its line. */
@@ -58,7 +61,7 @@ export interface ModuleNames {
 
 /**
  * The import statements of one module, in the order they are written: its static
- * imports and re-exports, then every `import()` call anywhere in its body.
+ * imports and re-exports, then every `import()` or `require()` call anywhere in its body.
  *
  * A module that fails to parse is refused by name with the path and the reason, so
  * a rule never silently reads a module as having no imports.
@@ -86,26 +89,35 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
   for (const item of module.body) {
     if (item.type === 'ImportDeclaration') {
       const names: string[] = [];
+      const bindings: { local: string; imported: string }[] = [];
       let wholeModule = false;
       for (const specifier of item.specifiers) {
-        if (specifier.type === 'ImportSpecifier') names.push(specifier.imported?.value ?? specifier.local.value);
-        else if (specifier.type === 'ImportDefaultSpecifier') names.push('default');
-        else wholeModule = true;
+        const imported = specifier.type === 'ImportSpecifier'
+          ? specifier.imported?.value ?? specifier.local.value
+          : specifier.type === 'ImportDefaultSpecifier' ? 'default' : '*';
+        if (imported === '*') wholeModule = true;
+        else names.push(imported);
+        if (specifier.type !== 'ImportSpecifier' || !specifier.isTypeOnly) {
+          bindings.push({ local: specifier.local.value, imported });
+        }
       }
       if (item.specifiers.length === 0) wholeModule = true;
       const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ImportSpecifier' && specifier.isTypeOnly));
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule, typeOnly });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, bindings, reExport: false, typeOnly, wholeModule });
     } else if (item.type === 'ExportNamedDeclaration') {
       if (item.source === null || item.source === undefined) continue;
       const names = item.specifiers.flatMap((specifier) => (specifier.type === 'ExportSpecifier' ? [specifier.orig.value] : []));
       const typeOnly = item.typeOnly || (item.specifiers.length > 0 && item.specifiers.every((specifier) => specifier.type === 'ExportSpecifier' && specifier.isTypeOnly));
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, wholeModule: false, typeOnly });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names, bindings: item.specifiers.flatMap((specifier) =>
+        specifier.type === 'ExportSpecifier' && !specifier.isTypeOnly
+          ? [{ local: specifier.exported?.value ?? specifier.orig.value, imported: specifier.orig.value }]
+          : []), reExport: true, typeOnly, wholeModule: false });
     } else if (item.type === 'ExportAllDeclaration') {
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], wholeModule: true, typeOnly: 'typeOnly' in item && item.typeOnly === true });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], bindings: [], reExport: true, typeOnly: 'typeOnly' in item && item.typeOnly === true, wholeModule: true });
     }
   }
   for (const dynamic of moduleLoadsOf(module)) {
-    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], wholeModule: true, typeOnly: false });
+    statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], bindings: dynamic.bindings, reExport: false, typeOnly: false, wholeModule: true });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
   return { imports: statements, literalCalls };
@@ -131,6 +143,7 @@ function parseOptionsOf(file: string): Parameters<typeof parseSync>[1] {
 }
 
 interface DynamicImport {
+  readonly bindings: readonly { readonly local: string; readonly imported: string }[];
   readonly specifier: string;
   readonly start: number;
 }
@@ -142,9 +155,9 @@ function isModuleLoadCallee(callee: Record<string, unknown> | undefined): boolea
 }
 
 /**
- * Every dynamic `import('…')` or CommonJS `require('…')` call in a module's body,
- * wherever it stands. A computed specifier is not a module name this repository
- * can resolve, and is left to the reader.
+ * Every literal `import('…')` or `require('…')` call in a module's body.
+ * A require declaration also carries its local bindings. A computed specifier
+ * cannot name a module here and is left to the reader.
  */
 function moduleLoadsOf(node: unknown): DynamicImport[] {
   const found: DynamicImport[] = [];
@@ -156,12 +169,32 @@ function moduleLoadsOf(node: unknown): DynamicImport[] {
     if (value === null || typeof value !== 'object') return;
     const held = value as Record<string, unknown>;
     const callee = held['callee'] as Record<string, unknown> | undefined;
+    if (held['type'] === 'VariableDeclarator') {
+      const init = held['init'] as Record<string, unknown> | undefined;
+      const invoked = init?.['callee'] as Record<string, unknown> | undefined;
+      const args = init?.['arguments'] as { expression?: Record<string, unknown> }[] | undefined;
+      const first = args?.[0]?.expression;
+      if (init?.['type'] === 'CallExpression' && invoked?.['type'] === 'Identifier' && invoked['value'] === 'require' && first?.['type'] === 'StringLiteral') {
+        const id = held['id'] as Record<string, unknown>;
+        const bindings = id['type'] === 'Identifier'
+          ? [{ local: String(id['value']), imported: '*' }]
+          : id['type'] === 'ObjectPattern'
+            ? (id['properties'] as Record<string, unknown>[]).flatMap((property) => {
+              const key = property['key'] as Record<string, unknown> | undefined;
+              const value = property['value'] as Record<string, unknown> | undefined;
+              if (property['type'] === 'AssignmentPatternProperty' && key?.['type'] === 'Identifier') return [{ local: String(key['value']), imported: String(key['value']) }];
+              if (property['type'] === 'KeyValuePatternProperty' && key?.['type'] === 'Identifier' && value?.['type'] === 'Identifier') return [{ local: String(value['value']), imported: String(key['value']) }];
+              return [];
+            }) : [];
+        found.push({ specifier: String(first['value']), start: (init['span'] as { start: number }).start, bindings });
+      }
+    }
     if (held['type'] === 'CallExpression' && isModuleLoadCallee(callee)) {
       const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
       const expression = first?.['expression'] as Record<string, unknown> | undefined;
       const span = held['span'] as { start: number } | undefined;
       if (expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' && span !== undefined) {
-        found.push({ specifier: expression['value'], start: span.start });
+        if (!found.some((entry) => entry.start === span.start)) found.push({ specifier: expression['value'], start: span.start, bindings: [] });
       }
     }
     for (const [key, entry] of Object.entries(held)) {
