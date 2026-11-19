@@ -20,9 +20,9 @@ function folderHood(): DiagramNeighbourhood {
     links: [],
     labels: new Map([['1', 'catalog'], ['2', 'catalog']]),
     groups: [
-      { relation: 'code.contains', side: 'in', kind: 'code.directory', total: 1, nodes: ['2'] },
-      { relation: 'code.contains', side: 'out', kind: 'code.directory', total: 34, nodes: [] },
-      { relation: 'code.contains', side: 'out', kind: 'code.file', total: 1290, nodes: [] },
+      { relation: 'code.contains', label: 'содержится в', side: 'in', kind: 'code.directory', total: 1, nodes: ['2'] },
+      { relation: 'code.contains', label: 'содержит', side: 'out', kind: 'code.directory', total: 34, nodes: [] },
+      { relation: 'code.contains', label: 'содержит', side: 'out', kind: 'code.file', total: 1290, nodes: [] },
     ],
     kindWords: new Map([['code.directory', 'Папки'], ['code.file', 'Файлы']]),
     kindPages: new Map([['code.file', '/e/catalogue/x'], ['code.directory', '/e/catalogue/y']]),

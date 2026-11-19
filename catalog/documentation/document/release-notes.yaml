@@ -24,3 +24,5 @@ labels:
 description:
   en: 'Release notes describe one release from the user''s side: new behaviour, changed behaviour, fixed problems and anything that requires action before upgrading. They are shorter and more focused than a changelog, which covers many releases.'
   ru: 'Заметки о выпуске описывают один выпуск со стороны пользователя: что появилось, что изменилось, что исправлено и что нужно сделать до обновления. Они короче и точнее журнала изменений, который охватывает много выпусков.'
+derives-from:
+- release

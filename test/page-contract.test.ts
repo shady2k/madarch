@@ -94,9 +94,11 @@ describe('the starter templates', () => {
   });
 
   test('the text page composes on a type that holds a body', () => {
-    const product = schema.getType('KindProduct') as GraphQLObjectType | undefined;
-    expect(product?.getFields()['body']).toBeDefined();
-    expect(composed({ template: 'text', kind: 'product', id: '00000000-0000-0000-0000-000000000003' }).errors).toEqual([]);
+    // The product's page is `home`: what a product says about itself is its fields, not one stored text. A comment holds
+    // the text the text page draws, so the page is composed on it (madarch-64o5.109: the page field set left the catalogue).
+    const comment = schema.getType('KindComment') as GraphQLObjectType | undefined;
+    expect(comment?.getFields()['body']).toBeDefined();
+    expect(composed({ template: 'text', kind: 'comment', id: '00000000-0000-0000-0000-000000000003' }).errors).toEqual([]);
   });
 
   test('the catalogue page composes against the catalogue type', () => {

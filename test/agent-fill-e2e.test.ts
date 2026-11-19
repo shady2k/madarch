@@ -11,6 +11,7 @@ import { connectAcpAgent } from '../src/fill/acp.js';
 import { runFill } from '../src/fill/run.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { fillPlanView } from '../src/knowledge/fill-plan.js';
+import { kindClosure } from '../src/knowledge/starter-templates.js';
 import { readTraceSpans } from '../src/obs/trace-report.js';
 import { traceFiles } from '../src/obs/trace.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
@@ -41,7 +42,7 @@ const files = ${JSON.stringify(DECISIONS)};
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line);
   if (!m.method) { pending.get(m.id)?.(m); pending.delete(m.id); return; }
-  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: true } } } });
   if (m.method === 'session/new') send({ id: m.id, result: { sessionId: 'decision-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } });
   if (m.method === 'session/prompt') {
     const sessionId = m.params.sessionId;
@@ -70,7 +71,11 @@ function fixture(options: { readonly agent?: boolean } = {}) {
   const home = join(root, 'home');
   const product = makeProduct(home, 'decision-shop', repository, 'app');
   const starter = parseDocument(readFolderManifestText(product)).toJS() as Record<string, any>;
-  const codeKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
+  const selectedKinds = ['code.repository', 'code.directory', 'code.file', 'code.blob', 'code.gitlink', 'code.commit', 'code.author'];
+  // The kinds the selected ones rest on, from the same closure a template uses: code.repository derives from
+  // product-profile, and a manifest that declares it without that kind refuses its own derives-from.
+  const codeKinds = [...kindClosure(selectedKinds, (name) => starter['kinds'][name]?.['derives-from'])]
+    .filter((name) => starter['kinds'][name] !== undefined);
   const kinds: Record<string, unknown> = Object.fromEntries(codeKinds.map((name) => [name, starter['kinds'][name]]));
   kinds['doc.decision'] = {
     id: 'practice.decision',
@@ -93,12 +98,17 @@ function fixture(options: { readonly agent?: boolean } = {}) {
       { name: 'body', type: 'text', nullable: true, binding: { agent: 'What was decided and why.' } },
     ],
   };
-  const names = new Set(Object.keys(kinds));
+  // The profile's key edge ends at the engine's protected root, which no product declares.
+  const names = new Set([...Object.keys(kinds), 'system.product']);
   const plugins = (starter['plugins'] as { id: string }[]).filter((plugin) => ['disk', 'git', ...(options.agent === false ? [] : ['agent-fill'])].includes(plugin.id));
-  // The starter's metadata whole (its properties, purposes, roles and documents), with the fixture's kinds and plugins.
-  const { kinds: _starterKinds, edges: _starterEdges, plugins: _starterPlugins, ...metadata } = starter;
+  // This fixture declares the disk/git graph and the immutable blobs that ground the agent's evidence.
+  // Reader questions and detector roles belong to other products, not this decision fixture's semantic contract.
+  const semanticRoles = ['repository', 'directory', 'file', 'source', 'author', 'commit', 'evidence-support'];
+  const semanticBindings = Object.fromEntries(semanticRoles.map((role) => [role, starter['semantic-bindings'][role]]));
+  const { kinds: _starterKinds, edges: _starterEdges, plugins: _starterPlugins, 'semantic-bindings': _starterBindings, ...metadata } = starter;
   writeFolderManifest(product, stringify({
     ...metadata,
+    'semantic-bindings': semanticBindings,
     kinds,
     edges: (starter['edges'] as { from: string[]; to: string[] }[]).filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || names.has(name))),
     plugins,
@@ -125,10 +135,11 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       { field: 'title', producers: ['agent-fill'] },
       { field: 'body', producers: ['agent-fill'] },
     ]);
-    // A kind deterministic producers also fill keeps its own producers, and the agent only the field left to it.
+    // A kind deterministic producers fill whole keeps its own producers and leaves the agent no field (the state machines
+    // are a kind of their own, madarch-64o5.114).
     const files = fillPlanView(declarations.manifest, f.product, ['code.file'], ['code.file']);
     expect(files.kinds.find((kind) => kind.kind === 'code.file')?.fields.find((field) => field.field === 'path')?.producers).toEqual(['disk', 'git']);
-    expect(files.kinds.find((kind) => kind.kind === 'code.file')?.agentFields).toEqual(['state_machines']);
+    expect(files.kinds.find((kind) => kind.kind === 'code.file')?.agentFields).toEqual([]);
 
     const store = productStoreFolder(f.product, knowledgeRootOf(f.home));
     const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });

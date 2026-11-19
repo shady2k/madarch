@@ -5,7 +5,7 @@
  */
 import { definePlugin, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dlopen, FFIType, toArrayBuffer } from 'bun:ffi';
 
 /** The C library the sandbox binds read-only: the fixture's one way to a call Bun has no wrapper for. */
@@ -41,7 +41,7 @@ function probeVertex(id: string): VertexResult {
     kind: 'probe',
     key: { id },
     values: { size: 12, language: 'typescript' },
-    evidence: { path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 },
+    evidence: { target: { kind: 'probe', key: { id } }, path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 },
   };
 }
 
@@ -49,8 +49,7 @@ function probeVertex(id: string): VertexResult {
 function normalAnswer(unit: Unit): UnitResult {
   return {
     vertices: [probeVertex(String(unit.key['id'] ?? 'one'))],
-    edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: String(unit.key['id'] ?? 'one') } }, to: { kind: 'probe', key: { id: 'two' } }, discriminator: '' }],
-    removals: [{ kind: 'probe', key: { id: 'gone' } }],
+    edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: String(unit.key['id'] ?? 'one') } }, to: { kind: 'probe', key: { id: 'two' } }, discriminator: '', evidence: {target:{kind:'probe',key:{id:'two'}},path:'probe/link.ts',lineStart:1} }],
     end: { state: 'complete' },
   };
 }
@@ -110,14 +109,28 @@ await definePlugin({
     vertices: [
       { kind: 'probe', key: ['id'], fields: [{ name: 'size', type: 'integer', meaning: 'the size', example: 12, required: true }, { name: 'language', type: 'text', meaning: 'the language', example: 'typescript', required: false }] },
     ],
-    edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
+    edges: [{ kind: 'probe-link', from: 'probe', to: 'probe', cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'links', in: 'linked by' }, ru: { out: 'ссылается', in: 'ссылка от' } } }],
   },
   maxParallelUnits: 2,
-  async extract(unit) {
+  async extract(unit, context) {
     const behavior = behaviorOf(unit);
     if (behavior === 'normal') return normalAnswer(unit);
+    if (behavior === 'operation-wait') {
+      await context.facts.apply('wait', { vertices: [] });
+      return normalAnswer(unit);
+    }
+    if (behavior === 'operation-then-silence') {
+      await context.facts.apply('wait', { vertices: [] });
+      await Bun.sleep(typeof unit.key['silenceMs'] === 'number' ? unit.key['silenceMs'] : 0);
+      return normalAnswer(unit);
+    }
+    if (behavior === 'operation-hang') {
+      if (typeof unit.key['stderr'] === 'string') writeSync(2, unit.key['stderr']);
+      await context.facts.apply('wait', { vertices: [] });
+      await new Promise(() => undefined);
+    }
     if (behavior === 'partial-removal') {
-      return { ...normalAnswer(unit), removals: [{ kind: 'probe', key: { id: 'gone' } }], end: { state: 'partial', cause: 'read half the unit' } };
+      return { ...normalAnswer(unit), end: { state: 'partial', cause: 'read half the unit' } };
     }
     if (behavior === 'undeclared') {
       return { vertices: [{ kind: 'stranger', key: { id: 'x' } }], end: { state: 'complete' } };

@@ -1,6 +1,7 @@
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
-import { ensureVertex, publishOpinion, journalFor, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
@@ -19,10 +20,11 @@ export async function publishFixtureOpinions(folder: string, knowledgeRoot: stri
     await owner.ready;
     for (const opinion of opinions) {
       await owner.transaction('write', async (tx) => {
-        const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: opinion.kind, key: opinion.key }, 1, journal);
-        await publishOpinion(tx, contract, { kind: opinion.kind, nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1', values: opinion.values }, 1, journal);
-        await writeJournal(tx, journal);
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, {
+          vertices: [{ kind: opinion.kind, key: opinion.key, values: opinion.values, producer: 'fixture', producerVersion: '1' }],
+          removals: [],
+        });
       });
     }
   } finally {
@@ -35,8 +37,13 @@ export async function publishSamplePageOpinions(folder: string, knowledgeRoot: s
     { kind: 'product', slug: 'shop', title: 'Online shop', file: 'docs/product.md', body: 'The shop takes orders from shoppers and charges their cards through a payments service.', relates: [PAYMENTS_SERVICE], sources: ['docs/vision.md'] },
     { kind: 'domain', slug: 'payment', title: 'Payment', file: 'docs/domains/payment.md', body: 'Payments are charged through one of two providers chosen by configuration.', relates: [PAYMENTS_SERVICE, PAY], sources: ['docs/requirements.md'] },
   ];
+  // The rewritten catalogue keys a product and a domain by `name` and declares the fields each one holds: a product its
+  // purpose, audience, status and vision, a domain its description and type. A page's body is the agent's text; these
+  // samples are a person's statement of the same facts.
   await publishFixtureOpinions(folder, knowledgeRoot, pages.map((page) => ({
-    kind: page.kind, key: { slug: page.slug },
-    values: { title: page.title, file: page.file, body: page.body, relates: page.relates, sources: page.sources, body_line: 1, producer: 'fixture', statements: [], digest: 'fixture', links: [], findings: [], ungrounded: [] },
+    kind: page.kind, key: { name: page.slug },
+    values: page.kind === 'product'
+      ? { purpose: page.body, audience: ['product'], status: 'in service', vision: page.body }
+      : { description: page.body, type: 'core' },
   })));
 }

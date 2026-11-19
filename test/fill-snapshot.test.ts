@@ -119,6 +119,31 @@ function namesAll(error: SnapshotError, repository: string, commit: string, path
 }
 
 describe('the tree of a pinned commit', () => {
+  test('unknown Git object types refuse the whole tree while known commit rows remain readable', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'madarch-tree-type-'));
+    const id = 'a'.repeat(40);
+    const modulePath = new URL('../src/plugin/repository-snapshot.ts', import.meta.url).pathname;
+    try {
+      const command = `#!${process.execPath}\nconst args = process.argv.slice(2); if (args[0] === '-C') args.splice(0, 2);\nif (args[0] === '--version') console.log('git version 2.45.0');\nelse if (args[0] === 'ls-tree') process.stdout.write('160000 ' + process.env.GIT_TEST_TYPE + ' ${id} -\\tsub\\0');\nelse if (args[0] === 'rev-parse') console.log(args[1] === '--git-dir' ? '.git' : '${id}');\nelse process.exit(1);\n`;
+      await writeFile(join(folder, 'git'), command, { mode: 0o755 });
+      const child = `import { SnapshotReader, SnapshotError } from ${JSON.stringify(modulePath)};
+        try { const reader = await SnapshotReader.open({ id: 'fixture', form: 'code', root: ${JSON.stringify(folder)}, commit: '${id}' });
+          console.log(JSON.stringify({ forms: reader.entries().map(entry => entry.form) }));
+        } catch(error) { if (!(error instanceof SnapshotError)) throw error; console.log(JSON.stringify({ refusal: error.refusal, message: error.message })); }`;
+      const run = (type: string): { forms?: string[]; refusal?: string; message?: string } => JSON.parse(execFileSync(process.execPath, ['-e', child], {
+        encoding: 'utf8', env: { ...process.env, PATH: folder, GIT_TEST_TYPE: type },
+      })) as { forms?: string[]; refusal?: string; message?: string };
+      const unknown = run('unknown');
+      expect(unknown.refusal).toBe('unreadable-tree');
+      expect(unknown.message).toContain('fixture');
+      expect(unknown.message).toContain(id);
+      expect(unknown.message).toContain('sub');
+      expect(unknown.message).toContain('unknown object type "unknown"');
+      expect(unknown.message).toMatch(new RegExp(`${modulePath.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:\\d+:`));
+      expect(run('commit').forms).toEqual(['commit']);
+    } finally { await rm(folder, { recursive: true, force: true }); }
+  });
+
   test('the entries are git ls-tree -r answers, in code point order, with each blob, size and mode', async () => {
     const f = await fixture();
     try {
@@ -496,6 +521,25 @@ describe('batched snapshot text', () => {
 });
 
 describe('ordinary plugin repository metadata', () => {
+  test('a plugin input holds the code repositories, never the product repository itself', async () => {
+    // The product repository holds the product's knowledge — documents, manifests and templates — and the files producer
+    // reads it; code facts come from the code repositories the product connects (0029). Handing the product's own pin to
+    // a repository plugin made the plugin index the product's declarations as source files.
+    const f = await fixture();
+    const work = await mkdtemp(join(tmpdir(), 'madarch-repository-input-'));
+    try {
+      const prepared = await prepareRepositoryInputs([
+        { ...pinOf(f, f.first), id: 'shop', form: 'product' },
+        pinOf(f, f.first, 'orders-api'),
+      ], work);
+      expect(prepared.repositories.map((repository) => repository.repository)).toEqual(['orders-api']);
+      expect(prepared.filesystemInputs).toHaveLength(1);
+    } finally {
+      await rm(work, { recursive: true, force: true });
+      await f.dispose();
+    }
+  });
+
   test('the supplied origin is the same sanitized address as the private object store', async () => {
     const f = await fixture();
     const work = await mkdtemp(join(tmpdir(), 'madarch-repository-input-'));

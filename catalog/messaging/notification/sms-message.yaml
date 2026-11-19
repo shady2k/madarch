@@ -24,3 +24,7 @@ labels:
 description:
   en: An SMS message is a text of up to 160 characters sent to a mobile phone, longer texts being split into parts. It names the sender and the parts, so the whole message can be put back together.
   ru: SMS-сообщение — текст до 160 символов, отправленный на мобильный телефон; более длинные делят на части. У него указаны отправитель и части, чтобы всё сообщение можно было собрать заново.
+derives-from:
+- code.service
+- notification-template
+- product-profile

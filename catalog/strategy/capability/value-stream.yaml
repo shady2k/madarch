@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A value stream follows the work from a customer''s need to the value they receive, through the stages it passes: request, decision, delivery, support. It shows the whole path rather than the departments that own pieces of it.'
   ru: 'Поток создания ценности проходит работу от потребности клиента до ценности, которую он получает, через все этапы: обращение, решение, доставку, поддержку. Он показывает весь путь, а не подразделения, которым принадлежат его части.'
+derives-from:
+- goal

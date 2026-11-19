@@ -286,7 +286,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         <CardHeader>
           <Stack className="flex flex-wrap items-center gap-2" data-testid="fill-run-status" data-phase={run.phase}>
             <Badge variant={terminal ? 'solid' : 'outline'} className="px-2 py-0.5 text-small" data-testid="fill-run-status-badge">{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
-            {finished === null ? null : <Text className="text-small text-muted" data-testid="fill-run-ended">{finished} · {t('knowledge.fillRun.duration', { seconds: seconds(elapsed) })}</Text>}
+            {finished === null ? null : <Text className="text-small text-muted" data-testid="fill-run-ended">{finished}{t('common.separator')}{t('knowledge.fillRun.duration', { seconds: seconds(elapsed) })}</Text>}
           </Stack>
           <CardTitle>{run.units.length === 0 ? emptyWords : t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}</CardTitle>
           {terminal && (run.phase === 'partial' || run.phase === 'failed') ? (
@@ -304,9 +304,9 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         <CardContent>
           {run.units.length > 0 && !terminal ? <Progress value={run.publishedUnits} max={run.units.length} aria-label={t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })} /> : null}
           <Paragraph className="mt-3 text-small" data-testid="fill-run-time">
-            {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })}{terminal ? null : <> · {run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}</>}
+            {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })}{terminal ? null : <>{t('common.separator')}{run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}</>}
           </Paragraph>
-          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, total: agentUsage.totalTokens })}</Paragraph>
+          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, cacheWrite: agentUsage.cachedWriteTokens, cacheRead: agentUsage.cachedReadTokens, total: agentUsage.totalTokens })}</Paragraph>
           <Paragraph className="m-0 text-small" data-testid="fill-run-records">{t('knowledge.fillRun.records', { count: run.records })}</Paragraph>
           <Stack className="mt-4 flex flex-wrap gap-2">
             {run.phase === 'running' ? (
@@ -335,11 +335,11 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
               return (
                 <ListItem key={`${group.kind}:${group.plugin}`} className="mb-3" data-testid="fill-run-group">
                   <Paragraph className="m-0">
-                    {area === undefined || area === kind ? null : <Text className="text-muted">{area} · </Text>}
-                    {kind} · {pluginName(group.plugin) === undefined ? <InlineCode>{group.plugin}</InlineCode> : pluginName(group.plugin)}
+                    {area === undefined || area === kind ? null : <Text className="text-muted">{area}{t('common.separator')}</Text>}
+                    {kind}{t('common.separator')}{pluginName(group.plugin) === undefined ? <InlineCode>{group.plugin}</InlineCode> : pluginName(group.plugin)}
                   </Paragraph>
                   <Paragraph className="m-0 text-small text-muted">
-                    {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total, count: group.total })} · {t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
+                    {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total, count: group.total })}{t('common.separator')}{t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
                   </Paragraph>
                   {group.total > 0 ? <Progress value={group.done} max={group.total} aria-label={kind} /> : null}
                 </ListItem>
@@ -444,7 +444,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                             {exchange.returned !== null && exchange.returned.cut ? <Metadata>{t('knowledge.fillRun.agents.cut')} · {t('knowledge.fillRun.agents.bytes', { count: exchange.returned.bytes })}</Metadata> : null}
                           </Stack>
                           <Metadata data-testid="agent-tokens">
-                            {usage === null || !usage.reported ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, total: usage.totalTokens ?? 0 })}
+                            {usage === null || !usage.reported ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, cacheWrite: usage.cachedWriteTokens ?? 0, cacheRead: usage.cachedReadTokens ?? 0, total: usage.totalTokens ?? 0 })}
                             {usage?.context === undefined ? null : <> · {t('knowledge.fillRun.agents.context', { used: usage.context.used, size: usage.context.size })}</>}
                           </Metadata>
                           {exchange.failure === null ? null : <Paragraph className="m-0 text-small" data-testid="agent-failure">{t('knowledge.fillRun.agents.failure')}: {exchange.failure}</Paragraph>}

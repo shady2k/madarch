@@ -639,12 +639,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
           }
           // A manifestless folder has no graph-backed product to activate.
           if (read.ok) {
-            const { readPinnedGraphContract } = await import('./preparation-contract.js');
+            const { readPinnedGraphContract, readPinnedPluginInstallations } = await import('./preparation-contract.js');
             const { validateProductManifests } = await import('../graph/manifest-publication.js');
             const manifests = validateProductManifests(folder);
             if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
             // Standalone serve has no daemon publisher: activate before its connect-only API role.
-            await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder));
+            await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder), await readPinnedPluginInstallations(folder));
           }
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
@@ -876,9 +876,9 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
   await withSpan('fs.mkdir', { 'file.path': dirname(databasePath) }, async () => await mkdir(dirname(databasePath), { recursive: true }));
-  const { readPinnedGraphContract } = await import('./preparation-contract.js');
+  const { readPinnedGraphContract, readPinnedPluginInstallations } = await import('./preparation-contract.js');
   const workers = parsed.workers ?? 16;
-  await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
+  await requestStorePreparation(databasePath, await readPinnedGraphContract(folder), await readPinnedPluginInstallations(folder));
   const owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
@@ -895,7 +895,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
     // the whole one list in the order the stages' declarations derive.
     const result = await runFill({
       product: folder, database: owner, runId, home: storeFolder, store: storeFolder,
-      prepareContract: async (contract) => await requestStorePreparation(databasePath, contract),
+      prepareContract: async (contract) => await requestStorePreparation(databasePath, contract, await readPinnedPluginInstallations(folder)),
       limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
       ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
       onService: (started) => { service = started; },
@@ -1032,7 +1032,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   // added before the run starts, so a press that fills more than it was asked for says so.
   const { readKinds } = await import('./manifest/kinds.js');
   const { readFillTargets } = await import('../knowledge/fill-targets.js');
-  const { readPinnedGraphContract } = await import('./preparation-contract.js');
+  const { readPinnedGraphContract, readPinnedPluginInstallations } = await import('./preparation-contract.js');
   let targets: { kinds: readonly string[]; vertex?: string; requested?: readonly string[] } | undefined;
   if (parsed.entities !== undefined || parsed.vertex !== undefined) {
     const kinds = readKinds(folder);
@@ -1066,10 +1066,10 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   }
   let run;
   try {
-    await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));
+    await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder), await readPinnedPluginInstallations(folder));
     const { pluginAgentOptions } = await import('../knowledge/agents.js');
     const pluginAgent = parsed.agent === undefined ? undefined : pluginAgentOptions(parsed.agent, process.env as DraftEnv, join(storeFolder, 'agent-runs'));
-    run = await startKnowledgeFill({ ...(pluginAgent === undefined ? {} : { pluginAgent }), ...(parsed.tokenCap === undefined ? {} : { tokenCap: parsed.tokenCap }), productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    run = await startKnowledgeFill({ ...(pluginAgent === undefined ? {} : { pluginAgent }), ...(parsed.tokenCap === undefined ? {} : { tokenCap: parsed.tokenCap }), productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(folder)), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;

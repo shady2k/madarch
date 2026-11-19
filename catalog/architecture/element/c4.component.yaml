@@ -1,0 +1,54 @@
+id: c4.component
+purpose: understand
+audience:
+- product
+- architect
+- developer
+definition: A component is a group of related functionality encapsulated behind a well-defined interface within a container.
+sources:
+- https://c4model.com/abstractions/components
+acquisition:
+- conversation
+- document
+- agent-from-graph
+relation-constraints:
+  out:
+  - c4.component.contains
+  - architecture.serves-domain
+  - component.implemented-by
+  in:
+  - c4.component.contains
+  - container.contains-component
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  binding:
+    agent: The component name within its container.
+- name: responsibility
+  type: text
+  nullable: true
+  binding:
+    agent: The responsibility and public interface of this component.
+key:
+- name
+derives-from:
+- code.service
+labels:
+  en:
+    one: Component
+    many: Components
+  ru:
+    one: Компонент
+    many: Компоненты
+description:
+  en: A component groups related functionality behind an interface within a container. Large components can contain smaller
+    components; code modules implement their responsibilities.
+  ru: Компонент объединяет связанную функциональность за интерфейсом внутри контейнера. Крупные компоненты содержат меньшие
+    компоненты; модули кода реализуют их обязанности.
+
+key-edges:
+- role: container
+  edge: container.contains-component
+  side: to

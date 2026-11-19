@@ -24,3 +24,7 @@ labels:
 description:
   en: A translation file holds the source texts and their translations for one language, in the XLIFF format that translation tools exchange. Translators work in it, and the product reads the translations from it.
   ru: Файл перевода хранит исходные тексты и их перевод на один язык в формате XLIFF, которым обмениваются инструменты перевода. В нём работают переводчики, из него продукт берёт переводы.
+derives-from:
+- code.file
+- locale
+- message

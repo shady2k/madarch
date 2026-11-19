@@ -35,22 +35,23 @@ export const PROTOCOL_SCHEMA_ID = `https://github.com/shady2k/madarch/schema/v${
 const RpcId = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
 
 /** A key's values: an entity is named by its kind and these, never by a node id the host hands out. */
-export const PluginKeyValues = Type.Cyclic({
-  Key: Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Number(), Type.Ref('Entity')])),
-  Entity: Type.Object({ kind: Type.String({ minLength: 1 }), key: Type.Ref('Key') }, { additionalProperties: false }),
-}, 'Key', { description: 'Natural key values, including referenced entities by kind and key.' });
+export const PluginKeyValues = Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Number(), Type.Boolean()]));
 
-/** A reference inside a key: the kind and the key values of the entity it names. */
-export const PluginEntityRef = Type.Object(
-  { kind: Type.String({ minLength: 1 }), key: PluginKeyValues },
-  { additionalProperties: false, description: 'One entity named by its kind and key values.' },
-);
+/** A vertex address has scalar keys and separately declared parent-edge roles. */
+export const PluginEntityRef = Type.Cyclic({
+  Entity: Type.Object({ kind: Type.String({ minLength: 1 }), key: PluginKeyValues, keyEdges: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Ref('Entity'))) }, { additionalProperties: false }),
+}, 'Entity');
+const PluginKeyEdges = Type.Record(Type.String({ minLength: 1 }), PluginEntityRef);
+const PluginKeyEdgeDeclaration = Type.Object({ role: Type.String({ minLength: 1 }), edge: Type.String({ minLength: 1 }), direction: Type.Union([Type.Literal('from'), Type.Literal('to')]), onDelete: Type.Union([Type.Literal('restrict'), Type.Literal('cascade')]) }, { additionalProperties: false });
+const PluginCardinality = Type.Union([Type.Literal('one'), Type.Literal('optional'), Type.Literal('many'), Type.Literal('some')]);
+const PluginEdgeWords = Type.Object({ out: Type.String({ minLength: 1 }), in: Type.String({ minLength: 1 }) }, { additionalProperties: false });
 
 /** Where a value came from: a repository, a commit or content digest, a path and the lines it was read at. */
 export const PluginEvidence = Type.Object(
   {
-    repository: Type.Optional(Type.String({ minLength: 1, description: 'The repository the value was read in, by its name in the product.' })),
-    commitOrDigest: Type.Optional(Type.String({ minLength: 1, description: 'The commit or the content digest the value was read at.' })),
+    target: PluginEntityRef,
+    commit: Type.Optional(Type.String({ minLength: 1, description: 'The commit the value was read at.' })),
+    digest: Type.Optional(Type.String({ minLength: 1, description: 'The content digest the value was read at.' })),
     path: Type.Optional(Type.String({ minLength: 1, description: 'The path inside that repository, when the value has one.' })),
     lineStart: Type.Optional(Type.Integer({ minimum: 1, description: 'The first line the value was read at, counted from 1.' })),
     lineEnd: Type.Optional(Type.Integer({ minimum: 1, description: 'The last line the value was read at, counted from 1.' })),
@@ -66,6 +67,7 @@ export const PluginVertexResult = Type.Object(
   {
     kind: Type.String({ minLength: 1, description: 'The vertex kind, one the plugin\'s contract declares.' }),
     key: PluginKeyValues,
+    keyEdges: Type.Optional(PluginKeyEdges),
     values: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Unknown(), { description: 'The field values this producer states, by field name: every value is an opinion.' })),
     evidence: Type.Optional(PluginEvidence),
   },
@@ -85,11 +87,20 @@ export const PluginEdgeResult = Type.Object(
   { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
 
+/** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
+export const PluginGraphOwnFactsRequest = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  scope: Type.Object({ parent: Type.Optional(PluginEntityRef), repository: Type.Optional(Type.String({ minLength: 1 })), commit: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export const PluginGraphOwnFactsResult = Type.Object({ vertices: Type.Array(PluginVertexResult), edges: Type.Array(PluginEdgeResult) }, { additionalProperties: false });
+
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
 export const PluginRemoval = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
     key: PluginKeyValues,
+    keyEdges: Type.Optional(PluginKeyEdges),
+    evidence: Type.Optional(PluginEvidence),
   },
   { additionalProperties: false, description: 'An entity the plugin produced before that the unit\'s input no longer holds.' },
 );
@@ -110,23 +121,20 @@ export const PluginUnitProblem = Type.Object(
 export const PluginUnitEnd = Type.Union(
   [
     Type.Object({ state: Type.Literal('complete') }, { additionalProperties: false, description: 'The unit read everything its input holds.' }),
+    Type.Object({ state: Type.Literal('inapplicable'), searched: Type.String({minLength:1}), evidence: Type.Array(PluginEvidence, {minItems:1}) }, {additionalProperties:false}),
     Type.Object({ state: Type.Literal('partial'), cause: Type.String({ minLength: 1 }) }, { additionalProperties: false, description: 'The unit stopped short; the cause says why, and the host publishes no removals for it.' }),
   ],
-  { description: 'How a unit ended: complete, or partial with the cause.' },
+  { description: 'How a unit ended: complete, partial with the cause, or inapplicable with the searched scope and evidence.' },
 );
 
 /** The answer to one unit: what the plugin found, and how far it got. */
 export const PluginUnitResult = Type.Object(
   {
     unitId: Type.String({ minLength: 1 }),
-    chunkCount: Type.Optional(Type.Integer({ minimum: 1 })),
-    vertices: Type.Optional(Type.Array(PluginVertexResult)),
-    edges: Type.Optional(Type.Array(PluginEdgeResult)),
-    removals: Type.Optional(Type.Array(PluginRemoval)),
     problems: Type.Optional(Type.Array(PluginUnitProblem)),
     end: PluginUnitEnd,
   },
-  { additionalProperties: false, description: 'One unit\'s answer: vertices, edges, removals, the places it could not read and its end.' },
+  { additionalProperties: false, description: 'One unit completion: its problems and terminal status. Facts are admitted only through facts.apply.' },
 );
 
 /**
@@ -138,6 +146,7 @@ export const PluginUnitResult = Type.Object(
  */
 export const PluginFieldDeclaration = Type.Object(
   {
+    schema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     name: Type.String({ minLength: 1 }),
     type: Type.Union(
       [Type.Literal('text'), Type.Literal('integer'), Type.Literal('bigint'), Type.Literal('boolean'), Type.Literal('timestamp'), Type.Literal('json')],
@@ -145,7 +154,6 @@ export const PluginFieldDeclaration = Type.Object(
     ),
     meaning: Type.String({ minLength: 1, description: 'What the field is, in plain words, for the person binding it in the manifest.' }),
     example: Type.Unknown({ description: 'One value the field holds, as an example.' }),
-    reference: Type.Optional(Type.String({ minLength: 1, description: 'The kind a natural-key reference names.' })),
     required: Type.Boolean({ description: 'Whether the plugin cannot run without it: a kind\'s natural key and every field its reading needs.' }),
     evidence: Type.Optional(Type.Boolean({ description: 'Whether an opinion of this field must carry evidence (madarch-stm0.7.1): the host\'s unevidenced read reports an opinion of this field that states none, and a field that declares nothing is not reported.' })),
   },
@@ -155,9 +163,14 @@ export const PluginFieldDeclaration = Type.Object(
 /** One vertex kind the plugin declares it produces. */
 export const PluginVertexKindDeclaration = Type.Object(
   {
+    evidence: Type.Optional(Type.Union([
+      Type.Object({ immutable: Type.Literal(true), digestField: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+      Type.Object({ immutable: Type.Literal(true), digestField: Type.String({ minLength: 1 }), contentField: Type.String({ minLength: 1 }), digestAlgorithm: Type.Literal('sha256') }, { additionalProperties: false }),
+    ])),
     kind: Type.String({ minLength: 1 }),
     // A kind with no natural key stands by a random identity: its declaration names no key field, and a result names an empty key.
     key: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'The key fields, in the contract\'s order; none for a kind with no natural key.' })),
+    keyEdges: Type.Optional(Type.Array(PluginKeyEdgeDeclaration)),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration, { description: 'The fields it writes beside the key.' })),
   },
   { additionalProperties: false, description: 'One vertex kind the plugin produces: its name, its key fields and its fields.' },
@@ -167,6 +180,8 @@ export const PluginVertexKindDeclaration = Type.Object(
 export const PluginEdgeKindDeclaration = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
+    cardinality: Type.Object({ from: PluginCardinality, to: PluginCardinality }, { additionalProperties: false }),
+    labels: Type.Object({ en: PluginEdgeWords, ru: PluginEdgeWords }, { additionalProperties: false }),
     from: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends start at.' }),
     to: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends go to.' }),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration)),
@@ -185,8 +200,8 @@ export const PluginContractDeclaration = Type.Object(
 
 /** One graph read a plugin may declare: its name. */
 export const PluginGraphRead = Type.Union(
-  [Type.Literal('files'), Type.Literal('value'), Type.Literal('unresolved'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
-  { description: 'One graph read the host answers: files and value are the unit reads, unresolved and removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
+  [Type.Literal('ownFacts'), Type.Literal('files'), Type.Literal('value'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
+  { description: 'One graph read the host answers: files and value are the unit reads, removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
 );
 
 /**
@@ -203,7 +218,7 @@ export const PluginRights = Type.Object(
   {
     network: Type.Union([Type.Literal('none')], { description: 'The network profile. "none" is the only one this build runs: the network namespace is unshared and socket creation refused.' }),
     graph: Type.Optional(Type.Boolean({ description: 'Whether the plugin reads the graph through the host\'s read-only queries (`graph.files`, `graph.value`, and the reads `graphReads` names); absent, it may not.' })),
-    graphReads: Type.Optional(Type.Array(PluginGraphRead, { description: 'The graph reads the right covers: files, value, unresolved, removedEnds and unevidenced; absent, files and value.' })),
+    graphReads: Type.Optional(Type.Array(PluginGraphRead, { description: 'The graph reads the right covers: files, value, removedEnds and unevidenced; absent, files and value.' })),
     filesystem: Type.Optional(Type.Boolean({ description: 'Whether the plugin sees the repository snapshot read-only at /repo; absent, it sees no repository at all.' })),
   },
   { additionalProperties: false, description: 'The rights a plugin declares it needs: its network profile, graph reads and the repository snapshot.' },
@@ -319,6 +334,7 @@ export const PluginGraphValueRequest = Type.Object(
   {
     kind: Type.String({ minLength: 1, description: 'The vertex kind, as the wiki names it (`code.file`).' }),
     key: PluginKeyValues,
+    keyEdges: Type.Optional(PluginKeyEdges),
     field: Type.String({ minLength: 1, description: 'The field the vertex holds (`content`).' }),
   },
   { additionalProperties: false, description: 'A query for one field of one vertex.' },
@@ -329,6 +345,7 @@ export const PluginGraphAddress = Type.Object(
   {
     kind: Type.String({ minLength: 1, description: 'The entity\'s kind, the graph\'s own name (`code.file`).' }),
     key: PluginKeyValues,
+    keyEdges: Type.Optional(PluginKeyEdges),
     label: Type.String({ description: 'The entity as a person reads it: its key values joined, or its kind when it has no key.' }),
   },
   { additionalProperties: false, description: 'One entity in a graph answer: its kind, its key and a readable label.' },
@@ -345,25 +362,7 @@ export const PluginGraphEdgeAddress = Type.Object(
   { additionalProperties: false, description: 'An edge by its kind and the ends that stand, when they do.' },
 );
 
-/**
- * One reference the writer recorded and no vertex holds (the `unresolved_reference` table): a key reference (a
- * vertex's key field names a missing entity) or an edge end (an edge names a missing entity). The referrer is the
- * vertex whose key holds the reference, or the other end of an edge; `edge` is present only for an edge end.
- */
-export const PluginGraphUnresolvedReference = Type.Object(
-  {
-    id: Type.String({ minLength: 1, description: 'The row\'s own id: two dangling edges of one kind and one target are told apart by it.' }),
-    referrer: Type.Optional(PluginGraphAddress),
-    edge: Type.Optional(PluginGraphEdgeAddress),
-    field: Type.String({ minLength: 1, description: 'The key field or the edge end (`from` or `to`) that names the missing entity.' }),
-    target: PluginGraphAddress,
-    producer: Type.String({ minLength: 1, description: 'The producer and version that named the reference.' }),
-    against: Type.Optional(PluginGraphAddress),
-  },
-  { additionalProperties: false, description: 'A reference the writer recorded and no vertex holds.' },
-);
-
-/** One edge whose end is removed: it stands in the graph, and the vertex it names does not. */
+/** One edge whose end is removed. */
 export const PluginGraphRemovedEnd = Type.Object(
   {
     edge: PluginGraphEdgeAddress,
@@ -375,12 +374,12 @@ export const PluginGraphRemovedEnd = Type.Object(
 );
 
 /** One open opinion that states a field whose contract requires evidence, and rests on none. */
-export const PluginGraphUnevidencedOpinion = Type.Object(
+export const PluginGraphUnevidencedAssertion = Type.Object(
   {
     entity: PluginGraphAddress,
     field: Type.String({ minLength: 1 }),
     producer: Type.String({ minLength: 1 }),
-    opinion: Type.String({ description: 'The opinion\'s own id, one sequence for the whole graph.' }),
+    assertion: Type.String({ description: 'The opinion\'s own id, one sequence for the whole graph.' }),
   },
   { additionalProperties: false, description: 'One unevidenced opinion of a field whose contract requires evidence.' },
 );
@@ -391,6 +390,7 @@ export const PluginUnitRequest = Type.Object(
     unitId: Type.String({ minLength: 1 }),
     kind: Type.String({ minLength: 1, description: 'The kind of the vertex the unit is about.' }),
     key: PluginKeyValues,
+    keyEdges: Type.Optional(PluginKeyEdges),
     inputs: Type.Optional(Type.Unknown({ description: 'What the host hands with the unit, a shape the plugin\'s contract names.' })),
   },
   { additionalProperties: false, description: 'One unit of work: the entity by kind and key, and what the host hands with it.' },
@@ -460,17 +460,23 @@ export const PluginGraphPageRequest = Type.Object(
   },
   { additionalProperties: false, description: 'One page asked of a consistency read: a cursor and a bound.' },
 );
-const GraphUnresolvedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unresolved'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the references the writer recorded and no vertex holds.' });
 const GraphRemovedEndsMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.removedEnds'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the edges whose end is removed.' });
 const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unevidenced'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none.' });
 
-/** Bounded result fragments are held privately until the final unit answer. */
-export const PluginResultChunk = Type.Object({
+/** One checked atomic fact operation, accepted immediately by the one writer. */
+export const PluginFactsApplyRequest = Type.Object({
+  preconditions: Type.Optional(Type.Array(Type.Object({ uid: Type.String({ minLength: 1 }), recordedSequence: Type.String({ minLength: 1 }) }, { additionalProperties: false }))),
+  contractVersion: Type.Optional(Type.String({ minLength: 1 })),
   unitId: Type.String({ minLength: 1 }),
-  sequence: Type.Integer({ minimum: 0 }),
-  data: Type.String({ minLength: 1, pattern: '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$' }),
+  key: Type.String({ minLength: 1 }),
+  operation: Type.Object({
+    vertices: Type.Optional(Type.Array(PluginVertexResult)),
+    edges: Type.Optional(Type.Array(PluginEdgeResult)),
+    removals: Type.Optional(Type.Array(PluginRemoval)),
+    edgeRemovals: Type.Optional(Type.Array(PluginEdgeResult)),
+  }, { additionalProperties: false }),
 }, { additionalProperties: false });
-const ResultChunkMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('unit.resultChunk'), params: PluginResultChunk }, { additionalProperties: false });
+const FactsApplyMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('facts.apply'), params: PluginFactsApplyRequest }, { additionalProperties: false });
 
 /** One notification either side sends, with its own params. */
 const HeartbeatMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('heartbeat'), params: Type.Optional(PluginHeartbeat) }, { additionalProperties: false, description: 'The plugin is alive while a unit runs.' });
@@ -491,17 +497,17 @@ export const PluginProtocolMessage = Type.Union(
     UnitRequestMessage,
     PlanOutputMessage,
     AgentRunMessage,
+    Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.ownFacts'), params: PluginGraphOwnFactsRequest }, { additionalProperties: false }),
     GraphFilesMessage,
     FileReadMessage,
     GraphValueMessage,
-    GraphUnresolvedMessage,
     GraphRemovedEndsMessage,
     GraphUnevidencedMessage,
     ControlRequest('pause'),
     ControlRequest('resume'),
     ControlRequest('stop'),
     HeartbeatMessage,
-    ResultChunkMessage,
+    FactsApplyMessage,
     ProgressMessage,
     ErrorMessage,
     CancelMessage,
@@ -517,6 +523,9 @@ export const PluginProtocolMessage = Type.Union(
   },
 );
 
+export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsRequest>;
+export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
+export type PluginFactsApplyRequest = Static<typeof PluginFactsApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;
 export type PluginUnitProblem = Static<typeof PluginUnitProblem>;
@@ -527,7 +536,7 @@ export type PluginVertexResult = Static<typeof PluginVertexResult>;
 export type PluginEdgeResult = Static<typeof PluginEdgeResult>;
 export type PluginRemoval = Static<typeof PluginRemoval>;
 export type PluginEvidence = Static<typeof PluginEvidence>;
-export interface PluginEntityRef { readonly kind: string; readonly key: PluginKeyValues; }
+export interface PluginEntityRef { readonly kind: string; readonly key: PluginKeyValues; readonly keyEdges?: Readonly<Record<string, PluginEntityRef>>; }
 export type PluginContractDeclaration = Static<typeof PluginContractDeclaration>;
 export type PluginVertexKindDeclaration = Static<typeof PluginVertexKindDeclaration>;
 export type PluginEdgeKindDeclaration = Static<typeof PluginEdgeKindDeclaration>;
@@ -538,11 +547,10 @@ export type PluginGraphValueRequest = Static<typeof PluginGraphValueRequest>;
 export type PluginGraphPageRequest = Static<typeof PluginGraphPageRequest>;
 export type PluginGraphAddress = Static<typeof PluginGraphAddress>;
 export type PluginGraphEdgeAddress = Static<typeof PluginGraphEdgeAddress>;
-export type PluginGraphUnresolvedReference = Static<typeof PluginGraphUnresolvedReference>;
 export type PluginGraphRemovedEnd = Static<typeof PluginGraphRemovedEnd>;
-export type PluginGraphUnevidencedOpinion = Static<typeof PluginGraphUnevidencedOpinion>;
+export type PluginGraphUnevidencedAssertion = Static<typeof PluginGraphUnevidencedAssertion>;
 export type PluginGraphRead = Static<typeof PluginGraphRead>;
-export type PluginKeyValues = { readonly [field: string]: string | number | PluginEntityRef };
+export type PluginKeyValues = { readonly [field: string]: string | number | boolean };
 export type PluginHeartbeat = Static<typeof PluginHeartbeat>;
 export type PluginProgress = Static<typeof PluginProgress>;
 export type PluginErrorReport = Static<typeof PluginErrorReport>;

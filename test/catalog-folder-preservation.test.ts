@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet, starterFilesFor, starterKindNames } from '../src/knowledge/seed.js';
 import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
+import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import sourcesBefore from './fixtures/starter-catalog-sources.json';
 
 // Captured from the integration baseline before its TypeScript tables were removed.
@@ -13,13 +14,20 @@ test('everything copies each whole declaration and preserves every baseline kind
   try {
     const written = seedStarterSet(folder, 'everything');
     expect(existsSync(join(folder, 'madarch/kinds.yaml'))).toBe(false);
-    expect(written.filter((path) => path.startsWith('madarch/kinds/')).length).toBe(Object.keys(sourcesBefore).length);
+    expect(written.filter((path) => path.startsWith('madarch/kinds/')).length).toBe(Object.keys(CATALOG_KIND_FILES).length);
     for (const file of starterFilesFor({ id: 'everything', title: {en: '', ru: ''}, description: {en: '', ru: ''}, kinds: 'all' })) {
       if (file.path.startsWith('madarch/kinds/')) expect(file.content).toBe(CATALOG_FILES[file.path.slice('madarch/kinds/'.length)]!);
     }
     const read = readKinds(folder);
     if (!read.present || read.manifest.catalog === undefined) throw new Error('the everything product must declare its catalogue');
-    expect(Object.fromEntries([...read.manifest.catalog.kinds].map(([name, row]) => [name, row.sources]))).toEqual(sourcesBefore);
+    const expectedSources = {
+      ...Object.fromEntries(Object.entries(sourcesBefore).filter(([name]) => name !== 'backlog-item')),
+      "idea": ["https://www.omg.org/spec/BMM/"],
+      "product-profile": ["https://backstage.io/docs/features/software-catalog/system-model/", "https://github.com/github-linguist/linguist"],
+      "c4.component": ["https://c4model.com/abstractions/components"],
+      "doc.term": ["https://www.w3.org/TR/skos-reference/", "https://www.iso.org/standard/79077.html"],
+    };
+    expect(Object.fromEntries([...read.manifest.catalog.kinds].map(([name, row]) => [name, row.sources]))).toEqual(expectedSources);
     expect(read.manifest.findings.filter((finding) => !finding.message.startsWith('"documents.expect" names the kind'))).toEqual([]);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }, 30_000);

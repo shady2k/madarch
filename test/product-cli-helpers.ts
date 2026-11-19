@@ -42,6 +42,11 @@ export async function freePort(): Promise<number> {
   return await new Promise<number>((resolvePort) => { const listener = createServer(); listener.listen(0, '127.0.0.1', () => { const address = listener.address(); const port = typeof address === 'object' && address ? address.port : 0; listener.close(() => resolvePort(port)); }); });
 }
 
+/** Startup progress is diagnostic output; every other stderr line remains an error. */
+export function withoutStartProgress(stderr: string): string {
+  return stderr.split('\n').filter((line) => !line.startsWith('starting (pid ')).join('\n');
+}
+
 /** Children a test started live, killed again so none outlives its test. */
 export const runningChildren: { kill(): void }[] = [];
 
@@ -157,7 +162,7 @@ export function serveNew(args: string[], overrides: Record<string, string> = {},
   (async () => {
     const reader = (proc.stderr as ReadableStream).getReader();
     for (;;) { const { done, value } = await reader.read(); if (done) break; stderrText += new TextDecoder().decode(value); }
-    if (stderrText !== '') throw new Error(`the command printed error output: ${stderrText}`);
+    if (withoutStartProgress(stderrText) !== '') throw new Error(`the command printed error output: ${stderrText}`);
   })();
   return {
     get stdout() { return stdoutText; },

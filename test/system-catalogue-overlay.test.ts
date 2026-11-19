@@ -1,0 +1,71 @@
+import { expect, test } from 'bun:test';
+import { parseKinds } from '../src/product/manifest/kinds.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { SYSTEM_CONTRACT, withSystemContract } from '../src/graph/system-contract.js';
+
+function read(body: string) {
+  return parseKinds(`kinds:
+  person:
+${body}`, '/tmp/overlay/madarch/catalog.yaml', '/tmp/overlay');
+}
+
+test('explicit system extension retains base identity, extra fields and edges', () => {
+  const manifest = read(`    extends: system:person
+    fields:
+      - { name: email, type: text, nullable: true, producers: [agent] }
+    relations:
+      - { type: knows, to: 'person:{label}' }
+`);
+  expect(manifest.findings).toEqual([]);
+  expect(manifest.kinds.get('person')?.systemBase).toEqual(SYSTEM_CONTRACT.vertex.find(kind => kind.name === 'person'));
+  expect(manifest.kinds.get('person')?.relations).toMatchObject([{ type: 'knows', to: 'person:{label}' }]);
+  const person = withSystemContract(graphContractOf(manifest)).vertex.find((kind) => kind.name === 'person')!;
+  const base = SYSTEM_CONTRACT.vertex.find((kind) => kind.name === 'person')!;
+  expect(person.key).toEqual([]);
+  expect(person.capability).toBe('system');
+  expect(person.fields.filter((field) => field.name !== 'email')).toEqual([...base.fields]);
+  expect(person.fields.find((field) => field.name === 'email')).toMatchObject({ name: 'email', nullable: true });
+});
+
+test('extensions reject mismatched bases, natural keys, inherited fields and required additions at their source', () => {
+  for (const body of [
+    '    extends: system:role\n',
+    '    extends: system:missing\n',
+    '    extends: system:person\n    key: [label]\n',
+    '    extends: system:person\n    capability: agent\n',
+    '    extends: system:person\n    source: document\n',
+    '    extends: system:person\n    fields: [{ name: label, type: text, nullable: true, producers: [agent] }]\n',
+    '    extends: system:person\n    fields: [{ name: email, type: text, producers: [agent] }]\n',
+    '    extends: system:person\n    fields: wrong\n',
+  ]) {
+    const manifest = read(body);
+    expect(manifest.kinds.has('person')).toBe(false);
+    expect(manifest.findings.length).toBeGreaterThan(0);
+    const diagnostics = manifest.findings.filter((finding) => finding.message.startsWith('kind "person":'));
+    expect(diagnostics.length).toBeGreaterThan(0);
+    for (const finding of diagnostics) {
+      expect(finding.file).toBe('/tmp/overlay/madarch/catalog.yaml');
+      expect(finding.line).toBeGreaterThanOrEqual(3);
+    }
+  }
+});
+
+test('reserved names without explicit inheritance fail at admission', () => {
+  const ordinary = read('    source: graph\n');
+  expect(ordinary.kinds.get('person')?.systemBase).toBeUndefined();
+  expect(ordinary.kinds.has('person')).toBe(false);
+  expect(ordinary.findings).toContainEqual(expect.objectContaining({ file: '/tmp/overlay/madarch/catalog.yaml', line: 2, message: expect.stringContaining('extends: system:person') }));
+});
+
+test('every inherited identity and constraint control is refused at its declaration', () => {
+  for (const control of ['key', 'key-edges', 'identity', 'uid', 'evidence', 'checks', 'indexes', 'capability']) {
+    const manifest = read(`    extends: system:person
+    ${control}: {}
+`);
+    expect(manifest.kinds.has('person')).toBe(false);
+    expect(manifest.findings).toContainEqual(expect.objectContaining({
+      file: '/tmp/overlay/madarch/catalog.yaml', line: 4,
+      message: expect.stringContaining(`"${control}" cannot replace an inherited system contract`),
+    }));
+  }
+});

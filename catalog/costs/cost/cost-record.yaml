@@ -24,3 +24,6 @@ labels:
 description:
   en: A cost record states what one resource cost over one period in one currency, as the FinOps FOCUS specification lays it out. It is the smallest unit of a bill that can be summed, compared and charged back.
   ru: Запись затрат говорит, сколько стоил один ресурс за один период в одной валюте, как это описывает спецификация FinOps FOCUS. Это наименьшая единица счёта, которую можно складывать, сравнивать и относить на подразделения.
+derives-from:
+- cloud-resource
+- code.service

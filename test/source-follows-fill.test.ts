@@ -3,6 +3,8 @@
  * filled commit). The api instance may have answered before the fill landed; the text it reads is the store's, so the
  * commit it reports and the kinds it reads must be the store's too — the follow step the old page context ran.
  */
+import { parse, stringify } from 'yaml';
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -23,6 +26,47 @@ import { startFileTextServer } from './file-text-server.js';
 
 /** The host hands the plugin the git tool it resolved; a test that serves reads does the same. */
 process.env['MADARCH_TOOL_GIT'] = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+
+/** The source-text kind the fixture declares: a file's text at the commit a fill recorded. */
+const SOURCE_KIND = `id: fixture.source
+purpose: history
+audience: [developer, architect]
+definition: A source text is the text of one repository file at the commit the fill recorded.
+sources:
+- https://git-scm.com/docs/git-show
+acquisition:
+- conversation
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: path
+  type: text
+  producers:
+  - person
+- name: blob
+  type: text
+  producers:
+  - person
+key:
+- path
+key-edges:
+- role: source-repository
+  edge: source-repository
+  side: from
+labels:
+  en:
+    one: Source text
+    many: Source texts
+  ru:
+    one: Исходный текст
+    many: Исходные тексты
+description:
+  en: A source text is the text of one file of a repository at the commit a fill recorded, kept so a reader opens it without the repository.
+  ru: Исходный текст — текст одного файла репозитория на коммите, который записал проход, чтобы читатель открыл его без репозитория.
+`;
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -48,11 +92,15 @@ async function publishBlob(path: string, blob: string): Promise<void> {
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'code.file', key: { repository: 'code', path } }, 1, journal);
-      await publishOpinion(tx, contract, { kind: 'code.file', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
-        values: { blob } }, 1, journal);
-      await writeJournal(tx, journal);
+      await bindTestWriteCapability(tx, contract);
+      const repository = { kind: 'code.repository', key: { name: 'code' } };
+      const source = { kind: 'fixture-text', key: { path }, keyEdges: { 'source-repository': repository } };
+      const revision = { kind: 'code.commit', key: { hash: headOf() } };
+      const provenance = { producer: 'fixture', producerVersion: '1' };
+      await publishGraphDrafts(tx, contract, { vertices: [{ ...source, ...provenance, values: { blob } }, { ...revision, ...provenance }], removals: [], edges: [
+        { kind: 'source-repository', from: source, to: repository, ...provenance },
+        { kind: 'source-commit', from: source, to: revision, ...provenance },
+      ] });
     });
   } finally { await owner.close(); }
 }
@@ -67,8 +115,19 @@ beforeAll(async () => {
   git(repository, 'add', '-A');
   git(repository, 'commit', '-qm', 'first');
   folder = makeProduct(home, 'source-follow', repository, 'code');
-  // The fixture writes the source-text record itself, so its kind stays and its fields are a person's write.
-  useFixturePlugins(folder, ['disk', 'git'], ['source']);
+  // The fixture declares its own source role and graph relationships; no field name selects it.
+  mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
+  writeFileSync(join(folder, 'madarch/kinds/common/attachment/fixture-text.yaml'), SOURCE_KIND);
+  const declaration = parse(readFolderManifestText(folder));
+  declaration['semantic-bindings'].source = { kind: 'fixture-text', fields: { path: 'path', blob: 'blob' }, edges: {
+    repository: { kind: 'source-repository', direction: 'from' }, commit: { kind: 'source-commit', direction: 'from' },
+  } };
+  for (const [name, target, required] of [['source-repository', 'code.repository', true], ['source-commit', 'code.commit', false]] as const) {
+    declaration.edges.push({ name, from: ['fixture-text'], to: [target], cardinality: { from: { min: required ? 1 : 0, max: 1 }, to: { min: 0, max: null } },
+      ...(required ? { 'on-parent-delete': 'restrict' } : {}), labels: { en: { out: name, in: 'source text' }, ru: { out: 'источник', in: 'исходный текст' } } });
+  }
+  writeFolderManifest(folder, stringify(declaration));
+  useFixturePlugins(folder, ['disk', 'git'], ['fixture-text']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', 'the product and its one repository');

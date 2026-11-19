@@ -6,14 +6,43 @@ sources:
 - https://glossary.istqb.org/en_US/term/defect
 acquisition:
 - document
-- conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - refines
+  - documents
   in:
   - refines
-template-policy: none
+  - documents
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: 'What people meet, in the words the product tells them: the symptom and where it shows.'
+- name: symptom
+  type: text
+  nullable: true
+  binding:
+    agent: What the person sees when they meet the issue.
+- name: fix
+  type: text
+  nullable: true
+  binding:
+    agent: What a person does about it, in the words of the document that tells them.
+- name: command
+  type: text
+  nullable: true
+  binding:
+    agent: The command that clears it, where the document gives one.
+key:
+- name
+derives-from:
+- document
 labels:
   en:
     one: Known issue

@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A subscription records that a consumer wants the messages of a topic or a queue and how they should reach it: how many times a failed message is retried, whether order matters and what happens to undelivered messages.'
   ru: 'Подписка фиксирует, что потребитель хочет получать сообщения темы или очереди и как их ему доставлять: сколько раз повторять неудачную доставку, важен ли порядок и что делать с недоставленными сообщениями.'
+derives-from:
+- code.channel
+- code.service
+- product-profile

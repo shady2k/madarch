@@ -24,3 +24,6 @@ labels:
 description:
   en: A backup policy decides the rhythm of copies, their retention and the places they are kept, including a copy away from the original. It also says who may restore and how a restore is tested.
   ru: Политика резервного копирования задаёт, как часто делают копии, сколько их хранят и где держат, включая копию вдали от оригинала. В ней также сказано, кто может восстанавливать и как проверяют восстановление.
+derives-from:
+- code.database
+- recovery-objective

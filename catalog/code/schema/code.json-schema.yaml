@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A JSON Schema states what a JSON document may contain: which properties exist, what type each has, which are required and which values are allowed. Payloads, configuration files and messages can then be checked against it.'
   ru: 'Схема JSON задаёт, что может содержать документ JSON: какие в нём свойства, какого они типа, какие обязательны и какие значения допустимы. По ней можно проверять полезные нагрузки, файлы настроек и сообщения.'
+derives-from:
+- code.contract

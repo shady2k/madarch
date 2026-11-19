@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A test charter states what one exploratory session should explore and learn, in a sentence or two: the area, the risks and the questions. It keeps the session focused without prescribing each step.'
   ru: 'Миссия тестовой сессии говорит, что должна исследовать и узнать одна сессия, в одной-двух фразах: область, риски и вопросы. Она держит сессию в фокусе, не расписывая каждый шаг.'
+derives-from:
+- test-objective

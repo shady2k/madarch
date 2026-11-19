@@ -24,3 +24,6 @@ labels:
 description:
   en: Data destruction is the way data is made unreadable for good when the medium that holds it leaves service. Overwriting, degaussing and physical shredding are common methods; the choice depends on the medium and on how sensitive the data is.
   ru: Уничтожение данных — способ сделать данные нечитаемыми навсегда, когда носитель, на котором они лежат, выходит из эксплуатации. Обычные методы — перезапись, размагничивание и физическое измельчение; выбор зависит от носителя и от чувствительности данных.
+derives-from:
+- dataset
+- decommission-plan

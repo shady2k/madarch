@@ -61,6 +61,11 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
   // and a kind left with no producer is an abnormal state the fill reports as an error (madarch-64o5.60). A kind whose
   // fields people author stays: the manifest names a person as its producer.
   let filled = new Set<string>();
+  for(const plugin of kept){
+    const definition=join(folder,'plugins',plugin.id,'plugin.json');
+    const declared=JSON.parse(readFileSync(definition,'utf8')) as {produces?:{kind:string}[]};
+    for(const output of declared.produces??[]) filled.add(output.kind);
+  }
   for (const plugin of kept) {
     for (const kind of plugin.outputs ?? []) filled.add(kind);
     const contract = join(folder, 'plugins', plugin.id, 'contract.json');
@@ -75,6 +80,12 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { producers?: string[] }[]; 'derives-from'?: string[] }][]) {
       if (gone.has(name)) continue;
       const declared = kind.fields ?? [];
+      // A fieldless structural kind cannot stand for a history its excluded producer never writes.
+      if (declared.length === 0 && (kind['derives-from'] ?? []).some((parent) => gone.has(parent)) && !filled.has(name)) {
+        gone.add(name);
+        changed = true;
+        continue;
+      }
       if (declared.length === 0 || filled.has(name)) continue;
       if (declared.every((field) => field.producers?.includes('person') === true)) continue;
       gone.add(name);
@@ -88,6 +99,12 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
     for (const id of dropped) for (const plugin of kept) if (plugin.id === id) for (const kind of plugin.outputs ?? []) if (!gone.has(kind)) { gone.add(kind); changed = true; }
   }
   filled.clear();
+  for(const plugin of kept){
+    if(dropped.has(plugin.id))continue;
+    const definition=join(folder,'plugins',plugin.id,'plugin.json');
+    const declared=JSON.parse(readFileSync(definition,'utf8')) as {produces?:{kind:string}[]};
+    for(const output of declared.produces??[]) filled.add(output.kind);
+  }
   for (const plugin of kept) {
     if (dropped.has(plugin.id)) continue;
     for (const kind of plugin.outputs ?? []) filled.add(kind);
@@ -107,10 +124,40 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
       manifest.setIn(['kinds', name, 'fields', index, 'producers'], ['person']);
     }
   }
+  // A kind another kept kind names in a field reference or in derives-from must be declared: a kind that left with its
+  // producers comes back when a kept kind names it, with every field as a person's own writing, and the kinds it names
+  // come back in turn. A manifest that names a kind it does not hold is refused, and the fixture keeps the kinds its
+  // plugins fill.
+  const originalKinds = (body.kinds ?? {}) as Record<string, { fields?: { name: string }[] }>;
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }][]) {
+      if (gone.has(name)) continue;
+      const named = [...(kind.fields ?? []).flatMap((field) => field.reference === undefined ? [] : [field.reference]), ...(kind['derives-from'] ?? [])];
+      for (const other of named) {
+        if (!gone.has(other)) continue;
+        gone.delete(other);
+        changed = true;
+        for (const [index] of (originalKinds[other]?.fields ?? []).entries()) {
+          manifest.deleteIn(['kinds', other, 'fields', index, 'binding']);
+          manifest.setIn(['kinds', other, 'fields', index, 'producers'], ['person']);
+        }
+      }
+    }
+  }
   for (const name of gone) manifest.deleteIn(['kinds', name]);
-  // An edge whose end left with its kinds leaves too: a relation names kinds the manifest declares.
-  const edges = (body.edges ?? []) as { from: string[]; to: string[] }[];
-  manifest.set('edges', edges.filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || !gone.has(name))));
+  // A relation keeps the endpoints this fixture declares, rather than losing all endpoints with one excluded kind.
+  const edges = ((body.edges ?? []) as { name: string; from: string[]; to: string[] }[])
+    .map((edge) => ({ ...edge, from: edge.from.filter((name) => name === 'any' || !gone.has(name)), to: edge.to.filter((name) => name === 'any' || !gone.has(name)) }))
+    .filter((edge) => edge.from.length > 0 && edge.to.length > 0);
+  manifest.set('edges', edges);
+  for (const [id, binding] of Object.entries(body['semantic-bindings'] ?? {}) as [string, { kind: string; edges?: Record<string, { kind: string; direction: 'from' | 'to' }> }][]) {
+    const declared = !gone.has(binding.kind) && Object.values(binding.edges ?? {}).every((role) => {
+      const edge = edges.find((edge) => edge.name === role.kind);
+      return edge?.[role.direction].some((name) => name === 'any' || name === binding.kind) === true;
+    });
+    if (!declared) manifest.deleteIn(['semantic-bindings', id]);
+  }
   writeFolderManifest(folder, manifest.toString());
 }
 
@@ -143,7 +190,7 @@ export function useRepositoryPlugins(folder: string): void {
     manifest.set(key, { ...starter[key], ...(manifest.toJS()[key] ?? {}) });
   }
   const body = manifest.toJS();
-  const repositoryKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
+  const repositoryKinds = ['product', 'product-profile', 'code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
   for (const name of repositoryKinds) {
     const existing = body.kinds?.[name];
     if (existing === undefined || existing.fields === undefined) {
@@ -157,7 +204,7 @@ export function useRepositoryPlugins(folder: string): void {
   manifest.set('plugins', plugins);
   const edges = body.edges ?? [];
   for (const edge of starter.edges ?? []) {
-    if (!edge.name.startsWith('code.') || !['disk', 'git'].includes(edge.capability)) continue;
+    if (edge.name !== 'profile-product' && (!edge.name.startsWith('code.') || !['disk', 'git'].includes(edge.capability))) continue;
     const existing = edges.findIndex((candidate: { name: string }) => candidate.name === edge.name);
     if (existing < 0) edges.push(edge);
     else edges[existing] = { ...edges[existing], ...edge };

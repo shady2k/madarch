@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A change record documents one alteration made to a running environment: the request behind it, the steps, the person who did it and whether it worked. It gives later readers a trail when something starts behaving differently.'
   ru: 'Запись об изменении документирует одну правку работающей среды: заявку за ней, шаги, того, кто её сделал, и удалась ли она. Она даёт след, когда что-то начинает вести себя иначе.'
+derives-from:
+- change
+- deployment-environment

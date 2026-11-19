@@ -1,50 +1,43 @@
+import { productEntityOf } from '../product/manifest.js';
 /**
  * The read side of the GraphQL API (decision 0036, sections 2 to 4): one resolver layer over the store, one
  * read-only snapshot per operation, relations and fields batched per level so a list of entities costs a statement
  * per type and per edge and never one per row.
  *
- * **Values are opinions.** The open opinions of a field are read together; the value every one of them agrees on is
- * the field's, a field they disagree on is null and listed in `contested`, and `<field>Opinions` keeps each opinion
- * with its producer, its language, when it was stated and the places it rests on. A text field held in several
- * languages gives the opinion in the reader's language, else the product's.
+ * **Values are assertions.** Typed per-source histories select the newest active value; disagreement stays visible
+ * in `contested` and `<field>Assertions` exposes source, time and evidence. Selectors share the page's snapshot.
  *
- * **A vertex is its node.** A vertex kind's key stands in `node.key` and is not a column; every other field is a
- * column of the kind's opinion table. An edge is a row of `edge` with its own opinion table; its record keeps the
- * discriminator, so repeated edges between the same ends stay apart. A reference field holds `{kind, key}` and its
- * inverse is read from the source kind's table.
+ * **References are edges.** A vertex identity contains its own scalar key and declared parent edges. Relations and
+ * inverses traverse only selected active edges; no attribute contains another entity's identity.
  *
  * **The catalogue is a graph too.** Every entry the product's start publishes as a `manifest.kind` vertex is a
  * catalogue entity, taken or not; its fields, the plugins that fill it, whether the product takes it and its
  * derivation relations come from those vertices, the manifest's field vertices and real dependency edges.
  */
 import type { GraphQLFieldResolver } from 'graphql';
-import { withSpan } from '../obs/trace.js';
+import { z } from 'zod';
+import { fits, GraphRefusal } from './validation.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
-import { generatedTableName, type FieldType } from '../graph/contract.js';
+import { entityKindNames, assertionValueTableName, type FieldType } from '../graph/contract.js';
+import { activeExistenceSql, loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
+import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './dispute-read.js';
+import { contextLayers } from './context.js';
+import { evidenceSupportRoles } from './evidence-support.js';
+import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
+import { withAssertionContract } from './system-contract.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import { fileTextKind, homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, kindTypeNameOf, typeNameOf } from '../graphql/names.js';
-import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
+import { publishedRelationWords, type PublishedEdge, type PublishedField, type PublishedKind, type PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
-import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
+import { withManifestContract, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
 import { join } from 'node:path';
 import { catalogueFileTextRole } from '../knowledge/file-text-kind.js';
-import { relationWords } from '../knowledge/relation-labels.js';
 import { checkProductTemplates } from './template-check.js';
 import type { TemplateFile } from '../page-contract/template.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
-
-/** One open opinion of a vertex or an edge, as the read holds it. */
-export interface OpinionRow {
-  readonly id: string;
-  readonly saidBy: string;
-  readonly producer: string;
-  readonly version: string;
-  readonly statedAt: unknown;
-  readonly lang: string | null;
-  readonly evidence: readonly unknown[];
-  readonly values: Readonly<Record<string, unknown>>;
-}
 
 /** One entity the schema answers: a graph vertex, its kind, its key and the concrete GraphQL type it completes as. */
 export interface EntityValue {
@@ -77,7 +70,6 @@ export interface CatalogueFieldValue {
   readonly name: string;
   readonly type: string;
   readonly nullable: boolean;
-  readonly reference: string | null;
   readonly producers: readonly string[];
 }
 
@@ -114,15 +106,12 @@ interface EdgeRow {
   readonly lang?: string;
 }
 
-/** One parent's edge rows and their opinions, held for the connection that reads them. */
+/** One parent's edge rows and their assertions, held for the connection that reads them. */
 interface EdgeBatch {
   readonly rows: EdgeRow[];
   readonly total: number;
-  readonly opinions: Map<string, OpinionRow[]>;
+  readonly assertions: Map<string, StoredAssertion[]>;
 }
-
-/** Text fields that hold a whole file or document: searching them would scan the tree for every word. */
-const HEAVY_TEXT_FIELDS = new Set(['content', 'body', 'blob']);
 
 /** The line a search row is shown by: the label, and the matched text beside it when the label is a hash. */
 export function searchLine(label: string, value: string): string {
@@ -162,106 +151,29 @@ function encodeCursor(value: unknown): string {
 }
 
 function decodeCursor(value: string | null | undefined): unknown {
-  if (value === null || value === undefined || value === '') return undefined;
-  try { return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown; } catch { return undefined; }
+  if (value === null || value === undefined) return undefined;
+  try {
+    if (value === '' || [...value].some(char => !'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'.includes(char))) throw new Error();
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) throw new Error();
+    const cursor = decoded as Record<string, unknown>;
+    if (typeof cursor['id'] !== 'string' || cursor['id'] === '' || cursor['id'].startsWith('0') || [...cursor['id']].some(char => char < '0' || char > '9')) throw new Error();
+    const keys = Object.keys(cursor);
+    if (Array.isArray(cursor['o']) && keys.every(key => key === 'o' || key === 'id')) return cursor;
+    if (typeof cursor['relation'] === 'string' && keys.every(key => key === 'relation' || key === 'id')) return cursor;
+    throw new Error();
+  } catch { throw new GraphRefusal('/after', 'cursor returned by this connection', value); }
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number, path: string): number {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) throw new GraphRefusal(path, `integer from ${min} to ${max}`, value);
+  return value;
 }
 
 /** The page's size: 50 by default, at most 200. */
 function clampFirst(first: number | null | undefined): number {
-  if (first === null || first === undefined) return 50;
-  return Math.min(Math.max(0, Math.trunc(first)), 200);
-}
-
-/** A JSON value with its object keys in code point order, so two equal values write one text. */
-function canonicalJson(value: unknown): string {
-  const canonical = (held: unknown): unknown => {
-    if (Array.isArray(held)) return held.map(canonical);
-    if (held !== null && typeof held === 'object') {
-      return Object.fromEntries(Object.keys(held as Record<string, unknown>).sort().map((key) => [key, canonical((held as Record<string, unknown>)[key])]));
-    }
-    return held;
-  };
-  return JSON.stringify(canonical(value));
-}
-
-/** How many distinct values one field's opinions state, ignoring the nulls no opinion states. */
-function distinctCount(rows: readonly OpinionRow[], field: string): number {
-  const out = new Set<string>();
-  for (const row of rows) {
-    const value = row.values[field];
-    if (value === null || value === undefined) continue;
-    out.add(JSON.stringify(value));
-  }
-  return out.size;
-}
-
-/** The value every opinion of one field states, as the typed value itself; null when they differ or none states one. */
-function agreedValue(rows: readonly OpinionRow[], field: string): unknown {
-  let agreed: unknown;
-  let seen = false;
-  for (const row of rows) {
-    const value = row.values[field];
-    if (value === null || value === undefined) continue;
-    if (!seen) { agreed = value; seen = true; continue; }
-    if (JSON.stringify(value) !== JSON.stringify(agreed)) return null;
-  }
-  return seen ? agreed : null;
-}
-
-/** One opinion as the schema shows it. */
-function opinionOf(row: OpinionRow, field: string): unknown {
-  return { ...opinionOfAll(row), value: row.values[field] };
-}
-
-/** One opinion of an edge, with all its attributes as its value. */
-function opinionOfAll(row: OpinionRow): Record<string, unknown> {
-  return { value: row.values, producer: row.producer, version: row.version, lang: row.lang, statedAt: row.statedAt, evidence: evidenceOf(row.evidence) };
-}
-
-/** The places one opinion rests on, as the schema's `Evidence`: a file line, a conversation, or an outside address. */
-function evidenceOf(entries: readonly unknown[]): unknown[] {
-  return entries.map((entry) => {
-    const held = (entry ?? {}) as Record<string, unknown>;
-    const type = held['type'] === 'conversation' || held['type'] === 'url' || held['type'] === 'opinion' ? String(held['type']) : 'file';
-    return {
-      type,
-      repository: typeof held['repository'] === 'string' ? held['repository'] : null,
-      path: typeof held['path'] === 'string' ? held['path'] : null,
-      lineStart: typeof held['line_start'] === 'number' ? held['line_start'] : null,
-      lineEnd: typeof held['line_end'] === 'number' ? held['line_end'] : null,
-      revision: typeof held['commit_or_digest'] === 'string' ? held['commit_or_digest'] : null,
-      id: typeof held['id'] === 'string' ? held['id'] : null,
-      url: typeof held['url'] === 'string' ? held['url'] : null,
-      at: typeof held['at'] === 'string' ? held['at'] : null,
-      words: typeof held['words'] === 'string' ? held['words'] : null,
-    };
-  });
-}
-
-/** Whether an edge kind names the container at its target: the catalogue's `partOf`. */
-function isPartOf(edge: string): boolean {
-  return edge.slice(edge.lastIndexOf('.') + 1) === 'partOf';
-}
-
-/** Whether an edge kind names a container at its source: any kind's `contains`. */
-function isContains(edge: string): boolean {
-  return edge.slice(edge.lastIndexOf('.') + 1) === 'contains';
-}
-
-/** One opinion row from a table's row: its identity and the values the requested columns hold. */
-function rowOf(row: Record<string, unknown>, values: Record<string, unknown>): OpinionRow {
-  const saidBy = String(row['said_by'] ?? '');
-  const at = saidBy.lastIndexOf('@');
-  return {
-    id: String(row['opinion_id'] ?? ''),
-    saidBy,
-    producer: at < 0 ? saidBy : saidBy.slice(0, at),
-    version: at < 0 ? '' : saidBy.slice(at + 1),
-    statedAt: row['said_at'],
-    lang: row['lang'] === null || row['lang'] === undefined ? null : String(row['lang']),
-    evidence: Array.isArray(row['evidence']) ? row['evidence'] as readonly unknown[] : [],
-    values,
-  };
+  return boundedInteger(first, 50, 0, 200, '/first');
 }
 
 /** Whether the source is one of the schema's entities. */
@@ -334,32 +246,26 @@ export class ReadContext {
   private readonly kindByRoot = new Map<string, PublishedKind>();
   private readonly fieldsByType = new Map<string, Map<string, PublishedField>>();
   private readonly relationByType = new Map<string, Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>>();
-  private readonly referenceInverseByType = new Map<string, Map<string, { source: PublishedKind; field: PublishedField }>>();
   private readonly titles = new Map<string, string>();
-  private columnCache: Map<string, Set<string>> | undefined;
-  private readonly vertexTable = new Map<string, string>();
-  private readonly edgeTable = new Map<string, string>();
+  private readonly validAt: string;
+  private readonly recordedAt: string;
+  private contexts: readonly number[];
+  private layersReady: Promise<void> | undefined;
+  private disputeSlots: readonly DisputeSlot[] = [];
+  private contextRecordedThrough: Readonly<Record<number, string | null>> = {};
+  private static readonly scopes = new WeakMap<object, ReadContext>();
   private readonly lang: string;
   private readonly fallbackLang: string;
 
-  /** Per kind and node: the columns fetched for that node and its open opinions. */
-  private readonly fieldCache = new Map<string, Map<string, { columns: Set<string>; rows: OpinionRow[] }>>();
+  /** Per kind and node: the columns fetched for that node and its open assertions. */
+  private readonly fieldCache = new Map<string, Map<string, { columns: Set<string>; rows: StoredAssertion[] }>>();
   private fieldQueue: Map<string, Map<string, Set<string>>> | undefined;
   private fieldFlush: Promise<void> | undefined;
-
-  /** Every reference resolved in this operation, by kind and canonical key. */
-  private readonly referenceCache = new Map<string, EntityValue | null>();
-  private referenceQueue: Map<string, Map<string, unknown>> | undefined;
-  private referenceFlush: Promise<void> | undefined;
 
   private readonly edgeCache = new Map<string, Map<string, EdgeBatch>>();
   private edgeQueue: Map<string, { edge: PublishedEdge; side: 'from' | 'to'; ids: Set<string>; args: ConnectionArgs; lang?: string }> | undefined;
   private edgeFlush: Promise<void> | undefined;
-  private readonly edgeOpinions = new Map<string, OpinionRow[]>();
-
-  private readonly inverseCache = new Map<string, Map<string, { rows: EntityValue[]; cursors: string[]; total: number }>>();
-  private inverseQueue: Map<string, { source: PublishedKind; field: PublishedField; targets: Map<string, EntityValue>; args: ConnectionArgs; lang?: string }> | undefined;
-  private inverseFlush: Promise<void> | undefined;
+  private readonly edgeAssertions = new Map<string, StoredAssertion[]>();
 
   private readonly linkCache = new Map<string, { relation: string; other: EntityValue; id: string }[]>();
   private readonly linkTotals = new Map<string, number>();
@@ -386,9 +292,14 @@ export class ReadContext {
      * The read of one file's text by the blob the graph names (decision 0037), given by the role that answers it: the api
      * role asks the store's queue, and a read that has no reader answers null.
      */
-    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,    /** One page of every log the product keeps, when the caller can read them (the logs page's own evidence). */
+    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,
+    /** One page of every log the product keeps, when the caller can read them (the logs page's own evidence). */
     private readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown,
+    selectors: { readonly context?: number; readonly validAt?: string; readonly recordedAt?: string } = {},
   ) {
+    this.validAt = selectors.validAt ?? new Date().toISOString();
+    this.recordedAt = selectors.recordedAt ?? new Date().toISOString();
+    this.contexts = [selectors.context ?? 1];
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
     this.fallbackLang = manifest.language ?? 'en';
@@ -396,14 +307,12 @@ export class ReadContext {
       const type = kindTypeNameOf(kind.name);
       this.kindByType.set(type, kind);
       this.kindByRoot.set(`all${typeNameOf(kind.name)}`, kind);
-      this.vertexTable.set(kind.name, generatedTableName(kind.name, 'vertex'));
       this.fieldsByType.set(type, new Map(kind.fields.map((field) => [fieldNameOf(field.name), field])));
       const title = manifest.kinds.get(kind.name)?.title;
       if (title !== undefined) this.titles.set(kind.name, title);
     }
-    const everyType = ['CatalogueEntity', ...[...this.kindByType.keys()]];
+    const everyType = ['CatalogueEntity', ...entityKindNames(published.kinds).map(typeNameOf)];
     for (const edge of published.edges) {
-      this.edgeTable.set(edge.name, generatedTableName(edge.name, 'edge'));
       // An `any` end stands on the Entity interface: the field answers on every entity, the catalogue's too.
       for (const from of edge.from) {
         for (const type of from === 'any' ? everyType : [kindTypeNameOf(from)]) {
@@ -420,32 +329,59 @@ export class ReadContext {
         }
       }
     }
-    for (const kind of published.kinds) {
-      for (const field of kind.fields) {
-        if (field.reference === undefined) continue;
-        const target = kindTypeNameOf(field.reference);
-        const held = this.referenceInverseByType.get(target) ?? new Map<string, { source: PublishedKind; field: PublishedField }>();
-        held.set(`${fieldNameOf(field.name)}Of${typeNameOf(kind.name)}`, { source: kind, field });
-        this.referenceInverseByType.set(target, held);
-      }
-    }
+
   }
 
   /** The GraphQL resolver of one field, over whatever the parent is. */
-  readonly resolve: GraphQLFieldResolver<unknown, ReadContext> = (source, args, _context, info) => {
-    if (info.parentType.name === 'Query') return this.root(info.fieldName, args as Record<string, unknown>);
-    const aggregate = aggregateOf(source);
-    if (aggregate !== undefined) return this.aggregateField(aggregate, info.fieldName, args as Record<string, unknown>);
-    const entity = entityOf(source);
-    if (entity !== undefined) return this.entityField(entity, info.fieldName, args as ConnectionArgs);
-    const edge = edgeOf(source);
-    if (edge !== undefined) return this.edgeField(edge, info.fieldName);
-    if (source !== null && typeof source === 'object') {
-      const held = source as Record<string, unknown>;
-      return info.fieldName in held ? held[info.fieldName] : null;
+  readonly resolve: GraphQLFieldResolver<unknown, ReadContext> = async (source, args, _context, info) => await withSpan('graph.graphql.read', { 'graphql.field': info.fieldName }, async () => {
+    if (args['after'] !== undefined && args['after'] !== null) decodeCursor(args['after'] as string);
+    if (args['first'] !== undefined) clampFirst(args['first'] as number);
+    if (info.parentType.name === 'Query') {
+      if (args['id'] !== undefined && !z.uuid().safeParse(args['id']).success) throw new GraphRefusal('/id', 'entity UUID', args['id']);
+      for (const key of ['edge', 'through']) {
+        if (args[key] !== undefined && !this.published.edges.some(edge => edge.name === args[key])) throw new GraphRefusal(`/${key}`, 'declared edge kind', args[key]);
+      }
+      if (Array.isArray(args['kinds'])) for (const [at, name] of (args['kinds'] as unknown[]).entries()) {
+        if (!this.published.kinds.some(kind => kind.name === name || kindTypeNameOf(kind.name) === name)) throw new GraphRefusal(`/kinds/${at}`, 'declared kind', name);
+      }
     }
-    return null;
-  };
+    const scoped = source !== null && typeof source === 'object' ? ReadContext.scopes.get(source) : undefined;
+    if (scoped !== undefined && scoped !== this) return await scoped.resolve(source, args, _context, info);
+    let value: unknown;
+    if (info.parentType.name === 'Query') {
+      if (args['context'] !== undefined || args['validAt'] !== undefined || args['recordedAt'] !== undefined) {
+        const selected = new ReadContext(this.tx, this.manifest, this.published, this.folder, this.lang, this.structure, this.productTemplates, this.templateFiles, this.templateBodies, this.templateFindings, this.readText, this.logs, {
+          context: args['context'] as number | undefined,
+          validAt: args['validAt'] === undefined ? this.validAt : String(args['validAt']),
+          recordedAt: args['recordedAt'] === undefined ? this.recordedAt : String(args['recordedAt']),
+        });
+        await selected.contextLayers();
+        return selected.scope(await selected.root(info.fieldName, args as Record<string, unknown>));
+      }
+      this.layersReady ??= this.contextLayers();
+      await this.layersReady;
+      value = await this.root(info.fieldName, args as Record<string, unknown>);
+    } else {
+      const aggregate = aggregateOf(source);
+      const entity = entityOf(source);
+      const edge = edgeOf(source);
+      if (aggregate !== undefined) value = await this.aggregateField(aggregate, info.fieldName, args as Record<string, unknown>);
+      else if (entity !== undefined) value = await this.entityField(entity, info.fieldName, args as ConnectionArgs);
+      else if (edge !== undefined) value = await this.edgeField(edge, info.fieldName);
+      else if (source !== null && typeof source === 'object') value = (source as Record<string, unknown>)[info.fieldName] ?? null;
+      else value = null;
+    }
+    return this.scope(value);
+  });
+
+  /** Root selectors stay attached to every asynchronously resolved child of that root. */
+  private scope(value: unknown): unknown {
+    if (value !== null && typeof value === 'object') {
+      ReadContext.scopes.set(value, this);
+      for (const child of Object.values(value)) this.scope(child);
+    }
+    return value;
+  }
 
   // ---- fields ------------------------------------------------------------------------------------------------
 
@@ -465,107 +401,41 @@ export class ReadContext {
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
     if (field !== undefined) {
       const read = await this.fieldRead(entity, field);
-      if (field.reference !== undefined && read.value !== null && typeof read.value === 'object') return this.referenceValue(entity, field.reference, read.value as Record<string, unknown>);
       return read.value;
     }
-    const opinions = name.match(/^(.*)Opinions$/u);
-    if (opinions !== null) {
-      const held = this.fieldsByType.get(entity.typeName)?.get(opinions[1]!);
-      if (held !== undefined) return await this.fieldOpinions(entity, held);
-    }
-    const count = name.match(/^(.*)OpinionsCount$/u);
-    if (count !== null) {
-      const held = this.fieldsByType.get(entity.typeName)?.get(count[1]!);
-      if (held !== undefined) return (await this.fieldRead(entity, held)).count;
+    if (name.endsWith('Assertions')) {
+      const held = this.fieldsByType.get(entity.typeName)?.get(name.slice(0, -'Assertions'.length));
+      if (held !== undefined) return await this.fieldAssertions(entity, held);
     }
     const relation = this.relationByType.get(entity.typeName)?.get(name);
     if (relation !== undefined) return this.relation(entity, relation.edge, relation.side, args);
-    const inverse = this.referenceInverseByType.get(entity.typeName)?.get(name);
-    if (inverse !== undefined) return this.referenceInverse(entity, inverse.source, inverse.field, args);
     return null;
-  }
-
-  /**
-   * The vertex a reference field names, as the entity the schema shows. References are batched per level by kind:
-   * every parent of the level that names one is resolved by one statement, and the same reference is looked up once.
-   */
-  private async referenceValue(parent: EntityValue, reference: string, value: Record<string, unknown>): Promise<EntityValue | null> {
-    const kind = typeof value['kind'] === 'string' ? value['kind'] : reference;
-    const key = value['key'];
-    if (key === null || typeof key !== 'object') return null;
-    const cacheKey = `${kind}\u0000${canonicalJson(key)}`;
-    for (;;) {
-      const held = this.referenceCache.get(cacheKey);
-      if (held !== undefined) return held === null ? null : { ...held, ...(parent.lang === undefined ? {} : { lang: parent.lang }) };
-      this.referenceQueue ??= new Map();
-      const byKind = this.referenceQueue.get(kind) ?? new Map<string, unknown>();
-      byKind.set(canonicalJson(key), key);
-      this.referenceQueue.set(kind, byKind);
-      this.referenceFlush ??= scheduled(() => this.flushReferences());
-      await this.referenceFlush;
-    }
-  }
-
-  private async flushReferences(): Promise<void> {
-    await Promise.resolve();
-    const queue = this.referenceQueue;
-    this.referenceQueue = undefined;
-    this.referenceFlush = undefined;
-    if (queue === undefined) return;
-    for (const [kind, keys] of queue) {
-      const wanted = [...keys.values()];
-      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-         FROM node n JOIN entity en ON en.id = n.entity_id
-         WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed
-           AND n.key IN (SELECT jsonb_array_elements($2::jsonb))`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [kind, JSON.stringify(wanted)]);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      const found = new Map<string, EntityValue>();
-      for (const row of rows.rows) {
-        const value = this.entityFromRow(row);
-        if (value !== undefined) found.set(canonicalJson(row['key']), value);
-      }
-      for (const key of wanted) {
-        const held = found.get(canonicalJson(key));
-        this.referenceCache.set(`${kind}\u0000${canonicalJson(key)}`, held ?? null);
-      }
-    }
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
     if (entity.catalogue !== undefined) return this.catalogueTitle(entity.catalogue, entity.lang);
+    if (entity.kind === 'manifest.kind') {
+      const catalogue = this.catalogueRead?.byId.get(entity.nodeId);
+      if (catalogue !== undefined) return this.catalogueTitle(catalogue, entity.lang);
+    }
     // The label is the field the manifest's `title:` names (decision 0036, section 1): a key field answers its own
     // value, any other field its agreed opinion. A kind that names no title is labelled by the first text of its key.
     const title = this.titles.get(entity.kind);
     const typeFields = this.fieldsByType.get(entity.typeName);
     const field = title === undefined ? undefined : typeFields?.get(fieldNameOf(title));
     if (field !== undefined) {
-      if (field.type === 'text' && entity.key[field.name] !== undefined) return String(entity.key[field.name]);
       const read = await this.fieldRead(entity, field);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
       if (read.value !== null && read.value !== undefined) return String(read.value);
-    } else if (typeFields === undefined || typeFields.size === 0) {
-      // A kind that declares no field still states its label: the writer holds it in the storage column the schema does
-      // not publish, and a store whose table has no such column answers its key instead.
-      const value = await this.storageLabel(entity).catch(() => undefined);
-      if (typeof value === 'string' && value !== '') return value;
     }
-    for (const value of Object.values(entity.key)) if (typeof value === 'string' && value !== '') return value;
+    const kind = this.kindByType.get(entity.typeName);
+    for (const name of kind?.key ?? []) {
+      const keyField = typeFields?.get(fieldNameOf(name));
+      if (keyField?.type !== 'text') continue;
+      const read = await this.fieldRead(entity, keyField);
+      if (typeof read.value === 'string' && read.value !== '') return read.value;
+    }
     return entity.uid;
-  }
-
-  /** The label a kind that declares no field keeps in its own table. */
-  private async storageLabel(entity: EntityValue): Promise<unknown> {
-    await this.ensureFields(entity.kind, entity.nodeId, ['label']);
-    const rows = (this.fieldCache.get(entity.kind)?.get(entity.nodeId)?.rows ?? []).filter((row) => row.values['label'] !== null && row.values['label'] !== undefined);
-    const inLang = rows.filter((row) => row.lang === (entity.lang ?? this.lang));
-    const fallback = rows.filter((row) => row.lang === this.fallbackLang);
-    const chosen = inLang.length > 0 ? inLang : fallback.length > 0 ? fallback : rows.filter((row) => row.lang === null);
-    return agreedValue(chosen.length > 0 ? chosen : rows, 'label');
   }
 
   /**
@@ -581,123 +451,225 @@ export class ReadContext {
     return this.productTemplates.records.get(kind) ?? 'entity';
   }
 
-  /**
-   * Every field the kind declares, with the value the graph agreed and the opinions that hold it: what a page's
-   * Details block shows when no template has named the kind's fields (decision 0036, section 6). A key field is
-   * identity, so its value stands with no opinion; a field two producers disagree on shows no value and `contested`.
-   */
   private async detailsOf(entity: EntityValue): Promise<unknown[]> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return [];
-    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
-    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
-    const contested = new Set(await this.contestedOf(entity));
-    return [...kind.fields]
-      .sort((left, right) => byCodePoint(left.name, right.name))
-      .map((field) => {
-        if (kind.key.includes(field.name)) {
-          return { name: field.name, type: field.type, key: true, value: entity.key[field.name] ?? null, contested: false, opinions: [] };
-        }
-        const rows = this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang);
-        return {
-          name: field.name,
-          type: field.type,
-          key: false,
-          value: agreedValue(rows, field.name),
-          contested: contested.has(fieldNameOf(field.name)),
-          opinions: rows.slice(-3).reverse().map((row) => opinionOf(row, field.name)),
-        };
-      });
+    return await Promise.all([...kind.fields].sort((a, b) => byCodePoint(a.name, b.name)).map(async field => {
+      const read = await this.fieldRead(entity, field);
+      return { name: field.name, type: field.type, key: kind.key.includes(field.name), value: read.value,
+        contested: (await this.contestedOf(entity)).includes(fieldNameOf(field.name)), assertions: await this.fieldAssertions(entity, field) };
+    }));
   }
 
-  /**
-   * The place the entity's newest opinion rests on, as the reader reads it: the file and line of its evidence, so the
-   * page's header can state where the page's own statements came from (decision 0036, section 6).
-   */
   private async originOf(entity: EntityValue): Promise<string | null> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return null;
-    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
-    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
-    let newest: OpinionRow | undefined;
-    for (const field of stated) {
-      for (const row of this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang)) {
-        if (newest === undefined || String(row.statedAt) > String(newest.statedAt)) newest = row;
-      }
+    await this.ensureFields(kind.name, entity.nodeId, kind.fields.map(field => field.name));
+    const selected = kind.fields.flatMap(field => {
+      const chosen = this.selection(this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang)).selected;
+      return chosen === null ? [] : this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang).filter(row => row.id === chosen.id);
+    }).sort((a, b) => a.recordedSequence === b.recordedSequence ? byCodePoint(a.id, b.id) : a.recordedSequence > b.recordedSequence ? -1 : 1);
+    for (const assertion of selected) {
+      const evidence = await this.assertionEvidence(assertion);
+      const first = evidence[0];
+      if (first === undefined) continue;
+      const row = await this.metadataEntityRow(first.uid);
+      const target = row === null ? undefined : this.entityFromRow(row, entity.lang);
+      if (target !== undefined) return await this.labelOf(target);
     }
-    const evidence = newest?.evidence[0] as Record<string, unknown> | undefined;
-    if (evidence === undefined) return null;
-    const path = typeof evidence['path'] === 'string' ? evidence['path'] : undefined;
-    if (path !== undefined) {
-      const repository = typeof evidence['repository'] === 'string' ? evidence['repository'] : undefined;
-      const line = typeof evidence['line_start'] === 'number' ? `:${String(evidence['line_start'])}` : '';
-      return repository === undefined ? `${path}${line}` : `${repository}/${path}${line}`;
-    }
-    const url = typeof evidence['url'] === 'string' ? evidence['url'] : undefined;
-    return url ?? null;
+    return null;
   }
 
-  /**
-   * The entity's containers, outermost first: the chain a page's breadcrumb walks. The catalogue declares containment
-   * as an edge outward (`partOf`) or a row of the container that holds a member (`contains`), so both are followed; a
-   * chain that meets itself or runs eight deep stops.
-   */
   private async trailOf(entity: EntityValue): Promise<EntityValue[]> {
     const chain: EntityValue[] = [];
-    const seen = new Set<string>([entity.nodeId]);
+    const seen = new Set([entity.nodeId]);
     let current = entity;
-    for (let step = 0; step < 8; step += 1) {
-      const out = (await this.links(current, { first: 50 }, 'out')) as { edges: { node: { edge: string; to: EntityValue } }[] };
-      const into = (await this.links(current, { first: 50 }, 'in')) as { edges: { node: { edge: string; from: EntityValue } }[] };
-      // A member states its container outward (`partOf`); a container holds its member in (`contains`). The same edge
-      // walked the other way names a member, never a container.
-      const up = out.edges.find((one) => isPartOf(one.node.edge))?.node.to
-        ?? into.edges.find((one) => isContains(one.node.edge))?.node.from;
-      if (up === undefined || seen.has(up.nodeId)) break;
-      chain.push(up);
-      seen.add(up.nodeId);
-      current = up;
+    for (let depth = 0; depth < 8; depth += 1) {
+      const declaration = this.manifest.kinds.get(current.kind);
+      const parent = declaration?.keyEdges?.[0];
+      if (parent === undefined) break;
+      const edge = this.published.edges.find(edge => edge.name === parent.edge);
+      if (edge === undefined) break;
+      const connection = await this.relation(current, edge, parent.direction, { first: 1 }) as { edges: { node: EdgeRow }[] };
+      const next = connection.edges[0]?.node.node;
+      if (next === undefined || seen.has(next.nodeId)) break;
+      chain.push(next);
+      seen.add(next.nodeId);
+      current = next;
     }
     return chain.reverse();
+  }
+
+  private resolutionAssertionIds: readonly string[] = [];
+  private hasMerges=false;
+  private async contextLayers(): Promise<void> {
+    return await withSpan('graph.context.layers', {}, async () => {
+      this.hasMerges=(await this.tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+      const layers = await contextLayers(this.tx, String(this.contexts[0]));
+      this.contexts = layers.map((layer) => Number(layer.id));
+      this.contextRecordedThrough = Object.fromEntries(layers.map((layer) => [Number(layer.id), layer.recordedThrough]));
+      this.disputeSlots = await listDisputeSlots(this.tx, withAssertionContract(withManifestContract(graphContractOf(this.manifest))), {
+        validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough,
+      });
+      this.resolutionAssertionIds = this.disputeSlots.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
+    });
+  }
+
+  private effectiveEdges():string {
+    if(!this.hasMerges)return 'edge';
+    return `graph_effective_edges(${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)`;
+  }
+  private canonicalNode(id:string):string {
+    if(!this.hasMerges)return id;
+    return `graph_merge_target(${id},${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)`;
+  }
+  private active(sort: 'vertex' | 'edge', alias: string): string {
+    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
+    const structural = contract.edge.filter((kind) => kind.capability === 'system').map((kind) => kind.name);
+    return (sort==='vertex'&&this.hasMerges?`${this.canonicalNode(alias+'.id')}=${alias}.id AND `:'')+activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds, projectMergedSubjects: this.hasMerges }, sort === 'edge' ? structural : []);
+  }
+
+  private selection(rows: readonly StoredAssertion[]) {
+    const selected = rows.find(row => row.selected) ?? null;
+    const candidates = rows.filter(row => row.active);
+    const ids = new Set(rows.map(row => row.id));
+    const contested = this.disputeSlots.some(slot => slot.dispute.state === 'OPEN' && slot.rows.some(row => ids.has(row.id)));
+    const resolved = candidates.find(row => this.resolutionAssertionIds.includes(row.id));
+    return { selected: resolved ?? selected, candidates, contested: resolved === undefined && contested };
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return [];
-    // A key field is identity, not an opinion: only the kind's other fields can differ.
-    const fields = kind.fields.filter((field) => !kind.key.includes(field.name));
+    const fields = kind.fields;
     await this.ensureFields(kind.name, entity.nodeId, fields.map((field) => field.name));
-    return fields.filter((field) => distinctCount(this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang), field.name) > 1).map((field) => fieldNameOf(field.name));
+    return fields.filter((field) => this.selection(this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang)).contested).map((field) => fieldNameOf(field.name));
   }
 
   private async fieldRead(entity: EntityValue, field: PublishedField): Promise<{ value: unknown; count: number }> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return { value: null, count: 0 };
-    if (kind.key.includes(field.name)) return { value: entity.key[field.name] ?? null, count: 0 };
     await this.ensureFields(kind.name, entity.nodeId, [field.name]);
-    const rows = this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang);
-    return { value: agreedValue(rows, field.name), count: rows.length };
+    const selected = this.selection(this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang));
+    return { value: selected.selected?.value ?? null, count: selected.candidates.length };
   }
 
-  private async fieldOpinions(entity: EntityValue, field: PublishedField): Promise<unknown[]> {
+  private async fieldAssertions(entity: EntityValue, field: PublishedField): Promise<unknown[]> {
     const kind = this.kindByType.get(entity.typeName);
     if (kind === undefined) return [];
-    if (kind.key.includes(field.name)) return [];
     await this.ensureFields(kind.name, entity.nodeId, [field.name]);
-    // The newest opinions first: the list is the 50 a reader may show, and an old one is never chosen over a new one.
-    return this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang).slice(-50).reverse().map((row) => opinionOf(row, field.name));
+    const rows = this.chosenAssertions(kind.name, entity.nodeId, field, entity.lang).filter((row) => this.contexts.includes(row.context) && Date.parse(row.recordedAt) <= Date.parse(this.recordedAt) && (this.contextRecordedThrough[row.context] == null || row.recordedSequence <= BigInt(this.contextRecordedThrough[row.context]!)));
+    const selected = this.selection(rows).selected;
+    return await Promise.all(rows.sort((left, right) => left.recordedSequence === right.recordedSequence ? byCodePoint(right.id, left.id) : left.recordedSequence > right.recordedSequence ? -1 : 1).map((row) => this.assertionValue(row, selected?.id === row.id, entity.lang)));
   }
 
-  private chosenOpinions(kind: string, nodeId: string, field: PublishedField, lang: string | undefined): OpinionRow[] {
-    const rows = (this.fieldCache.get(kind)?.get(nodeId)?.rows ?? []).filter((row) => row.values[field.name] !== null && row.values[field.name] !== undefined);
-    if (field.type !== 'text') return rows;
-    const wanted = lang ?? this.lang;
-    const inLang = rows.filter((row) => row.lang === wanted);
-    if (inLang.length > 0) return inLang;
-    const fallback = rows.filter((row) => row.lang === this.fallbackLang);
-    if (fallback.length > 0) return fallback;
-    const none = rows.filter((row) => row.lang === null);
-    return none.length > 0 ? none : [];
+  private chosenAssertions(kind: string, nodeId: string, field: PublishedField, lang: string | undefined): StoredAssertion[] {
+    return this.languageAssertions((this.fieldCache.get(kind)?.get(nodeId)?.rows ?? []).filter((row) => row.property === field.name), field.type, lang);
+  }
+
+  private languageAssertions(rows: readonly StoredAssertion[], type: FieldType, lang: string | undefined): StoredAssertion[] {
+    if (type !== 'text') return [...rows];
+    for (const language of [lang ?? this.lang, this.fallbackLang, null]) {
+      const held = rows.filter((row) => row.language === language);
+      if (this.selection(held).candidates.length > 0) return held;
+    }
+    return [];
+  }
+
+  private readonly evidenceCache = new Map<string, { uid: string; relation: string; locator: Record<string, unknown>; state: EvidenceState }[]>();
+  private readonly evidenceQueue = new Map<string, StoredAssertion>();
+  private evidenceFlush: Promise<void> | undefined;
+
+  private async assertionEvidence(row: StoredAssertion) {
+    if (!this.evidenceCache.has(row.id)) {
+      this.evidenceQueue.set(row.id, row);
+      this.evidenceFlush ??= Promise.resolve().then(async () => {
+        const rows = new Map(this.evidenceQueue);
+        this.evidenceQueue.clear();
+        this.evidenceFlush = undefined;
+        const links = await withSpan('graph.assertion.evidence', {}, async () => await this.tx.query<{ assertion_uid: string; uid: string; discriminator: string }>(
+          `SELECT assertion.uid::text AS assertion_uid,target.uid::text AS uid,lineage.discriminator FROM edge lineage
+           JOIN entity kind ON kind.id=lineage.entity_id AND kind.name='system.assertion-evidence'
+           JOIN node assertion ON assertion.id=lineage.from_node JOIN node target ON target.id=lineage.to_node
+           WHERE assertion.uid=ANY($1::uuid[]) ORDER BY lineage.discriminator COLLATE "C"`, [[...rows.keys()]]));
+        const evidence = links.rows.map(link => ({ ...link, ...JSON.parse(link.discriminator) as { relation: string; locator: Record<string, unknown> } }));
+        const states = await readEvidenceStates(this.tx, withAssertionContract(withManifestContract(graphContractOf(this.manifest))),
+          evidence.map(link => ({ targetUid: link.uid, locator: link.locator, assertion: rows.get(link.assertion_uid)! })),
+          { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough }, evidenceSupportRoles(this.manifest.semanticBindings));
+        for (const id of rows.keys()) this.evidenceCache.set(id, []);
+        evidence.forEach((link, index) => this.evidenceCache.get(link.assertion_uid)!.push({ uid: link.uid, relation: link.relation, locator: link.locator, state: states[index]! }));
+      });
+      await this.evidenceFlush;
+    }
+    return this.evidenceCache.get(row.id)!;
+  }
+
+  private readonly entityRows = new Map<string, Promise<Record<string, unknown> | null>>();
+  private readonly entityQueue = new Map<string, { resolve: (row: Record<string, unknown> | null) => void; reject: (error: unknown) => void }>();
+  private entityFlush: Promise<void> | undefined;
+
+  private metadataEntityRow(uid: string): Promise<Record<string, unknown> | null> {
+    let pending = this.entityRows.get(uid);
+    if (pending === undefined) {
+      pending = new Promise((resolve, reject) => this.entityQueue.set(uid, { resolve, reject }));
+      this.entityRows.set(uid, pending);
+      this.entityFlush ??= Promise.resolve().then(async () => {
+        const queue = new Map(this.entityQueue);
+        this.entityQueue.clear();
+        this.entityFlush = undefined;
+        try {
+          const result = await withSpan('graph.entity.batch', {}, async () => await this.tx.query<Record<string, unknown>>(
+            `SELECT alias.uid::text AS requested_uid,n.id::text AS node_id,n.uid::text AS uid,n.key,en.name AS entity
+             FROM node alias JOIN node n ON n.id=${this.canonicalNode('alias.id')} JOIN entity en ON en.id=n.entity_id WHERE alias.uid=ANY($1::uuid[]) AND ${this.active('vertex', 'n')}`, [[...queue.keys()]]));
+          const rows = new Map(result.rows.map(row => [String(row['requested_uid']), row]));
+          for (const [id, pending] of queue) pending.resolve(rows.get(id) ?? null);
+        } catch (error) {
+          for (const pending of queue.values()) pending.reject(error);
+        }
+      });
+    }
+    return pending;
+  }
+
+  private async assertionValue(row: StoredAssertion, selected: boolean, lang: string | undefined, includeQuestion = true): Promise<unknown> {
+    const evidencePromise = this.assertionEvidence(row);
+    const entity = async (uid: string) => await this.root('entity', { id: uid, lang });
+    const subject = row.subject.type === 'vertex'
+      ? { __typename: 'VertexIdentity', id: row.subject.uid, entity: await entity(row.subject.uid) }
+      : { __typename: 'GraphEdge', id: row.subject.id, kind: row.subject.kind, from: await entity(row.subject.from), to: await entity(row.subject.to) };
+    return { id: row.id, subject, property: row.property, value: row.value,
+      operation: row.operation.toUpperCase(), source: await entity(row.source), author: await entity(row.author),
+      unit: row.unit === null ? null : await entity(row.unit), validFrom: row.validFrom, validTo: row.validTo,
+      recordedAt: row.recordedAt, evidence: await Promise.all((await evidencePromise).map(async evidence => ({
+        targetUid: evidence.uid, target: await entity(evidence.uid), relation: evidence.relation, locator: evidence.locator,
+        historicalValidity: evidence.state.historicalValidity.toUpperCase(), currentApplicability: evidence.state.currentApplicability.toUpperCase(), availability: evidence.state.availability.toUpperCase(), issues: evidence.state.issues,
+      }))),
+      selected, question: includeQuestion ? await this.assertionQuestion(row, lang) : null };
+  }
+
+  private readonly resolutionAssertions = new Map<string, Promise<StoredAssertion | null>>();
+
+  private async assertionQuestion(row: StoredAssertion, lang: string | undefined): Promise<unknown> {
+    const slot = this.disputeSlots.find(slot => slot.rows.some(candidate => candidate.id === row.id));
+    if (slot === undefined) return null;
+    const { dispute } = slot;
+    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
+    const selectors = { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough };
+    const resolution = async (uid: string) => {
+      let pending = this.resolutionAssertions.get(uid);
+      if (pending === undefined) {
+        pending = loadResolutionAssertion(this.tx, contract, uid, slot.rows, selectors);
+        this.resolutionAssertions.set(uid, pending);
+      }
+      const assertion = await pending;
+      if (assertion === null) throw new Error(`${import.meta.path}:1: dispute resolution ${uid} has no visible assertion lineage`);
+      return await this.assertionValue(assertion, uid === dispute.resolution, lang, false);
+    };
+    return { id: dispute.id, state: dispute.state,
+      candidates: await Promise.all(dispute.candidates.map(id => this.assertionValue(slot.rows.find(candidate => candidate.id === id)!, id === dispute.selectedAssertionUid, lang, false))),
+      resolution: dispute.resolution === null ? null : await resolution(dispute.resolution),
+      supersededResolutions: await Promise.all(dispute.supersededResolutions.map(resolution)),
+    };
   }
 
   private async ensureFields(kind: string, nodeId: string, columns: readonly string[]): Promise<void> {
@@ -721,8 +693,8 @@ export class ReadContext {
     this.fieldQueue = undefined;
     this.fieldFlush = undefined;
     if (queue === undefined) return;
-    for (const [kind, nodes] of queue) {
-      const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: OpinionRow[] }>();
+    const requests = [...queue].map(([kind, nodes]) => {
+      const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: StoredAssertion[] }>();
       const declared = this.kindByType.get(kindTypeNameOf(kind));
       if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
       const wanted = new Set<string>();
@@ -732,26 +704,14 @@ export class ReadContext {
         // A node fetched again keeps every column it was fetched with: the statement replaces its rows.
         for (const column of held?.columns ?? []) wanted.add(column);
       }
-      const select = [...wanted].filter((column) => !declared.key.includes(column)).map((column) => {
-        const field = declared.fields.find((one) => one.name === column);
-        return field?.type === 'bigint' ? `"${column}"::text AS "${column}"` : `"${column}" AS "${column}"`;
-      });
-      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `SELECT node_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select.length === 0 ? '' : `, ${select.join(', ')}`}
-         FROM "${this.vertexTable.get(kind)!}"
-         WHERE node_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [[...nodes.keys()]]);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      const byId = new Map<string, OpinionRow[]>();
+      return { kind, nodes, cache, wanted, declared };
+    });
+    const batches = await loadAssertionsBatch(this.tx, requests.map(({ kind, nodes, wanted, declared }) => ({ sort: 'vertex', kind, properties: [...wanted], subjectIds: [...nodes.keys()].map(Number), unprojectedProperties: declared.key })), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, projectMergedSubjects: this.hasMerges, resolvedAssertionIds: this.resolutionAssertionIds });
+    for (const [index, { kind, nodes, cache, wanted, declared }] of requests.entries()) {
+      const rows = batches[index]!;
+      const byId = new Map<string, StoredAssertion[]>();
       for (const id of nodes.keys()) byId.set(id, []);
-      for (const row of rows.rows) {
-        const values: Record<string, unknown> = {};
-        for (const column of wanted) values[column] = row[column];
-        byId.get(String(row['holder_id']))?.push(rowOf(row, values));
-      }
+      for (const row of rows) if(!declared.key.includes(row.property)||row.originalSubjectId===row.subjectId)byId.get(String(row.subjectId))?.push(row);
       for (const id of nodes.keys()) cache.set(id, { columns: new Set(wanted), rows: byId.get(id) ?? [] });
       this.fieldCache.set(kind, cache);
     }
@@ -787,7 +747,7 @@ export class ReadContext {
     if (queue === undefined) return;
     for (const [key, held] of queue) {
       const { edge, side, ids, args, lang } = held;
-        const sql = new Sql();
+      const sql = new Sql();
       const parentColumn = side === 'from' ? 'e.from_node' : 'e.to_node';
       const otherColumn = side === 'from' ? 'e.to_node' : 'e.from_node';
       const first = clampFirst(args.first);
@@ -798,19 +758,19 @@ export class ReadContext {
         return field.type === 'bigint' ? `${expr} AS "attr_${field.name}", (${expr})::text AS "attr_out_${field.name}"` : `${expr} AS "attr_${field.name}", ${expr} AS "attr_out_${field.name}"`;
       }).join(', ');
       const where = this.edgeWhere(edge, args.where, sql, lang);
-      const order = this.edgeOrder(edge, args.orderBy, sql, lang);
+      const order = this.edgeOrder(edge, args.orderBy);
       const afterKeys = order.keys.map((one) => ({ ...one, expr: `"${one.column}"` }));
       const after = this.afterClause(afterKeys, args.after, sql, 'id');
       const rankOrder = order.keys.length === 0 ? 'rows.id' : order.keys.map((one) => one.rank).join(', ');
-      const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `WITH filtered AS (
+      const answer = await withSpan('graph.edge.batch', {}, async () => await this.tx.query<Record<string, unknown>>(
+        `WITH filtered AS (
            SELECT ${parentColumn}::text AS parent, e.id, e.discriminator, n2.id::text AS other_id, n2.uid::text AS other_uid,
                   n2.key AS other_key, en2.name AS other_entity${projections === '' ? '' : `, ${projections}`}
-           FROM edge e
+           FROM ${this.effectiveEdges()} e
            JOIN entity en ON en.id = e.entity_id AND en.name = ${kindName}
-           JOIN node n2 ON n2.id = ${otherColumn} AND n2.context_id = 1 AND NOT n2.removed
+           JOIN node n2 ON n2.id = ${otherColumn} AND ${this.active('vertex', 'n2')}
            JOIN entity en2 ON en2.id = n2.entity_id
-           WHERE ${parentColumn} = ANY(${parents}) AND e.context_id = 1${where === '' ? '' : ` AND (${where})`}
+           WHERE ${parentColumn} = ANY(${parents}) AND ${this.active('edge', 'e')}${where === '' ? '' : ` AND (${where})`}
          ), counted AS (
            SELECT filtered.*, count(*) OVER (PARTITION BY parent) AS total FROM filtered
          ), rows AS (
@@ -818,13 +778,10 @@ export class ReadContext {
          ), ranked AS (
            SELECT rows.*, row_number() OVER (PARTITION BY parent ORDER BY ${rankOrder}, rows.id) AS rn FROM rows
          )
-         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY parent, rn`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      const opinionRows = await this.fetchEdgeOpinions(edge, [...new Set(answer.rows.map((row) => String(row['id'])))]);
+         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY parent, rn`,
+        sql.params,
+      ));
+      const opinionRows = await this.fetchEdgeAssertions(edge, [...new Set(answer.rows.map((row) => String(row['id'])))]);
       // A relation may reach a catalogue entity: its values come from the manifest the start published.
       if (answer.rows.some((row) => String(row['other_entity']) === 'manifest.kind')) await this.catalogueData();
       const batches = new Map<string, EdgeBatch>();
@@ -835,28 +792,60 @@ export class ReadContext {
         const values: Record<string, unknown> = {};
         for (const attribute of edge.fields) values[fieldNameOf(attribute.name)] = row[`attr_out_${attribute.name}`] ?? null;
         const orderValues = order.keys.map((one) => row[one.column] ?? null);
-        const heldBatch = batches.get(parent) ?? { rows: [], total: Number(row['total']), opinions: opinionRows };
+        const heldBatch = batches.get(parent) ?? { rows: [], total: Number(row['total']), assertions: opinionRows };
         heldBatch.rows.push({ edgeId: String(row['id']), discriminator: String(row['discriminator']), node, values, cursor: encodeCursor({ o: orderValues, id: String(row['id']) }), ...(lang === undefined ? {} : { lang }) });
         batches.set(parent, heldBatch);
       }
       const loaded = new Map<string, EdgeBatch>();
-      for (const parent of ids) loaded.set(parent, batches.get(parent) ?? { rows: [], total: 0, opinions: opinionRows });
+      for (const parent of ids) loaded.set(parent, batches.get(parent) ?? { rows: [], total: 0, assertions: opinionRows });
       this.edgeCache.set(key, loaded);
     }
   }
 
   /** One edge attribute's agreed value in the reader's language, the newest opinion of each producer counted once. */
   private edgeValueExpr(edge: PublishedEdge, field: PublishedField, sql: Sql, lang: string | undefined): string {
-    const table = this.edgeTable.get(edge.name)!;
-    const wanted = lang ?? this.lang;
-    const language = field.type === 'text'
-      ? ` AND o.lang IS NOT DISTINCT FROM (CASE
-           WHEN EXISTS (SELECT 1 FROM "${table}" y WHERE y.edge_id = e.id AND y.state = 'open' AND y.context_id = 1 AND y."${field.name}" IS NOT NULL AND y.lang = ${sql.param(wanted, '::text')}) THEN ${sql.param(wanted, '::text')}
-           WHEN EXISTS (SELECT 1 FROM "${table}" y WHERE y.edge_id = e.id AND y.state = 'open' AND y.context_id = 1 AND y."${field.name}" IS NOT NULL AND y.lang = ${sql.param(this.fallbackLang, '::text')}) THEN ${sql.param(this.fallbackLang, '::text')}
-           ELSE NULL END)`
-      : '';
-    return `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN (array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1] END
-      FROM "${table}" o WHERE o.edge_id = e.id AND o.state = 'open' AND o.context_id = 1${language})`;
+    return this.assertionExpr('edge', edge.name, field, 'e', sql, lang);
+  }
+
+  /** Same typed stream selection as the field resolver, for filters, sorts and aggregates. */
+  private assertionExpr(sort: 'vertex' | 'edge', kind: string, field: PublishedField, alias: string, sql: Sql, lang: string | undefined): string {
+    const table = assertionValueTableName(kind, sort, field.name);
+    const attachment = sort === 'vertex'
+      ? `JOIN assertion_vertex_subject av ON av.assertion_id = a.assertion_id JOIN edge se ON se.id = av.subject_edge_id`
+      : `JOIN assertion_edge_subject av ON av.assertion_id = a.assertion_id`;
+    const subject = sort === 'vertex' && this.hasMerges && !this.kindByType.get(kindTypeNameOf(kind))?.key.includes(field.name) ? `graph_assertion_target(se.to_node,a.assertion_id,${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)` : sort==='vertex'?'se.to_node':'av.edge_id';
+    const languages = [lang ?? this.lang, this.fallbackLang];
+    const languageRank = field.type === 'text'
+      ? `CASE a.language WHEN ${sql.param(languages[0], '::text')} THEN 0 WHEN ${sql.param(languages[1], '::text')} THEN 1 ELSE 2 END`
+      : '0';
+    const property = sql.param(field.name, '::text');
+    const validAt = sql.param(this.validAt, '::timestamptz');
+    const recordedAt = sql.param(this.recordedAt, '::timestamptz');
+    const targetAssertions = sort === 'vertex'
+      ? `SELECT attachment.assertion_id FROM edge subject_edge CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment WHERE ${sort === 'vertex' && this.hasMerges && !this.kindByType.get(kindTypeNameOf(kind))?.key.includes(field.name) ? 'TRUE' : `subject_edge.to_node=${alias}.id`}`
+      : `SELECT attachment.assertion_id FROM assertion_edge_subject attachment WHERE attachment.edge_id=${alias}.id`;
+    return `(WITH target_assertions AS MATERIALIZED (${targetAssertions}), eligible AS (
+      SELECT a.*, an.uid, v.value, source.to_node AS source, ${sort === 'vertex' ? 'se.to_node' : 'av.edge_id'} AS original_subject, ${languageRank} AS language_rank,
+        array_position(${sql.param(this.contexts, '::bigint[]')}, a.context_id) AS layer
+      FROM target_assertions target CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id OFFSET 0) a JOIN node an ON an.id = a.assertion_id ${attachment}
+      LEFT JOIN "${table}" v ON v.assertion_id = a.assertion_id
+      JOIN edge source ON source.from_node = a.assertion_id
+      JOIN entity sk ON sk.id = source.entity_id AND sk.name = 'system.assertion-source'
+      WHERE ${subject} = ${alias}.id AND a.property = ${property} AND a.recorded_at <= ${recordedAt}
+        ${Object.entries(this.contextRecordedThrough).filter(([, cutoff]) => cutoff !== null).map(([id, cutoff]) => `AND (a.context_id <> ${Number(id)} OR a.recorded_sequence <= ${sql.param(cutoff, '::bigint')})`).join(' ')}
+        AND a.context_id = ANY(${sql.param(this.contexts, '::bigint[]')})
+        ${field.type === 'text' ? `AND (a.language IS NULL OR a.language = ANY(${sql.param(languages, '::text[]')}))` : ''}
+    ), layered AS (
+      SELECT eligible.*, min(layer) OVER (PARTITION BY original_subject, source, language) AS nearest FROM eligible
+    ), streams AS (
+      SELECT DISTINCT ON (original_subject, source, language) * FROM layered
+      WHERE layer = nearest AND valid_from <= ${validAt} AND (valid_to IS NULL OR valid_to > ${validAt})
+      ORDER BY original_subject, source, language, recorded_sequence DESC, uid::text COLLATE "C" DESC
+    ), candidates AS (
+      SELECT DISTINCT ON (language) * FROM streams WHERE operation = 'assert'
+      ORDER BY language,(uid = ANY(${sql.param(this.resolutionAssertionIds, '::uuid[]')})) DESC,valid_from DESC,recorded_sequence DESC,uid::text COLLATE "C" DESC
+    ) SELECT value FROM candidates WHERE language_rank = (SELECT min(language_rank) FROM candidates)
+      ORDER BY valid_from DESC, recorded_sequence DESC, uid::text COLLATE "C" DESC LIMIT 1)`;
   }
 
   /** The operators a `<Edge>EdgeWhere` gives one attribute. */
@@ -865,7 +854,8 @@ export class ReadContext {
     const clauses: string[] = [];
     for (const [name, filter] of Object.entries(where)) {
       const attribute = edge.fields.find((field) => fieldNameOf(field.name) === name);
-      if (attribute === undefined || filter === null || typeof filter !== 'object') continue;
+      if (attribute === undefined) throw new GraphRefusal(`/where/${name}`, 'declared edge field', name);
+      if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) throw new GraphRefusal(`/where/${name}`, 'filter object', filter);
       const expr = this.edgeValueExpr(edge, attribute, sql, lang);
       for (const [operator, value] of Object.entries(filter as Record<string, unknown>)) {
         const clause = compareClause(expr, attribute.type, operator, value, sql);
@@ -876,161 +866,49 @@ export class ReadContext {
   }
 
   /** The edge record's connection order: its attributes, then its id. */
-  private edgeOrder(edge: PublishedEdge, orderBy: readonly Readonly<Record<string, unknown>>[] | undefined, sql: Sql, lang: string | undefined): { keys: { expr: string; column: string; rank: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] } {
+  private edgeOrder(edge: PublishedEdge, orderBy: readonly Readonly<Record<string, unknown>>[] | undefined): { keys: { expr: string; column: string; rank: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] } {
     const keys: { expr: string; column: string; rank: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] = [];
     for (const one of orderBy ?? []) {
       const field = edge.fields.find((held) => fieldNameOf(held.name) === one['field']);
-      if (field === undefined) continue;
+      if (field === undefined) throw new GraphRefusal('/orderBy/field', 'declared edge field', one['field']);
       const direction = one['direction'] === 'DESC' ? 'DESC' : 'ASC';
       const nulls = one['nulls'] === 'FIRST' ? 'FIRST' : 'LAST';
-      keys.push({ expr: this.edgeValueExpr(edge, field, sql, lang), column: `attr_${field.name}`, rank: `rows."attr_${field.name}" ${direction} NULLS ${nulls}`, direction, nulls, type: field.type });
+      keys.push({ expr: `"attr_${field.name}"`, column: `attr_${field.name}`, rank: `rows."attr_${field.name}" ${direction} NULLS ${nulls}`, direction, nulls, type: field.type });
     }
     return { keys };
   }
 
-  /** The opinions of a batch of edges, one statement for all of them. */
-  private async fetchEdgeOpinions(edge: PublishedEdge, ids: readonly string[]): Promise<Map<string, OpinionRow[]>> {
-    const out = new Map<string, OpinionRow[]>();
-    if (ids.length === 0) return out;
-    const table = this.edgeTable.get(edge.name)!;
-    const select = edge.fields.map((field) => (field.type === 'bigint' ? `"${field.name}"::text AS "${field.name}"` : `"${field.name}" AS "${field.name}"`)).join(', ');
-    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT edge_id::text AS holder_id, id::text AS opinion_id, said_by, said_at, lang, evidence${select === '' ? '' : `, ${select}`}
-       FROM "${table}" WHERE edge_id = ANY($1::bigint[]) AND state = 'open' AND context_id = 1 ORDER BY id`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    });
-    for (const row of rows.rows) {
-      const values: Record<string, unknown> = {};
-      for (const field of edge.fields) values[fieldNameOf(field.name)] = row[field.name];
-      const holder = String(row['holder_id']);
-      const list = out.get(holder) ?? [];
-      list.push(rowOf(row, values));
-      out.set(holder, list);
+  /** The assertions of a batch of edges, one statement for all of them. */
+  private async fetchEdgeAssertions(edge: PublishedEdge, ids: readonly string[]): Promise<Map<string, StoredAssertion[]>> {
+    const out = new Map<string, StoredAssertion[]>();
+    const rows = await loadAssertions(this.tx, 'edge', edge.name, ['$exists', ...edge.fields.map((field) => field.name)], ids.map(Number), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough });
+    for (const row of rows) {
+      const id = String(row.subjectId);
+      const list = out.get(id) ?? [];
+      list.push(row);
+      out.set(id, list);
     }
-    for (const [id, list] of out) {
-      const held = this.edgeOpinions.get(id) ?? [];
-      this.edgeOpinions.set(id, held.length === 0 ? list : held);
-    }
+    for (const [id, rows] of out) this.edgeAssertions.set(id, rows);
     return out;
   }
 
-  private edgeField(edge: EdgeRow, name: string): unknown {
+  private async edgeField(edge: EdgeRow, name: string): Promise<unknown> {
     if (name === 'id') return edge.edgeId;
     if (name === 'discriminator') return edge.discriminator;
     if (name === 'node') return edge.node;
-    if (name === 'opinions') return (this.edgeOpinions.get(edge.edgeId) ?? []).slice(-50).reverse().map((row) => opinionOfAll(row));
     if (name in edge.values) return edge.values[name];
-    const opinions = name.match(/^(.*)Opinions$/u);
-    if (opinions !== null) {
-      return this.edgeOpinionsOf(edge, opinions[1]!).slice(0, 50).map((row) => opinionOf(row, opinions[1]!));
+    const all = this.edgeAssertions.get(edge.edgeId) ?? [];
+    const field = name.endsWith('Assertions') ? name.slice(0, -'Assertions'.length) : undefined;
+    const rows = field === undefined ? all : all.filter((row) => fieldNameOf(row.property) === field);
+    if (name !== 'assertions' && field === undefined) return null;
+    const selected = new Set<string>();
+    for (const property of new Set(rows.map((row) => row.property))) {
+      const candidates = this.languageAssertions(rows.filter((row) => row.property === property), 'text', edge.lang);
+      const chosen = this.selection(candidates).selected;
+      if (chosen !== null) selected.add(chosen.id);
     }
-    const count = name.match(/^(.*)OpinionsCount$/u);
-    if (count !== null) return this.edgeOpinionsOf(edge, count[1]!).length;
-    return null;
+    return await Promise.all(rows.map((row) => this.assertionValue(row, selected.has(row.id), edge.lang)));
   }
-
-  /** One edge attribute's opinions in the reader's language, newest first. */
-  private edgeOpinionsOf(edge: EdgeRow, field: string): OpinionRow[] {
-    const rows = (this.edgeOpinions.get(edge.edgeId) ?? []).filter((row) => row.values[field] !== null && row.values[field] !== undefined);
-    const wanted = edge.lang ?? this.lang;
-    const inLang = rows.filter((row) => row.lang === wanted);
-    const chosen = inLang.length > 0 ? inLang : rows.filter((row) => row.lang === this.fallbackLang);
-    const held = chosen.length > 0 ? chosen : rows.filter((row) => row.lang === null);
-    return (held.length > 0 ? held : []).slice().reverse();
-  }
-
-  // ---- reference inverses ------------------------------------------------------------------------------------
-
-  /** The vertices whose reference field names this vertex, as a connection; every target of the level is one statement. */
-  private async referenceInverse(target: EntityValue, source: PublishedKind, field: PublishedField, args: ConnectionArgs): Promise<unknown> {
-    if (target.typeName === 'CatalogueEntity') return emptyConnection();
-    const key = `${source.name}\u0000${field.name}\u0000${JSON.stringify(args)}\u0000${target.lang ?? ''}`;
-    this.inverseQueue ??= new Map();
-    const held = this.inverseQueue.get(key) ?? { source, field, targets: new Map<string, EntityValue>(), args, lang: target.lang };
-    held.targets.set(target.nodeId, target);
-    this.inverseQueue.set(key, held);
-    this.inverseFlush ??= scheduled(() => this.flushInverseReferences());
-    await this.inverseFlush;
-    const page = this.inverseCache.get(key)?.get(target.nodeId) ?? { rows: [], cursors: [], total: 0 };
-    const first = clampFirst(args.first);
-    const rows = page.rows.slice(0, first);
-    return {
-      edges: rows.map((node, at) => ({ cursor: page.cursors[at]!, node })),
-      pageInfo: { endCursor: rows.length === 0 ? null : page.cursors[rows.length - 1]!, hasNextPage: page.rows.length > first },
-      totalCount: page.total,
-    };
-  }
-
-  private async flushInverseReferences(): Promise<void> {
-    await Promise.resolve();
-    const queue = this.inverseQueue;
-    this.inverseQueue = undefined;
-    this.inverseFlush = undefined;
-    if (queue === undefined) return;
-    for (const [key, held] of queue) {
-      const { source, field, targets, args, lang } = held;
-      const sql = new Sql();
-      const sourceKind = sql.param(source.name, '::text');
-      const targetIds = sql.param([...targets.keys()], '::bigint[]');
-      const targetKind = sql.param(field.reference ?? '', '::text');
-      const where = this.vertexWhere(source, args.where, sql, 'n', lang);
-      const order = this.vertexOrder(source, args.orderBy, sql, 'n', lang);
-      const first = clampFirst(args.first);
-      const selectOrder = order.keys.map((one) => `${one.expr} AS "order_${String(one.at)}"`).join(', ');
-      const afterKeys = order.keys.map((one) => ({ ...one, expr: `"order_${String(one.at)}"` }));
-      const after = this.afterClause(afterKeys, args.after, sql, 'node_id::bigint');
-      const rankOrder = order.keys.length === 0 ? 'rows.node_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
-      const table = this.vertexTable.get(source.name)!;
-      // A reference in the key lives in `node.key`; one stated as a field is the value its opinions agree on.
-      // A reference in the key is jsonb; one stated as a field is jsonb when the field is declared json and the JSON
-      // text of `{kind, key}` when it is declared text — a comment on the cast: a text column of a reference holds the
-      // reference, not a bare key (madarch-64o5.83: a `type: text` + `reference:` field made every such inverse a
-      // database error, `operator does not exist: text -> unknown`).
-      const reference = source.key.includes(field.name)
-        ? `(n.key->'${field.name}')`
-        : `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN (array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1] END FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1)::jsonb`;
-      const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `WITH filtered AS (
-           SELECT tn.id::text AS target, n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
-           FROM node n
-           JOIN entity en ON en.id = n.entity_id
-           JOIN node tn ON tn.id = ANY(${targetIds}) AND tn.context_id = 1 AND NOT tn.removed
-                       AND tn.entity_id = (SELECT id FROM entity WHERE name = ${targetKind})
-                       AND tn.key = ${reference}->'key'
-           WHERE en.name = ${sourceKind} AND n.context_id = 1 AND NOT n.removed
-             AND ${reference}->>'kind' = ${targetKind}${where === '' ? '' : ` AND (${where})`}
-         ), counted AS (
-           SELECT filtered.*, count(*) OVER (PARTITION BY target) AS total FROM filtered
-         ), rows AS (
-           SELECT * FROM counted${after === '' ? '' : ` WHERE ${after}`}
-         ), ranked AS (
-           SELECT rows.*, row_number() OVER (PARTITION BY target ORDER BY ${rankOrder}, rows.node_id::bigint) AS rn FROM rows
-         )
-         SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY target, rn`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      const cache = new Map<string, { rows: EntityValue[]; cursors: string[]; total: number }>();
-      for (const target of targets.keys()) cache.set(target, { rows: [], cursors: [], total: 0 });
-      for (const row of answer.rows) {
-        const target = String(row['target']);
-        const node = this.entityFromRow(row, lang);
-        if (node === undefined) continue;
-        const heldPage = cache.get(target)!;
-        heldPage.rows.push(node);
-        heldPage.cursors.push(encodeCursor({ o: order.keys.map((one) => row[`order_${String(one.at)}`] ?? null), id: node.nodeId }));
-        heldPage.total = Number(row['total']);
-      }
-      this.inverseCache.set(key, cache);
-    }
-  }
-
-
 
   /**
    * One entity's neighbourhood at a depth, for a rendered diagram (decision 0036, sections 7 and 8): the graph read layer
@@ -1055,21 +933,22 @@ export class ReadContext {
     const kindPages = new Map<string, string>();
     // The catalogue answers the folded nodes' page: the kind's entry lists every entity the node stands for.
     const catalogue = await this.catalogueData().catch(() => undefined);
+    const visibleEdges = withManifestContract(graphContractOf(this.manifest)).edge.map((edge) => edge.name);
     const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
       const statementSql = `WITH around AS (
          SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.from_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id
+         WHERE e.from_node = (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND en.name = ANY($3::text[])
          UNION ALL
          SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1 AND e.from_node <> e.to_node
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id
+         WHERE e.to_node = (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}) AND ${this.active('edge', 'e')} AND e.from_node <> e.to_node AND en.name = ANY($3::text[])
        ), live AS (
          SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
-         JOIN node n2 ON n2.id = around.other AND n2.context_id = 1 AND NOT n2.removed
+         JOIN node n2 ON n2.id = around.other AND ${this.active('vertex', 'n2')}
          JOIN entity en2 ON en2.id = n2.entity_id
        ), counted AS (
          SELECT live.*, count(*) OVER (PARTITION BY side, relation, kind)::int AS total,
@@ -1078,7 +957,7 @@ export class ReadContext {
        )
        SELECT * FROM counted WHERE rn <= $2::int ORDER BY side, relation, kind, rn`;
       span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [id, Math.max(1, first)]);
+      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [id, Math.max(1, first), visibleEdges]);
       span.setAttribute('db.rows', answer.rows.length);
       return answer;
     });
@@ -1104,18 +983,18 @@ export class ReadContext {
         links.push(side === 'out' ? { from: root.uid, to: node.uid, relation } : { from: node.uid, to: root.uid, relation });
       }
     }
-    const labels = new Map<string, string>();
-    for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
+    const labels = new Map(await Promise.all([...nodes].map(async ([uid, entity]) => [uid, await this.labelOf(entity)] as const)));
     const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
   }
 
-  /** Relation vocabulary belongs to the published product declaration, not the engine or the checkout. */
+  /**
+   * The words a relation reads as, from the published catalogue alone: the edge kind's own `labels`, or the relation
+   * vocabulary's for a relation no edge carries. The engine holds no product words and derives none from a key (owner's
+   * decision, 2026-11-15); a relation the catalogue names no words for has none, and no key reaches a page or a diagram.
+   */
   private relationWord(name: string, lang: string | undefined, inverse: boolean): string {
-    const language = lang ?? this.lang;
-    const labels = this.manifest.catalog?.schema.relationLabels?.get(name);
-    const words = labels?.[language] ?? labels?.[language.split('-')[0]!];
-    return words?.[inverse ? 'in' : 'out'] ?? relationWords(name, language, inverse);
+    return publishedRelationWords(this.published, name, lang ?? this.lang, inverse);
   }
 
   // ---- links both ways ---------------------------------------------------------------------------------------
@@ -1159,95 +1038,66 @@ export class ReadContext {
   }
 
   private async flushLinks(): Promise<void> {
-    await Promise.resolve();
-    const queue = this.linkQueue;
-    this.linkQueue = undefined;
-    this.linkFlush = undefined;
-    if (queue === undefined) return;
-    // Targets of one type, one direction and one reader language share a statement; the other end carries that language on.
-    const byType = new Map<string, { ids: string[]; entity: EntityValue; direction: 'in' | 'out' }>();
-    for (const held of queue.values()) {
-      const key = `${held.direction}\u0000${held.entity.typeName}\u0000${held.entity.lang ?? ''}`;
-      const bucket = byType.get(key) ?? { ids: [], entity: held.entity, direction: held.direction };
-      bucket.ids.push(held.entity.nodeId);
-      byType.set(key, bucket);
-    }
-    for (const [, held] of byType) {
-      const sql = new Sql();
-      const ids = sql.param(held.ids, '::bigint[]');
-      const parts: string[] = [
-        held.direction === 'in'
-          ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND e.context_id = 1`
-          : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND e.context_id = 1`,
-      ];
-      for (const [inverseField, inverse] of held.direction === 'out' ? [] : (this.referenceInverseByType.get(held.entity.typeName) ?? new Map())) {
-        const targetKind = sql.param(held.entity.kind, '::text');
-        const relation = sql.param(inverseField, '::text');
-        const sourceKind = sql.param(inverse.source.name, '::text');
-        const table = this.vertexTable.get(inverse.source.name)!;
-        // A reference in the key stands in `node.key`; one stated as a field is its opinions' agreed value.
-        if (inverse.source.key.includes(inverse.field.name)) {
-          parts.push(`SELECT tn.id AS target, ${relation} AS relation, n.id::text AS source_id, n.id AS other
-            FROM node n
-            JOIN entity en ON en.id = n.entity_id AND en.name = ${sourceKind}
-            JOIN node tn ON tn.id = ANY(${ids}) AND tn.context_id = 1 AND NOT tn.removed
-                        AND tn.entity_id = (SELECT id FROM entity WHERE name = ${targetKind})
-                        AND tn.key = n.key->'${inverse.field.name}'->'key'
-            WHERE n.context_id = 1 AND NOT n.removed AND n.key->'${inverse.field.name}'->>'kind' = ${targetKind}`);
-        } else {
-          const agreed = `(SELECT CASE WHEN count(DISTINCT o."${inverse.field.name}") = 1 THEN (array_agg(o."${inverse.field.name}") FILTER (WHERE o."${inverse.field.name}" IS NOT NULL))[1] END FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1)`;
-          parts.push(`SELECT tn.id AS target, ${relation} AS relation, n.id::text AS source_id, n.id AS other
-            FROM "${table}" t
-            JOIN node n ON n.id = t.node_id
-            JOIN entity en ON en.id = n.entity_id AND en.name = ${sourceKind}
-            JOIN node tn ON tn.id = ANY(${ids}) AND tn.context_id = 1 AND NOT tn.removed
-                        AND tn.entity_id = (SELECT id FROM entity WHERE name = ${targetKind})
-                        AND tn.key = (${agreed})::jsonb->'key' AND (t."${inverse.field.name}")::jsonb->>'kind' = ${targetKind}
-            WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
+    return await withSpan('graph.links.batch', {}, async () => {
+      await Promise.resolve();
+      const queue = this.linkQueue;
+      this.linkQueue = undefined;
+      this.linkFlush = undefined;
+      if (queue === undefined) return;
+      // Targets of one type, one direction and one reader language share a statement; the other end carries that language on.
+      const byType = new Map<string, { ids: string[]; entity: EntityValue; direction: 'in' | 'out' }>();
+      for (const held of queue.values()) {
+        const key = `${held.direction}\u0000${held.entity.typeName}\u0000${held.entity.lang ?? ''}`;
+        const bucket = byType.get(key) ?? { ids: [], entity: held.entity, direction: held.direction };
+        bucket.ids.push(held.entity.nodeId);
+        byType.set(key, bucket);
+      }
+      for (const [, held] of byType) {
+        const sql = new Sql();
+        const ids = sql.param(held.ids, '::bigint[]');
+        const visibleEdges = sql.param(withManifestContract(graphContractOf(this.manifest)).edge.map((edge) => edge.name), '::text[]');
+        const parts: string[] = [
+          held.direction === 'in'
+            ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
+           FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND en.name = ANY(${visibleEdges}) AND ${this.active('edge', 'e')}`
+            : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
+           FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND en.name = ANY(${visibleEdges}) AND ${this.active('edge', 'e')}`,
+        ];
+        const rows = await this.tx.query<{ target: string | number; relation: string; source_id: string; other: string | number; total: string | number }>(
+          `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
+             SELECT DISTINCT target, relation, source_id, other FROM links JOIN node link_other ON link_other.id=links.other WHERE ${this.active('vertex', 'link_other')}
+           ), ranked AS (
+             SELECT distinct_links.*, row_number() OVER (PARTITION BY target ORDER BY relation, source_id) AS rn,
+                    count(*) OVER (PARTITION BY target) AS total
+             FROM distinct_links
+           )
+           SELECT * FROM ranked ORDER BY target, rn`,
+          sql.params,
+        );
+        const others = [...new Set(rows.rows.map((row) => String(row.other)))];
+        const nodes = others.length === 0 ? [] : (await this.tx.query<Record<string, unknown>>(
+          `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`,
+          [others],
+        )).rows;
+        const byId = new Map<string, EntityValue>();
+        for (const row of nodes) {
+          const node = this.entityFromRow(row, held.entity.lang);
+          if (node !== undefined) byId.set(node.nodeId, node);
         }
+        const lists = new Map<string, { relation: string; other: EntityValue; id: string }[]>();
+        for (const row of rows.rows) {
+          const target = String(row.target);
+          const other = byId.get(String(row.other));
+          if (other === undefined) continue;
+          const relationName = held.direction === 'in' ? this.backlinkRelation(String(row.relation)) : fieldNameOf(String(row.relation));
+          const list = lists.get(target) ?? [];
+          list.push({ relation: relationName, other, id: String(row.source_id) });
+          lists.set(target, list);
+          this.linkTotals.set(`${held.direction}\u0000${target}`, Number(row.total));
+        }
+        for (const id of held.ids) this.linkCache.set(`${held.direction}\u0000${id}`, lists.get(id) ?? []);
       }
-      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `WITH links AS (${parts.join(' UNION ALL ')}), distinct_links AS (
-           SELECT DISTINCT target, relation, source_id, other FROM links
-         ), ranked AS (
-           SELECT distinct_links.*, row_number() OVER (PARTITION BY target ORDER BY relation, source_id) AS rn,
-                  count(*) OVER (PARTITION BY target) AS total
-           FROM distinct_links
-         )
-         SELECT * FROM ranked ORDER BY target, rn`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      const others = [...new Set(rows.rows.map((row) => String(row['other'])))];
-      const nodes = others.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[])`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [others]);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      })).rows;
-      const byId = new Map<string, EntityValue>();
-      for (const row of nodes) {
-        const node = this.entityFromRow(row, held.entity.lang);
-        if (node !== undefined) byId.set(node.nodeId, node);
-      }
-      const lists = new Map<string, { relation: string; other: EntityValue; id: string }[]>();
-      for (const row of rows.rows) {
-        const target = String(row['target']);
-        const other = byId.get(String(row['other']));
-        if (other === undefined) continue;
-        const relationName = held.direction === 'in' ? this.backlinkRelation(String(row['relation'])) : fieldNameOf(String(row['relation']));
-        const list = lists.get(target) ?? [];
-        list.push({ relation: relationName, other, id: String(row['source_id']) });
-        lists.set(target, list);
-        this.linkTotals.set(`${held.direction}\u0000${target}`, Number(row['total']));
-      }
-      for (const id of held.ids) this.linkCache.set(`${held.direction}\u0000${id}`, lists.get(id) ?? []);
-    }
+    });
   }
 
   /**
@@ -1257,6 +1107,9 @@ export class ReadContext {
   private edgeNameOf(relation: string): string {
     for (const name of this.manifest.catalog?.schema.relations.keys() ?? []) {
       if (fieldNameOf(name) === relation || `${fieldNameOf(name)}Of` === relation) return name;
+    }
+    for (const declared of this.published.relations) {
+      if (fieldNameOf(declared.name) === relation || `${fieldNameOf(declared.name)}Of` === relation) return declared.name;
     }
     for (const edge of this.published.edges) {
       if (fieldNameOf(edge.name) === relation || `${fieldNameOf(edge.name)}Of` === relation) return edge.name;
@@ -1286,18 +1139,22 @@ export class ReadContext {
       const roles = declared?.fileText ?? catalogueFileTextRole();
       const kind = declared?.name ?? roles.kind;
       if (kind === undefined) return null;
-      const table = this.vertexTable.get(kind);
-      if (table === undefined) return null;
-      // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
-      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
-          WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
-            AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<{ blob: unknown }>(statementSql, [roles.repository, repository, roles.path, path]);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
+      const declaration = this.published.kinds.find(one => one.name === kind);
+      const blobField = declaration?.fields.find(one => one.name === roles.blob);
+      const pathField = declaration?.fields.find(one => one.name === roles.path);
+      if (declaration === undefined || blobField === undefined || pathField === undefined) return null;
+      const parent = this.manifest.kinds.get(kind)?.keyEdges?.find(one => one.role === roles.repository);
+      if (parent === undefined) return null;
+      const sql = new Sql();
+      const pathValue = this.fieldExpr(declaration, pathField, 'n', sql, undefined);
+      const blobValue = this.fieldExpr(declaration, blobField, 'n', sql, undefined);
+      const found = await this.tx.query<{ blob: unknown }>(
+        `SELECT ${blobValue} AS blob FROM node n JOIN entity k ON k.id=n.entity_id
+         JOIN edge e ON e.${parent.direction === 'from' ? 'from_node' : 'to_node'}=n.id JOIN entity ek ON ek.id=e.entity_id
+         JOIN node repository ON repository.id=e.${parent.direction === 'from' ? 'to_node' : 'from_node'}
+         WHERE k.name=${sql.param(kind, '::text')} AND ek.name=${sql.param(parent.edge, '::text')}
+           AND repository.key->>'name'=${sql.param(repository, '::text')} AND ${pathValue}=${sql.param(path, '::text')}
+           AND ${this.active('vertex', 'n')} AND ${this.active('vertex', 'repository')} AND ${this.active('edge', 'e')} LIMIT 1`, sql.params);
       const blob = found.rows[0]?.blob;
       if (typeof blob !== 'string' || blob === '') return null;
       // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
@@ -1316,54 +1173,54 @@ export class ReadContext {
   }
 
   private async root(field: string, args: Record<string, unknown>): Promise<unknown> {
-    const lang = typeof args['lang'] === 'string' ? args['lang'] : undefined;
-    if (field === 'entityByKey') {
-      const kind = typeof args['kind'] === 'string' ? args['kind'] : '';
-      const key = args['key'];
-      if (!this.published.kinds.some((one) => one.name === kind) || key === null || typeof key !== 'object' || Array.isArray(key)) return null;
-      return this.referenceValue({ nodeId: '', uid: '', kind, key: {}, typeName: kindTypeNameOf(kind), ...(lang === undefined ? {} : { lang }) }, kind, { kind, key });
-    }
-    if (field === 'entity') {
-      const id = typeof args['id'] === 'string' ? args['id'] : '';
-      if (id === '') return null;
-      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-         FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.uid = $1::uuid AND n.context_id = 1 AND NOT n.removed LIMIT 1`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-        const answer = await this.tx.query<Record<string, unknown>>(statementSql, [id]);
-        span.setAttribute('db.rows', answer.rows.length);
-        return answer;
-      });
-      if (rows.rows[0] === undefined) return null;
-      if (String(rows.rows[0]['entity']) === 'manifest.kind') await this.catalogueData();
-      return this.entityFromRow(rows.rows[0], lang) ?? null;
-    }
-    const kind = this.kindByRoot.get(field);
-    if (kind !== undefined) return this.listOfKind(kind, args as ConnectionArgs, lang);
-    if (field.endsWith('Aggregate') && this.kindByRoot.has(field.slice(0, -'Aggregate'.length))) {
-      const held = this.kindByRoot.get(field.slice(0, -'Aggregate'.length))!;
-      return this.aggregateOfKind(held, args['where'] as Readonly<Record<string, unknown>> | undefined, lang);
-    }
-    if (field === 'cochange') return this.cochange(args, lang);
-    if (field === 'contributors') return this.contributors(args, lang);
-    if (field === 'catalogueDependencies') return this.catalogueDependencies(lang);
-    if (field === 'logs') return this.logs === undefined ? null : this.logs(args);
-    if (field === 'related') return this.related(args, lang);
-    if (field === 'catalogueEntity') {
-      const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
-      return value === undefined ? null : this.catalogueEntityValue(value, lang);
-    }
-    if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
-    if (field === 'home') return this.home(lang);
-    if (field === 'source') return await this.sourceOf(args);
-    if (field === 'search') return this.search(args, lang);
-    if (field === 'searchGroups') return this.searchGroups(args, lang);
-    if (field === 'bootstrap') return this.bootstrap();
-    if (field === 'navigation') return this.navigation(lang);
-    // The templates a page draws are the graph's entities (the owner's decision of 2026-11-15): their findings are read from
-    // the same revision the page is read at, and no folder is opened here.
-    if (field === 'templateFindings') return checkProductTemplates(this.templateFiles, this.templateBodies, this.templateFindings, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
-    return null;
+    return await withSpan('graph.root.resolve', {}, async () => {
+      const lang = typeof args['lang'] === 'string' ? args['lang'] : undefined;
+      if (field === 'entityByKey') {
+        const kind = typeof args['kind'] === 'string' ? args['kind'] : '';
+        const key = args['key'];
+        if (!this.published.kinds.some((one) => one.name === kind) || key === null || typeof key !== 'object' || Array.isArray(key)) return null;
+        const rows = await this.tx.query<Record<string, unknown>>(
+          `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
+           FROM node n JOIN entity en ON en.id=n.entity_id WHERE en.name=$1 AND n.key=$2::jsonb AND ${this.active('vertex', 'n')} LIMIT 1`,
+          [kind, JSON.stringify(key)]);
+        return rows.rows[0] === undefined ? null : this.entityFromRow(rows.rows[0], lang) ?? null;
+      }
+      if (field === 'entity') {
+        const id = typeof args['id'] === 'string' ? args['id'] : '';
+        if (id === '') return null;
+        const row = await this.metadataEntityRow(id);
+        if (row === null) return null;
+        if (String(row['entity']) === 'manifest.kind') await this.catalogueData();
+        return this.entityFromRow(row, lang) ?? null;
+      }
+      const kind = this.kindByRoot.get(field);
+      if (kind !== undefined) return this.listOfKind(kind, args as ConnectionArgs, lang);
+      if (field.endsWith('Aggregate') && this.kindByRoot.has(field.slice(0, -'Aggregate'.length))) {
+        const held = this.kindByRoot.get(field.slice(0, -'Aggregate'.length))!;
+        return this.aggregateOfKind(held, args['where'] as Readonly<Record<string, unknown>> | undefined, lang);
+      }
+      if (field === 'cochange') return this.cochange(args, lang);
+      if (field === 'contributors') return this.contributors(args, lang);
+      if (field === 'catalogueDependencies') return this.catalogueDependencies(lang);
+      if (field === 'logs') return this.logs === undefined ? null : this.logs(args);
+      if (field === 'related') return this.related(args, lang);
+      if (field === 'catalogueEntity') {
+        const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
+        if (value === undefined) throw new GraphRefusal('/name', 'declared catalogue kind', args['name']);
+        return this.catalogueEntityValue(value, lang);
+      }
+      if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
+      if (field === 'home') return this.home(lang);
+      if (field === 'source') return await this.sourceOf(args);
+      if (field === 'search') return this.search(args, lang);
+      if (field === 'searchGroups') return this.searchGroups(args, lang);
+      if (field === 'bootstrap') return this.bootstrap();
+      if (field === 'navigation') return this.navigation(lang);
+      // The templates a page draws are the graph's entities (the owner's decision of 2026-11-15): their findings are read from
+      // the same revision the page is read at, and no folder is opened here.
+      if (field === 'templateFindings') return checkProductTemplates(this.templateFiles, this.templateBodies, this.templateFindings, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
+      return null;
+    });
   }
 
   /** One page of a kind's vertices, filtered and ordered in SQL over the agreed values; the total is before the cursor. */
@@ -1381,7 +1238,7 @@ export class ReadContext {
       const statementSql = `WITH filtered AS (
          SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
          FROM node n JOIN entity en ON en.id = n.entity_id
-         WHERE en.name = ${kindName} AND n.context_id = 1 AND NOT n.removed${where === '' ? '' : ` AND (${where})`}
+         WHERE en.name = ${kindName} AND ${this.active('vertex', 'n')}${where === '' ? '' : ` AND (${where})`}
        ), rows AS (
          SELECT * FROM filtered${after === '' ? '' : ` WHERE ${after}`}
        ), ranked AS (
@@ -1407,23 +1264,20 @@ export class ReadContext {
   }
 
   private async home(lang: string | undefined): Promise<unknown> {
-    const kind = homeKind(this.manifest);
-    if (kind === undefined) return null;
-    const table = this.vertexTable.get(kind.name);
-    const startupFirst = kind.source === 'graph' && table !== undefined
-      ? `EXISTS (SELECT 1 FROM "${table}" p WHERE p.node_id = n.id AND p.context_id = 1 AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'start') DESC, `
-      : '';
-    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY ${startupFirst}n.id LIMIT 1`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [kind.name]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
+    return await withSpan('graph.home.read', {}, async () => {
+      const kind = homeKind(this.manifest);
+      if (kind === undefined) return null;
+      const product = productEntityOf(this.folder, { home: kind }, undefined);
+      if (product === undefined) return null;
+      const rows = await this.tx.query<Record<string, unknown>>(
+        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
+         FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.key=$2::jsonb AND ${this.active('vertex', 'n')}`,
+        [kind.name, JSON.stringify(product.key)],
+      );
+      if (rows.rows[0] === undefined) return null;
+      if (String(rows.rows[0]['entity']) === 'manifest.kind') await this.catalogueData();
+      return this.entityFromRow(rows.rows[0], lang) ?? null;
     });
-    if (rows.rows[0] === undefined) return null;
-    if (String(rows.rows[0]['entity']) === 'manifest.kind') await this.catalogueData();
-    return this.entityFromRow(rows.rows[0], lang) ?? null;
   }
 
   /** Search over labels and text fields, one union of every kind's text; the total is before the cursor. */
@@ -1433,15 +1287,12 @@ export class ReadContext {
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
     const prefix = sql.param(`${text}%`, '::text');
-    // The store's own columns: a field a kind declares and whose opinion table does not hold is not searched.
-    const columns = await this.vertexColumns();
     const parts: string[] = [];
     for (const kind of this.published.kinds) {
       if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(kindTypeNameOf(kind.name))) continue;
-      const held = columns.get(this.vertexTable.get(kind.name) ?? '') ?? new Set<string>();
-      // The whole text of a file or a document is not a search index: a path, a name or a definition is; a field
-      // holding the whole source would make every word scan the tree.
-      const searched = kind.fields.filter((field) => field.type === 'text' && !HEAVY_TEXT_FIELDS.has(field.name) && (kind.key.includes(field.name) || held.has(field.name)));
+      // Immutable content is evidence, not a search index; the declaration names its content field.
+      const contentField = this.manifest.kinds.get(kind.name)?.evidence?.contentField;
+      const searched = kind.fields.filter((field) => field.type === 'text' && field.name !== contentField);
       if (searched.length === 0) continue;
       const kindParam = sql.param(kind.name, '::text');
       const title = this.manifest.kinds.get(kind.name)?.title;
@@ -1452,7 +1303,7 @@ export class ReadContext {
         parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, ${kindParam} AS kind,
             (${expr})::text AS value, ${rank} AS rank
           FROM node n JOIN entity en ON en.id = n.entity_id
-          WHERE en.name = ${kindParam} AND n.context_id = 1 AND NOT n.removed AND (${expr})::text ILIKE ${pattern}`);
+          WHERE en.name = ${kindParam} AND ${this.active('vertex', 'n')} AND (${expr})::text ILIKE ${pattern}`);
       }
     }
     if (parts.length === 0) return [];
@@ -1510,7 +1361,7 @@ export class ReadContext {
   private async searchGroups(args: Record<string, unknown>, lang: string | undefined): Promise<unknown[]> {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
-    const perKind = Math.min(Math.max(1, Math.trunc(Number(args['perKind'] ?? 5))), 20);
+    const perKind = boundedInteger(args['perKind'], 5, 1, 20, '/perKind');
     const hits = await this.searchHits(text, wanted, lang, Math.max(perKind * 4, 40), true);
     const groups = new Map<string, { rows: Map<string, { hit: (typeof hits)[number]; best: number }> }>();
     for (const hit of hits) {
@@ -1624,6 +1475,7 @@ export class ReadContext {
         parent: group.parent ?? null,
       }));
     const kinds = [...this.manifest.kinds.values()]
+      .filter((kind) => kind.templatePolicy !== 'none')
       .map((kind) => ({
         kind: kind.name,
         one: kind.labels?.[language]?.one ?? kind.labels?.[this.fallbackLang]?.one ?? kind.name,
@@ -1654,13 +1506,9 @@ export class ReadContext {
     const sql = new Sql();
     const parts = this.published.kinds.map((kind) => {
       const kindParam = sql.param(kind.name, '::text');
-      const removal = kind.fields.find((field) => field.name === 'removed_at' || field.name === 'removedAt');
-      const table = this.vertexTable.get(kind.name);
-      const stillHere = removal === undefined || table === undefined ? ''
-        : ` AND NOT EXISTS (SELECT 1 FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1 AND o."${removal.name}" IS NOT NULL)`;
       return `SELECT ${kindParam} AS kind, count(*)::int AS n
         FROM node n JOIN entity en ON en.id = n.entity_id
-        WHERE n.context_id = 1 AND NOT n.removed AND en.name = ${kindParam}${stillHere}`;
+        WHERE ${this.active('vertex', 'n')} AND en.name = ${kindParam}`;
     });
     const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
       const statementSql = parts.join(' UNION ALL ');
@@ -1692,7 +1540,7 @@ export class ReadContext {
     return {
       sql: `SELECT n.id AS node_id, ${value} AS value
             FROM node n JOIN entity en ON en.id = n.entity_id
-            WHERE en.name = ${kindName} AND n.context_id = 1 AND NOT n.removed${where === '' ? '' : ` AND (${where})`}`,
+            WHERE en.name = ${kindName} AND ${this.active('vertex', 'n')}${where === '' ? '' : ` AND (${where})`}`,
       params: sql.params,
     };
   }
@@ -1713,10 +1561,11 @@ export class ReadContext {
     }
     const fieldName = typeof args['field'] === 'string' ? args['field'] : '';
     const field = this.fieldsByType.get(kindTypeNameOf(kind.name))?.get(fieldName);
-    if (field === undefined) return [];
+    if (field === undefined) throw new GraphRefusal('/field', `field of ${kind.name}`, fieldName);
+    if (name === 'histogram' && !['integer', 'bigint', 'timestamp'].includes(field.type)) throw new GraphRefusal('/field', 'numeric or timestamp field', fieldName);
     const filtered = this.aggregateSource(aggregate, field);
     if (name === 'groupBy') {
-      const limit = Math.min(Math.max(0, Math.trunc(Number(args['limit'] ?? 20))), 20);
+      const limit = boundedInteger(args['limit'], 20, 0, 20, '/limit');
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
         const statementSql = `WITH v AS (${filtered.sql}) SELECT to_jsonb(value) AS key, count(*)::int AS n FROM v
          GROUP BY value ORDER BY n DESC, value ASC NULLS LAST LIMIT ${String(limit)}`;
@@ -1728,9 +1577,9 @@ export class ReadContext {
       return found.rows.map((row) => ({ key: row.key, count: Number(row.n) }));
     }
     if (name === 'histogram') {
-      const bounds = Array.isArray(args['bounds'])
-        ? (args['bounds'] as unknown[]).map((one) => Number(one)).filter((one) => Number.isFinite(one)).sort((left, right) => left - right)
-        : [];
+      const supplied = args['bounds'];
+      if (!Array.isArray(supplied) || supplied.some((one, at) => typeof one !== 'number' || !Number.isFinite(one) || (at > 0 && one <= Number(supplied[at - 1])))) throw new GraphRefusal('/bounds', 'strictly increasing finite numeric bounds', supplied);
+      const bounds = supplied as number[];
       // A timestamp's histogram counts its age in days, so a bucket says how long ago; a number's counts the value.
       const measured = field.type === 'timestamp' ? 'EXTRACT(EPOCH FROM (now() - value)) / 86400' : 'value::numeric';
       const edges: (number | null)[] = [null, ...bounds, null];
@@ -1754,7 +1603,7 @@ export class ReadContext {
       return buckets.map((one, at) => ({ from: one.from, to: one.to, count: counted.get(at) ?? 0 }));
     }
     if (name === 'topN') {
-      const n = Math.min(Math.max(0, Math.trunc(Number(args['n'] ?? 10))), 50);
+      const n = boundedInteger(args['n'], 10, 0, 50, '/n');
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
         const statementSql = `WITH v AS (${filtered.sql}) SELECT node_id, value FROM v WHERE value IS NOT NULL
          ORDER BY value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`;
@@ -1810,14 +1659,14 @@ export class ReadContext {
     const rankOrder = order.keys.length === 0 ? 'rows.other_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
     const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
       const statementSql = `WITH RECURSIVE origin AS (
-         SELECT id FROM node WHERE uid = ${sql.param(uid, '::uuid')} AND context_id = 1 AND NOT removed
+         SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = ${sql.param(uid, '::uuid')} AND ${this.active('vertex', 'n')}
        ), reach(id, level, visited) AS (
          SELECT id, 0, ARRAY[id] FROM origin
          UNION ALL
          SELECT ${otherColumn}, r.level + 1, r.visited || ${otherColumn}
-         FROM reach r JOIN edge e ON ${nearColumn} = r.id AND e.context_id = 1
+         FROM reach r JOIN ${this.effectiveEdges()} e ON ${nearColumn} = r.id AND ${this.active('edge', 'e')}
          JOIN entity en ON en.id = e.entity_id AND en.name = ${sql.param(edgeName, '::text')}
-         JOIN node reached ON reached.id = ${otherColumn} AND reached.context_id = 1 AND NOT reached.removed
+         JOIN node reached ON reached.id = ${otherColumn} AND ${this.active('vertex', 'reached')}
          WHERE r.level < ${sql.param(depth, '::int')} AND NOT ${otherColumn} = ANY(r.visited)
        ), filtered AS (
          SELECT n2.id::text AS other_id, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
@@ -1848,65 +1697,36 @@ export class ReadContext {
     };
   }
 
-  /** The columns each vertex table holds, read once per operation: what a field's opinions can be read from. */
-  private async vertexColumns(): Promise<Map<string, Set<string>>> {
-    if (this.columnCache !== undefined) return this.columnCache;
-    const tables = [...new Set(this.published.kinds.map((kind) => this.vertexTable.get(kind.name)).filter((one): one is string => one !== undefined))];
-    const found = tables.length === 0 ? [] : (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT table_name, column_name FROM information_schema.columns WHERE table_name = ANY($1::text[])`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<{ table_name: string; column_name: string }>(statementSql, [tables]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    })).rows;
-    const out = new Map<string, Set<string>>();
-    for (const row of found) {
-      const held = out.get(String(row.table_name)) ?? new Set<string>();
-      held.add(String(row.column_name));
-      out.set(String(row.table_name), held);
-    }
-    this.columnCache = out;
-    return out;
-  }
-
-  /**
-   * The entities at the far end of one more relation: the authors of the commits that touched a file, the files of the
-   * commits of an author — read as one statement and counted, the fullest first.
-   */
   private async contributors(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
-    const uid = typeof args['id'] === 'string' ? args['id'] : '';
-    const through = typeof args['through'] === 'string' ? args['through'] : '';
-    const edge = typeof args['edge'] === 'string' ? args['edge'] : '';
-    const first = Math.min(Math.max(1, Math.trunc(Number(args['first'] ?? 20))), 50);
-    if (uid === '' || through === '' || edge === '') return [];
-    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
-       near AS (
-         SELECT e.from_node AS mid FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
-           WHERE e.to_node = (SELECT id FROM me) AND e.context_id = 1
-       ),
-       far AS (
-         SELECT e.from_node AS node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $3
-           WHERE e.to_node IN (SELECT mid FROM near) AND e.context_id = 1
-       ),
-       counted AS (SELECT node, count(*)::int AS n FROM far GROUP BY node)
-       SELECT node, n FROM counted ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [uid, through, edge]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
+    return await withSpan('graph.contributors.read', {}, async () => {
+      const uid = typeof args['id'] === 'string' ? args['id'] : '';
+      const through = typeof args['through'] === 'string' ? args['through'] : '';
+      const edge = typeof args['edge'] === 'string' ? args['edge'] : '';
+      const first = boundedInteger(args['first'], 20, 1, 50, '/first');
+      if (uid === '' || through === '' || edge === '') return [];
+      const rows = await this.tx.query<Record<string, unknown>>(
+        `WITH me AS (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}),
+         near AS (
+           SELECT e.from_node AS mid FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+             WHERE e.to_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
+         ),
+         far AS (
+           SELECT e.from_node AS node FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $3
+             WHERE e.to_node IN (SELECT mid FROM near) AND ${this.active('edge', 'e')}
+         ),
+         counted AS (SELECT node, count(*)::int AS n FROM far GROUP BY node)
+         SELECT node, n FROM counted ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`,
+        [uid, through, edge],
+      );
+      const ids = rows.rows.map((row) => String(row['node']));
+      if (ids.length === 0) return [];
+      const nodes = (await this.tx.query<Record<string, unknown>>(
+        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND ${this.active('vertex', 'n')}`,
+        [ids],
+      )).rows;
+      const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
+      return rows.rows.map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) })).filter((one) => one.node !== undefined);
     });
-    const ids = rows.rows.map((row) => String(row['node']));
-    if (ids.length === 0) return [];
-    const nodes = (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    })).rows;
-    const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
-    return rows.rows.map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) })).filter((one) => one.node !== undefined);
   }
 
   /**
@@ -1914,46 +1734,42 @@ export class ReadContext {
    * history): the other ends of the edges that share a near end with it, counted, the most shared first.
    */
   private async cochange(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
-    const uid = typeof args['id'] === 'string' ? args['id'] : '';
-    const edgeName = typeof args['edge'] === 'string' ? args['edge'] : '';
-    const first = Math.min(Math.max(0, Math.trunc(Number(args['first'] ?? 20))), 50);
-    if (uid === '' || edgeName === '') return [];
-    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
-       mine AS (
-         SELECT e.to_node AS node, e.from_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
-           WHERE e.to_node = (SELECT id FROM me) AND e.context_id = 1
-         UNION ALL
-         SELECT e.from_node AS node, e.to_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
-           WHERE e.from_node = (SELECT id FROM me) AND e.context_id = 1
-       ),
-       sibling AS (
-         SELECT e.to_node AS node, e.from_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
-           WHERE e.from_node IN (SELECT other FROM mine) AND e.to_node <> (SELECT id FROM me) AND e.context_id = 1
-         UNION ALL
-         SELECT e.from_node AS node, e.to_node AS other FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
-           WHERE e.to_node IN (SELECT other FROM mine) AND e.from_node <> (SELECT id FROM me) AND e.context_id = 1
-       ),
-       shared AS (SELECT node, count(DISTINCT other)::int AS n FROM sibling GROUP BY node)
-       SELECT node, n, (SELECT count(DISTINCT other)::int FROM mine) AS total FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [uid, edgeName]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
+    return await withSpan('graph.cochange.read', {}, async () => {
+      const uid = typeof args['id'] === 'string' ? args['id'] : '';
+      const edgeName = typeof args['edge'] === 'string' ? args['edge'] : '';
+      const first = boundedInteger(args['first'], 20, 0, 50, '/first');
+      if (uid === '' || edgeName === '') return [];
+      const rows = await this.tx.query<Record<string, unknown>>(
+        `WITH me AS (SELECT n.id FROM node requested JOIN node n ON n.id=${this.canonicalNode('requested.id')} WHERE requested.uid = $1::uuid AND ${this.active('vertex', 'n')}),
+         mine AS (
+           SELECT e.to_node AS node, e.from_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+             WHERE e.to_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
+           UNION ALL
+           SELECT e.from_node AS node, e.to_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+             WHERE e.from_node = (SELECT id FROM me) AND ${this.active('edge', 'e')}
+         ),
+         sibling AS (
+           SELECT e.to_node AS node, e.from_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+             WHERE e.from_node IN (SELECT other FROM mine) AND e.to_node <> (SELECT id FROM me) AND ${this.active('edge', 'e')}
+           UNION ALL
+           SELECT e.from_node AS node, e.to_node AS other FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+             WHERE e.to_node IN (SELECT other FROM mine) AND e.from_node <> (SELECT id FROM me) AND ${this.active('edge', 'e')}
+         ),
+         shared AS (SELECT node, count(DISTINCT other)::int AS n FROM sibling GROUP BY node)
+         SELECT node, n FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`,
+        [uid, edgeName],
+      );
+      const ids = rows.rows.map((row) => String(row['node']));
+      if (ids.length === 0) return [];
+      const nodes = (await this.tx.query<Record<string, unknown>>(
+        `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND ${this.active('vertex', 'n')}`,
+        [ids],
+      )).rows;
+      const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
+      return rows.rows
+        .map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) }))
+        .filter((one) => one.node !== undefined);
     });
-    const ids = rows.rows.map((row) => String(row['node']));
-    if (ids.length === 0) return [];
-    const nodes = (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql, [ids]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    })).rows;
-    const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
-    return rows.rows
-      .map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']), total: Number(row['total']), share: Number(row['n']) / Number(row['total']) * 100 }))
-      .filter((one) => one.node !== undefined);
   }
 
   // ---- catalogue ---------------------------------------------------------------------------------------------
@@ -1980,85 +1796,72 @@ export class ReadContext {
   }
 
   private async catalogueData(): Promise<{ byName: Map<string, CatalogueValue>; byId: Map<string, CatalogueValue> }> {
-    if (this.catalogueRead !== undefined) return this.catalogueRead;
-    const byName = new Map<string, CatalogueValue>();
-    const byId = new Map<string, CatalogueValue>();
-    const kindTable = generatedTableName('manifest.kind', 'vertex');
-    const fieldTable = generatedTableName('manifest.field', 'vertex');
-    const kinds = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT DISTINCT ON (n.id) n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name, p.declaration AS declaration
-       FROM "${kindTable}" p
-       JOIN node n ON n.id = p.node_id
-       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed
-       ORDER BY n.id, p.id DESC`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    });
-    const fieldRows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT p.declaration AS declaration FROM "${fieldTable}" p
-       JOIN node n ON n.id = p.node_id
-       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    });
-    const dependencies = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
-       FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
-       JOIN node dependent ON dependent.id = e.from_node AND dependent.context_id = 1 AND NOT dependent.removed
-       JOIN node prerequisite ON prerequisite.id = e.to_node AND prerequisite.context_id = 1 AND NOT prerequisite.removed
-       WHERE e.context_id = 1
-       ORDER BY dependent, prerequisite`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<Record<string, unknown>>(statementSql);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
-    });
-    const fieldsByKind = new Map<string, CatalogueFieldValue[]>();
-    for (const row of fieldRows.rows) {
-      const declaration = row['declaration'] as Record<string, unknown> | undefined;
-      if (declaration === undefined || typeof declaration['kind'] !== 'string') continue;
-      const list = fieldsByKind.get(declaration['kind']) ?? [];
-      list.push({
-        name: String(declaration['name'] ?? ''),
-        type: String(declaration['type'] ?? ''),
-        nullable: declaration['nullable'] === true,
-        reference: typeof declaration['reference'] === 'string' ? declaration['reference'] : null,
-        producers: Array.isArray(declaration['producers']) ? (declaration['producers'] as unknown[]).filter((one): one is string => typeof one === 'string') : [],
-      });
-      fieldsByKind.set(declaration['kind'], list);
-    }
-    const derives = new Map<string, string[]>();
-    const derivedBy = new Map<string, string[]>();
-    for (const row of dependencies.rows) {
-      const dependent = String(row['dependent']);
-      const prerequisite = String(row['prerequisite']);
-      derives.set(dependent, [...(derives.get(dependent) ?? []), prerequisite]);
-      derivedBy.set(prerequisite, [...(derivedBy.get(prerequisite) ?? []), dependent]);
-    }
-    for (const row of kinds.rows) {
-      const name = String(row['name'] ?? '');
-      const declaration = (row['declaration'] ?? {}) as Record<string, unknown>;
-      const entry = (declaration['catalog'] ?? declaration) as Record<string, unknown>;
-      const value: CatalogueValue = {
-        nodeId: String(row['node_id']),
-        uid: String(row['uid']),
-        name,
-        entry,
-        taken: declaration['taken'] === true,
-        plugins: Array.isArray(declaration['plugins']) ? (declaration['plugins'] as unknown[]).filter((one): one is string => typeof one === 'string') : [],
-        fields: fieldsByKind.get(name) ?? [],
-        derivesFrom: derives.get(name) ?? [],
-        derivedBy: derivedBy.get(name) ?? [],
+    return await withSpan('graph.catalogue.read', {}, async () => {
+      if (this.catalogueRead !== undefined) return this.catalogueRead;
+      const byName = new Map<string, CatalogueValue>();
+      const byId = new Map<string, CatalogueValue>();
+      const declarations = async (kind: string) => {
+        const identities = await this.tx.query<Record<string, unknown>>(
+          `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name
+           FROM node n JOIN entity e ON e.id=n.entity_id WHERE e.name=$1 AND ${this.active('vertex', 'n')}`, [kind]);
+        const assertions = await loadAssertions(this.tx, 'vertex', kind, ['declaration'], identities.rows.map((row) => Number(row['node_id'])), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, projectMergedSubjects: this.hasMerges, resolvedAssertionIds: this.resolutionAssertionIds });
+        return { rows: identities.rows.map((row): Record<string, unknown> => {
+          const value = this.selection(assertions.filter((one) => one.subjectId === Number(row['node_id']))).selected?.value;
+          return { ...row, declaration: value === undefined ? undefined : JSON.parse(String(value)) };
+        }) };
       };
-      byName.set(name, value);
-      byId.set(value.nodeId, value);
-    }
-    this.catalogueRead = { byName, byId };
-    return this.catalogueRead;
+      const kinds = await declarations('manifest.kind');
+      const fieldRows = await declarations('manifest.field');
+      const dependencies = await this.tx.query<Record<string, unknown>>(
+        `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
+         FROM ${this.effectiveEdges()} e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
+         JOIN node dependent ON dependent.id = e.from_node AND ${this.active('vertex', 'dependent')}
+         JOIN node prerequisite ON prerequisite.id = e.to_node AND ${this.active('edge', 'e')} AND ${this.active('vertex', 'prerequisite')}
+         WHERE ${this.active('edge', 'e')}
+         ORDER BY dependent, prerequisite`,
+      );
+      const fieldsByKind = new Map<string, CatalogueFieldValue[]>();
+      for (const row of fieldRows.rows) {
+        const declaration = row['declaration'] as Record<string, unknown> | undefined;
+        if (declaration === undefined || typeof declaration['kind'] !== 'string') continue;
+        const list = fieldsByKind.get(declaration['kind']) ?? [];
+        list.push({
+          name: String(declaration['name'] ?? ''),
+          type: String(declaration['type'] ?? ''),
+          nullable: declaration['nullable'] === true,
+          producers: Array.isArray(declaration['producers']) ? (declaration['producers'] as unknown[]).filter((one): one is string => typeof one === 'string') : [],
+        });
+        fieldsByKind.set(declaration['kind'], list);
+      }
+      const derives = new Map<string, string[]>();
+      const derivedBy = new Map<string, string[]>();
+      for (const row of dependencies.rows) {
+        const dependent = String(row['dependent']);
+        const prerequisite = String(row['prerequisite']);
+        derives.set(dependent, [...(derives.get(dependent) ?? []), prerequisite]);
+        derivedBy.set(prerequisite, [...(derivedBy.get(prerequisite) ?? []), dependent]);
+      }
+      for (const row of kinds.rows) {
+        const name = String(row['name'] ?? '');
+        const declaration = (row['declaration'] ?? {}) as Record<string, unknown>;
+        const entry = (declaration['catalog'] ?? declaration) as Record<string, unknown>;
+        const value: CatalogueValue = {
+          nodeId: String(row['node_id']),
+          uid: String(row['uid']),
+          name,
+          entry,
+          taken: declaration['taken'] === true,
+          plugins: Array.isArray(declaration['plugins']) ? (declaration['plugins'] as unknown[]).filter((one): one is string => typeof one === 'string') : [],
+          fields: fieldsByKind.get(name) ?? [],
+          derivesFrom: derives.get(name) ?? [],
+          derivedBy: derivedBy.get(name) ?? [],
+        };
+        byName.set(name, value);
+        byId.set(value.nodeId, value);
+      }
+      this.catalogueRead = { byName, byId };
+      return this.catalogueRead;
+    });
   }
 
   private async catalogueField(value: CatalogueValue, name: string, args: ConnectionArgs, lang: string | undefined): Promise<unknown> {
@@ -2090,8 +1893,6 @@ export class ReadContext {
     if (name === 'derivedBy') return this.catalogueLinks(value.derivedBy, args, lang);
     const relation = this.relationByType.get('CatalogueEntity')?.get(name);
     if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
-    const inverse = this.referenceInverseByType.get('CatalogueEntity')?.get(name);
-    if (inverse !== undefined) return this.referenceInverse({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, inverse.source, inverse.field, args);
     return null;
   }
 
@@ -2176,28 +1977,7 @@ export class ReadContext {
 
   /** One field's agreed value as a SQL expression: the vertex's key, or the one value every open opinion states. */
   private fieldExpr(kind: PublishedKind, field: PublishedField, alias: string, sql: Sql, lang: string | undefined): string {
-    if (kind.key.includes(field.name)) {
-      const raw = `(${alias}.key->>'${field.name}')`;
-      switch (field.type) {
-        case 'text': return raw;
-        case 'integer': return `${raw}::integer`;
-        case 'bigint': return `${raw}::bigint`;
-        case 'boolean': return `${raw}::boolean`;
-        case 'timestamp': return `${raw}::timestamptz`;
-        case 'json': return `(${alias}.key->'${field.name}')`;
-      }
-    }
-    const table = this.vertexTable.get(kind.name)!;
-    const value = `(array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1]`;
-    // The same choice the field resolver makes: the reader's language when that field states one there, else the
-    // product's, else the opinions that state no language; never a neutral opinion beside a translated one.
-    const language = field.type === 'text'
-      ? ` AND o.lang IS NOT DISTINCT FROM (CASE
-           WHEN EXISTS (SELECT 1 FROM "${table}" y WHERE y.node_id = ${alias}.id AND y.state = 'open' AND y.context_id = 1 AND y."${field.name}" IS NOT NULL AND y.lang = ${sql.param(lang ?? this.lang, '::text')}) THEN ${sql.param(lang ?? this.lang, '::text')}
-           WHEN EXISTS (SELECT 1 FROM "${table}" y WHERE y.node_id = ${alias}.id AND y.state = 'open' AND y.context_id = 1 AND y."${field.name}" IS NOT NULL AND y.lang = ${sql.param(this.fallbackLang, '::text')}) THEN ${sql.param(this.fallbackLang, '::text')}
-           ELSE NULL END)`
-      : '';
-    return `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN ${value} END FROM "${table}" o WHERE o.node_id = ${alias}.id AND o.state = 'open' AND o.context_id = 1${language})`;
+    return this.assertionExpr('vertex', kind.name, field, alias, sql, lang);
   }
 
   /** The `<Type>Where` of one kind, as SQL over the agreed values. */
@@ -2207,7 +1987,8 @@ export class ReadContext {
     const clauses: string[] = [];
     for (const [name, filter] of Object.entries(where)) {
       const field = this.fieldsByType.get(type)?.get(name);
-      if (field === undefined || filter === null || typeof filter !== 'object') continue;
+      if (field === undefined) throw new GraphRefusal(`/where/${name}`, `field of ${kind.name}`, name);
+      if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) throw new GraphRefusal(`/where/${name}`, 'filter object', filter);
       const expr = this.fieldExpr(kind, field, alias, sql, lang);
       for (const [operator, value] of Object.entries(filter as Record<string, unknown>)) {
         const clause = compareClause(expr, field.type, operator, value, sql);
@@ -2223,7 +2004,7 @@ export class ReadContext {
     const keys: { at: number; expr: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] = [];
     for (const one of orderBy ?? []) {
       const field = this.fieldsByType.get(type)?.get(String(one['field']));
-      if (field === undefined) continue;
+      if (field === undefined) throw new GraphRefusal('/orderBy/field', `field of ${kind.name}`, one['field']);
       keys.push({ at: keys.length, expr: this.fieldExpr(kind, field, alias, sql, lang), direction: one['direction'] === 'DESC' ? 'DESC' : 'ASC', nulls: one['nulls'] === 'FIRST' ? 'FIRST' : 'LAST', type: field.type });
     }
     return { keys };
@@ -2236,7 +2017,9 @@ export class ReadContext {
    */
   private afterClause(keys: readonly { expr: string; direction: 'ASC' | 'DESC'; nulls?: 'FIRST' | 'LAST'; type: FieldType }[], after: string | null | undefined, sql: Sql, idExpr: string): string {
     const cursor = decodeCursor(after) as { o?: unknown[]; id?: string } | undefined;
-    if (cursor?.o === undefined || !Array.isArray(cursor.o) || cursor.id === undefined) return '';
+    if (cursor === undefined) return '';
+    if (!Array.isArray(cursor.o) || cursor.o.length !== keys.length) throw new GraphRefusal('/after', 'cursor matching the connection order', after);
+    for (const [at, key] of keys.entries()) if (cursor.o[at] !== null && !fits({ name: String(at), type: key.type }, cursor.o[at])) throw new GraphRefusal(`/after/o/${at}`, key.type, cursor.o[at]);
     const equals: string[] = [];
     const conditions: string[] = [];
     for (const [at, key] of keys.entries()) {
@@ -2268,6 +2051,8 @@ export class ReadContext {
     const uid = String(row['uid']);
     const key = row['key'] as Record<string, unknown>;
     const entityName = String(row['entity']);
+    // The catalogue's own entries are graph vertices of `manifest.kind`: they answer as catalogue entities, from the
+    // entry the product's start published, and are not records of a declared kind.
     if (entityName === 'manifest.kind') {
       const catalogue = this.catalogueRead?.byId.get(nodeId);
       return catalogue === undefined ? undefined : { nodeId, uid, kind: 'catalogue', key, typeName: 'CatalogueEntity', catalogue, ...(lang === undefined ? {} : { lang }) };
@@ -2356,6 +2141,3 @@ function compareCatalogueValues(left: readonly unknown[], right: readonly unknow
 }
 
 /** The empty connection a relation that cannot apply answers. */
-function emptyConnection(): unknown {
-  return { edges: [], pageInfo: { endCursor: null, hasNextPage: false }, totalCount: 0 };
-}

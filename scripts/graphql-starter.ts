@@ -56,6 +56,6 @@ export function starterSchema(): StarterSchema {
     const lost = [...edge.from, ...edge.to].find((end) => end !== 'any' && !held.has(end));
     if (lost !== undefined) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${lost}", which the starter catalogue does not declare: the catalogue and the schema's kinds disagree about it`);
   }
-  const sdl = graphqlSchemaOf({ kinds, edges: [...manifest.edges] });
+  const sdl = graphqlSchemaOf({ kinds, edges: [...manifest.edges], relations: manifest.relations });
   return { sdl, kinds: kinds.map((kind) => kind.name) };
 }

@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { runFill } from '../src/fill/run.js';
-import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { useFixturePlugins, useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { repositoryContract, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
-test('disk JSON attribution closes the prior unknown opinion and replays without changes', async () => {
+test('disk JSON attribution retains unknown assertion history and replays without changes', async () => {
   const root = mkdtempSync(join(tmpdir(), 'language-publication-'));
   const repository = join(root, 'repo');
   const product = join(root, 'product');
@@ -36,40 +38,36 @@ repos:
     url: file://${repository}
 `);
     useRepositoryPlugins(product);
-    restrictRepositoryDeclarations(product);
     useFixturePlugins(product, ['disk']);
+    restrictRepositoryDeclarations(product);
     git(product, 'init', '-q');
     commit(product, 'Declare repository plugins');
     let sequence = 0;
     const fill = async () => {
       const answer = await runFill({ product, database: owner, home: join(root, 'home'), runId: `language-${++sequence}`, prepareContract: async contract => { await prepareStore(owner, { contract }); } });
       if (!answer.ok) throw new Error(`fill refused: ${answer.reason}`);
-      expect(answer.state).toBe('succeeded');
+      if (answer.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify(answer)}`);
       return answer;
     };
-    const opinions = () => owner.transaction('snapshot', async tx => (await tx.query<{ node_id: string; said_by: string; state: string; language: string; languages: string[] }>(
-      `SELECT o.node_id::text, o.said_by, o.state, o.language, o.languages FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
-       WHERE n.key->>'repository' = 'fixture' AND n.key->>'path' = 'asset.map' AND split_part(o.said_by, '@', 1) = 'disk' ORDER BY o.id`,
-    )).rows);
+    const opinions = () => owner.run(async tx => {
+      const files = await tx.query<{ id: number }>(`SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 AND n.key->>'path'='asset.map'`, [GIT_KINDS.file]);
+      return await loadAssertions(tx, 'vertex', GIT_KINDS.file, ['language', 'languages'], files.rows.map(row => Number(row.id)));
+    });
     await fill();
     const before = await opinions();
-    expect(before).toHaveLength(1);
-    expect(before[0]).toMatchObject({ state: 'open', language: 'unknown', languages: ['unknown'] });
+    expect(before.map(row => [row.property, row.value])).toEqual([['language', 'unknown'], ['languages', ['unknown']]]);
     writeFileSync(join(repository, 'asset.map'), '{}');
     commit(repository, 'valid JSON');
     const changed = await fill();
     expect(changed.units.some(unit => unit.unitId.split('#')[0] === 'plugin-turns/disk:code.file')).toBe(true);
     const after = await opinions();
-    expect(after).toEqual([
-      { ...before[0]!, state: 'closed' },
-      { node_id: before[0]!.node_id, said_by: before[0]!.said_by, state: 'open', language: 'JSON', languages: ['JSON'] },
-    ]);
-    const inventory = await owner.transaction('snapshot', async tx => (await tx.query<{ path: string }>(
-      `SELECT n.key->>'path' AS path FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
-       WHERE n.key->>'repository' = 'fixture' AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'disk' ORDER BY path`,
-    )).rows);
-    expect(inventory).toEqual([{ path: 'asset.map' }, { path: 'unchanged.txt' }]);
-    const countOpinions = () => owner.transaction('snapshot', async tx => (await tx.query<{ n: number }>(`SELECT count(*)::integer AS n FROM ${GIT_TABLES.file}`)).rows);
+    expect(after.filter(row => before.some(old => old.id === row.id))).toEqual(before);
+    expect(after.filter(row => !before.some(old => old.id === row.id)).map(row => [row.property, row.value])).toEqual([['language', 'JSON'], ['languages', ['JSON']]]);
+    expect(new Set(after.map(row => row.source))).toEqual(new Set(before.map(row => row.source)));
+    const inventory = await owner.run(tx => readKindAssertions(tx, 'vertex', GIT_KINDS.file, ['language', 'languages']));
+    expect(inventory.map(row => row.key['path']).sort()).toEqual(['asset.map', 'unchanged.txt']);
+    expect(inventory.find(row => row.key['path'] === 'asset.map')?.values).toMatchObject({ language: 'JSON', languages: ['JSON'] });
+    const countOpinions = () => owner.run(async tx => (await tx.query<{ n: number }>('SELECT count(*)::integer AS n FROM assertion')).rows);
     const count = await countOpinions();
     const replay = await fill();
     expect(replay.work).toBe(0);

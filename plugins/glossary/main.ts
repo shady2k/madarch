@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import contract from './contract.json';
 /**
  * The glossary plugin (decision 0035, items 3 and 8): it reads a glossary
  * document and answers the terms it states, in either of the two shapes a
@@ -11,7 +13,7 @@
  * no positions. Nothing is guessed: a block that does not open with a bold term
  * is no term, and a term whose definition is empty is answered as it stands.
  */
-import { definePlugin, type ExtractContext, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
+import { definePlugin, type ExtractContext, type Unit, type UnitResult, type EdgeResult, type VertexResult } from 'madarch-plugin-sdk';
 import { usagesOf } from './usages.js';
 
 /** The kind the plugin fills. */
@@ -212,10 +214,10 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       const file = files[index]!;
       // The text is the blob the graph names, read through the host (decision 0037): the plugin holds no environment, and
       // the host routes the read to the core plugin that owns git (decision 0038).
-      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob');
+      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
       if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
       try {
-        const read = await context.read({ repository: String(file.key['repository'] ?? ''), blob });
+        const read = await context.read({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), blob });
         contents[index] = read.binary ? undefined : read.text;
       } catch {
         // A read the host cannot answer leaves this document out: the others' terms stand.
@@ -226,22 +228,31 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   const sources: { repository: string; path: string; text: string }[] = [];
   for (const [index, file] of files.entries()) {
     const text = contents[index];
-    if (typeof text === 'string') sources.push({ repository: String(file.key['repository'] ?? ''), path: String(file.key['path'] ?? ''), text });
+    if (typeof text === 'string') sources.push({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), path: String(file.key['path'] ?? ''), text });
   }
-  const definitionKeys = new Set(definitions.map((file) => JSON.stringify([String(file.key['repository'] ?? ''), String(file.key['path'] ?? '')])));
+  const definitionKeys = new Set(definitions.map((file) => JSON.stringify([String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), String(file.key['path'] ?? '')])));
   const declared = sources.flatMap((source) => definitionKeys.has(JSON.stringify([source.repository, source.path]))
     ? termsOf(source.text).map((term) => ({ ...source, term })) : []);
   const vertices: VertexResult[] = [];
+  const edges: EdgeResult[] = [];
   for (const { repository, path, term } of declared) {
     const usages = usagesOf(term, sources.map((source) => ({ ...source, definitions: declared.filter((one) => one.repository === source.repository && one.path === source.path && one.term.name === term.name).map((one) => one.term) })));
+    for (const usage of usages) edges.push({ kind: 'doc.term-usage', from: { kind: TERM_KIND, key: { name: term.name } }, to: { kind: 'code.file', key: { path: usage.path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: usage.repository } } } }, discriminator: String(usage.lineStart), values: { line_start: usage.lineStart, line_end: usage.lineEnd, count: usage.count }, evidence: { target: { kind: 'code.repository', key: { name: repository } }, path, lineStart: term.lineStart, lineEnd: term.lineEnd } });
     vertices.push({
       kind: TERM_KIND,
       key: { name: term.name },
       values: { definition: term.definition, synonyms: term.synonyms, code: term.code, usages },
-      evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
+      evidence: { target: { kind: 'code.repository', key: { name: repository } }, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
     });
   }
-  return { vertices, end: { state: 'complete' } };
+  const blobs = sources.map(source => ({ kind: 'code.blob', key: { digest: createHash('sha256').update(source.text).digest('hex') }, values: { content: source.text } }));
+  for (const fact of [...vertices, ...edges]) if (fact.evidence !== undefined) {
+    const source = sources.find(source => source.repository === fact.evidence!.target.key['name'] && source.path === fact.evidence!.path);
+    if (source === undefined) throw new Error('glossary evidence source content is missing');
+    const digest = createHash('sha256').update(source.text).digest('hex');
+    Object.assign(fact, { evidence: { ...fact.evidence, target: { kind: 'code.blob', key: { digest } }, digest } });
+  }
+  return { vertices: [...new Map(blobs.map(blob => [blob.key['digest'], blob])).values(), ...vertices], edges: [...sources.map((source, index) => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: blobs[index]!.key }, to: { kind: 'code.file', key: { path: source.path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: source.repository } } } } })), ...edges], end: { state: 'complete' } };
 }
 
 await definePlugin({
@@ -249,21 +260,6 @@ await definePlugin({
   version: '1.0.0',
   // The graph's file vertices and their content, and no repository: the files producer alone reads the source.
   graph: true,
-  contract: {
-    vertices: [
-      {
-        kind: TERM_KIND,
-        key: ['name'],
-        fields: [
-          { name: 'name', type: 'text', meaning: 'The term itself, as the glossary writes it in bold.', example: 'Fill', required: true },
-          { name: 'definition', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
-          { name: 'synonyms', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
-          { name: 'code', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
-          { name: 'usages', type: 'json', meaning: "Mentions outside the term's own definitions, with repository, path, lines and count.", example: [{ repository: 'app', path: 'README.md', lineStart: 3, lineEnd: 3, count: 2 }], required: true },
-        ],
-      },
-    ],
-    edges: [],
-  },
+  contract: contract.outputs as never,
   extract,
 });

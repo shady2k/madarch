@@ -24,3 +24,6 @@ labels:
 description:
   en: An information flow shows information moving from a sender to a receiver, for example from a form to a database or from the product to a partner. It names each item it carries and the places it passes, so a reader can see where personal or secret information goes.
   ru: 'Поток информации показывает, как сведения идут от отправителя к получателю: например, из формы в базу данных или из продукта партнёру. В нём назван каждый элемент и места, через которые он проходит, чтобы было видно, куда попадают персональные или секретные сведения.'
+derives-from:
+- code.service
+- external-system

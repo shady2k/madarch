@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A decision driver is the concern that pushes a decision one way: a quality requirement, a deadline, a cost, a regulation or a risk. Naming the drivers shows what a decision had to satisfy.'
   ru: 'Движущая сила решения — забота, которая подталкивает решение в определённую сторону: требование к качеству, срок, стоимость, правило закона или риск. Названные силы показывают, чему решение должно было соответствовать.'
+derives-from:
+- doc.decision

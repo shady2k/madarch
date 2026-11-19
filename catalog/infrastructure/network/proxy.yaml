@@ -24,3 +24,7 @@ labels:
 description:
   en: A proxy stands between a client and a server and passes requests and answers through itself. On the way it can add headers, cache answers, hide addresses, limit requests or refuse traffic it does not allow.
   ru: Прокси стоит между клиентом и сервером и пропускает запросы и ответы через себя. По пути он может добавлять заголовки, кэшировать ответы, скрывать адреса, ограничивать запросы или отклонять недопустимый трафик.
+derives-from:
+- code.service
+- network-zone
+- product-profile

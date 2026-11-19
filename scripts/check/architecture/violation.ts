@@ -50,6 +50,7 @@ export const ARCHITECTURE_RULES = [
   'one-state-machine',
   'one-table-source',
   'product-file-readers',
+  'read-no-judgements',
   'route-aliases',
   'schema-preparation-only',
   'sql-only-in-storage-layer',
@@ -65,7 +66,7 @@ export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
  * validation rule states is the one exception the owner may list as debt
  * (`no-kind-names`); a retired read route and dead code never are.
  */
-export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-unreachable-code', 'one-command-list', 'schema-preparation-only', 'starter-data-when-copying'];
+export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-unreachable-code', 'one-command-list', 'read-no-judgements', 'schema-preparation-only', 'starter-data-when-copying'];
 
 /**
  * One violation as a rule found it.

@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A web application firewall inspects HTTP requests before they reach the service and blocks the ones that look like known attacks: injection, cross-site scripting, bad bots. Its rules must be tuned, or it blocks legitimate traffic as well.'
   ru: 'WAF проверяет HTTP-запросы до того, как они дойдут до сервиса, и блокирует те, что похожи на известные атаки: внедрение кода, межсайтовые сценарии, вредных роботов. Его правила нужно настраивать, иначе он блокирует и законный трафик.'
+derives-from:
+- code.service
+- network-zone
+- product-profile

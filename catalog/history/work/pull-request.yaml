@@ -24,3 +24,5 @@ labels:
 description:
   en: A pull request asks that the commits of a branch be merged into another branch and shows the difference between them. It holds the discussion and the review of the change, so people can agree on it before it lands.
   ru: Запрос на слияние предлагает влить коммиты одной ветки в другую и показывает разницу между ними. В нём идёт обсуждение и просмотр изменения, чтобы люди договорились о нём до слияния.
+derives-from:
+- branch

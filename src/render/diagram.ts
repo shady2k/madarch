@@ -9,7 +9,6 @@
 import { withSpanSync } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
-import { relationWords } from '../knowledge/relation-labels.js';
 import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArchifyVendor } from './archify-vendor.js';
 
 /** One node of a diagram: an entity, or the fold of several of one kind. */
@@ -74,21 +73,23 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
   const edges: DiagramEdge[] = [];
   let folded = 0;
   for (const group of neighbourhood.groups) {
-    const word = group.label ?? relationWords(group.relation, entity.lang ?? 'en', group.side === 'in' && group.canonicalLabel !== true);
+    // The edge's words are the published catalogue's (owner's decision, 2026-11-15). A relation the catalogue names no
+    // words for draws no edge: the declaration key never reaches a diagram, and no renderer writes an empty label.
+    const word = group.label ?? '';
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
       const listed = neighbourhood.kindPages.get(group.kind);
       nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(listed === undefined ? {} : { href: `${base}${listed}` }) });
       folded += group.total;
-      edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
+      if (word !== '') edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
       continue;
     }
     for (const uid of group.nodes) {
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
       nodes.set(uid, { id: uid, kind: held.kind, ...named(uid), href: page(held.kind, uid) });
-      edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
+      if (word !== '') edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
     }
   }
   edges.sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.label, right.label));
@@ -351,8 +352,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
     const child = withSpanSync('process.run', { 'process.command': process.execPath, 'process.args': [renderer, input, output], 'process.cwd': folder }, () => Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } }));
     options.started?.(child.pid, folder);
-    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
-    if (ended === 'timeout') {
+    const ended = await Promise.race([child.exited, new Promise<'deadline-expired'>((resolve) => { timer = setTimeout(() => resolve('deadline-expired'), timeout); })]);
+    if (ended === 'deadline-expired') {
       child.kill('SIGKILL');
       throw new Error(`the archify renderer did not finish within ${String(timeout)} ms`);
     }

@@ -8,11 +8,11 @@
  * the engine show both.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDraft } from '../src/product/draft.js';
-import { CATALOG_KINDS, CATALOG_KIND_FILES, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
+import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
 import { starterManifestText as compositeStarterManifestText } from './catalog-folder-fixture.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
@@ -111,21 +111,6 @@ export function writeSamplePages(folder: string): void {
 export function commitProduct(folder: string, message: string): void {
   execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', message], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
-}
-
-/**
- * Drops the enrichment kind from a product's manifest: a scripted agent of these tests writes no enrichment page, and the
- * writer runs one unit per passage of a structured kind, so a declaration the script does not answer fails the run. A real
- * product keeps the kind (madarch-u3vw.1's starter set declares it), and `test/writer-structured-entities.test.ts` scripts
- * the enrichments and proves them.
- */
-export function withoutEnrichmentKind(folder: string): void {
-  const kindPath = CATALOG_KIND_FILES['enrichment'];
-  if (kindPath === undefined) throw new Error('the catalogue declares no enrichment kind');
-  const file = join(folder, 'madarch/kinds', kindPath);
-  if (!existsSync(file)) return;
-  unlinkSync(file);
-  commitProduct(folder, 'Drop the enrichment kind');
 }
 
 /** One kind of the starter catalogue whose entities the wiki shows: a page of its own, or a member's row. */

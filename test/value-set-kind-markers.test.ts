@@ -13,6 +13,7 @@ import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { readKindAssertions } from '../src/graph/records.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-value-set-markers-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -64,16 +65,24 @@ kinds:
     relation-constraints: { out: [], in: [] }
     template-policy: page
     fields:
-      - { name: dictionary, type: json, reference: dictionary, producers: [person] }
       - { name: value, type: text, producers: [person] }
       - { name: caption_en, type: text, producers: [person] }
       - { name: caption_ru, type: text, producers: [person] }
       - { name: note, type: text, nullable: true, producers: [person] }
       - { name: rank, type: integer, nullable: true, producers: [person] }
-    key: [dictionary, value]
-    reference-set-entry: { set: dictionary, value: value, label-en: caption_en, label-ru: caption_ru, description: note, order: rank }
+    key: [value]
+    key-edges:
+      - { role: dictionary-entry-set, edge: dictionary-entry-set, side: from }
+    reference-set-entry: { set: dictionary-entry-set, value: value, label-en: caption_en, label-ru: caption_ru, description: note, order: rank }
     labels: { en: { one: Dictionary value, many: Dictionary values }, ru: { one: Значение, many: Значения } }
     description: { en: One value., ru: Одно значение. }
+edges:
+  - name: dictionary-entry-set
+    from: [dictionary-entry]
+    to: [dictionary]
+    cardinality: { from: { min: 1, max: 1 }, to: { min: 0, max: null } }
+    on-parent-delete: restrict
+    labels: { en: { out: dictionary, in: entries }, ru: { out: справочник, in: значения } }
 `;
 
 test('a renamed value-set kind and its renamed fields still publish the starter sets', async () => {
@@ -89,10 +98,29 @@ test('a renamed value-set kind and its renamed fields still publish the starter 
   try {
     await createOneGraphSchema(owner, withManifestContract(graphContractOf(read.value.manifest)));
     await publishValidatedManifests(owner, read.value);
-    const sets = await owner.run((tx) => tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'dictionary' AND NOT n.removed`));
-    expect(sets.rows[0]!.count).toBe('1');
-    const entries = await owner.run((tx) => tx.query<{ key: Record<string, unknown> }>(`SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'dictionary-entry' AND NOT n.removed`));
-    expect(entries.rows).toHaveLength(1);
-    expect(entries.rows[0]!.key).toEqual({ dictionary: { kind: 'dictionary', key: { name: 'task-status' } }, value: 'open' });
+    const counts = async () => await owner.run(async tx => ({
+      vertices: (await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=n.entity_id WHERE k.name='dictionary-entry'`)).rows[0]!.count,
+      edges: (await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM assertion_edge_subject s JOIN edge e ON e.id=s.edge_id JOIN entity k ON k.id=e.entity_id WHERE k.name='dictionary-entry-set'`)).rows[0]!.count,
+    }));
+    const before = await counts();
+    const repeated = await publishValidatedManifests(owner, read.value);
+    const after = await counts();
+    expect(repeated).toBe(0);
+    expect(after).toEqual(before);
+    const contract = graphContractOf(read.value.manifest);
+    await owner.transaction('snapshot', async tx => {
+      const sets = await readKindAssertions(tx, 'vertex', 'dictionary', ['caption_en', 'caption_ru'], { contract });
+      expect(sets).toHaveLength(1);
+      expect(sets[0]!.key).toEqual({ name: 'task-status' });
+      expect(sets[0]!.values['caption_en']).toBe('Task status');
+      const entries = await readKindAssertions(tx, 'vertex', 'dictionary-entry', ['caption_en', 'caption_ru'], { contract });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]!.key).toEqual({ value: 'open' });
+      expect(entries[0]!.values['caption_en']).toBe('Open');
+      const parents = await readKindAssertions(tx, 'edge', 'dictionary-entry-set', [], { contract });
+      expect(parents).toHaveLength(1);
+      expect(parents[0]!.from).toBe(entries[0]!.id);
+      expect(parents[0]!.to).toBe(sets[0]!.id);
+    });
   } finally { await owner.close(); }
 }, 60_000);

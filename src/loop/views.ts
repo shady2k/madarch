@@ -12,7 +12,6 @@ import { pageOpinionKinds } from '../knowledge/markdown.js';
 import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
 import type { ProductFileSource } from '../plugin/product-files.js';
-import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type BrokenWhy, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import type { Author } from './entities.js';
@@ -27,7 +26,6 @@ import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, typ
 
 /** The kind of a wiki finding; the code and the documents carry kinds of their own. */
 type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
-/** Who fixes it: the agent when the pages are refreshed, or a person. */
 
 export interface Problem {
   /** The problem's stable id: its rule and the place it names, never its position in the list. */
@@ -128,10 +126,11 @@ const isPage = (page: IndexedPage): boolean => page.file === PRODUCT_PATH || pag
 const placeOfWiki = (page: string | null, file: string, line: number | null): ProblemLink => {
   if (page !== null) return { label: page, href: entityAddress(page), key: page };
   // A file of a repository is a place in that repository's source; a product file has no repository in the query.
-  const code = file.match(/^repos\/([^/]+)\/(.+)$/);
-  const href = code === null || code[2] === undefined
+  const parts = file.split('/');
+  const repository = parts[0] === 'repos' && parts[1] !== '' && parts.length > 2 && parts.slice(2).join('/') !== '' ? parts[1] : undefined;
+  const href = repository === undefined
     ? sourceAddress(null, file, line ?? undefined)
-    : sourceAddress(code[1] ?? null, code[2], line ?? undefined);
+    : sourceAddress(repository, parts.slice(2).join('/'), line ?? undefined);
   return { label: line === null ? file : `${file}:${line}`, href, key: null };
 };
 
@@ -212,8 +211,8 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
     }, input.settings, notes));
   }
   for (const miss of input.unplaced ?? []) {
-    const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
-    const entity = miss.kind === 'question' ? { label: miss.slug, href: questionAddress(miss.slug), key: `question:${miss.slug}` } : null;
+    const file = miss.file;
+    const entity = { label: miss.title, href: sourceAddress(null, miss.file), key: miss.id };
     add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, target: miss.slug, text: miss.text, file, entity }, input.settings, notes));
   }
   // Grounds and links that name nothing.
@@ -221,7 +220,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const page of pages) {
     for (const statement of page.statements) {
       for (const target of [...statement.grounds, ...statement.mentions]) {
-        if (/^(question|correction):/.test(target)) continue;
+        if (target.startsWith('question:') || target.startsWith('correction:')) continue;
         const key = `${page.id}\u0000${statement.id}\u0000${target}`;
         if (seen.has(key)) continue;
         seen.add(key);

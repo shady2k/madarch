@@ -169,4 +169,3 @@ test('a failed run stays with its retry until the reader dismisses it', async ()
     expect(page.host.querySelector('[data-testid="overview-fill-failed"]')).toBeNull();
   } finally { await page.close(); }
 });
-

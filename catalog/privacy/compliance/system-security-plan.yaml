@@ -24,3 +24,6 @@ labels:
 description:
   en: A system security plan describes a system, the profile it must meet, and for each control how the system implements it and what evidence shows that. It is the main document an assessor reads before testing the system.
   ru: План безопасности системы описывает систему, профиль, которому она должна соответствовать, и по каждому контролю — как система его выполняет и какие доказательства это показывают. Это главный документ, который оценщик читает перед проверкой.
+derives-from:
+- profile
+- software-system

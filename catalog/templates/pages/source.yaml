@@ -15,16 +15,21 @@ sections:
     on: root
     title: { en: File, ru: Файл }
     query: |
-      entityByKey(kind: "code.file", key: { repository: $repo, path: $path }) {
-        id
-        ... on KindCodeFile { repository path language lines lastChange }
-        related(edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 1) {
-          edges { node { id kind label ... on KindCodeCommit { hash subject commitDate } } }
+      entityByKey(kind: "code.repository", key: { name: $repo }) {
+        related(edge: "code.file-repository", inverse: true, kinds: ["code.file"], where: { path: { _eq: $path } }, first: 1) {
+          edges { node {
+            id
+            ... on KindCodeFile { path language lines lastChange codeFileRepository(first: 1) { edges { node { node { label } } } } }
+            related(edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 1) {
+              edges { node { id kind label ... on KindCodeCommit { hash subject commitDate } } }
+            }
+          } }
         }
       }
     params:
+      path: related.edges.0.node
       rows:
-        - { label: { en: Repository, ru: Репозиторий }, path: repository }
+        - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
         - { label: { en: Path, ru: Путь }, path: path }
         - { label: { en: Language, ru: Язык }, path: language }
         - { label: { en: Lines, ru: Строки }, path: lines, format: number }

@@ -39,4 +39,3 @@ test('co-change shares are percentages, not ratios or guessed counts', () => {
   expect(formatValue(100 / 3, 'percent', 'en')).toBe('33.3%');
   expect(formatValue(null, 'percent', 'en')).toBe('');
 });
-

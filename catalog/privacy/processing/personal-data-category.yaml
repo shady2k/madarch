@@ -25,3 +25,5 @@ labels:
 description:
   en: A personal-data category groups data of one kind — identity details, contact data, financial data, health data — which is often handled under the same rules. The categories show what an activity collects and how sensitive it is.
   ru: 'Категория персональных данных объединяет данные одного рода: сведения о личности, контакты, финансовые или медицинские данные, — с которыми обычно обращаются по одним правилам. По категориям видно, что собирает действие обработки и насколько эти данные чувствительны.'
+derives-from:
+- personal-data

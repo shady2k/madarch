@@ -24,3 +24,5 @@ labels:
 description:
   en: A gRPC service groups related remote calls under one name in a Protocol Buffers file, such as a payment service with charge and refund. A client generates its stub from that declaration.
   ru: 'Служба gRPC объединяет связанные удалённые вызовы под одним именем в файле Protocol Buffers: например, платёжная служба с оплатой и возвратом. Клиент строит свой посредник по этому объявлению.'
+derives-from:
+- code.contract

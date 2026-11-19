@@ -18,7 +18,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readKinds } from '../src/product/manifest/kinds.js';
+import { deferredEdgesOf, readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { STARTER_TEMPLATES } from '../src/knowledge/starter-templates.js';
 import { checkStarterTemplate } from './template-check.js';
@@ -85,6 +85,9 @@ function main(): void {
       console.error(`${manifest.file}:${entry.line}: kind "${entry.name}": its page is not read${why === undefined ? '' : `: ${why.message}`}`);
       failed = true;
     }
+    const deferred = deferredEdgesOf(manifest);
+    console.log(`catalog: ${deferred.length} edges waiting for a page kind`);
+    for (const edge of deferred) console.log(`${manifest.file}:${edge.line}: edge "${edge.name}": waiting for a page kind`);
     const areas = [...manifest.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...manifest.groups.values()].filter((group) => group.parent !== undefined);
     const kinds = [...catalog.kinds.values()];

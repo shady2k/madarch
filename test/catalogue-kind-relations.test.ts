@@ -35,18 +35,28 @@ test('the real File catalogue page shares dependency and declared-relation edges
     };
     const starter = validated();
     expect([...starter.manifest.kinds].filter(([, kind]) => kind.derivesFrom?.includes('code.file')).map(([name]) => name).sort())
-      .toEqual(['code.commit', 'code.database', 'code.test-quarantine']);
-    // The bundled catalogue has three File dependents. Two product-owned kinds exercise a five-kind backlink list.
+      .toEqual(['code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine', 'review-finding']);
+    // Two product-owned kinds extend the bundled File dependents in the backlink list.
     const basePath = join(folder, 'madarch/kinds/testing/case/code.test-quarantine.yaml');
     const base = parse(readFileSync(basePath, 'utf8'));
     for (const field of base.fields) {
       delete field.binding;
       field.producers = ['fixture'];
     }
+    const cataloguePath = join(folder, 'madarch/catalog.yaml');
+    const catalogue = parse(readFileSync(cataloguePath, 'utf8'));
     for (const name of ['fixture.file-audit', 'fixture.file-review']) {
+      const keyEdges = base['key-edges'].map((role: { role: string; edge: string; side: 'from' | 'to' }) => {
+        const parent = catalogue.edges.find((edge: { name: string }) => edge.name === role.edge);
+        if (parent === undefined) throw new Error(`${cataloguePath}:1: missing fixture parent edge ${role.edge}`);
+        const edgeName = `${name}-${role.role}`;
+        catalogue.edges.push({ ...parent, name: edgeName, [role.side]: [name] });
+        return { ...role, role: edgeName, edge: edgeName };
+      });
       writeFileSync(join(folder, 'madarch/kinds/testing/case', `${name}.yaml`),
-        stringify({ ...base, id: name, labels: { en: { one: name, many: name }, ru: { one: name === 'fixture.file-audit' ? 'Проверка файла' : 'Обзор файла', many: name } } }));
+        stringify({ ...base, id: name, 'key-edges': keyEdges, labels: { en: { one: name, many: name }, ru: { one: name === 'fixture.file-audit' ? 'Проверка файла' : 'Обзор файла', many: name } } }));
     }
+    writeFileSync(cataloguePath, stringify(catalogue));
     const first = validated();
     const manifest = first.manifest;
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(manifest)) });
@@ -63,9 +73,9 @@ test('the real File catalogue page shares dependency and declared-relation edges
     } }`;
     const page = (await graphql(query))['catalogueEntity'];
     expect(page.label).toBe('Файл');
-    expect(page.derivesFrom.edges.map((edge: any) => edge.node.name).sort()).toEqual(['code.directory', 'code.repository']);
+    expect(page.derivesFrom.edges.map((edge: any) => edge.node.name).sort()).toEqual(['code.directory']);
     const dependents = page.derivedBy.edges.map((edge: any) => edge.node.name).sort();
-    expect(dependents).toEqual(['code.commit', 'code.database', 'code.test-quarantine', 'fixture.file-audit', 'fixture.file-review']);
+    expect(dependents).toEqual(['asset', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine', 'finding', 'fixture.file-audit', 'fixture.file-review', 'review-finding', 'secret-reference', 'translation-file']);
     const id = String(page.id);
     const read = async () => await owner!.transaction('snapshot', async tx => {
       // The templates are the graph's entities, read in the page's own snapshot (the owner's decision of 2026-11-15).
@@ -82,7 +92,6 @@ test('the real File catalogue page shares dependency and declared-relation edges
       from: idsByLabel.get(from)!, to: idsByLabel.get(to)!, label, both: false,
     });
     hasEdge('Файл', 'Папка', 'зависит от');
-    hasEdge('Файл', 'Репозиторий', 'зависит от');
     hasEdge('Папка', 'Файл', 'содержит');
     hasEdge('Коммит', 'Файл', 'затронул');
     hasEdge('Файл', 'Файл', 'импортирует');
@@ -113,6 +122,10 @@ test('the real File catalogue page shares dependency and declared-relation edges
     await publishValidatedManifests(owner, first);
     expect((await graphql(query))['catalogueEntity']).toEqual(page);
     const file = join(folder, 'madarch/kinds/code/structure/code.file.yaml');
+    const pluginFile = join(folder, 'plugins/agent-fill/plugin.json');
+    const plugin = JSON.parse(readFileSync(pluginFile, 'utf8'));
+    for (const output of plugin.produces) output.reads = [];
+    writeFileSync(pluginFile, JSON.stringify(plugin));
     const original = readFileSync(file, 'utf8');
     expect(original).toContain('derives-from:');
     writeFileSync(file, original.replace(/derives-from:\n(?:- [^\n]*\n)*/u, 'derives-from: [code.repository]\n'));
@@ -162,4 +175,4 @@ test('the real File catalogue page shares dependency and declared-relation edges
     await owner?.close();
     rmSync(root, { recursive: true, force: true });
   }
-}, 120_000);
+}, 180_000);

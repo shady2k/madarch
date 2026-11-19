@@ -7,13 +7,34 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   in:
-  - partOf
-template-policy: none
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the process gives this step, such as Check the invoice; it names
+      the step inside its process.
+- name: order
+  type: integer
+  nullable: true
+  binding:
+    agent: Where the step stands in the process, from the sequence of nodes the graph holds, lowest first.
+key:
+- name
+member:
+  relation: partOf
+  direction: out
+  parentKind: business-process
 labels:
   en:
     one: Process step
@@ -24,3 +45,10 @@ labels:
 description:
   en: A process step is one action inside a business process, such as checking a document or sending a notification. A person, a program or an agent can carry it out, and it takes defined inputs and produces a defined result for the steps that follow.
   ru: Шаг процесса — одно действие внутри бизнес-процесса, например проверить документ или отправить уведомление. Его может выполнять человек, программа или агент; шаг получает определённые входные данные и даёт определённый результат следующим шагам.
+
+key-edges:
+- role: process-step-process
+  edge: process-step-process
+  side: from
+derives-from:
+- business-process

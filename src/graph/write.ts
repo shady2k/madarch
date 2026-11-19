@@ -1,1171 +1,658 @@
-/**
- * The graph's one writer (decision 0033, item 3: one writer per store; decision 0034, item 14, and its amendment of
- * 2026-11-10, A1–A4; the review of stage 1): the one place a producer's answer becomes opinions, and the only module
- * that writes the graph's rows. It writes inside the transaction the caller already opened — a publication's own, so a
- * unit publishes with its opinions or not at all — and it knows the mechanism, never a product's kind: the kind, its
- * table, its columns and its key come from the contract the product took.
- *
- * **Identity.** An entity is named by its kind and its key values, each normalised by the contract's field type (a
- * text key's `1` and `"1"` are one value) and stated in the contract's key order; a reference in a key is the
- * referenced entity's kind and key, normalised by that entity's own contract. The writer derives the vertex's uid
- * from the canonical key and declares the node with `INSERT … ON CONFLICT DO NOTHING` and a read, so two concurrent
- * declarations of one vertex both find it. A kind with no key gets a random uid and an empty key.
- *
- * **No field is authoritative.** Every value a producer states is an opinion: one row of the kind's own table, with
- * the producer and its version, the evidence it rests on and the language of a text value. A producer is matched by
- * its name without its version, its node, its language and its context, so a new version supersedes the old version's
- * opinion; one publication states the producer's whole opinion of the entity, and a field it leaves out is a field it
- * has no opinion on. A rerun of the same answer writes nothing; changed evidence under an unchanged value updates the
- * row's evidence (journaled from stage 2), never opening a second opinion; a changed value closes the producer's open
- * opinion and opens a new one; a removal closes only its own producer's opinions — a vertex's, or an edge's in every
- * language — and the vertex or edge is removed when no open opinion of any producer remains.
- *
- * **Declarations before references.** A publication declares its vertices first (which creates a node if absent) and
- * only then resolves the references its keys and its edges name. A reference to a key no vertex holds is recorded in
- * `unresolved_reference` (the consistency plugin madarch-stm0.7 reads it) and the rest of the publication goes on; it
- * never creates the vertex it names.
- */
-import { randomUUID } from 'node:crypto';
-import { withSpan } from '../obs/trace.js';
+/** The sole graph writer: immutable, typed assertions (0039 items 14,25,26,28). */
+import {createHash} from 'node:crypto';
+import {CommittedLookups,TransactionLookups} from './immutable-lookups.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
-export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
-import { keyUid } from './uid.js';
+import { withSpan } from '../obs/trace.js';
+import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
+import { withAssertionContract } from './system-contract.js';
+import { keyUid, newUid } from './uid.js';
+import {validateEvidenceLocator} from './evidence-locator.js';
+import { validateFieldValue,validateValueContracts } from './value-validation.js';
+import { scanMentions } from './mentions.js';
+import { canonicalAssertionValue } from './assertion-selection.js';
+import { GraphRefusal, fieldPath, validateFields } from './validation.js';
+export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
-/** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
-const WHERE = 'src/graph/write.ts';
+const WHERE=import.meta.path;
 
-/**
- * The journal of every change (decision 0034, its amendment A5, and stage 2): each publication's unit — a plugin's turn,
- * a record pass — and each operation a person or the agent makes is one `operation` row, written in the same transaction
- * as the change and only from this writer. Its author is the producer and its version, `agent`, or `person:<uid>`; the
- * change names the vertices and edges declared or removed and the opinions opened, closed or re-evidenced, by id.
- *
- * **Foldable.** Every event names its vertex by its stable uid and every opinion by its own id, so playing consecutive
- * entries in order gives, per vertex, the opinions that stand open and the fields each states: `opened` adds an
- * opinion, `closed` removes it, `re-evidenced` keeps it (its grounds moved), a `removed` vertex drops all of them and a
- * `declared` one brings it back. That is the net change a snapshot folds in at stage 3.
- */
-export interface JournalVertexEvent {
-  readonly entity: string;
-  /** The vertex's stable id, the same on every machine. */
-  readonly uid: string;
-  /** Its canonical key, stated on a declaration: replay makes the vertex from the entity and the key it names. */
-  readonly key?: Readonly<Record<string, unknown>>;
-  /** Its local node id, for a replay into this store. */
-  readonly node: string;
-  readonly state: 'declared' | 'removed';
+interface ImmutableVertex extends Record<string,unknown> {
+ id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;
+ parents:{kind:string;uid:string;edge:string;direction:string}[];
 }
-
-/**
- * One edge's event: its identity is the kind, its ends (by uid) and its discriminator; `edge` is its local id when
- * read. A replay makes the edge from the uids its declaration names, never from a local id of another store.
- */
-export interface JournalEdgeEvent {
-  readonly entity: string;
-  readonly edge: string;
-  readonly from: string;
-  readonly to: string;
-  readonly discriminator: string;
-  readonly context: number;
-  readonly state: 'declared' | 'removed';
+interface ImmutableLookups {
+ kinds:TransactionLookups<string>;
+ vertices:TransactionLookups<ImmutableVertex>;
+ values:TransactionLookups<unknown>;
 }
-
-/**
- * One opinion's event, carrying what a replay needs: `opened` states the row's whole content — its producer and version,
- * its values (every field of the kind, a field it has no opinion on as null), its evidence, its language, the opinion it
- * was translated from and the digest of its source, its context and the moment it was said; `re-evidenced` states the
- * grounds that replaced the row's; `closed` needs its id alone. `node` is the vertex's uid and `edge` its local id.
- */
-export interface JournalOpinionEvent {
-  readonly id: string;
-  readonly entity: string;
-  readonly node?: string;
-  readonly edge?: string;
-  readonly state: 'opened' | 'closed' | 're-evidenced';
-  readonly fields: readonly string[];
-  readonly lang: string | null;
-  /** The row's producer and version, for every state: the event says its own producer, not its entry's author. */
-  readonly said_by: string;
-  /** An opened opinion's values, by field name, a null for every field the producer has no opinion on. */
-  readonly values?: Readonly<Record<string, unknown>>;
-  /** An opened opinion's evidence, and the evidence that replaced it in a re-evidenced one. */
-  readonly evidence?: readonly EvidenceEntry[];
-  readonly translated_from?: string | null;
-  readonly source_digest?: string | null;
-  readonly context?: number;
-  readonly said_at?: string;
-}
-
-/**
- * One request a plugin made of the host, under the debug setting: its method, the size of its answer, what came of it
- * and — for a refusal or a failure — the class of the cause, never the arguments or a file's text. A request the unit
- * was still waiting for when it ended is `abandoned`; a run that hit the debug journal's bound ends with one
- * `truncated` record naming how many requests were kept.
- */
-export interface JournalRead {
-  readonly method: string;
-  readonly size: number;
-  readonly outcome: 'answered' | 'refused' | 'failed' | 'abandoned' | 'truncated';
-  readonly cause?: string;
-}
-
-/** One publication's journal entry, built as the writer works and written at its end. */
-/** One withdrawal an entry records: what was retracted, and the evidence saying why. */
-export interface JournalWithdrawal {
-  readonly entity?: string;
-  readonly edge?: string;
-  readonly fields?: readonly string[];
-  readonly evidence: readonly EvidenceEntry[];
-}
-
-export class Journal {
-  readonly author: string;
-  readonly words: string;
-  readonly machine: string;
-  readonly session: string;
-  readonly vertices: JournalVertexEvent[] = [];
-  readonly edges: JournalEdgeEvent[] = [];
-  readonly opinions: JournalOpinionEvent[] = [];
-  readonly reads: JournalRead[] = [];
-  readonly withdrawals: JournalWithdrawal[] = [];
-  constructor(author: string, options: { readonly words?: string; readonly machine?: string; readonly session?: string } = {}) {
-    if (author === '') throw new Error(`${WHERE}:1: a journal entry names its author: a producer and its version, "agent", or "person:<uid>"`);
-    this.author = author;
-    this.words = options.words ?? '';
-    this.machine = options.machine ?? '';
-    this.session = options.session ?? '';
-  }
-  declaredVertex(entity: string, uid: string, node: string, key: Readonly<Record<string, unknown>>): void { this.vertices.push({ entity, uid, key, node, state: 'declared' }); }
-  removedVertex(entity: string, uid: string, node: string): void { this.vertices.push({ entity, uid, node, state: 'removed' }); }
-  declaredEdge(entity: string, edge: string, from: string, to: string, discriminator: string, context: number): void { this.edges.push({ entity, edge, from, to, discriminator, context, state: 'declared' }); }
-  removedEdge(entity: string, edge: string, from: string, to: string, discriminator: string, context: number): void { this.edges.push({ entity, edge, from, to, discriminator, context, state: 'removed' }); }
-  opinion(event: JournalOpinionEvent): void { this.opinions.push(event); }
-  read(record: JournalRead): void { this.reads.push(record); }
-  withdrew(event: JournalWithdrawal): void { this.withdrawals.push(event); }
-  /** The events this entry holds, of every kind. */
-  count(): number { return this.vertices.length + this.edges.length + this.opinions.length + this.reads.length + this.withdrawals.length; }
-  /** Whether the entry states anything: a publication that wrote nothing writes no row. */
-  changed(): boolean { return this.count() > 0; }
-  /** Empties the entry after its events were written as one row: the next events open the next row of the same run. */
-  drain(): void {
-    this.vertices.length = 0;
-    this.edges.length = 0;
-    this.opinions.length = 0;
-    this.reads.length = 0;
-    this.withdrawals.length = 0;
-  }
-}
-
-
-/**
- * The journal entry a transaction is building, bound to that transaction object: every writer call inside the
- * transaction adds its events to it, and the caller writes it once at the end, in the same transaction. The binding is
- * per transaction, so two publications of one process never share an entry.
- */
-const JOURNAL_OF = new WeakMap<object, Journal>();
-
-/** Binds one entry to the transaction every writer call of this publication runs in. */
-export function journalOn(executor: SqlExecutor, journal: Journal): void {
-  JOURNAL_OF.set(executor, journal);
-}
-
-/** The entry the transaction builds, unless the caller named one. */
-function heldJournal(executor: SqlExecutor, named?: Journal): Journal | undefined {
-  return named ?? JOURNAL_OF.get(executor);
-}
-
-/** One journal entry for one author, with the words an operation carries. */
-export function journalFor(author: string, options: { readonly words?: string; readonly machine?: string; readonly session?: string } = {}): Journal {
-  return new Journal(author, options);
-}
-
-/**
- * Writes one journal entry, in the caller's transaction; answers whether it wrote a row (an empty entry writes none).
- * Its span states what the entry costs — its events, its bytes and the milliseconds its serialization took — so a pass
- * whose entry grows is measured where it grows (codex, stage 2 review, item 7).
- */
-export async function writeJournal(executor: SqlExecutor, journal: Journal): Promise<boolean> {
-  if (!journal.changed()) return false;
-  const change: Record<string, unknown> = {
-    vertices: journal.vertices,
-    edges: journal.edges,
-    opinions: journal.opinions,
-    ...(journal.reads.length === 0 ? {} : { reads: journal.reads }),
-    ...(journal.withdrawals.length === 0 ? {} : { withdrawals: journal.withdrawals }),
-  };
-  const started = performance.now();
-  const text = canonicalJson(change);
-  const encoded = performance.now() - started;
-  await withSpan('journal.entry', {
-    'journal.author': journal.author,
-    'journal.vertices': journal.vertices.length,
-    'journal.edges': journal.edges.length,
-    'journal.opinions': journal.opinions.length,
-    'journal.bytes': Buffer.byteLength(text, 'utf8'),
-    'journal.encode_ms': Math.round(encoded * 10) / 10,
-  }, async () => await executor.query(
-    // The row's number is the journal's order (`seq`, assigned by the table when the row is inserted); `at` states when
-    // the row was written and orders nothing (codex, stage 2 review, P2).
-    `INSERT INTO operation (author, machine, session, words, change, at) VALUES ($1, $2, $3, $4, $5::jsonb, clock_timestamp())`,
-    [journal.author, journal.machine, journal.session, journal.words, text],
-  ));
-  return true;
-}
-
-/** A table, column or key name: the shape a generated table carries. */
-function quote(name: string, what: string): string {
-  if (!/^[a-z][a-z0-9_]*$/u.test(name)) throw new Error(`${WHERE}:1: the ${what} ${JSON.stringify(name)} is not a lower-case identifier`);
-  return `"${name}"`;
-}
-
-/** The declared vertex kind a draft names, or the refusal naming it. */
-function vertexOf(contract: GraphContract, kind: string): VertexContract {
-  const found = contract.vertex.find((held) => held.name === kind);
-  if (found === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} is no kind the product declares: the writer takes the contract the product took, and it holds ${contract.vertex.length === 0 ? 'none' : contract.vertex.map((one) => one.name).join(', ')}`);
-  return found;
-}
-
-/** The declared edge kind a draft names, or the refusal naming it. */
-function edgeOfKind(contract: GraphContract, kind: string): { readonly name: string; readonly table: string } {
-  const found = contract.edge.find((held) => held.name === kind);
-  if (found === undefined) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kind)} is no kind the product declares: the contract holds ${contract.edge.length === 0 ? 'none' : contract.edge.map((one) => one.name).join(', ')}`);
-  if (found.table === undefined) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kind)} declares no attribute table`);
-  return { name: found.name, table: found.table };
-}
-
-/** The id of a kind's row in `entity`, made where the contract declares it and the store holds none. */
-// Database owners lend a fresh executor to each transaction, so ids never survive a rollback or schema reset.
-const ENTITY_IDS_OF = new WeakMap<SqlExecutor, Map<string, string>>();
-
-async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'edge'): Promise<string> {
-  let ids = ENTITY_IDS_OF.get(executor);
-  const key = `${sort}:${kind}`;
-  const held = ids?.get(key);
-  if (held !== undefined) return held;
-  const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `INSERT INTO entity (name, sort) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id::text AS id`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string }>(
-    sql,
-    [kind, sort],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
+// Retain at most eight installations. Content is bounded by both bytes and slots.
+const databaseLookups=new Map<string,{kinds:CommittedLookups<string>;vertices:CommittedLookups<ImmutableVertex>;values:CommittedLookups<unknown>}>();
+const transactionLookups=new WeakMap<SqlExecutor,Promise<ImmutableLookups>>();
+async function immutableLookups(executor:SqlExecutor):Promise<ImmutableLookups>{
+ let pending=transactionLookups.get(executor);
+ if(pending===undefined){
+  pending=withSpan('graph.immutable-lookups',{},async()=>{
+   await acquireGraphWriteLock(executor);
+   const {identity}=(await executor.query<{identity:string}>(`SELECT jsonb_build_array(
+    (SELECT system_identifier::text FROM pg_control_system()),
+    (SELECT oid::text FROM pg_database WHERE datname=current_database()),
+    'entity'::regclass::oid::text,
+    (SELECT jsonb_agg(jsonb_build_array(name,stamp,created_at::text,xmin::text) ORDER BY name COLLATE "C") FROM madarch_meta.schema_stamp WHERE name IN ('one-graph','one-graph-revision','graph-reset'))
+   )::text AS identity`)).rows[0]!;
+   const shared=databaseLookups.get(identity)??{
+    kinds:new CommittedLookups<string>(4096,1024*1024),
+    vertices:new CommittedLookups<ImmutableVertex>(100000,32*1024*1024),
+    values:new CommittedLookups<unknown>(4096,8*1024*1024)
+   };
+   databaseLookups.delete(identity);databaseLookups.set(identity,shared);
+   if(databaseLookups.size>8)databaseLookups.delete(databaseLookups.keys().next().value!);
+   const local={kinds:new TransactionLookups(shared.kinds),vertices:new TransactionLookups(shared.vertices),values:new TransactionLookups(shared.values)};
+   executor.afterCommit?.(()=>{local.kinds.publish();local.vertices.publish();local.values.publish();});
+   return local;
   });
-  const id = made.rows[0]?.id;
-  if (id === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} was registered and the store answered no id`);
-  if (ids === undefined) {
-    ids = new Map();
-    ENTITY_IDS_OF.set(executor, ids);
+  transactionLookups.set(executor,pending);
+ }
+ return pending;
+}
+async function immutableCatalogue(executor:SqlExecutor,contract:GraphContract):Promise<{entities:Map<string,string>;instant:number}>{
+ return await withSpan('graph.write.immutableCatalogue',{},async()=>{
+ const cache=await immutableLookups(executor);
+ const complete=[...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)].every(name=>cache.kinds.has(name));
+ const rows=(await executor.query<{id:string;name:string;sort:string;instant:number}>(complete?'SELECT floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant':'SELECT id::text,name,sort,floor(extract(epoch FROM transaction_timestamp())*1000)::bigint AS instant FROM entity')).rows;
+ for(const row of rows)if(row.id!==undefined)cache.kinds.set(row.sort+':'+row.name,row.id);
+ const entities=new Map<string,string>();
+ for(const name of [...contract.vertex.map(kind=>'node:'+kind.name),...contract.edge.map(kind=>'edge:'+kind.name)]){const id=cache.kinds.get(name);if(id!==undefined)entities.set(name,id);}
+ return {entities,instant:Number(rows[0]!.instant)};
+ });
+}
+
+/** Serialize graph operations before any identity or queue locks. */
+export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{await withSpan('graph.write.acquireGraphWriteLock', { 'db.system': 'postgres' }, async () => await executor.query('SELECT pg_advisory_xact_lock($1::bigint)',[739251902]));}
+export interface WriteCapability {
+  readonly sourceUid:string; readonly principalUid:string; readonly operationUid:string;
+  readonly unitUid?:string; readonly productUid:string; readonly context:number; readonly contractVersion:string; readonly scope:string;
+  readonly permissions:readonly {readonly kind:string;readonly properties:readonly string[];readonly assert:boolean;readonly retractOwn:boolean}[];
+}
+const bindings=new WeakMap<object,WriteCapability>();
+/** Only the authenticated host binds this capability after operation fencing. */
+export function bindWriteCapability(executor:SqlExecutor,binding:WriteCapability):void {
+ if(!Number.isSafeInteger(binding.context)||binding.context<1||!binding.scope||!binding.contractVersion)throw new Error(`${WHERE}:22: SOURCE_FORBIDDEN incomplete authenticated capability`);
+ bindings.set(executor,Object.freeze({...binding,permissions:binding.permissions.map(permission=>Object.freeze({...permission,properties:Object.freeze([...permission.properties])}))}));
+}
+export function requireWriteCapability(executor:SqlExecutor):WriteCapability {
+  const binding=bindings.get(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
+}
+function checkBinding(binding:WriteCapability,contract:GraphContract,context:number):string{
+ validateValueContracts(contract);
+ const version=graphContractVersion(contract);checkBindingRevision(binding,version,context);return version;
+}
+function checkBindingRevision(binding:WriteCapability,version:string,context:number):void{
+ if(binding.context!==context)throw new Error(`${WHERE}:30: SOURCE_FORBIDDEN context differs from capability`);
+ if(binding.contractVersion!==version)throw new Error(`${WHERE}:31: CONTRACT_CONFLICT authenticated contract revision is stale`);
+}
+interface PreparedContract {readonly contract:GraphContract;readonly version:string}
+const preparedContracts=new WeakMap<GraphContract,PreparedContract>();
+export function preparePublicationContract(declared:GraphContract):PreparedContract {
+ const cached=preparedContracts.get(declared);
+ if(cached!==undefined)return cached;
+ const contract=structuredClone(withAssertionContract(declared));
+ const freeze=(value:unknown):void=>{if(value!==null&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
+ freeze(contract);
+ validateValueContracts(contract);
+ const prepared={contract,version:graphContractVersion(contract)};
+ preparedContracts.set(declared,prepared);
+ return prepared;
+}
+export function canonicalJson(value:unknown):string{return canonicalAssertionValue(value);}
+function comparable(field:FieldContract,value:unknown):unknown{
+ if(value==null)return value;
+ if(field.type==='bigint')return BigInt(value as string|number|bigint).toString();
+ if(field.type==='timestamp')return new Date(String(value)).toISOString();
+ return value;
+}
+export function sameValue(a:unknown,b:unknown):boolean{return canonicalJson(a)===canonicalJson(b);}
+function permitted(binding:WriteCapability,kind:string,property:string,retract=false):void {
+  if(!binding.permissions.some(p=>p.kind===kind&&(p.properties.includes(property)||p.properties.includes('*'))&&(retract?p.retractOwn:p.assert)))
+    throw new Error(`${WHERE}:30: FORBIDDEN_SOURCE: ${kind}.${property}; create an evidenced question instead of changing another source`);
+}
+async function entityId(executor:SqlExecutor,kind:string,sort:'node'|'edge'):Promise<string>{
+ return await withSpan('graph.write.entityId',{},async()=>{
+ const cache=await immutableLookups(executor),key=sort+':'+kind;
+ const known=cache.kinds.get(key);if(known!==undefined)return known;
+ const row=(await executor.query<{id:string}>(`SELECT id::text AS id FROM entity WHERE name=$1 AND sort=$2`,[kind,sort])).rows[0];
+ if(!row)throw new Error(`${WHERE}:35: UNKNOWN_KIND ${kind}`);cache.kinds.set(key,row.id);return row.id;
+ });
+}
+async function identity(executor:SqlExecutor,kind:string,uid:string,key:Readonly<Record<string,unknown>>,scope:string,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ return await withSpan('graph.write.identity',{},async()=>{
+ const cache=await immutableLookups(executor),known=cache.vertices.get(uid);
+ if(known!==undefined){
+  if(known.kind!==kind||!sameValue(known.key,key)||known.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+  const rows=(await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM node WHERE id=$1::bigint FOR UPDATE',[known.id])).rows;
+  if(rows.length!==1||rows[0]!.id!==known.id||rows[0]!.uid!==uid)throw new Error(`${WHERE}:111: UID_IDENTITY_CONFLICT cached identity ${uid}`);
+  return {nodeId:known.id,uid,created:false,revived:false};
+ }
+ const kindId=await entityId(executor,kind,'node');
+ const made=await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id) VALUES($1::bigint,$2::uuid,$3::jsonb,$4::uuid,$5) ON CONFLICT DO NOTHING RETURNING id::text AS id,$6::text AS kind,key,identity_scope::text AS scope`,[kindId,uid,JSON.stringify(key),scope,context,kind]);
+ const row=made.rows[0]??(await executor.query<{id:string;kind:string;key:unknown;scope:string}>(`SELECT n.id::text AS id,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid])).rows[0];
+ if(!row||row.kind!==kind||!sameValue(row.key,key)||row.scope!==scope)throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+ await executor.query('SELECT id FROM node WHERE id=$1::bigint FOR UPDATE',[row.id]);
+ if(!cache.vertices.has(uid))cache.vertices.set(uid,{...row,uid,key:row.key as Record<string,unknown>,parents:[]});
+ return {nodeId:row.id,uid,created:made.rows.length>0,revived:false};
+ });
+}
+/** Installation declares principal/source/operation identities through this same writer. */
+export async function bootstrapWriteIdentity(executor:SqlExecutor,kind:string,uid:string,productUid:string,context=1):Promise<void>{
+ await withSpan('graph.identity.bootstrap',{'graph.kind':kind},async()=>{await identity(executor,kind,uid,{},productUid,context);});
+}
+function validate(field:FieldContract,value:unknown):unknown {
+ const valid=value===null ? field.nullable===true : field.type==='text'?typeof value==='string':field.type==='boolean'?typeof value==='boolean':field.type==='integer'?typeof value==='number'&&Number.isInteger(value)&&value>=-2147483648&&value<=2147483647:field.type==='bigint'?(typeof value==='number'&&Number.isSafeInteger(value))||(typeof value==='string'&&(()=>{try{return String(BigInt(value))===value;}catch{return false;}})()):field.type==='timestamp'?typeof value==='string'&&Number.isFinite(Date.parse(value)):field.type==='json'?value!==undefined:false;
+ if(!valid)throw new Error(`${WHERE}:52: TYPE_MISMATCH field ${field.name}, expected ${field.type}, value ${JSON.stringify(value)}`);
+ if(field.type==='json') canonicalJson(value);
+ return value;
+}
+async function refUid(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context:number,stack:readonly string[]=[]):Promise<string>{
+ const kind=contract.vertex.find(k=>k.name===ref.kind);if(!kind)throw new Error(`${WHERE}:58: UNKNOWN_KIND ${ref.kind}`);
+ if(stack.includes(kind.name))throw new Error(`${WHERE}:59: KEY_EDGE_CYCLE ${kind.name}`);
+ const binding=requireWriteCapability(executor);const pairs:string[]=[];
+ for(const name of Object.keys(ref.key))if(!kind.key.includes(name))throw new Error(`${WHERE}:62: UNKNOWN_KEY ${kind.name}.${name}`);
+ for(const role of Object.keys(ref.keyEdges??{}))if(!kind.keyEdges?.some(edge=>edge.role===role))throw new Error(`${WHERE}:62: UNKNOWN_KEY_EDGE_ROLE ${kind.name}.${role}`);
+ for(const role of kind.keyEdges??[]){const parent=ref.keyEdges?.[role.role];if(!parent)throw new Error(`${WHERE}:61: REQUIRED_PARENT ${kind.name}.${role.role}`);pairs.push(role.role,await refUid(executor,contract,parent,context,[...stack,kind.name]));}
+ const values=kind.key.map(name=>{const field=kind.fields.find(f=>f.name===name);if(!field)throw new Error(`${WHERE}:63: INVALID_KEY ${kind.name}.${name}`);validateFieldValue(contract,field,ref.key[name]);validate(field,ref.key[name]);validateFieldValue(contract,field,ref.key[name]);return canonicalJson(ref.key[name]);});
+ const scope=kind.identity?.namespace??(pairs.length===2?pairs[1]!:pairs.length?keyUid('madarch.parent-scope',pairs):binding.productUid);
+ if(kind.identity&&(pairs.length>0||!sameValue(kind.identity.origin,kind.key)))throw new Error(`${WHERE}:67: INVALID_IDENTITY_SCOPE: shared origin must be exactly the declared root key`);
+ const expected=kind.key.length||pairs.length?keyUid(kind.contractUid??keyUid('madarch.catalogue.kind',[kind.name]),[scope,...pairs,...values]):ref.uid??newUid();
+ if(binding.scope!==binding.productUid&&binding.scope!==expected&&!pairs.includes(binding.scope))throw new Error(`${WHERE}:80: SOURCE_FORBIDDEN identity outside authenticated scope`);
+ if(ref.uid!==undefined&&ref.uid!==expected)throw new Error(`${WHERE}:66: UID_IDENTITY_CONFLICT ${ref.uid}`);
+ return expected;
+}
+async function storedReference(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,visited:readonly string[]=[]):Promise<EntityRefDraft>{
+ if(ref.uid===undefined||Object.keys(ref.key).length>0||ref.keyEdges!==undefined)return ref;
+ const kind=contract.vertex.find(vertex=>vertex.name===ref.kind);if(!kind)throw new Error(`${WHERE}:74: UNKNOWN_KIND ${ref.kind}`);
+ if(visited.includes(ref.uid))throw new Error(`${WHERE}:74: KEY_EDGE_CYCLE ${ref.kind}`);
+ const held=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;key:EntityRefDraft['key']}>(`SELECT n.id::text,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[ref.uid]))).rows[0];
+ if(!held||held.kind!==ref.kind)throw new Error(`${WHERE}:74: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
+ const keyEdges:Record<string,EntityRefDraft>={};
+ for(const role of kind.keyEdges??[]){
+  const from=role.direction==='from'?'from_node':'to_node';const to=role.direction==='from'?'to_node':'from_node';
+  const parents=(await withSpan('graph.write.storedReference', { 'db.system': 'postgres' }, async () => await executor.query<{uid:string;kind:string}>(`SELECT parent.uid::text,pk.name AS kind FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node parent ON parent.id=e.${to} JOIN entity pk ON pk.id=parent.entity_id WHERE e.${from}=$1::bigint AND ek.name=$2`,[held.id,role.edge]))).rows;
+  if(parents.length!==1)throw new Error(`${WHERE}:74: REQUIRED_PARENT ${ref.kind}.${role.role}`);
+  keyEdges[role.role]=await storedReference(executor,contract,{kind:parents[0]!.kind,key:{},uid:parents[0]!.uid},[...visited,ref.uid]);
+ }
+ return {...ref,key:held.key,...(Object.keys(keyEdges).length?{keyEdges}:{} )};
+}
+async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context:number):Promise<{id:string;uid:string}>{
+ const resolved=await storedReference(executor,contract,ref);
+ const uid=await refUid(executor,contract,resolved,context);
+ const row=(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid]))).rows[0];
+ if(!row||row.kind!==ref.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
+ if(!(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context]))).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
+ return {id:row.id,uid};
+}
+/** Resolves a declared identity without creating it. */
+export async function resolveEntityRef(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context=1):Promise<{id:string;uid:string}>{
+ return await withSpan('graph.identity.resolve',{'graph.kind':ref.kind},()=>endpoint(executor,withAssertionContract(contract),ref,context));
+}
+export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context=1):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ const contract=withAssertionContract(declared);const version=checkBinding(requireWriteCapability(executor),contract,context);
+ return await ensureCheckedVertex(executor,{contract,version},draft,context);
+}
+async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
+ return await withSpan('graph.vertex.ensure',{'graph.kind':draft.kind},async()=>{
+ const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:79: UNKNOWN_KIND ${draft.kind}`);
+ permitted(binding,kind.name,'$exists');
+ const uid=await refUid(executor,contract,draft,context);const key:Record<string,unknown>={};
+ for(const name of kind.key){const field=kind.fields.find(f=>f.name===name)!;key[name]=validate(field,draft.key[name]);validateFieldValue(contract,field,key[name]);}
+ const keyEdges=await Promise.all((kind.keyEdges??[]).map(async role=>({role,parent:await endpoint(executor,contract,draft.keyEdges![role.role]!,context)})));
+ const made=await identity(executor,kind.name,uid,key,kind.identity?.namespace??(keyEdges.length===1?keyEdges[0]!.parent.uid:keyEdges.length?keyUid('madarch.parent-scope',keyEdges.flatMap(edge=>[edge.role.role,edge.parent.uid])):binding.productUid),context);
+ for(const {role,parent} of keyEdges){const edge=contract.edge.find(e=>e.name===role.edge);if(!edge)throw new Error(`${WHERE}:85: UNKNOWN_KEY_EDGE ${role.edge}`);const from=role.direction==='from'?made.nodeId:parent.id;const to=role.direction==='from'?parent.id:made.nodeId;await putEdge(executor,edge.name,from,to,'',context);}
+ const cache=await immutableLookups(executor),node=cache.vertices.get(uid)!;
+ cache.vertices.set(uid,{...node,parents:keyEdges.map(({role,parent})=>({kind:draft.keyEdges![role.role]!.kind,uid:parent.uid,edge:role.edge,direction:role.direction}))});
+ return made;
+ });
+}
+/** A trusted host births its lineage trio only after all three identities can be named. */
+export async function activateBoundIdentities(executor:SqlExecutor,declared:GraphContract):Promise<void>{
+ const binding=requireWriteCapability(executor);const contract=withAssertionContract(declared);checkBinding(binding,contract,binding.context);
+ for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid]){
+  const held=(await withSpan('graph.write.activateBoundIdentities', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context]))).rows[0];
+  if(!held)throw new Error(`${WHERE}:57: TARGET_MISSING authenticated lineage ${uid}`);
+  if(!held.active)await writeAssertion(executor,contract,{sort:'vertex',kind:held.kind,subjectId:held.id,property:'$exists',operation:'assert',value:true},binding.context);
+ }
+}
+function edgeUid(kind:string,fromUid:string,toUid:string,discriminator:string):string{return keyUid(keyUid('madarch.catalogue.kind',[kind]),[fromUid,toUid,discriminator]);}
+async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,discriminator:string,context:number):Promise<string>{
+ return await withSpan('graph.write.putEdge',{},async()=>{
+ const kindId=await entityId(executor,kind,'edge');
+ const nodes=new Map<string,string>();
+ const missing=[...new Set([from,to])].filter(id=>!nodes.has(id));
+ if(missing.length)for(const row of (await executor.query<{id:string;uid:string}>(`SELECT id::text AS id,uid::text AS uid FROM node WHERE id=ANY($1::bigint[]) ORDER BY uid`,[missing])).rows)nodes.set(row.id,row.uid);
+ const uid=edgeUid(kind,nodes.get(from)!,nodes.get(to)!,discriminator);
+ const made=await executor.query<{id:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) VALUES($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5,$6) ON CONFLICT DO NOTHING RETURNING id::text AS id`,[uid,kindId,from,to,discriminator,context]);
+ return made.rows[0]?.id??(await executor.query<{id:string}>(`SELECT id::text AS id FROM edge WHERE uid=$1::uuid`,[uid])).rows[0]!.id;
+ });
+}
+export interface AssertionInput {
+ readonly sort:'vertex'|'edge'; readonly kind:string; readonly subjectId:string; readonly property:string;
+ readonly operation:'assert'|'retract'; readonly value?:unknown; readonly language?:string|null;
+ readonly validFrom?:string; readonly validTo?:string|null; readonly evidence?:readonly EvidenceDraft[];
+}
+/** One assertion and all lineage enter in the caller's atomic operation. */
+/** Check the authenticated subject scope before internal metadata writes can broaden their storage scope. */
+export async function requireAssertionScope(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,subject:{readonly sort:'vertex'|'edge';readonly subjectId:string},context:number):Promise<void>{
+ return await withSpan('graph.assertion.scope',{},async()=>{
+ if(binding.context!==undefined&&binding.context!==context)throw new Error(`${WHERE}:114: SOURCE_FORBIDDEN capability context`);
+ if(binding.scope!==binding.productUid){
+  const scopeNode=(await executor.query<{id:string}>(`SELECT id::text AS id FROM node WHERE uid=$1::uuid`,[binding.scope])).rows[0];
+  const subjectNodes=subject.sort==='vertex'?[subject.subjectId]:(await executor.query<{from_node:string;to_node:string}>(`SELECT from_node::text,to_node::text FROM edge WHERE id=$1::bigint`,[subject.subjectId])).rows.flatMap(row=>[row.from_node,row.to_node]);
+  const keyNames=contract.vertex.flatMap(vertex=>(vertex.keyEdges??[]).map(role=>({name:role.edge,direction:role.direction})));
+  const scoped=scopeNode===undefined?false:(await executor.query<{allowed:boolean}>(`WITH RECURSIVE members(id) AS (SELECT $1::bigint UNION SELECT CASE WHEN role.direction='from' THEN e.from_node ELSE e.to_node END FROM members m JOIN edge e ON true JOIN entity k ON k.id=e.entity_id JOIN jsonb_to_recordset($2::jsonb) role(name text,direction text) ON role.name=k.name WHERE CASE WHEN role.direction='from' THEN e.to_node ELSE e.from_node END=m.id AND graph_edge_active(e.id,k.name,$4::bigint)) SELECT bool_and(id IN(SELECT id FROM members)) AS allowed FROM unnest($3::bigint[]) subject(id)`,[scopeNode.id,JSON.stringify(keyNames),subjectNodes,context])).rows[0]?.allowed===true;
+  if(!scoped)throw new Error(`${WHERE}:128: SOURCE_FORBIDDEN assertion outside authenticated scope`);
+ }
+ });
+}
+export async function writeAssertion(executor:SqlExecutor,declared:GraphContract,input:AssertionInput,context=1):Promise<string>{
+ return (await admitAssertionInputs(executor,declared,[input],context))[0]!;
+}
+async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,inputs:AssertionInput[],context:number):Promise<string[]>{
+ return await withSpan('graph.write.admitAssertionInputs',{},async()=>{
+ const contract=withAssertionContract(declared),binding=requireWriteCapability(executor);const version=checkBinding(binding,contract,context);
+ await acquireGraphWriteLock(executor);
+ const {entities,instant}=await immutableCatalogue(executor,contract);
+ const references=new Map<EvidenceDraft,string>();
+ for(const input of inputs)for(const evidence of input.evidence??[]){
+  validateEvidenceLocator(evidence.locator??{});
+  if(!contract.vertex.find(kind=>kind.name===evidence.target.kind)?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);
+  references.set(evidence,await refUid(executor,contract,await storedReference(executor,contract,evidence.target),context));
+ }
+ const mentions=inputs.flatMap(input=>input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]);
+ const requested=[binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid),...references.values()];
+ const held=(await executor.query<BatchNode>(`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) OR n.id=ANY($2::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[requested,inputs.filter(input=>input.sort==='vertex').map(input=>input.subjectId)])).rows;
+ const nodes=new Map(held.map(node=>[node.uid,{...node,parents:[]}]));
+ const edgeSubjects=(await executor.query<{id:string;kind:string;from:string;to:string}>(`SELECT e.id::text,k.name AS kind,e.from_node::text AS "from",e.to_node::text AS "to" FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.id=ANY($1::bigint[]) ORDER BY e.id FOR UPDATE OF e`,[inputs.filter(input=>input.sort==='edge').map(input=>input.subjectId)])).rows;
+ const subjectNodes:string[]=[];const needActive=new Map<string,{uid:string;kind:string;error:string}>();
+ for(const input of inputs){
+  const subject=input.sort==='vertex'?held.find(node=>node.id===input.subjectId):edgeSubjects.find(edge=>edge.id===input.subjectId);
+  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
+  if(input.sort==='vertex')subjectNodes.push(input.subjectId);else{const edge=edgeSubjects.find(edge=>edge.id===input.subjectId)!;subjectNodes.push(edge.from,edge.to);}
+  for(const mention of input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${input.kind} ${mention.uid}`);needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:'TARGET_MISSING'});}
+  for(const evidence of input.evidence??[]){const uid=references.get(evidence)!,node=nodes.get(uid);if(!node||node.kind!==evidence.target.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind} ${uid}`);needActive.set(uid,{uid,kind:node.kind,error:'MISSING_ENDPOINT'});}
+ }
+ await checkBatchActivity(executor,needActive,context,nodes);
+ await checkBatchScope(executor,contract,binding,subjectNodes,[],context);
+ const assertions=await insertBatchAssertions(executor,{contract,version},inputs,nodes,entities,binding,context,instant);
+ return assertions.map(input=>input.uid);
+ });
+}
+export interface GraphDrafts {readonly vertices:readonly VertexDraft[];readonly removals:readonly VertexRemovalDraft[];readonly edges?:readonly EdgeDraft[];readonly edgeRemovals?:readonly EdgeRemovalDraft[]}
+interface BatchNode extends Record<string,unknown> {id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;parents:{kind:string;uid:string;edge:string;direction:string}[]}
+interface BatchAssertion extends AssertionInput {uid:string;id?:string;repeat?:boolean;field:FieldContract;mentions:ReturnType<typeof scanMentions>}
+/** Fixed phases: local validation → identities (UID_IDENTITY_CONFLICT)
+ * → endpoint, mention and evidence-target resolution (REQUIRED_PARENT for absent
+ * key-edge parents) → one activity check (REQUIRED_PARENT for inactive key-edge
+ * parents, MISSING_ENDPOINT, TARGET_MISSING) → scope (SOURCE_FORBIDDEN) → assertion
+ * admission (IMMUTABLE_KEY, IMMUTABLE_EVIDENCE, digest and content locators)
+ * → removals. Within a phase, reject the first draft in input order.
+ * Admit at one instant and keep database work set based (0039.25–29). */
+async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,drafts:GraphDrafts,context:number):Promise<number>{
+ return await withSpan('graph.write.publishBatch',{},async()=>{
+ const {contract,version}=prepared,binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
+ if(drafts.vertices.length===0&&(drafts.edges?.length??0)===0){await acquireGraphWriteLock(executor);return 0;}
+ const kinds=new Map(contract.vertex.map(kind=>[kind.name,kind]));
+ const references:EntityRefDraft[]=[];const vertexUids:string[]=[];
+ const collect=async(ref:EntityRefDraft):Promise<string>=>{
+  references.push(ref);for(const parent of Object.values(ref.keyEdges??{}))await collect(parent);
+  if(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined)return ref.uid;
+  return refUid(executor,contract,ref,context);
+ };
+ for(const draft of drafts.vertices){permitted(binding,draft.kind,'$exists');vertexUids.push(await collect(draft));}
+ for(const draft of drafts.edges??[]){await collect(draft.from);await collect(draft.to);}
+ for(const draft of drafts.vertices)for(const evidence of draft.evidence??[])await collect(evidence.target);
+ for(const draft of drafts.edges??[])for(const evidence of draft.evidence??[])await collect(evidence.target);
+ const mentions=drafts.vertices.flatMap(draft=>Object.values(draft.values??{}).flatMap(value=>scanMentions(value,''))).concat((drafts.edges??[]).flatMap(draft=>Object.values(draft.values??{}).flatMap(value=>scanMentions(value,''))));
+ const requested=new Set<string>([...vertexUids,binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid)]);
+ for(const ref of references)requested.add(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined?ref.uid:await refUid(executor,contract,ref,context));
+ await acquireGraphWriteLock(executor);
+ const {entities,instant}=await immutableCatalogue(executor,contract);
+ const keyRoles=contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({kind:kind.name,edge:role.edge,direction:role.direction})));
+ const cache=await immutableLookups(executor);
+ const complete=(uid:string,visited=new Set<string>()):boolean=>{
+  if(visited.has(uid))return true;visited.add(uid);
+  const node=cache.vertices.get(uid);return node!==undefined&&node.parents.every(parent=>complete(parent.uid,visited));
+ };
+ const missing=[...requested].filter(uid=>!complete(uid));
+ // On a complete hit, verify the cached ids still exist without resolving
+ // UIDs again. Keep the batch's fixed read shape for fresh and repeat writes.
+ const existing=missing.length?(await executor.query<BatchNode>(`WITH RECURSIVE wanted(uid) AS (
+  SELECT unnest($1::uuid[]) UNION
+  SELECT parent.uid FROM wanted w CROSS JOIN LATERAL (SELECT child.* FROM node child WHERE child.uid=w.uid OFFSET 0) child JOIN entity ck ON ck.id=child.entity_id
+  JOIN jsonb_to_recordset($2::jsonb) role(kind text,edge text,direction text) ON role.kind=ck.name
+  JOIN entity ek ON ek.name=role.edge AND ek.sort='edge'
+  CROSS JOIN LATERAL (
+   SELECT e.to_node AS id FROM edge e WHERE role.direction='from' AND e.entity_id=ek.id AND e.from_node=child.id
+   UNION ALL
+   SELECT e.from_node AS id FROM edge e WHERE role.direction='to' AND e.entity_id=ek.id AND e.to_node=child.id
+  ) link JOIN node parent ON parent.id=link.id
+ ) SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope,
+ coalesce((SELECT jsonb_agg(jsonb_build_object('kind',pk.name,'uid',parent.uid,'edge',role.edge,'direction',role.direction))
+ FROM jsonb_to_recordset($2::jsonb) role(kind text,edge text,direction text)
+ JOIN entity ek ON ek.name=role.edge AND ek.sort='edge'
+ CROSS JOIN LATERAL (
+  SELECT e.to_node AS id FROM edge e WHERE role.direction='from' AND e.entity_id=ek.id AND e.from_node=n.id
+  UNION ALL
+  SELECT e.from_node AS id FROM edge e WHERE role.direction='to' AND e.entity_id=ek.id AND e.to_node=n.id
+ ) link JOIN node parent ON parent.id=link.id JOIN entity pk ON pk.id=parent.entity_id
+ WHERE role.kind=k.name),'[]'::jsonb) AS parents
+ FROM wanted w CROSS JOIN LATERAL (SELECT n.* FROM node n WHERE n.uid=w.uid OFFSET 0) n JOIN entity k ON k.id=n.entity_id`,[missing,JSON.stringify(keyRoles)])).rows:(await executor.query<BatchNode>('SELECT id::text,uid::text FROM node WHERE id=ANY($1::bigint[])',[ [...requested].map(uid=>cache.vertices.get(uid)!.id) ])).rows;
+ if(!missing.length){
+  if(existing.length!==requested.size||existing.some(row=>!requested.has(row.uid)||cache.vertices.get(row.uid)?.id!==row.id)||new Set(existing.map(row=>row.uid)).size!==requested.size)throw new Error(`${WHERE}:320: UID_IDENTITY_CONFLICT cached batch identities`);
+  for(let i=0;i<existing.length;i++)existing[i]=cache.vertices.get(existing[i]!.uid)!;
+ }
+ for(const node of existing)cache.vertices.set(node.uid,node);
+ const nodes=new Map<string,BatchNode>();
+ for(const uid of requested){const node=cache.vertices.get(uid);if(node!==undefined)nodes.set(uid,node);}
+ for(const node of existing)nodes.set(node.uid,node);
+ const includeParents=(node:ImmutableVertex):void=>{for(const parent of node.parents){if(nodes.has(parent.uid))continue;const held=cache.vertices.get(parent.uid);if(held){nodes.set(parent.uid,held);includeParents(held);}}};
+ for(const node of nodes.values())includeParents(node);
+ const resolvedRef=(ref:EntityRefDraft,visited:readonly string[]=[]):EntityRefDraft=>{
+  if(ref.uid===undefined||Object.keys(ref.key).length>0||ref.keyEdges!==undefined)return ref;
+  const held=nodes.get(ref.uid);if(!held||held.kind!==ref.kind)throw new Error(`${WHERE}:74: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
+  if(visited.includes(ref.uid))throw new Error(`${WHERE}:74: KEY_EDGE_CYCLE ${ref.kind}`);
+  const keyEdges:Record<string,EntityRefDraft>={};
+  for(const role of kinds.get(ref.kind)?.keyEdges??[]){const parents=held.parents.filter(parent=>parent.edge===role.edge&&parent.direction===role.direction);if(parents.length!==1)throw new Error(`${WHERE}:74: REQUIRED_PARENT ${ref.kind}.${role.role}`);const parent=parents[0]!;keyEdges[role.role]=resolvedRef({kind:parent.kind,uid:parent.uid,key:{}},[...visited,ref.uid]);}
+  return {...ref,key:held.key as EntityRefDraft['key'],...(Object.keys(keyEdges).length?{keyEdges}:{})};
+ };
+ const referenceUid=async(ref:EntityRefDraft)=>refUid(executor,contract,resolvedRef(ref),context);
+ const births:{uid:string;kind:string;key:Record<string,unknown>;scope:string}[]=[];
+ const birthByUid=new Map<string,(typeof births)[number]>();
+ for(const [index,draft] of drafts.vertices.entries()){
+  const kind=kinds.get(draft.kind)!;const key=Object.fromEntries(kind.key.map(name=>[name,draft.key[name]]));const pairs:string[]=[];
+  for(const role of kind.keyEdges??[])pairs.push(role.role,await referenceUid(draft.keyEdges![role.role]!));
+  const scope=kind.identity?.namespace??(pairs.length===2?pairs[1]!:pairs.length?keyUid('madarch.parent-scope',pairs):binding.productUid);
+  const uid=vertexUids[index]!;const held=nodes.get(uid);
+  if(held&&(held.kind!==kind.name||!sameValue(held.key,key)||held.scope!==scope))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+  const prior=birthByUid.get(uid);if(prior&&(prior.kind!==kind.name||!sameValue(prior.key,key)||prior.scope!==scope))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
+  if(!prior){const birth={uid,kind:kind.name,key,scope};births.push(birth);birthByUid.set(uid,birth);}
+ }
+ await executor.query<{id:string;uid:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+ SELECT k.id,input.uid,input.key,input.scope,$5::bigint FROM unnest($1::uuid[],$2::text[],$3::jsonb[],$4::uuid[]) WITH ORDINALITY input(uid,kind,key,scope,ord)
+ JOIN entity k ON k.name=input.kind AND k.sort='node' ORDER BY input.ord ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[births.map(b=>b.uid),births.map(b=>b.kind),births.map(b=>JSON.stringify(b.key)),births.map(b=>b.scope),context]);
+
+ const unknownBirths=births.filter(birth=>!nodes.has(birth.uid));
+ const locked=(await executor.query<BatchNode>(unknownBirths.length?`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`:`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[unknownBirths.length?births.map(b=>b.uid):births.map(b=>nodes.get(b.uid)!.id)])).rows;
+ if(locked.length!==births.length||locked.some(node=>!birthByUid.has(node.uid)||(!unknownBirths.length&&nodes.get(node.uid)?.id!==node.id))||new Set(locked.map(node=>node.uid)).size!==births.length)throw new Error(`${WHERE}:366: UID_IDENTITY_CONFLICT locked batch identities`);
+ for(const node of locked)nodes.set(node.uid,{...node,parents:nodes.get(node.uid)?.parents??[]});
+ for(const birth of births){const held=nodes.get(birth.uid);if(!held||held.kind!==birth.kind||held.scope!==birth.scope||!sameValue(held.key,birth.key))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${birth.uid}`);}
+ const activeBirths=new Set(drafts.vertices.flatMap((draft,index)=>(draft.validFrom===undefined||Date.parse(draft.validFrom)<=instant)&&(draft.validTo==null||Date.parse(draft.validTo)>instant)?[vertexUids[index]!]:[]));
+ const needActive=new Map<string,{uid:string;kind:string;error:string}>();
+ const getEndpoint=async(ref:EntityRefDraft,error='MISSING_ENDPOINT'):Promise<BatchNode>=>{
+  const uid=await referenceUid(ref);const node=nodes.get(uid);if(!node||node.kind!==ref.kind)throw new Error(`${WHERE}:73: ${error} ${ref.kind} ${uid}`);
+  if(!(activeBirths.has(uid)))needActive.set(uid,{uid,kind:ref.kind,error});return node;
+ };
+ const edgeInputs:{uid:string;kind:string;from:string;to:string;discriminator:string}[]=[];
+ const addEdge=(kind:string,from:BatchNode,to:BatchNode,discriminator:string)=>{const uid=edgeUid(kind,from.uid,to.uid,discriminator);edgeInputs.push({uid,kind,from:from.id,to:to.id,discriminator});return uid;};
+ const plans:({-readonly [K in keyof AssertionInput]:AssertionInput[K]}&{edgeUid?:string})[]=[];let written=0;
+ for(const [index,draft] of drafts.vertices.entries()){
+  const kind=kinds.get(draft.kind)!,node=nodes.get(vertexUids[index]!)!;
+  const common={sort:'vertex' as const,kind:draft.kind,subjectId:node.id,operation:'assert' as const,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo};
+  plans.push({...common,property:'$exists',value:true});written++;
+  for(const name of kind.key){plans.push({...common,property:name,value:draft.key[name]});written++;}
+  for(const [property,value] of Object.entries(draft.values??{})){plans.push({...common,property,value,language:draft.lang});written++;}
+  for(const role of kind.keyEdges??[]){
+   const ref=draft.keyEdges![role.role]!;
+   const parent=await getEndpoint(ref,`REQUIRED_PARENT ${kind.name}.${role.role}`);const uid=addEdge(role.edge,role.direction==='from'?node:parent,role.direction==='from'?parent:node,'');plans.push({...common,sort:'edge',kind:role.edge,subjectId:'',edgeUid:uid,property:'$exists',value:true});}
+ }
+ for(const draft of drafts.edges??[]){const kind=contract.edge.find(k=>k.name===draft.kind)!;
+  if(!endpointKindNames(kind.from,contract.vertex).includes(draft.from.kind)||!endpointKindNames(kind.to,contract.vertex).includes(draft.to.kind))throw new Error(`${WHERE}:158: ENDPOINT_KIND ${draft.kind}`);
+  const from=await getEndpoint(draft.from),to=await getEndpoint(draft.to);const uid=addEdge(draft.kind,from,to,draft.discriminator??'');
+  const common={sort:'edge' as const,kind:draft.kind,subjectId:'',edgeUid:uid,operation:'assert' as const,evidence:draft.evidence,validFrom:draft.validFrom,validTo:draft.validTo};
+  plans.push({...common,property:'$exists',value:true});written++;
+  for(const [property,value] of Object.entries(draft.values??{})){plans.push({...common,property,value,language:draft.lang});written++;}
+ }
+ for(const plan of plans){
+  for(const mention of scanMentions(plan.value,`/values/${plan.property.split('~').join('~0').split('/').join('~1')}`)){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);if(!(activeBirths.has(node.uid)))needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:`TARGET_MISSING ${mention.path}`});}
+  for(const evidence of plan.evidence??[]){try{validateEvidenceLocator(evidence.locator??{});if(!kinds.get(evidence.target.kind)?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);await getEndpoint(evidence.target);}catch(error){throw new Error(`${String(error)}; subject ${plan.kind} ${[...nodes.values()].find(node=>node.id===plan.subjectId)?.uid??plan.subjectId}`);}}
+ }
+ const edgeRows=(await executor.query<{id:string;uid:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+ SELECT DISTINCT input.uid,k.id,input.f,input.t,input.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) input(uid uuid,kind text,f bigint,t bigint,discriminator text) JOIN entity k ON k.name=input.kind AND k.sort='edge' ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[JSON.stringify(edgeInputs.map(edge=>({...edge,f:edge.from,t:edge.to}))),context])).rows;
+ const edges=new Map(edgeRows.map(edge=>[edge.uid,edge.id]));
+ for(const row of (await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[edgeInputs.map(edge=>edge.uid)])).rows)edges.set(row.uid,row.id);
+ for(const plan of plans)if(plan.edgeUid)plan.subjectId=edges.get(plan.edgeUid)!;
+ await checkBatchActivity(executor,needActive,context,nodes);
+ const subjectNodes=plans.flatMap(plan=>plan.sort==='vertex'?[plan.subjectId]:edgeInputs.filter(edge=>edges.get(edge.uid)===plan.subjectId).flatMap(edge=>[edge.from,edge.to]));
+ await checkBatchScope(executor,contract,binding,subjectNodes,[...edges.values()],context);
+ await insertBatchAssertions(executor,prepared,plans,nodes,entities,binding,context,instant);
+ for(const node of nodes.values()){
+  const parents=keyRoles.filter(role=>role.kind===node.kind).flatMap(role=>edgeInputs.filter(edge=>edge.kind===role.edge&&(role.direction==='from'?edge.from:edge.to)===node.id).map(edge=>{
+   const parent=[...nodes.values()].find(candidate=>candidate.id===(role.direction==='from'?edge.to:edge.from))!;
+   return {kind:parent.kind,uid:parent.uid,edge:role.edge,direction:role.direction};
+  }));
+  cache.vertices.set(node.uid,{...node,parents:parents.length?parents:node.parents});
+ }
+ return written;
+ });
+}
+async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number,nodes:Map<string,BatchNode>):Promise<void>{
+ return await withSpan('graph.write.checkBatchActivity',{},async()=>{
+ const inactive=(await executor.query<{uid:string}>(`SELECT input.uid::text FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text) WHERE NOT graph_vertex_active(input.id,input.kind,$2::bigint)`,[JSON.stringify([...needActive.values()].map(input=>({...input,id:nodes.get(input.uid)!.id}))),context])).rows;
+ if(inactive.length){const missing=new Set(inactive.map(node=>node.uid));const first=[...needActive.values()].find(node=>missing.has(node.uid))!;throw new Error(`${WHERE}:73: ${first.error} ${first.kind} ${first.uid}`);}
+ });
+}
+async function checkBatchScope(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,subjectNodes:string[],plannedEdges:string[],context:number):Promise<void>{
+ return await withSpan('graph.write.checkBatchScope',{},async()=>{
+ const scope=(await executor.query<{id:string}>(`WITH RECURSIVE members(subject,id) AS (
+ SELECT id,id FROM unnest($4::bigint[]) x(id) WHERE $1::uuid<>$5::uuid AND $3::bigint>0 UNION
+ SELECT m.subject,link.id FROM members m CROSS JOIN LATERAL (
+ SELECT e.to_node AS id FROM edge e JOIN entity k ON k.id=e.entity_id
+ JOIN jsonb_to_recordset($2::jsonb) role(edge text,direction text) ON role.edge=k.name AND role.direction='from'
+ WHERE e.from_node=m.id AND (e.id=ANY($6::bigint[]) OR graph_edge_active(e.id,k.name,$3::bigint))
+ UNION ALL
+ SELECT e.from_node AS id FROM edge e JOIN entity k ON k.id=e.entity_id
+ JOIN jsonb_to_recordset($2::jsonb) role(edge text,direction text) ON role.edge=k.name AND role.direction='to'
+ WHERE e.to_node=m.id AND (e.id=ANY($6::bigint[]) OR graph_edge_active(e.id,k.name,$3::bigint))
+ ) link
+ ) SELECT id::text FROM unnest($4::bigint[]) subject(id) WHERE $1::uuid<>$5::uuid AND NOT EXISTS(SELECT 1 FROM members m JOIN node n ON n.id=m.id WHERE m.subject=subject.id AND n.uid=$1::uuid)`,[binding.scope,JSON.stringify(contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({edge:role.edge,direction:role.direction})))),context,[...new Set(subjectNodes)],binding.productUid,plannedEdges])).rows;
+ if(scope.length)throw new Error(`${WHERE}:128: SOURCE_FORBIDDEN assertion outside authenticated scope`);
+ });
+}
+
+async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContract,plans:AssertionInput[],nodes:Map<string,BatchNode>,entities:Map<string,string>,binding:WriteCapability,context:number,instant:number):Promise<BatchAssertion[]>{
+ return await withSpan('graph.write.insertBatchAssertions',{},async()=>{
+ const {contract}=prepared;
+ const nodeIds=new Map([...nodes.values()].map(node=>[node.id,node]));
+ const assertions:BatchAssertion[]=plans.map(input=>{
+  permitted(binding,input.kind,input.property,input.operation==='retract');
+  const kind=contract[input.sort].find(kind=>kind.name===input.kind)!;
+  const field=input.property==='$exists'?{name:'$exists',type:'boolean' as const}:kind.fields.find(field=>field.name===input.property);
+  if(!field)throw new Error(`${WHERE}:116: UNKNOWN_PROPERTY ${input.kind}.${input.property}`);
+  if(input.sort==='vertex'&&'key' in kind&&kind.key.includes(input.property)){
+   if(input.operation!=='assert'||input.language!=null||!sameValue(nodeIds.get(input.subjectId)!.key[input.property],input.value))throw new Error(`${WHERE}:165: IMMUTABLE_KEY ${input.kind}.${input.property}: identity changes require a new UID`);
   }
-  ids.set(key, id);
-  return id;
-}
-
-/** The uids of nodes, by their local id: a journal event names a vertex or an edge's end by its uid, never by an id. */
-
-
-/** A value with the keys of every object in code point order, so two equal values render equal. */
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value !== null && typeof value === 'object') {
-    const held = value as Record<string, unknown>;
-    return Object.fromEntries(Object.keys(held).sort().map((key) => [key, canonical(held[key])]));
+  if(input.operation==='assert'){validate(field,input.value);validateFieldValue(contract,field,input.value);}else if(input.value!==undefined)throw new Error(`${WHERE}:117: RETRACTION_VALUE`);
+  return {...input,uid:newUid(),field,mentions:scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`)};
+ });
+ const tables=new Map<string,{kind:string;sort:'vertex'|'edge';property:string;inputs:BatchAssertion[]}>();
+ const slots=new Map<string,string>();
+ for(const input of assertions){
+  const slot=JSON.stringify([input.kind,input.sort,input.property]);
+  let table=slots.get(slot);
+  if(table===undefined){table=assertionValueTableName(input.kind,input.sort,input.property);slots.set(slot,table);tables.set(table,{kind:input.kind,sort:input.sort,property:input.property,inputs:[]});}
+  tables.get(table)!.inputs.push(input);
+ }
+ const literal=(value:string)=>"'"+value.replaceAll("'","''")+"'";
+ const streamParts=[...tables].map(([table,slot])=>`SELECT ${literal(slot.sort)}::text AS sort,wanted.subject::text AS subject,a.property,a.language,a.operation,a.valid_from::text,a.valid_to::text,a.recorded_sequence::text,n.uid::text,a.assertion_id::text AS id,CASE WHEN pg_typeof(v.value)::text='bigint' THEN to_jsonb(v.value::text) ELSE to_jsonb(v.value) END AS value
+ FROM (SELECT DISTINCT subject,language FROM jsonb_to_recordset($1::jsonb) x(sort text,kind text,subject bigint,property text,language text) WHERE sort=${literal(slot.sort)} AND kind=${literal(slot.kind)} AND property=${literal(slot.property)}) wanted
+ CROSS JOIN LATERAL (
+ ${slot.sort==='vertex'?`SELECT attachment.assertion_id FROM edge se CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=se.id OFFSET 0) attachment WHERE se.to_node=wanted.subject AND se.entity_id=${entities.get('edge:system.assertion-subject')}::bigint`:`SELECT s.assertion_id FROM assertion_edge_subject s WHERE s.edge_id=wanted.subject`}
+ OFFSET 0
+ ) subject
+ CROSS JOIN LATERAL (SELECT header.* FROM assertion header WHERE header.assertion_id=subject.assertion_id OFFSET 0) a
+ JOIN node n ON n.id=a.assertion_id
+ LEFT JOIN "${table}" v ON v.assertion_id=a.assertion_id
+ WHERE a.context_id=$2::bigint AND a.property=${literal(slot.property)} AND a.language IS NOT DISTINCT FROM wanted.language AND EXISTS(SELECT 1 FROM edge source WHERE source.from_node=a.assertion_id AND source.entity_id=${entities.get('edge:system.assertion-source')}::bigint AND source.to_node=${nodes.get(binding.sourceUid)!.id}::bigint)`);
+ interface StreamRow extends Record<string,unknown> {sort:string;subject:string;property:string;language:string|null;operation:string;valid_from:string;valid_to:string|null;recorded_sequence:string;uid:string;id:string;value:unknown}
+ const streams=new Map<string,StreamRow[]>();
+ const streamKey=(sort:string,subject:string,property:string,language:string|null)=>JSON.stringify([sort,subject,property,language]);
+ const streamRows=(await executor.query<StreamRow>(streamParts.length?streamParts.join(' UNION ALL '):'SELECT NULL WHERE FALSE',[JSON.stringify(assertions.map(input=>({sort:input.sort,kind:input.kind,subject:input.subjectId,property:input.property,language:input.language??null}))),context])).rows;
+ for(const row of streamRows){const key=streamKey(row.sort,row.subject,row.property,row.language);const held=streams.get(key)??[];held.push(row);streams.set(key,held);}
+ // Immutable support checks include all history, not just the current source stream.
+ const immutableTables=new Map<string,{kind:string;property:string;ids:string[]}>();
+ const supportIds=new Map<string,Set<string>>();
+ for(const input of assertions)if(input.sort==='vertex'&&contract.vertex.find(kind=>kind.name===input.kind)?.evidence?.immutable){const ids=supportIds.get(input.kind)??new Set<string>();ids.add(input.subjectId);supportIds.set(input.kind,ids);}
+ for(const input of assertions)for(const evidence of input.evidence??[]){const uid=evidence.target.uid??await refUid(executor,contract,evidence.target,context);const target=nodes.get(uid)!;const ids=supportIds.get(target.kind)??new Set<string>();ids.add(target.id);supportIds.set(target.kind,ids);}
+ for(const [name,ids] of supportIds){const kind=contract.vertex.find(kind=>kind.name===name)!;for(const field of [{name:'$exists'},...kind.fields])immutableTables.set(assertionValueTableName(kind.name,'vertex',field.name),{kind:kind.name,property:field.name,ids:[...ids]});}
+ const cache=await immutableLookups(executor);
+ const immutableParts=[...immutableTables].map(([table,slot])=>[table,{...slot,ids:slot.ids.filter(id=>!cache.values.has(JSON.stringify([id,slot.property])))}] as const).filter(([,slot])=>slot.ids.length>0).map(([table,slot])=>`SELECT wanted.id::text AS subject,${literal(slot.property)}::text AS property,CASE WHEN pg_typeof(v.value)::text='bigint' THEN to_jsonb(v.value::text) ELSE to_jsonb(v.value) END AS value,a.recorded_sequence::text AS sequence FROM unnest(ARRAY[${slot.ids.join(',')}]::bigint[]) wanted(id)
+ CROSS JOIN LATERAL (SELECT se.id FROM edge se WHERE se.to_node=wanted.id AND se.entity_id=${entities.get('edge:system.assertion-subject')}::bigint OFFSET 0) se
+ CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=se.id OFFSET 0) s
+ CROSS JOIN LATERAL (SELECT v.value FROM "${table}" v WHERE v.assertion_id=s.assertion_id OFFSET 0) v JOIN assertion a ON a.assertion_id=s.assertion_id`);
+ const immutable=immutableParts.length?(await executor.query<{subject:string;property:string;value:unknown;sequence:string}>(immutableParts.join(' UNION ALL '))).rows:[];
+ const immutableValues=new Map<string,unknown[]>();const content=new Map<string,{value:unknown;sequence:bigint}>();
+ for(const row of immutable){const key=JSON.stringify([row.subject,row.property]);const values=immutableValues.get(key)??[];values.push(row.value);immutableValues.set(key,values);const prior=content.get(key);if(!prior||BigInt(row.sequence)>prior.sequence)content.set(key,{value:row.value,sequence:BigInt(row.sequence)});}
+ for(const slot of immutableTables.values())for(const id of slot.ids){
+  const key=JSON.stringify([id,slot.property]),value=cache.values.get(key);
+  if(value!==undefined&&!immutableValues.has(key)){immutableValues.set(key,[value]);content.set(key,{value,sequence:0n});}
+ }
+ let sequence=streamRows.reduce((max,row)=>BigInt(row.recorded_sequence)>max?BigInt(row.recorded_sequence):max,0n);
+ for(const input of assertions){
+  const kind=input.sort==='vertex'?contract.vertex.find(kind=>kind.name===input.kind):undefined;
+  if(kind?.evidence?.immutable){
+   if(input.operation==='retract'||(input.property==='$exists'&&input.value!==true))throw new Error(`${WHERE}:128: IMMUTABLE_EVIDENCE immutable support cannot be retired`);
+   const key=JSON.stringify([input.subjectId,input.property]);const values=immutableValues.get(key)??[];
+   if(values.some(value=>!sameValue(comparable(input.field,value),comparable(input.field,input.value))))throw new Error(`${WHERE}:130: IMMUTABLE_EVIDENCE support values cannot change`);
+   values.push(input.value);immutableValues.set(key,values);content.set(key,{value:input.value,sequence:++sequence});
+   if(input.property===kind.evidence.contentField&&input.value!==null&&kind.evidence.digestField){const node=nodeIds.get(input.subjectId)!;if(createHash('sha256').update(String(input.value),'utf8').digest('hex')!==node.key[kind.evidence.digestField])throw new Error(`${WHERE}:131: EVIDENCE_INVALID snapshot content contradicts digest`);}
   }
-  return value;
-}
-
-/** A value as one stable text: the digest of a key is taken over this, never over a key's order. */
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonical(value));
-}
-
-/** Whether two values say the same thing. */
-export function sameValue(left: unknown, right: unknown): boolean {
-  return canonicalJson(left ?? null) === canonicalJson(right ?? null);
-}
-
-/** Whether two column values say the same thing: a timestamp the driver hands back as a clock, a text as its own text. */
-function sameColumn(left: unknown, right: unknown): boolean {
-  const instant = (value: unknown): number | undefined => (value instanceof Date ? value.getTime() : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/u.test(value) ? Date.parse(value) : undefined);
-  const held = instant(left);
-  const stated = instant(right);
-  if (held !== undefined && stated !== undefined) return held === stated;
-  return sameValue(left, right);
-}
-
-/** One key field's declaration: the vertex's key field, which is a field of the contract. */
-function keyFieldOf(vertex: VertexContract, field: string): FieldContract {
-  const held = vertex.fields.find((one) => one.name === field);
-  if (held === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(vertex.name)} is keyed by ${JSON.stringify(field)}, and its contract declares no such field: it declares ${vertex.fields.map((one) => one.name).join(', ')}`);
-  return held;
-}
-
-/** One key value, normalised by its contract type (the review of stage 1, finding 8): a text's 1 and "1" are one value. */
-function normaliseKeyValue(contract: GraphContract, field: FieldContract, value: unknown, where: string): unknown {
-  if (field.reference !== undefined) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names ${JSON.stringify(value)}: a reference is {kind, key}`);
-    const ref = value as EntityRefDraft;
-    if (typeof ref.kind !== 'string' || ref.key === null || typeof ref.key !== 'object') throw new Error(`${WHERE}:1: ${where} names a reference that is no {kind, key}`);
-    if (ref.kind !== field.reference) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names a ${JSON.stringify(ref.kind)}`);
-    return { kind: ref.kind, key: canonicalKeyOf(contract, contract.vertex.find((held) => held.name === ref.kind), ref.key, `${where} of the ${ref.kind}`) };
+  const key=streamKey(input.sort,input.subjectId,input.property,input.language??null);const stream=streams.get(key)??[];
+  const at=input.validFrom===undefined?instant:Date.parse(input.validFrom),end=input.validTo==null?null:Date.parse(input.validTo);
+  const current=stream.filter(row=>Date.parse(row.valid_from)<=at&&(row.valid_to===null||Date.parse(row.valid_to)>at)).sort((a,b)=>BigInt(a.recorded_sequence)>BigInt(b.recorded_sequence)?-1:1)[0];
+  const unchanged=current!==undefined&&(current.valid_to===null?end===null:Date.parse(current.valid_to)===end)&&!stream.some(row=>BigInt(row.recorded_sequence)>BigInt(current.recorded_sequence)&&(end===null||Date.parse(row.valid_from)<end)&&(row.valid_to===null||Date.parse(row.valid_to)>at));
+  if(input.operation==='assert'&&current?.operation==='assert'&&unchanged&&sameValue(comparable(input.field,current.value),comparable(input.field,input.value))){input.uid=current.uid;input.id=current.id;input.repeat=true;}
+  else {input.id=input.uid;stream.push({sort:input.sort,subject:input.subjectId,property:input.property,language:input.language??null,operation:input.operation,value:input.value,valid_from:new Date(at).toISOString(),valid_to:end===null?null:new Date(end).toISOString(),recorded_sequence:String(++sequence),uid:input.uid,id:input.uid});streams.set(key,stream);}
+ }
+ // Validate evidence only after all immutable support values in this batch are known.
+ const evidenceTargets=new Map<EvidenceDraft,BatchNode>();
+ const contentMeasures=new Map<string,{points?:number;lines?:number;digest?:string}>();
+ for(const input of assertions)for(const evidence of input.evidence??[]){
+  let target:BatchNode|undefined;
+  if(evidence.target.uid)target=nodes.get(evidence.target.uid);
+  else {const uid=await refUid(executor,contract,evidence.target,context);target=nodes.get(uid);}
+  if(!target)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind}`);
+  evidenceTargets.set(evidence,target);const field=contract.vertex.find(kind=>kind.name===evidence.target.kind)!.evidence!.contentField;
+  const contentKey=JSON.stringify([target.id,field]);
+  const text=field?content.get(contentKey)?.value:undefined;
+  const locator=evidence.locator??{};
+  if(typeof text==='string'){
+   const measures=contentMeasures.get(contentKey)??{};contentMeasures.set(contentKey,measures);
+   if((typeof locator.end==='number'&&locator.end>(measures.points??=Array.from(text).length))||(typeof locator.lineEnd==='number'&&locator.lineEnd>(measures.lines??=text.split('\n').length)))throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator outside immutable content; subject ${input.kind} ${nodeIds.get(input.subjectId)?.uid??input.subjectId}`);
+   if(typeof locator.digest==='string'&&(measures.digest??=createHash('sha256').update(text,'utf8').digest('hex'))!==locator.digest)throw new Error(`${WHERE}:154: EVIDENCE_INVALID locator digest contradicts immutable content`);
   }
-  if (field.type === 'text') {
-    if (typeof value === 'object' && value !== null) throw new Error(`${WHERE}:1: ${where} is a text, and the draft names an object`);
-    return String(value);
+ }
+ const fresh=assertions.filter(input=>!input.repeat);
+ const lineageNode=(uid:string)=>{const node=nodes.get(uid);if(!node)throw new Error(`${WHERE}:102: MISSING_LINEAGE_TARGET ${uid}`);return node;};
+ const structural:{uid:string;kind:string;assertion:string;target:string}[]=[];
+ const subjectUids=new Map<string,string>();
+ for(const input of fresh){
+  const add=(kind:string,target:BatchNode)=>{const uid=edgeUid(kind,input.uid,target.uid,'');structural.push({uid,kind:entities.get('edge:'+kind)!,assertion:input.uid,target:target.id});return uid;};
+  if(input.sort==='vertex')subjectUids.set(input.uid,add('system.assertion-subject',nodeIds.get(input.subjectId)!));
+  for(const [relation,uid] of [['source',binding.sourceUid],['author',binding.principalUid],['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])])add('system.assertion-'+relation,lineageNode(uid!));
+ }
+ const data=fresh.map((input,ord)=>({uid:input.uid,property:input.property,language:input.language??null,valid_from:input.validFrom??new Date(instant).toISOString(),valid_to:input.validTo??null,operation:input.operation,subject:input.subjectId,sort:input.sort,subject_edge:subjectUids.get(input.uid)??null,ord}));
+ const made=(await executor.query<{id:string;uid:string}>(`WITH input AS MATERIALIZED (SELECT * FROM jsonb_to_recordset($1::jsonb) x(uid uuid,property text,language text,valid_from timestamptz,valid_to timestamptz,operation text,subject bigint,sort text,subject_edge uuid,ord int)), identities AS (
+ INSERT INTO node(entity_id,uid,key,identity_scope,context_id) SELECT $3::bigint,uid,'{}'::jsonb,$4::uuid,$5::bigint FROM input ORDER BY ord RETURNING id,uid
+ ), headers AS (
+ INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
+ SELECT n.id,i.property,i.language,$5::bigint,i.valid_from,i.valid_to,i.operation FROM input i JOIN identities n USING(uid) ORDER BY i.ord RETURNING assertion_id
+ ), structural AS (
+ INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+ SELECT s.uid,s.kind,n.id,s.target,'',$5::bigint FROM jsonb_to_recordset($2::jsonb) s(uid uuid,kind bigint,assertion uuid,target bigint) JOIN identities n ON n.uid=s.assertion JOIN headers h ON h.assertion_id=n.id RETURNING id,uid
+ ), vertex_subjects AS (
+ INSERT INTO assertion_vertex_subject(assertion_id,subject_edge_id) SELECT n.id,s.id FROM input i JOIN identities n USING(uid) JOIN structural s ON s.uid=i.subject_edge WHERE i.sort='vertex' RETURNING assertion_id
+ ), edge_subjects AS (
+ INSERT INTO assertion_edge_subject(assertion_id,edge_id) SELECT n.id,i.subject FROM input i JOIN identities n USING(uid) JOIN headers h ON h.assertion_id=n.id WHERE i.sort='edge' RETURNING assertion_id
+ ) SELECT id::text,uid::text FROM identities`,[JSON.stringify(data),JSON.stringify(structural),entities.get('node:system.assertion'),binding.productUid,context])).rows;
+ const ids=new Map(made.map(row=>[row.uid,row.id]));
+ for(const input of assertions)input.id=ids.get(input.uid)??input.id;
+ for(const [table,slot] of tables){const values=slot.inputs.filter(input=>!input.repeat&&input.operation==='assert');const field=slot.inputs[0]!.field;
+  const isJson=(field:FieldContract):boolean=>field.type==='json';
+  const type=field.type==='timestamp'?'timestamptz':isJson(field)?'jsonb':field.type==='integer'?'integer':field.type==='bigint'?'bigint':field.type==='boolean'?'boolean':'text';
+  if(isJson(field))await executor.query(`INSERT INTO "${table}"(assertion_id,value) SELECT id,value::jsonb FROM unnest($1::bigint[],$2::text[]) input(id,value)`,[values.map(input=>input.id),values.map(input=>JSON.stringify(input.value))]);
+  else await executor.query(`INSERT INTO "${table}"(assertion_id,value) SELECT input.id,input.value FROM jsonb_to_recordset($1::jsonb) input(id bigint,value ${type})`,[JSON.stringify(values.map(input=>({id:input.id,value:input.value})))]);
+ }
+ const repeatEdges:{uid:string;kind:string;from:string;to:string}[]=[];
+ for(const input of assertions.filter(input=>input.repeat))for(const [relation,uid] of [['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])]){const kind='system.assertion-'+relation;repeatEdges.push({uid:edgeUid(kind,input.uid,uid!,''),kind:entities.get('edge:'+kind)!,from:input.id!,to:lineageNode(uid!).id});}
+ await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,'',$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint) ON CONFLICT DO NOTHING`,[JSON.stringify(repeatEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
+ const extraEdges:{uid:string;kind:string;from:string;to:string;discriminator:string}[]=[];
+ for(const input of assertions){
+  for(const [index,evidence] of (input.evidence??[]).entries()){const target=evidenceTargets.get(evidence)!;const discriminator=canonicalJson({index,relation:evidence.relation??'supports',locator:evidence.locator??{}});const kind='system.assertion-evidence';extraEdges.push({uid:edgeUid(kind,input.uid,target.uid,discriminator),kind:entities.get('edge:'+kind)!,from:input.id!,to:target.id,discriminator});}
+  for(const mention of input.mentions){const target=lineageNode(mention.uid);const discriminator=JSON.stringify({path:mention.path,start:mention.start,end:mention.end});const kind='system.assertion-mentions';extraEdges.push({uid:edgeUid(kind,input.uid,target.uid,discriminator),kind:entities.get('edge:'+kind)!,from:input.id!,to:target.id,discriminator});}
+ }
+ await executor.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id) SELECT DISTINCT x.uid,x.kind,x.f,x.t,x.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) x(uid uuid,kind bigint,f bigint,t bigint,discriminator text) ON CONFLICT DO NOTHING`,[JSON.stringify(extraEdges.map(edge=>({...edge,f:edge.from,t:edge.to}))),context]);
+ for(const [key,values] of immutableValues){
+  const [subject,property]=JSON.parse(key) as [string,string];
+  const field=property==='$exists'?{name:property,type:'boolean' as const}:contract.vertex.find(kind=>kind.name===nodeIds.get(subject)!.kind)!.fields.find(field=>field.name===property)!;
+  if(!cache.values.has(key)&&values.length&&values.every(value=>sameValue(comparable(field,value),comparable(field,values[0]))))cache.values.set(key,comparable(field,values[0]));
+ }
+ return assertions;
+ });
+}
+
+export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphContract,drafts:GraphDrafts,context=1,_options:Record<string,unknown>={}):Promise<number>{
+ return await withSpan('graph.publish',{},async()=>{
+ const prepared=preparePublicationContract(declared);const {contract}=prepared;checkBindingRevision(requireWriteCapability(executor),prepared.version,context);
+ const checkFields=(kind:{readonly name:string;readonly fields:readonly FieldContract[]},values:Readonly<Record<string,unknown>>):void=>{
+  try{validateFields(kind.fields,values,'/values');}catch(error){
+   if(error instanceof GraphRefusal&&kind.fields.some(field=>fieldPath('/values',field.name)===error.path))error.message+='; TYPE_MISMATCH';
+   throw error;
   }
-  if (field.type === 'integer') {
-    const number = Number(value);
-    if (!Number.isSafeInteger(number)) throw new Error(`${WHERE}:1: ${where} is an integer, and the draft names ${JSON.stringify(value)}: an integer key is a safe integer, and a wider one is declared a bigint`);
-    return number;
+  for(const [name,value] of Object.entries(values)){const field=kind.fields.find(field=>field.name===name)!;validate(field,value);validateFieldValue(contract,field,value);}
+ };
+ const checkRef=(ref:EntityRefDraft):void=>{const kind=contract.vertex.find(kind=>kind.name===ref.kind);if(!kind)throw new Error(`${WHERE}:196: UNKNOWN_KIND ${ref.kind}`);checkFields(kind,ref.key);for(const parent of Object.values(ref.keyEdges??{}))checkRef(parent);};
+ for(const draft of drafts.vertices){try{checkRef(draft);const kind=contract.vertex.find(kind=>kind.name===draft.kind)!;checkFields(kind,draft.values??{});
+  const binding=requireWriteCapability(executor);permitted(binding,draft.kind,'$exists');
+  for(const name of kind.key)permitted(binding,draft.kind,name);
+  for(const name of Object.keys(draft.values??{}))permitted(binding,draft.kind,name);
+  for(const evidence of draft.evidence??[])validateEvidenceLocator(evidence.locator??{});
+  for(const value of Object.values(draft.values??{}))scanMentions(value,'/values');
+ }catch(error){if(error instanceof Error){error.message+=`; subject ${draft.kind} ${draft.uid??canonicalJson(draft.key)}`;throw error;}throw error;}}
+ for(const draft of drafts.edges??[]){const kind=contract.edge.find(kind=>kind.name===draft.kind);if(!kind)throw new Error(`${WHERE}:198: UNKNOWN_EDGE ${draft.kind}`);checkRef(draft.from);checkRef(draft.to);checkFields(kind,draft.values??{});}
+ let written=await publishBatch(executor,prepared,drafts,context);
+ for(const draft of drafts.removals){if(await removeEntity(executor,contract,draft,context))written++;}
+ for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context,draft.evidence))written++;}
+ return written;
+ });
+}
+async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<void>{
+ return await withSpan('graph.write.retractPropertyStreams',{},async()=>{
+ const binding=requireWriteCapability(executor);
+ const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
+ const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
+ const languages=(await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context])).rows;
+ await admitAssertionInputs(executor,contract,(languages.length?languages:[{language:null}]).map(({language})=>({sort,kind,subjectId,property,operation:'retract',language,evidence})),context);
+ });
+}
+export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
+ return await withSpan('graph.vertex.retract',{},async()=>{
+ const contract=withAssertionContract(declared);
+ if(draft.withdrawAll)throw new Error(`${WHERE}:190: GLOBAL_REMOVAL_REQUIRES_AUTHORIZED_OPERATION`);
+ const subject=await endpoint(executor,contract,draft,context);
+ const retire=async(kindName:string,id:string,visited:Set<string>):Promise<void>=>{
+  if(visited.has(id))return;visited.add(id);
+  for(const childKind of contract.vertex)for(const role of childKind.keyEdges??[]){
+    const children=(await executor.query<{id:string}>(`SELECT child.id::text AS id FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node child ON child.id=e.${role.direction==='from'?'from':'to'}_node JOIN entity ck ON ck.id=child.entity_id WHERE ek.name=$1 AND e.${role.direction==='from'?'to':'from'}_node=$2::bigint AND ck.name=$3 AND graph_edge_active(e.id,ek.name,$4::bigint) AND graph_vertex_active(child.id,ck.name,$4::bigint)`,[role.edge,id,childKind.name,context])).rows;
+   if(children.length&&role.onDelete==='restrict')throw new Error(`${WHERE}:199: PARENT_DELETE_RESTRICTED ${childKind.name}.${role.role}`);
+   for(const child of children)await retire(childKind.name,child.id,visited);
   }
-  // A bigint key is its decimal text (the review of stage 1c, finding 8): 9007199254740993 and 9007199254740992 are two
-  // identities, and JavaScript's Number would make them one.
-  if (field.type === 'bigint') {
-    if (typeof value === 'number') {
-      if (!Number.isSafeInteger(value)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names the number ${JSON.stringify(value)}, which no longer holds its digits: name it as a decimal string`);
-      return String(value);
-    }
-    const text = String(value);
-    if (!/^-?\d+$/u.test(text)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names ${JSON.stringify(value)}: a bigint key is a decimal string`);
-    return text;
-  }
-  if (field.type === 'boolean') {
-    if (value !== true && value !== false) throw new Error(`${WHERE}:1: ${where} is a boolean, and the draft names ${JSON.stringify(value)}`);
-    return value;
-  }
-  throw new Error(`${WHERE}:1: ${where} is a ${field.type}, and a key field is text, integer, bigint, boolean or a reference`);
+  permitted(requireWriteCapability(executor),kindName,'$exists',true);
+  const incident=(await executor.query<{id:string;kind:string}>(`SELECT e.id::text AS id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id WHERE (e.from_node=$1::bigint OR e.to_node=$1::bigint) AND graph_edge_active(e.id,k.name,$2::bigint)`,[id,context])).rows;
+  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context,draft.evidence);
+  const retiredKind=contract.vertex.find(vertex=>vertex.name===kindName)!;
+  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context,draft.evidence);
+ };
+ if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract',evidence:draft.evidence},context);}
+ else await retire(draft.kind,subject.id,new Set());
+ return true;
+ });
 }
-
-/** One key object, normalised and in the contract's key order; a keyless kind holds none. */
-function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefined, key: Readonly<Record<string, KeyValueDraft>>, where: string): Record<string, unknown> {
-  if (vertex === undefined || vertex.key.length === 0) return Object.fromEntries(Object.entries(key).map(([field, value]) => [field, typeof value === 'object' ? canonical(value) : String(value)]));
-  const out: Record<string, unknown> = {};
-  for (const field of vertex.key) {
-    const declared = keyFieldOf(vertex, field);
-    const value = key[field];
-    if (value === undefined || (typeof value === 'string' && value === '')) throw new Error(`${WHERE}:1: ${where} names no ${JSON.stringify(field)}: its key is ${vertex.key.join(', ')}`);
-    out[field] = normaliseKeyValue(contract, declared, value, `the key field ${JSON.stringify(field)} of ${JSON.stringify(vertex.name)}`);
-  }
-  return out;
+export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1,evidence?:readonly EvidenceDraft[]):Promise<boolean>{
+ for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context,evidence);return true;
 }
-
-/** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
-async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
-  const vertex = contract.vertex.find((held) => held.name === ref.kind);
-  if (ref.uid !== undefined) {
-    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<{ id: string }>(sql, [ref.uid, ref.kind]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    return found.rows[0]?.id;
-  }
-  const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
-  const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT id::text AS id FROM node WHERE uid = $1::uuid`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string }>(sql, [uid]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  return found.rows[0]?.id;
-}
-
-/**
- * A key value that names a reference, carried as the referenced entity's name, lifted back to `{kind, key}`: the
- * plugin protocol's key values are strings (a file's key is its repository's name and its path), while the graph
- * declares a repository as a reference with a key of its own. A value already shaped as a reference, and a field
- * that names no reference, are left as they stand.
- */
-function liftedReferences(contract: GraphContract, vertex: VertexContract | undefined, key: Readonly<Record<string, KeyValueDraft>>): Readonly<Record<string, KeyValueDraft>> {
-  if (vertex === undefined) return key;
-  const out: Record<string, KeyValueDraft> = { ...key };
-  for (const field of vertex.key) {
-    const declared = vertex.fields.find((held) => held.name === field);
-    if (declared?.reference === undefined) continue;
-    const value = out[field];
-    if (typeof value !== 'string' || value === '') continue;
-    const target = contract.vertex.find((held) => held.name === declared.reference);
-    const targetKey = target?.key[0];
-    if (targetKey === undefined) continue;
-    out[field] = { kind: declared.reference, key: { [targetKey]: value } };
-  }
-  return out;
-}
-
-/**
- * The node an entity is, declared with its key: made where the store holds none (two concurrent declarations both
- * find it, the review of stage 1, finding 7), live again where a removal had marked it. A keyless kind's vertex is
- * its own uid alone.
- */
-export async function ensureVertex(executor: SqlExecutor, contract: GraphContract, draft: Pick<VertexDraft, 'kind' | 'key'>, contextId = 1, journal?: Journal): Promise<{ nodeId: string; uid: string; created: boolean; revived: boolean }> {
-  journal = heldJournal(executor, journal);
-  const vertex = vertexOf(contract, draft.kind);
-  const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-  const keyless = vertex.key.length === 0;
-  const uid = keyless ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]);
-  const entityId = await entityIdOf(executor, vertex.name, 'node');
-  const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `INSERT INTO node (entity_id, uid, key, context_id) VALUES ($1::bigint, $2::uuid, $3::jsonb, $4::bigint)
-     ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, removed`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string; removed: boolean }>(
-    sql,
-    [entityId, uid, JSON.stringify(key), String(contextId)],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const created = made.rows[0];
-  if (created !== undefined) {
-    journal?.declaredVertex(vertex.name, uid, created.id, key);
-    return { nodeId: created.id, uid, created: true, revived: false };
-  }
-  const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT id::text AS id, removed FROM node WHERE uid = $1::uuid`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string; removed: boolean }>(sql, [uid]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const row = held.rows[0];
-  if (row === undefined) throw new Error(`${WHERE}:1: the node of ${JSON.stringify(draft.kind)} and ${JSON.stringify(key)} was declared and the store holds neither it nor a keyless echo`);
-  if (!row.removed) return { nodeId: row.id, uid, created: false, revived: false };
-  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `UPDATE node SET removed = false WHERE id = $1::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query(sql, [row.id]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  journal?.declaredVertex(vertex.name, uid, row.id, key);
-  return { nodeId: row.id, uid, created: false, revived: true };
-}
-
-/** Declare a publication's vertices together, retaining declaration event order. */
-async function declareVertices(executor: SqlExecutor, contract: GraphContract, drafts: readonly VertexDraft[], contextId: number, journal: Journal): Promise<Declared[]> {
-  const declared: Declared[] = [];
-  for (let at = 0; at < drafts.length; at += PUBLICATION_ROWS) {
-    const batch = drafts.slice(at, at + PUBLICATION_ROWS);
-    const prepared = batch.map(draft => {
-      const vertex = vertexOf(contract, draft.kind);
-      const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-      const uid = draft.uid ?? (vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]));
-      return { draft, key, uid };
-    });
-    const entityIds = new Map<string, string>();
-    for (const item of prepared) if (!entityIds.has(item.draft.kind)) entityIds.set(item.draft.kind, await entityIdOf(executor, item.draft.kind, 'node'));
-    const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `INSERT INTO node (entity_id, uid, key, context_id) SELECT x.entity_id, x.uid, x.key, $2::bigint
-       FROM jsonb_to_recordset($1::jsonb) AS x(entity_id bigint, uid uuid, key jsonb)
-       ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, uid::text AS uid`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<{ id: string; uid: string }>(
-      sql,
-      [JSON.stringify(prepared.map(item => ({ entity_id: entityIds.get(item.draft.kind), uid: item.uid, key: item.key }))), String(contextId)]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const created = new Set(made.rows.map(row => row.uid));
-    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT id::text AS id, uid::text AS uid, removed FROM node WHERE uid = ANY($1::uuid[])`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<{ id: string; uid: string; removed: boolean }>(sql, [prepared.map(item => item.uid)]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const byUid = new Map(held.rows.map(row => [row.uid, row]));
-    const removed = held.rows.filter(row => row.removed);
-    if (removed.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `UPDATE node SET removed = false WHERE id = ANY($1::bigint[])`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query(sql, [removed.map(row => row.id)]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const announced = new Set<string>();
-    for (const item of prepared) {
-      const row = byUid.get(item.uid);
-      if (row === undefined) throw new Error(`${WHERE}:1: declared node ${item.uid} is unavailable`);
-      if (!announced.has(item.uid) && (created.has(item.uid) || row.removed)) journal.declaredVertex(item.draft.kind, item.uid, row.id, item.key);
-      announced.add(item.uid);
-      declared.push({ draft: item.draft, nodeId: row.id, uid: item.uid });
-    }
-  }
-  return declared;
-}
-
-/** The tagged evidence list of one opinion: every place its values were read, once each, in the order stated. */
-export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft[] }): readonly EvidenceEntry[] {
-  const places: EvidenceEntry[] = [];
-  for (const entry of draft.evidence ?? []) {
-    if (entry === null || typeof entry !== 'object') continue;
-    const held = entry as Record<string, unknown>;
-    let tagged: EvidenceEntry;
-    if (held['type'] === 'conversation') tagged = { type: 'conversation', id: String(held['id'] ?? ''), ...(held['speaker'] === undefined ? {} : { speaker: String(held['speaker']) }), ...(held['at'] === undefined ? {} : { at: String(held['at']) }), ...(held['words'] === undefined ? {} : { words: String(held['words']) }) };
-    else if (held['type'] === 'url') tagged = { type: 'url', url: String(held['url'] ?? ''), ...(held['at'] === undefined ? {} : { at: String(held['at']) }) };
-    else if (held['type'] === 'opinion') tagged = { type: 'opinion', id: String(held['id'] ?? '') };
-    else tagged = {
-      type: 'file',
-      ...(held['repository'] === undefined ? {} : { repository: String(held['repository']) }),
-      ...(held['commit_or_digest'] === undefined ? (held['commit'] === undefined ? {} : { commit_or_digest: String(held['commit']) }) : { commit_or_digest: String(held['commit_or_digest']) }),
-      ...(held['path'] === undefined ? {} : { path: String(held['path']) }),
-      ...(held['line_start'] === undefined ? (held['lineStart'] === undefined ? {} : { line_start: Number(held['lineStart']) }) : { line_start: Number(held['line_start']) }),
-      ...(held['line_end'] === undefined ? (held['lineEnd'] === undefined ? {} : { line_end: Number(held['lineEnd']) }) : { line_end: Number(held['line_end']) }),
-    };
-    const rendered = canonicalJson(tagged);
-    if (!places.some((one) => canonicalJson(one) === rendered)) places.push(tagged);
-  }
-  return places;
-}
-
-/** The field values one opinion states, held against the kind's declaration: a key field is never an opinion. */
-function valuesOf(vertex: VertexContract, draft: { readonly kind: string; readonly values?: Readonly<Record<string, unknown>> }): Map<string, unknown> {
-  const values = new Map<string, unknown>();
-  for (const [field, value] of Object.entries(draft.values ?? {})) {
-    if (vertex.key.includes(field)) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(draft.kind)} is keyed by ${JSON.stringify(field)}, and the key is not an opinion: its value is the vertex's`);
-    if (!vertex.fields.some((one) => one.name === field)) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(draft.kind)} declares no field ${JSON.stringify(field)}: its fields are ${vertex.fields.map((one) => one.name).join(', ')}`);
-    values.set(field, value);
-  }
-  return values;
-}
-
-/** A JSON value sent as its own text: this driver would otherwise write an array as a PostgreSQL array. */
-function paramOf(value: unknown): unknown {
-  return value !== null && typeof value === 'object' ? canonicalJson(value) : value;
-}
-
-/**
- * States one opinion of a vertex or an edge: the producer's open opinion of that node, in that language and context,
- * is compared with the whole opinion the draft states. Unchanged values and evidence write nothing; unchanged values
- * with new evidence update the row's evidence; a changed value closes the old row and opens a new one. Answers whether
- * the row changed.
- *
- * Every event states what a replay needs and nothing it must guess: an opened opinion carries the row's whole content
- * (its producer and version, its values, its evidence, its language, the opinion it was translated from, its source's
- * digest, its context and the moment it was said), a re-evidenced one the grounds that replaced its own, and a closed
- * one its id — the row it names is the state, and replay drops it from there.
- */
-async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string, translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string }, selectedFields?: readonly string[]): Promise<boolean> {
-  return (await stateOpinions(executor, entity, table, owner, [{ ownerId, saidBy, values, evidence, lang, ...(nodeUid === undefined ? {} : { nodeUid }), ...(edgeId === undefined ? {} : { edgeId }), ...(translation === undefined ? {} : { translation }), ...(selectedFields === undefined ? {} : { selectedFields }) }], fields, contextId, journal))[0]!;
-}
-
-interface OpinionInput {
-  readonly ownerId: string;
-  readonly saidBy: string;
-  readonly values: ReadonlyMap<string, unknown>;
-  readonly evidence: readonly EvidenceEntry[];
-  readonly lang: string | null;
-  readonly nodeUid?: string;
-  readonly edgeId?: string;
-  readonly translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string };
-  readonly selectedFields?: readonly string[];
-}
-
-// The existing draft storage splits SQL writes into groups of 500; publication uses the same row bound.
-const PUBLICATION_ROWS = 500;
-
-function opinionIdentity(ownerId: string, saidBy: string, lang: string | null): string {
-  return JSON.stringify([ownerId, saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@')), lang]);
-}
-
-/** Apply distinct opinion identities together; repeated identities start a new ordered batch. */
-async function stateOpinions(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', inputs: readonly OpinionInput[], fields: readonly string[], contextId: number, journal?: Journal): Promise<boolean[]> {
-  const results: boolean[] = [];
-  for (let at = 0; at < inputs.length;) {
-    const seen = new Set<string>();
-    let end = at;
-    while (end < inputs.length && end - at < Math.min(PUBLICATION_ROWS, Math.floor(65_535 / (fields.length + 8)))) {
-      const input = inputs[end]!;
-      const identity = opinionIdentity(input.ownerId, input.saidBy, input.lang);
-      if (seen.has(identity)) break;
-      seen.add(identity);
-      end += 1;
-    }
-    const batch = inputs.slice(at, end);
-    const ownerUids = new Map<string, string>();
-    if (owner === 'node_id' && batch.some(input => input.nodeUid === undefined)) {
-      const nodes = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query<{ id: string; uid: string }>(sql, [batch.map(input => input.ownerId)]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      for (const node of nodes.rows) ownerUids.set(node.id, node.uid);
-    }
-    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT DISTINCT ON (o.${owner}, split_part(o.said_by, '@', 1), o.lang) o.*, o.id::text AS id, o.${owner}::text AS owner_id${owner === 'node_id' ? ', n.uid::text AS owner_uid' : ''}
-       FROM ${table} o ${owner === 'node_id' ? 'JOIN node n ON n.id = o.node_id' : ''}
-       WHERE o.${owner} = ANY($1::bigint[]) AND o.context_id = $2::bigint AND o.state = 'open'
-       ORDER BY o.${owner}, split_part(o.said_by, '@', 1), o.lang, o.id DESC`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<Record<string, unknown>>(
-      sql,
-      [batch.map(input => input.ownerId), String(contextId)],
-    );
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const openByIdentity = new Map(held.rows.map(row => [JSON.stringify([String(row['owner_id']), String(row['said_by']).split('@')[0], row['lang'] as string | null]), row]));
-    const plans = batch.map(input => {
-      const open = openByIdentity.get(opinionIdentity(input.ownerId, input.saidBy, input.lang));
-      let values = input.values;
-      let evidence = input.evidence;
-      if (input.selectedFields !== undefined) {
-        const selected = new Set(input.selectedFields);
-        values = new Map(fields.map(field => [field, selected.has(field) ? values.get(field) ?? null : open?.[field] ?? null]));
-        if (open !== undefined && fields.some(field => !selected.has(field) && open[field] != null)) {
-          evidence = [...(open['evidence'] as EvidenceEntry[] ?? []), ...evidence].filter((entry, index, entries) => entries.findIndex(other => sameValue(entry, other)) === index);
-        }
-      }
-      const stated = [...values.entries()].filter(([, value]) => value != null).map(([field]) => field);
-      const same = open !== undefined && fields.every(field => sameColumn(open[field], values.get(field) ?? null));
-      const action = same ? sameValue(open['evidence'] ?? [], evidence) ? 'unchanged' : 're-evidenced' : 'opened';
-      return { input, open, values, evidence, stated, action };
-    });
-    const closing = plans.filter(plan => plan.action === 'opened' && plan.open !== undefined);
-    if (closing.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `UPDATE ${table} SET state = 'closed' WHERE id = ANY($1::bigint[])`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query(sql, [closing.map(plan => String(plan.open!['id']))]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const reEvidence = plans.filter(plan => plan.action === 're-evidenced');
-    if (reEvidence.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `UPDATE ${table} o SET evidence = changed.evidence FROM jsonb_to_recordset($1::jsonb) AS changed(id bigint, evidence jsonb) WHERE o.id = changed.id`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query(
-      sql,
-      [JSON.stringify(reEvidence.map(plan => ({ id: String(plan.open!['id']), evidence: plan.evidence })))],
-    );
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const opening = plans.filter(plan => plan.action === 'opened');
-    const madeByIdentity = new Map<string, Record<string, unknown>>();
-    if (opening.length > 0) {
-      const columns = [...fields, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', owner];
-      const params: unknown[] = [];
-      const rows = opening.map(plan => {
-        const values = [...fields.map(field => paramOf(plan.values.get(field))), plan.input.saidBy, plan.input.lang, canonicalJson(plan.evidence), plan.input.translation?.translatedFrom ?? null, plan.input.translation?.sourceDigest ?? null, String(contextId), plan.input.ownerId];
-        return `(${values.map(value => { params.push(value); return `$${params.length}`; }).join(', ')})`;
-      });
-      const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `INSERT INTO ${table} (${columns.map(column => quote(column, 'column')).join(', ')}) VALUES ${rows.join(', ')}
-         RETURNING id::text AS id, ${owner}::text AS owner_id, said_by, lang, to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, translated_from::text AS translated_from, source_digest`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query<Record<string, unknown>>(
-        sql, params);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      for (const row of made.rows) madeByIdentity.set(opinionIdentity(String(row['owner_id']), String(row['said_by']), row['lang'] as string | null), row);
-    }
-    for (const plan of plans) {
-      const { input, open, values, evidence, stated, action } = plan;
-      const place = { entity, ...(owner === 'node_id' ? { node: input.nodeUid ?? ownerUids.get(input.ownerId) ?? String(open?.['owner_uid'] ?? '') } : { edge: input.edgeId ?? input.ownerId }) };
-      if (action === 'unchanged') { results.push(false); continue; }
-      if (action === 're-evidenced') journal?.opinion({ id: String(open!['id']), ...place, state: 're-evidenced', fields: stated, lang: input.lang, said_by: String(open!['said_by']), evidence });
-      else {
-        if (open !== undefined) journal?.opinion({ id: String(open['id']), ...place, state: 'closed', fields: stated, lang: input.lang, said_by: String(open['said_by']) });
-        const row = madeByIdentity.get(opinionIdentity(input.ownerId, input.saidBy, input.lang))!;
-        journal?.opinion({ id: String(row['id']), ...place, state: 'opened', fields: stated, lang: input.lang, said_by: input.saidBy,
-          values: Object.fromEntries(fields.map(field => [field, values.get(field) ?? null])), evidence,
-          translated_from: row['translated_from'] as string | null, source_digest: row['source_digest'] as string | null,
-          context: contextId, said_at: String(row['said_at']) });
-      }
-      results.push(true);
-    }
-    at = end;
-  }
-  return results;
-}
-
-/**
- * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
- * wrote, so a rerun of the same answer writes nothing.
- */
-export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly selectedFields?: readonly string[]; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
-  const vertex = vertexOf(contract, draft.kind);
-  const values = valuesOf(vertex, draft);
-  const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
-}
-
-
-/**
- * One producer's retraction of an edge: its open opinions of the edge — in every language — close and stay as history,
- * and the edge row is removed when no open opinion of any producer remains, as a vertex retraction does (decision 0034,
- * item 5; 0035, item 2). A retraction naming an edge the store does not hold, or one this producer holds no open
- * opinion of, writes nothing.
- */
-export async function withdrawEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, producer: string, journal?: Journal): Promise<boolean> {
-  journal = heldJournal(executor, journal);
-  const kind = edgeOfKind(contract, kindName);
-  const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT fn.uid::text AS from_uid, tn.uid::text AS to_uid, e.discriminator, e.context_id::text AS context_id
-     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint FOR UPDATE OF e`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ from_uid: string; to_uid: string; discriminator: string; context_id: string }>(
-    sql, [edgeId]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const row = held.rows[0];
-  if (row === undefined) return false;
-  const closed = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `UPDATE ${kind.table} SET "state" = 'closed' WHERE "edge_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    sql,
-    [edgeId, producer, row.context_id],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  if (closed.rows.length === 0) return false;
-  for (const one of closed.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
-  const open = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT count(*)::text AS n FROM ${kind.table} WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ n: string }>(
-    sql,
-    [edgeId, row.context_id],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  if (Number(open.rows[0]?.n ?? '0') > 0) return true;
-  // No open opinion of any producer remains: the edge row goes, and its rows with it — a consistent cascade, the closes
-  // kept in the journal as the history of every producer that stated it.
-  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `DELETE FROM ${kind.table} WHERE "edge_id" = $1::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query(sql, [edgeId]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `DELETE FROM edge WHERE id = $1::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query(sql, [edgeId]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
-  return true;
-}
-
-/**
- * One entity the producer no longer holds: its open opinions — in every language — close, and the vertex is removed
- * when no open opinion of any producer remains (the review of stage 1, finding 3). A later opinion of any producer
- * brings it back.
- */
-export async function removeEntity(executor: SqlExecutor, contract: GraphContract, draft: VertexRemovalDraft, contextId = 1, journal?: Journal): Promise<boolean> {
-  journal = heldJournal(executor, journal);
-  const vertex = vertexOf(contract, draft.kind);
-  const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-  if (vertex.key.length === 0 && draft.uid === undefined) throw new Error(`${WHERE}:1: withdrawing a keyless entity requires its uid`);
-  const uid = draft.uid ?? keyUid(vertex.name, [JSON.stringify(key)]);
-  const node = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string }>(sql, [uid, vertex.name, String(contextId)]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const nodeId = node.rows[0]?.id;
-  if (nodeId === undefined) return false;
-  const preserved: string[] = [];
-  let scopedChanged = false;
-  if (draft.selectedFields !== undefined && draft.withdrawAll !== true) {
-    const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-    const selected = new Set(draft.selectedFields);
-    const standing = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT * FROM ${vertex.table} WHERE node_id = $1::bigint AND split_part(said_by, '@', 1) = $2 AND state = 'open' AND context_id = $3::bigint`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<Record<string, unknown>>(
-      sql,
-      [nodeId, draft.producer, String(contextId)]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    for (const row of standing.rows) {
-      if (!fields.some((field) => !selected.has(field) && row[field] != null)) continue;
-      scopedChanged = await stateOpinion(executor, vertex.name, vertex.table, 'node_id', nodeId, String(row['said_by']),
-        new Map(fields.map((field) => [field, selected.has(field) ? null : row[field]])), fields,
-        row['evidence'] as EvidenceEntry[], row['lang'] as string | null, contextId, journal, uid) || scopedChanged;
-      // The merge created or kept an open replacement; preserve that language from the whole-row withdrawal below.
-      preserved.push(row['lang'] === null ? '' : String(row['lang']));
-    }
-  }
-  const closed = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint AND NOT (COALESCE(lang, '') = ANY($5::text[])) RETURNING "id"::text AS id, "said_by", "lang"`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    sql,
-    [nodeId, draft.producer, String(contextId), draft.withdrawAll === true, preserved],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
-  // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
-  if (closed.rows.length === 0) return scopedChanged;
-  for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
-  const open = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ n: string }>(sql, [nodeId, String(contextId)]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const vertexOpen = Number(open.rows[0]?.n ?? '0') > 0;
-  // This producer's incident edges are withdrawn on every entity retraction, even while another producer's opinion of
-  // the vertex stands: a retraction states what this producer no longer holds, edges included. An edge another
-  // producer still states keeps its end, so the vertex stays as an identity for it (owner's review of def819cd, item 1).
-  const incident = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
-     WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string; kind: string }>(
-    sql, [nodeId],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  let blocked = false;
-  for (const edge of incident.rows) {
-    await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
-    const table = contract.edge.find((one) => one.name === edge.kind)?.table;
-    if (table === undefined) continue;
-    const stillOpen = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<{ n: string }>(sql, [edge.id, String(contextId)]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    if (Number(stillOpen.rows[0]?.n ?? '0') > 0) blocked = true;
-  }
-  const stillRemoved = !vertexOpen && !blocked;
-  // The vertex is journaled as removed only where no open opinion of any producer remains and no incident edge does.
-  if (stillRemoved) journal?.removedVertex(vertex.name, uid, nodeId);
-  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query(sql, [nodeId, stillRemoved]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  return true;
-}
-
-/** What a key or an edge end names and no vertex holds, recorded for the consistency check. */
-export interface UnresolvedReference {
-  /** The vertex whose key holds the reference, or the edge end that did resolve; null when neither end stands. */
-  readonly referrer: string | null;
-  /** The edge kind whose end names the missing vertex, null for a key reference. */
-  readonly edgeEntity?: string | null;
-  readonly field: string;
-  readonly targetEntity: string;
-  readonly targetKey: unknown;
-  /** The producer and version that named it: a rerun of the same answer records it once. */
-  readonly producer: string;
-  /** The other end of the edge, when that end stands. */
-  readonly against?: string | null;
-  /** What tells two edges of one kind and one target apart, for an edge end. */
-  readonly discriminator?: string;
-  readonly contextId: number;
-}
-
-/** Records one unresolved reference; the same one stated twice — by one producer — stands once. */
-async function recordUnresolved(executor: SqlExecutor, reference: UnresolvedReference): Promise<void> {
-  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
-     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8, $9::bigint)
-     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query(
-    sql,
-    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, reference.discriminator ?? null, String(reference.contextId)],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-}
-
-/** The reference one key field names, when the field is a reference; undefined for a plain value. */
-function referenceOf(field: FieldContract, value: unknown): EntityRefDraft | undefined {
-  if (field.reference === undefined) return undefined;
-  if (value === null || typeof value !== 'object') return undefined;
-  return value as EntityRefDraft;
-}
-
-/**
- * Resolves the references one vertex's key names, recording each an absent vertex answers. A declaration has already
- * made the node, so the publication can go on whatever the reference says.
- */
-async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract, kind: string, nodeId: string, draft: Readonly<Record<string, KeyValueDraft>>, producer: string, contextId: number): Promise<void> {
-  const vertex = vertexOf(contract, kind);
-  for (const field of vertex.key) {
-    const declared = keyFieldOf(vertex, field);
-    const ref = referenceOf(declared, draft[field]);
-    if (ref === undefined) continue;
-    const target = contract.vertex.find((held) => held.name === ref.kind);
-    const targetKey = canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`);
-    if (await referencedNodeOf(executor, contract, ref, `the key field ${JSON.stringify(field)} of ${JSON.stringify(kind)}`) !== undefined) {
-      // The reference stands now: the record of its not standing goes.
-      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `DELETE FROM unresolved_reference WHERE referrer_node = $1::bigint AND edge_entity IS NULL AND field = $2 AND target_entity = $3 AND target_key = $4::jsonb AND producer = $5 AND context_id = $6::bigint`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query(sql, [nodeId, field, ref.kind, JSON.stringify(targetKey), producer, String(contextId)]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      continue;
-    }
-    await recordUnresolved(executor, { referrer: nodeId, edgeEntity: null, field, targetEntity: ref.kind, targetKey, producer, against: null, contextId });
-  }
-}
-
-/** The drafts one publication applies, by the kind of write they are. */
-export interface GraphDrafts {
-  readonly vertices: readonly VertexDraft[];
-  readonly edges?: readonly EdgeDraft[];
-  readonly removals: readonly VertexRemovalDraft[];
-  readonly edgeRemovals?: readonly EdgeRemovalDraft[];
-}
-
-/** The producer an entry's author falls back to: the first draft's producer, whichever kind of draft it is. */
-function producerOf(drafts: GraphDrafts): string | undefined {
-  const vertex = drafts.vertices[0];
-  if (vertex !== undefined) return `${vertex.producer}@${vertex.producerVersion}`;
-  const edge = (drafts.edges ?? [])[0];
-  if (edge !== undefined) return `${edge.producer}@${edge.producerVersion}`;
-  const removal = drafts.removals[0];
-  if (removal !== undefined) return removal.producer;
-  return drafts.edgeRemovals?.[0]?.producer;
-}
-
-/**
- * One edge a producer withdraws: its ends are found the way a declaration's are (by uid of the kind and key), the edge
- * row between them by its discriminator, and the producer's own open opinions of it close (decision 0034, item 5; 0035,
- * item 2). A removal that names an edge the store does not hold, or one the producer holds no open opinion of, writes
- * nothing — a rerun of the same answer and an edge never made are the same silence.
- */
-async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal): Promise<boolean> {
-  const declared = contract.edge.find((held) => held.name === draft.kind);
-  if (declared === undefined || declared.table === undefined) return false;
-  const from = await referencedNodeOf(executor, contract, draft.from, `the from of the removed edge ${JSON.stringify(draft.kind)}`);
-  const to = await referencedNodeOf(executor, contract, draft.to, `the to of the removed edge ${JSON.stringify(draft.kind)}`);
-  if (from === undefined || to === undefined) return false;
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
-     WHERE e.from_node = $2::bigint AND e.to_node = $3::bigint AND e.discriminator = $4 AND e.context_id = $5::bigint`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<{ id: string }>(
-    sql,
-    [draft.kind, from, to, draft.discriminator ?? '', String(contextId)],
-  );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const id = found.rows[0]?.id;
-  if (id === undefined) return false;
-  return await withdrawEdge(executor, contract, draft.kind, id, draft.producer, journal);
-}
-
-/** A declaration's node, and where each vertex's key names its references. */
-interface Declared {
-  readonly draft: VertexDraft;
-  readonly nodeId: string;
-  readonly uid: string;
-}
-
-/**
- * Every draft of one publication, applied inside the caller's transaction: declarations first (vertices, then the
- * edges whose ends now stand), then the references each key and each edge end names — an unresolved one is recorded
- * and the publication goes on. Answers how many rows were written; a rerun of the same answer writes none.
- */
-/** Resolve endpoint identities and publish edge opinions in bounded, ordered identity waves. */
-async function publishEdges(executor: SqlExecutor, contract: GraphContract, drafts: readonly EdgeDraft[], contextId: number, journal: Journal): Promise<number> {
-  let written = 0;
-  for (let at = 0; at < drafts.length;) {
-    const seen = new Set<string>();
-    const firstKind = drafts[at]!.kind;
-    let end = at;
-    while (end < drafts.length && end - at < PUBLICATION_ROWS && drafts[end]!.kind === firstKind) {
-      const draft = drafts[end]!;
-      const endpointUid = (ref: EntityRefDraft): string => {
-        if (ref.uid !== undefined) return ref.uid;
-        const target = contract.vertex.find(kind => kind.name === ref.kind);
-        const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `an endpoint of ${JSON.stringify(draft.kind)}`);
-        return keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]);
-      };
-      const identity = canonicalJson([draft.kind, endpointUid(draft.from), endpointUid(draft.to), draft.discriminator ?? '']);
-      if (seen.has(identity)) break;
-      seen.add(identity);
-      end += 1;
-    }
-    const batch = drafts.slice(at, end);
-    const kind = contract.edge.find(kind => kind.name === firstKind);
-    const attribute = edgeOfKind(contract, firstKind);
-    const refs = batch.map(draft => (['from', 'to'] as const).map(field => {
-      const ref = draft[field];
-      const target = contract.vertex.find(kind => kind.name === ref.kind);
-      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
-      return { ref, key, uid: ref.uid ?? keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
-    }));
-    const nodes = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await executor.query<{ id: string; uid: string }>(sql, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
-    const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));
-    const missing: Record<string, unknown>[] = [];
-    const resolved: { draft: EdgeDraft; from: string; to: string; fromUid: string; toUid: string; discriminator: string }[] = [];
-    const referenceActions: { missing: Record<string, unknown>[]; resolved?: typeof resolved[number] }[] = [];
-    for (let index = 0; index < batch.length; index += 1) {
-      const draft = batch[index]!;
-      const pair = refs[index]!;
-      const from = byUid.get(pair[0]!.uid);
-      const to = byUid.get(pair[1]!.uid);
-      if (from !== undefined && to !== undefined) {
-        const row = { draft, from, to, fromUid: pair[0]!.uid, toUid: pair[1]!.uid, discriminator: draft.discriminator ?? '' };
-        resolved.push(row); referenceActions.push({ missing: [], resolved: row });
-      }
-      else {
-        const start = missing.length;
-        for (let side = 0; side < 2; side += 1) {
-        if ((side === 0 ? from : to) !== undefined) continue;
-        const ref = pair[side]!;
-        missing.push({ referrer_node: (side === 0 ? to : from) ?? null, edge_entity: draft.kind, field: side === 0 ? 'from' : 'to', target_entity: ref.ref.kind, target_key: ref.key, producer: `${draft.producer}@${draft.producerVersion}`, against_node: null, edge_discriminator: draft.discriminator ?? '', context_id: contextId });
-        }
-        referenceActions.push({ missing: missing.slice(start) });
-      }
-    }
-    if (resolved.length > 0) {
-      const entityId = await entityIdOf(executor, firstKind, 'edge');
-      const payload = JSON.stringify(resolved.map(row => ({ from_node: row.from, to_node: row.to, discriminator: row.discriminator })));
-      const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id)
-         SELECT $2::bigint, x.from_node, x.to_node, x.discriminator, $3::bigint FROM jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text)
-         ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-        sql, [payload, entityId, String(contextId)]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e
-         JOIN jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text) ON e.from_node = x.from_node AND e.to_node = x.to_node AND e.discriminator = x.discriminator
-         WHERE e.entity_id = $2::bigint AND e.context_id = $3::bigint`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-        sql, [payload, entityId, String(contextId)]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      const edgeKey = (row: { from_node: string; to_node: string; discriminator: string }): string => JSON.stringify([row.from_node, row.to_node, row.discriminator]);
-      const byKey = new Map(held.rows.map(row => [edgeKey(row), row.id]));
-      const created = new Set(made.rows.map(row => row.id));
-      const rows = resolved.map(row => ({ ...row, id: byKey.get(JSON.stringify([row.from, row.to, row.discriminator]))! }));
-      const fields = kind!.fields.map(field => field.name);
-      const inputOf = (row: typeof rows[number], values: ReadonlyMap<string, unknown>): OpinionInput => ({ ownerId: row.id, edgeId: row.id, saidBy: `${row.draft.producer}@${row.draft.producerVersion}`, values, evidence: evidenceList(row.draft), lang: row.draft.lang ?? null });
-      const existenceJournal = journalFor(journal.author);
-      await stateOpinions(executor, firstKind, attribute.table, 'edge_id', rows.filter(row => created.has(row.id)).map(row => ({ ...inputOf(row, new Map()), lang: null })), fields, contextId, existenceJournal);
-      const opinionJournal = journalFor(journal.author);
-      const changed = await stateOpinions(executor, firstKind, attribute.table, 'edge_id', rows.map(row => inputOf(row, new Map(Object.entries(row.draft.values ?? {})))), fields, contextId, opinionJournal);
-      for (let index = 0; index < rows.length; index += 1) {
-        const row = rows[index]!;
-        if (created.has(row.id)) { journal.declaredEdge(firstKind, row.id, row.fromUid, row.toUid, row.discriminator, contextId); written += 1; }
-        for (const event of existenceJournal.opinions.filter(event => event.edge === row.id)) journal.opinion(event);
-        for (const event of opinionJournal.opinions.filter(event => event.edge === row.id)) journal.opinion(event);
-        if (changed[index]) written += 1;
-      }
-
-    }
-    for (let index = 0; index < referenceActions.length;) {
-      const unresolved = referenceActions[index]!.resolved === undefined;
-      let stop = index + 1;
-      while (stop < referenceActions.length && (referenceActions[stop]!.resolved === undefined) === unresolved) stop += 1;
-      const actions = referenceActions.slice(index, stop);
-      if (unresolved) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
-       SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(referrer_node bigint, edge_entity text, field text, target_entity text, target_key jsonb, producer text, against_node bigint, edge_discriminator text, context_id bigint)
-       ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query(
-      sql, [JSON.stringify(actions.flatMap(action => action.missing))]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      else await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `DELETE FROM unresolved_reference u USING jsonb_to_recordset($1::jsonb) AS x(edge_entity text, producer text, context_id bigint, from_node bigint, to_node bigint, discriminator text)
-         WHERE u.edge_entity = x.edge_entity AND u.producer = x.producer AND u.context_id = x.context_id AND u.edge_discriminator = x.discriminator
-         AND (u.referrer_node = x.from_node OR u.referrer_node = x.to_node OR u.referrer_node IS NULL)`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query(
-        sql,
-        [JSON.stringify(actions.flatMap(action => action.resolved === undefined ? [] : [action.resolved]).map(row => ({ edge_entity: firstKind, producer: `${row.draft.producer}@${row.draft.producerVersion}`, context_id: contextId, from_node: row.from, to_node: row.to, discriminator: row.discriminator }))) ]);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
-      index = stop;
-    }
-    at = end;
-  }
-  return written;
-}
-
-export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
-  let written = 0;
-  // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
-  // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
-  // included. A publication with no author at all is refused: every change stands in the journal (A5; codex, stage 2
-  // review, item 1).
-  const author = options.author ?? producerOf(drafts);
-  if (author === undefined || author === '') {
-    throw new Error(`${WHERE}:1: a publication names its author — a producer and its version, "agent", or "person:<uid>" — and this one states a change with none: every change stands in the journal`);
-  }
-  const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
-  journalOn(executor, journal);
-  for (const record of options.reads ?? []) journal.read(record);
-  if (options.withdrawal !== undefined) journal.withdrew(options.withdrawal);
-  // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
-  for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
-  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
-  const beforeDeclarations = journal.vertices.length;
-  const declared = await declareVertices(executor, contract, drafts.vertices, contextId, journal);
-  written += journal.vertices.length - beforeDeclarations;
-  for (let at = 0; at < declared.length;) {
-    const kind = vertexOf(contract, declared[at]!.draft.kind);
-    let end = at + 1;
-    while (end < declared.length && declared[end]!.draft.kind === kind.name) end += 1;
-    const fields = kind.fields.filter(field => !kind.key.includes(field.name)).map(field => field.name);
-    const inputs = declared.slice(at, end).map(({ draft, nodeId, uid }) => ({
-      ownerId: nodeId, nodeUid: uid, saidBy: `${draft.producer}@${draft.producerVersion}`, values: valuesOf(kind, draft),
-      evidence: evidenceList(draft), lang: draft.lang ?? null, ...(draft.selectedFields === undefined ? {} : { selectedFields: draft.selectedFields }),
-    }));
-    written += (await stateOpinions(executor, kind.name, kind.table, 'node_id', inputs, fields, contextId, journal)).filter(Boolean).length;
-    at = end;
-  }
-  // An edge whose ends do not stand is a reference no vertex answers: recorded, never invented. A published edge's
-  // records go.
-  written += await publishEdges(executor, contract, drafts.edges ?? [], contextId, journal);
-  for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
-  await writeJournal(executor, journal);
-  return written;
-}
-

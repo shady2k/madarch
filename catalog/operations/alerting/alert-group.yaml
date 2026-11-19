@@ -24,3 +24,5 @@ labels:
 description:
   en: An alert group collects alerts that share labels and are close in time, so one notification carries them instead of many. Grouping keeps a burst of related failures from flooding the people who must answer.
   ru: Группа оповещений собирает оповещения с общими метками и близкие по времени, чтобы одно сообщение несло их все, а не много сообщений. Группировка не даёт всплеску связанных отказов завалить тех, кто должен отвечать.
+derives-from:
+- alert-rule

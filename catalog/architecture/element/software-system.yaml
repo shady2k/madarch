@@ -12,8 +12,11 @@ relation-constraints:
   out:
   - hasPart
   - partOf
+  - software-system.contains
+  - architecture.serves-domain
   in:
   - hasPart
+  - software-system.contains
 template-policy: none
 labels:
   en:
@@ -25,3 +28,5 @@ labels:
 description:
   en: 'A software system is the whole product or service a person or another system uses, seen from outside: what it does for them, not how it is built. C4 places it at the top, with its users and the other systems it talks to around it.'
   ru: 'Программная система — весь продукт или сервис, которым пользуется человек или другая система, увиденный снаружи: что он для них делает, а не как устроен. C4 ставит её наверх, а вокруг неё — пользователей и другие системы, с которыми она общается.'
+derives-from:
+- domain

@@ -9,7 +9,13 @@
  * after each commit, and a comment now and then so a quiet product keeps its
  * connection.
  */
+import { decodeSourceResponse, type SourceLanguage } from '../page-contract/source-response.js';
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 import { here } from '../model/raise.js';
+import { commandRequests, queryRequests } from './knowledge-contract.js';
+import { GraphRefusal } from '../graph/validation.js';
+import { parseRequest, readRequests } from '../graph/door-contract.js';
 import { AuthoredRefusal } from '../graph/authored.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { LOG_LEVELS, LOG_SOURCES } from '../knowledge/logs.js';
@@ -25,6 +31,18 @@ import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import { diagramFailurePage } from '../render/diagram-failure.js';
+
+/** The answer command's HTTP boundary, independent of product kind names. */
+export const ANSWER_REQUEST_SCHEMA = Type.Object({
+  question: Type.String({ description: 'the id of the question being answered' }),
+  text: Type.String({ description: 'the answer' }),
+}, { additionalProperties: false });
+
+export const PROPOSE_TASK_REQUEST_SCHEMA = Type.Object({
+  question: Type.String({ description: 'the id of the answered question the task comes from' }),
+  choice: Type.Union([Type.Literal('code'), Type.Literal('docs')]),
+  language: Type.Optional(Type.Union([Type.Literal('ru'), Type.Literal('en')])),
+}, { additionalProperties: false });
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -84,13 +102,13 @@ export interface KnowledgePart {
 }
 
 /** The languages the source view names a file by, from its extension; a file it does not know is plain text. */
-const SOURCE_LANGUAGES: Record<string, string> = {
+const SOURCE_LANGUAGES: Readonly<Record<string, SourceLanguage>> = {
   ts: 'typescript', tsx: 'typescript', js: 'javascript', mjs: 'javascript', go: 'go', sql: 'sql', json: 'json', yaml: 'yaml', yml: 'yaml',
   md: 'markdown', proto: 'protobuf', prisma: 'prisma', sh: 'shell', toml: 'toml', mod: 'go',
 };
 
 /** The language of a source file, for the highlighting its view uses. */
-function languageOf(path: string): string {
+function languageOf(path: string): SourceLanguage {
   const name = path.slice(path.lastIndexOf('/') + 1);
   if (name === 'Dockerfile' || name.startsWith('Dockerfile.')) return 'dockerfile';
   if (name === 'Makefile') return 'makefile';
@@ -149,8 +167,34 @@ export function createKnowledgePart(
         if (publication.status === 'pending') response.headers.set('retry-after', '1');
         return { response };
       }
+      const querySchema = queryRequests[what];
+      if (querySchema !== undefined && (request.method === 'GET' || what === 'pause the fill' || what === 'stop the fill')) {
+        const query = new URL(request.url).searchParams;
+        const values: Record<string, string> = {};
+        for (const [key, value] of query) {
+          if (key in values) throw new GraphRefusal(`/${key}`, 'one selector value', query.getAll(key));
+          values[key] = value;
+        }
+        parseRequest(querySchema, values);
+        if (values['kind'] !== undefined) {
+          const kinds = readKinds(product.folder);
+          if (kinds.present && !kinds.manifest.kinds.has(values['kind']) && !(what === 'read the graph verdicts' && kinds.manifest.edges?.has(values['kind']))) throw new GraphRefusal('/kind', 'declared kind', values['kind']);
+        }
+      }
+      const commandSchema = commandRequests[what];
+      if (commandSchema !== undefined && request.method !== 'GET') {
+        const raw = await request.clone().text();
+        let body: unknown = {};
+        if (raw !== '') {
+          try { body = JSON.parse(raw) as unknown; }
+          catch { throw new GraphRefusal('', 'JSON object', raw); }
+        }
+        parseRequest(commandSchema, body);
+      }
       return await work(request);
     } catch (error) {
+      if (error instanceof GraphRefusal) return { response: json(400, { error: error.toJSON() }) };
+      if (error instanceof AuthoredRefusal && error.refusal !== undefined) return { response: json(error.status, { error: error.refusal }) };
       if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...('conflict' in error && error.conflict !== undefined ? { conflict: error.conflict as { field: string; current: unknown; author: string } } : {}) });
       if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
@@ -215,9 +259,9 @@ function fillRefusalCode(message: string): string | undefined {
       const plain = notJson(request);
       if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
       let body: unknown;
-      try { body = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON: { query, variables?, operationName?, lang? }` }); }
-      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: `${import.meta.path}:1: the body is { query, variables?, operationName?, lang? }` });
-      const held = body as Record<string, unknown>;
+      try { body = await request.json(); } catch { throw new GraphRefusal('', 'JSON operation envelope', null); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new GraphRefusal('', 'operation envelope', body);
+      const held = parseRequest(readRequests.graph_query, body) as Record<string, unknown>;
       if (typeof held['query'] !== 'string' || held['query'].trim() === '') return refused(400, { field: 'query', message: `${import.meta.path}:1: "query" is the GraphQL operation's text` });
       if (held['variables'] !== undefined && held['variables'] !== null && (typeof held['variables'] !== 'object' || Array.isArray(held['variables']))) return refused(400, { field: 'variables', message: `${import.meta.path}:1: "variables" is an object of the operation's variables` });
       if (held['operationName'] !== undefined && held['operationName'] !== null && typeof held['operationName'] !== 'string') return refused(400, { field: 'operationName', message: `${import.meta.path}:1: "operationName" is the name of the operation to run, or null` });
@@ -294,6 +338,7 @@ function fillRefusalCode(message: string): string | undefined {
       try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
       if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
       const held = raw as Record<string, unknown>;
+      for (const key of Object.keys(held)) if (key !== 'values' && key !== 'words') throw new GraphRefusal(`/${key}`, 'values or words', held[key]);
       if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
       if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
       const body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
@@ -348,7 +393,7 @@ function fillRefusalCode(message: string): string | undefined {
       const read = await product.source(repo === null || repo === '' ? null : repo, path);
       if (read === undefined) return refused(404, { field: 'path', message: `the graph holds no file ${path} in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`}: its blob is what the source view reads` });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
-      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
+      return { response: json(200, decodeSourceResponse({ repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }, `${import.meta.path}:338`)) };
     }),
     run: guarded('read the run', async (request) => {
       const query = new URL(request.url).searchParams;
@@ -426,7 +471,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
       const asked = await selectionBody(request);
       if ('bad' in asked) return asked.bad;
-      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly, request.signal);
       return { response: json(200, { plan }) };
     }, true),
     fillSelected: guarded('fill the selected entities', async (request) => {
@@ -440,7 +485,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
       // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
-      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const plan = await product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly, request.signal);
       const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.model === null ? {} : { model: asked.selection.model }), ...(asked.selection.reasoning === null ? {} : { reasoning: asked.selection.reasoning }), ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
       if (!started.started) return refused(409, { message: started.message, ...(fillRefusalCode(started.message) === undefined ? {} : { code: fillRefusalCode(started.message) }) });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };
@@ -549,10 +594,11 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { question?: unknown; text?: unknown } | null;
-      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the question being answered' });
-      if (typeof asked.text !== 'string') return refused(400, { field: 'text', message: '"text" is required: the answer' });
-      const done = await product.answer(asked.question, asked.text);
+      if (!Value.Check(ANSWER_REQUEST_SCHEMA, body)) {
+        const error = [...Value.Errors(ANSWER_REQUEST_SCHEMA, body)][0]!;
+        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:501: ${error.message}` });
+      }
+      const done = await product.answer(body.question, body.text);
       return { response: json(200, { question: done.question.slug, state: 'answered', committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.question.answer!.by, at: done.question.answer!.at }) };
     }),
     correction: guarded('save the correction', async (request) => {
@@ -761,15 +807,11 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { question?: unknown; choice?: unknown; language?: unknown } | null;
-      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the answered question the task comes from' });
-      if (asked.choice !== 'code' && asked.choice !== 'docs') return refused(400, { field: 'choice', message: '"choice" is code (the code is right, the documents are old) or docs (the documents are right, the code must change)' });
-      try {
-        const language = asked.language === 'ru' || asked.language === 'en' ? asked.language : undefined;
-        return { response: json(200, await product.proposeTask(asked.question, asked.choice, language)) };
-      } catch (error) {
-        throw error;
+      if (!Value.Check(PROPOSE_TASK_REQUEST_SCHEMA, body)) {
+        const error = [...Value.Errors(PROPOSE_TASK_REQUEST_SCHEMA, body)][0]!;
+        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:716: ${error.message}` });
       }
+      return { response: json(200, await product.proposeTask(body.question, body.choice, body.language)) };
     }),
     closeTask: guarded('close a task by hand', async (request) => {
       const crossSite = foreign(request);

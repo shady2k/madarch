@@ -35,6 +35,23 @@ test('vertex selection scopes the target unit but not its ordinary prerequisites
   expect(stage.unitScheduling!('summary:Summary@Summary:one').after).toEqual(['index:File']);
 });
 
+test('person-authored prerequisites remain selected without scheduling a producer', () => {
+  const original = manifestOf([kind('Product', ['title']), kind('File', ['title'], ['Product'])], [plugin('index')]);
+  const product = original.kinds.get('Product')!;
+  const manifest = { ...original, kinds: new Map(original.kinds).set('Product', {
+    ...product, fields: product.fields!.map(field => ({ ...field, producers: ['person'] })),
+  }) };
+  for (const pluginsOnly of [false, true]) {
+    const plan = planManifestFill(manifest, '/product', ['File'], false, undefined, pluginsOnly);
+    expect(plan.selectedKinds).toEqual(['Product', 'File']);
+    expect(plan.order).toEqual(['index']);
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.selectedKinds).toContain('Product');
+    expect([...plan.fieldProducers('Product').keys()]).toEqual(['title']);
+  }
+});
+
 test('S1: universal agent capability does not schedule covered deterministic output', () => {
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
   expect(plan.order).toEqual(['index']);
@@ -414,4 +431,79 @@ test('a pulled-in kind still names a field bound to a plugin the manifest lacks'
   const plan = planManifestFill(manifest, '/product', ['File', 'Domain'], true, ['Domain']);
   expect(plan.errors.map((error) => error.kind)).toEqual(['File']);
   expect(plan.skipped).toEqual([]);
+});
+
+test('support reads depend on the explicit source owner unit without a synthetic support unit', () => {
+  const catalogue = [kind('File'), kind('Blob'), kind('Summary')];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [
+    plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })]),
+    plugin('summary', [output('Summary', '*', { reads: ['File', 'Blob'] })]),
+  ], selectedKinds: ['Summary'] });
+  expect(plan.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  expect(plan.outputs.get('disk')?.has('Blob')).toBe(false);
+  expect(plan.selectedKinds).toContain('File');
+  expect(plan.order).toEqual(['disk', 'summary']);
+});
+test('support owner resolution prefers explicit read source scope and refuses undeclared or ambiguous owners', () => {
+  const catalogue = [kind('File'), kind('Import'), kind('Blob'), kind('Summary')];
+  const owners = [plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })]), plugin('imports', [output('Import', '*', { support: { vertices: ['Blob'], edges: [] } })])];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: ['File', 'Blob'] })])], selectedKinds: ['Summary'] });
+  expect(plan.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: ['Blob'] })])], selectedKinds: ['Summary'] })).toThrow('support read Blob has ambiguous owner units');
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [plugin('summary', [output('Summary', '*', { reads: ['Blob'] })])], selectedKinds: ['Summary'] })).toThrow('selected kind Blob has no enabled producer');
+});
+test('an explicit earlier support producer resolves to its real owner unit and cycles are refused', () => {
+  const catalogue = [kind('File'), kind('Import'), kind('Blob'), kind('Summary')];
+  const owners = [plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })]), plugin('imports', [output('Import', '*', { support: { vertices: ['Blob'], edges: [] } })])];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: [{ kind: 'Blob', version: 'earlier', producer: 'disk' }] })])], selectedKinds: ['Summary'] });
+  expect(plan.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [plugin('disk', [output('File', '*', { reads: ['Summary'], support: { vertices: ['Blob'], edges: [] } })]), plugin('summary', [output('Summary', '*', { reads: ['Blob'] })])], selectedKinds: ['Summary'] })).toThrow('fill declarations form a cycle');
+});
+
+test('manifest planning retains explicit support dependencies without agent synthetic blob output', () => {
+  const manifest = manifestOf([kind('File'), kind('Blob'), kind('Summary')], [
+    plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })]),
+    general(['File', 'Blob']),
+  ]);
+  const plan = planManifestFill(manifest, '/product', ['Summary', 'Blob'], true);
+  expect(plan.errors).toEqual([]);
+  expect(plan.unitPredecessors('general', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  expect(plan.outputs.get('general')?.has('Blob')).toBe(false);
+});
+
+test('support source reads take priority over other selected owners and otherwise use the selected owner scope', () => {
+  const catalogue = [kind('File'), kind('Import'), kind('Blob'), kind('Summary')];
+  const owners = [plugin('imports', [output('Import', '*', { support: { vertices: ['Blob'], edges: [] } })]), plugin('disk', [output('File', '*', { support: { vertices: ['Blob'], edges: [] } })])];
+  const source = planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: ['File', 'Blob'] })])], selectedKinds: ['File', 'Import', 'Summary'] });
+  expect(source.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  const versioned = planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: [{ kind: 'File', version: 'earlier', producer: 'disk' }, 'Blob'] })])], selectedKinds: ['File', 'Import', 'Summary'] });
+  expect(versioned.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  const scoped = planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: ['Blob'] })])], selectedKinds: ['File', 'Summary'] });
+  expect(scoped.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'disk', kind: 'File' }]);
+  try {
+    planFillDeclarations({ kinds: catalogue, plugins: [...owners, plugin('summary', [output('Summary', '*', { reads: ['Blob'] })])], selectedKinds: ['Summary'] });
+    throw new Error('expected an ambiguous support owner refusal');
+  } catch (error) {
+    expect((error as { file: string }).file).toBe('/product/summary/plugin.json');
+    expect((error as { line: number }).line).toBeGreaterThan(1);
+    expect((error as Error).message).toContain('disk:File, imports:Import');
+  }
+});
+
+
+test('a forward-filtered agent source read does not leave its support read unscoped', () => {
+  const manifest = manifestOf([
+    kind('Repository'), kind('File', ['title'], ['Repository']), kind('Directory'), kind('Blob'),
+  ], [
+    plugin('disk', [
+      output('File', '*', { support: { vertices: ['Blob'], edges: [] } }),
+      output('Directory', '*', { support: { vertices: ['Blob'], edges: [] } }),
+    ]),
+    general(['File', 'Blob']),
+  ]);
+  const plan = planManifestFill(manifest, '/product', ['Repository'], true);
+  expect(plan.errors).toEqual([]);
+  expect(plan.readsFor('general', 'Repository')).toEqual([]);
+  expect(plan.unitPredecessors('general', 'Repository')).toEqual([]);
+  expect(plan.selectedKinds).toEqual(['Repository']);
 });

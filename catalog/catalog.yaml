@@ -52,6 +52,477 @@
 # conversation, agent-from-graph, live-system, not-implemented), the `relation-constraints` it may carry (out and in,
 # from `catalog.relations`), and its `template-policy` (page, member or none). A kind whose policy is `none` is
 # catalogue data only: it shows no page yet.
+# Shared value contracts (decision 0039, items 3, 4 and 29). Schema ids are immutable.
+# Resolve references from this installed library only; writes never fetch schemas.
+value-types:
+  document-anchors:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:document-anchors:v1
+      type: object
+      additionalProperties:
+        type: object
+        additionalProperties: false
+        required: [title, start, end, markdown]
+        properties:
+          title: {type: string}
+          start: {type: integer, minimum: 1}
+          end: {type: integer, minimum: 1}
+          markdown: {type: string}
+  git-remote:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:git-remote:v1
+      type: string
+      format: git-remote
+  recorded-identity:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:recorded-identity:v1
+      type: string
+  bigint:
+    storage: bigint
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:bigint:v1
+      anyOf:
+      - type: integer
+      - type: string
+        pattern: ^(0|-?[1-9][0-9]*)$
+  boolean:
+    storage: boolean
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:boolean:v1
+      type: boolean
+  class-diagram-level:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:class-diagram-level:v1
+      type: string
+      enum:
+      - code
+      - domain
+  code.ci-job-steps:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.ci-job-steps:v1
+      type: array
+      items:
+        type: object
+        properties:
+          env:
+            $ref: urn:madarch:value-type:text-map:v1
+          id:
+            $ref: urn:madarch:value-type:text:v1
+          if:
+            $ref: urn:madarch:value-type:text:v1
+          name:
+            $ref: urn:madarch:value-type:text:v1
+          run:
+            $ref: urn:madarch:value-type:text:v1
+          shell:
+            $ref: urn:madarch:value-type:text:v1
+          uses:
+            $ref: urn:madarch:value-type:text:v1
+          with:
+            type: object
+            additionalProperties:
+              anyOf:
+              - $ref: urn:madarch:value-type:text:v1
+              - $ref: urn:madarch:value-type:number:v1
+              - $ref: urn:madarch:value-type:boolean:v1
+          working-directory:
+            $ref: urn:madarch:value-type:path:v1
+        unevaluatedProperties: false
+  code.ci-workflow-on:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.ci-workflow-on:v1
+      anyOf:
+      - $ref: urn:madarch:value-type:text:v1
+      - &id001
+        $ref: urn:madarch:value-type:text-list:v1
+      - type: object
+        additionalProperties:
+          anyOf:
+          - type: 'null'
+          - type: object
+            additionalProperties:
+              anyOf:
+              - $ref: urn:madarch:value-type:text:v1
+              - $ref: urn:madarch:value-type:boolean:v1
+              - $ref: urn:madarch:value-type:number:v1
+              - type: 'null'
+              - *id001
+          - type: array
+            items:
+              type: object
+              properties:
+                cron:
+                  $ref: urn:madarch:value-type:text:v1
+              required:
+              - cron
+              unevaluatedProperties: false
+  code.compose-service-environment:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.compose-service-environment:v1
+      type: object
+      additionalProperties:
+        anyOf:
+        - $ref: urn:madarch:value-type:text:v1
+        - type: 'null'
+  code.dockerfile-stages:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.dockerfile-stages:v1
+      type: array
+      items:
+        type: object
+        properties:
+          image:
+            $ref: urn:madarch:value-type:text:v1
+          name:
+            $ref: urn:madarch:value-type:text:v1
+        required:
+        - image
+        unevaluatedProperties: false
+  code.k8s-deployment-probes:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.k8s-deployment-probes:v1
+      type: object
+      properties:
+        liveness:
+          type: object
+          properties:
+            path:
+              $ref: urn:madarch:value-type:path:v1
+            port:
+              anyOf:
+              - $ref: urn:madarch:value-type:port:v1
+              - $ref: urn:madarch:value-type:text:v1
+            scheme:
+              type: string
+              enum:
+              - HTTP
+              - HTTPS
+          required:
+          - path
+          unevaluatedProperties: false
+        readiness:
+          type: object
+          properties:
+            path:
+              $ref: urn:madarch:value-type:path:v1
+            port:
+              anyOf:
+              - $ref: urn:madarch:value-type:port:v1
+              - $ref: urn:madarch:value-type:text:v1
+            scheme:
+              type: string
+              enum:
+              - HTTP
+              - HTTPS
+          required:
+          - path
+          unevaluatedProperties: false
+        startup:
+          type: object
+          properties:
+            path:
+              $ref: urn:madarch:value-type:path:v1
+            port:
+              anyOf:
+              - $ref: urn:madarch:value-type:port:v1
+              - $ref: urn:madarch:value-type:text:v1
+            scheme:
+              type: string
+              enum:
+              - HTTP
+              - HTTPS
+          required:
+          - path
+          unevaluatedProperties: false
+      unevaluatedProperties: false
+  code.k8s-service-ports:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.k8s-service-ports:v1
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            $ref: urn:madarch:value-type:text:v1
+          nodePort:
+            $ref: urn:madarch:value-type:port:v1
+          port:
+            $ref: urn:madarch:value-type:port:v1
+          protocol:
+            type: string
+            enum:
+            - SCTP
+            - TCP
+            - UDP
+          targetPort:
+            anyOf:
+            - $ref: urn:madarch:value-type:port:v1
+            - $ref: urn:madarch:value-type:text:v1
+        required:
+        - port
+        unevaluatedProperties: false
+  code.lockfile-packages:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:code.lockfile-packages:v1
+      type: array
+      items:
+        type: object
+        properties:
+          dev:
+            $ref: urn:madarch:value-type:boolean:v1
+          integrity:
+            $ref: urn:madarch:value-type:text:v1
+          name:
+            $ref: urn:madarch:value-type:text:v1
+          resolved:
+            $ref: urn:madarch:value-type:url:v1
+          version:
+            $ref: urn:madarch:value-type:version:v1
+        required:
+        - name
+        - version
+        unevaluatedProperties: false
+  date:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:date:v1
+      type: string
+      format: date
+  duration:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:duration:v1
+      type: string
+      format: duration
+  duration-ms:
+    storage: integer
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:duration-ms:v1
+      type: integer
+      minimum: 0
+  duration-seconds:
+    storage: integer
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:duration-seconds:v1
+      type: integer
+      minimum: 0
+  email:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:email:v1
+      type: string
+      format: email
+  field-set-fields:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:field-set-fields:v1
+      type: array
+      items:
+        type: object
+        properties:
+          labels:
+            $ref: urn:madarch:value-type:localized-text:v1
+          name:
+            $ref: urn:madarch:value-type:text:v1
+          nullable:
+            $ref: urn:madarch:value-type:boolean:v1
+          type:
+            $ref: urn:madarch:value-type:text:v1
+        required:
+        - name
+        - type
+        unevaluatedProperties: false
+  integer:
+    storage: integer
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:integer:v1
+      type: integer
+  ipv4:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:ipv4:v1
+      type: string
+      format: ipv4
+  ipv6:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:ipv6:v1
+      type: string
+      format: ipv6
+  json:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:json:v1
+      anyOf:
+      - type: array
+      - type: boolean
+      - type: 'null'
+      - type: number
+      - type: object
+      - type: string
+  link-type-labels:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:link-type-labels:v1
+      type: object
+      additionalProperties:
+        type: object
+        properties:
+          in:
+            $ref: urn:madarch:value-type:text:v1
+          out:
+            $ref: urn:madarch:value-type:text:v1
+        required:
+        - in
+        - out
+        unevaluatedProperties: false
+  localized-text:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:localized-text:v1
+      type: object
+      properties:
+        en:
+          $ref: urn:madarch:value-type:text:v1
+        ru:
+          $ref: urn:madarch:value-type:text:v1
+      required:
+      - en
+      - ru
+      unevaluatedProperties: false
+  money:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:money:v1
+      type: string
+      pattern: ^[A-Z]{3} -?(0|[1-9][0-9]*)(\.[0-9]+)?$
+  number:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:number:v1
+      type: number
+  path:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:path:v1
+      type: string
+      minLength: 1
+      pattern: ^[^\u0000]+$
+  path-list:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:path-list:v1
+      type: array
+      items:
+        $ref: urn:madarch:value-type:path:v1
+  port:
+    storage: integer
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:port:v1
+      type: integer
+      minimum: 1
+      maximum: 65535
+  port-list:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:port-list:v1
+      type: array
+      items:
+        $ref: urn:madarch:value-type:port:v1
+  text:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:text:v1
+      type: string
+  text-list:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:text-list:v1
+      type: array
+      items:
+        $ref: urn:madarch:value-type:text:v1
+  text-map:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:text-map:v1
+      type: object
+      additionalProperties:
+        $ref: urn:madarch:value-type:text:v1
+  timestamp:
+    storage: timestamp
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:timestamp:v1
+      type: string
+      format: date-time
+  url:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:url:v1
+      type: string
+      format: uri
+  value-set-value:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:value-set-value:v1
+      type: string
+      minLength: 1
+  version:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:version:v1
+      type: string
+      minLength: 1
+      pattern: ^[^\s\u0000]+$
+
 purposes:
   understand: { labels: { en: "Understand the product", ru: "Понять продукт" }, order: 10 }
   structure: { labels: { en: "How it works", ru: "Как устроено" }, order: 20 }
@@ -122,7 +593,6 @@ groups:
   data.storage: { en: "Storage", ru: "Хранилища", short: { en: "Storage", ru: "Хранилища" }, parent: data }
   data.model: { en: "Model and catalog", ru: "Модель и каталог", short: { en: "Model and catalog", ru: "Модель" }, parent: data }
   data.job: { en: "Jobs and quality", ru: "Задания и качество", short: { en: "Jobs and quality", ru: "Задания" }, parent: data }
-  data.provenance: { en: "Provenance", ru: "Происхождение", short: { en: "Provenance", ru: "Происхождение" }, parent: data }
   messaging.messaging: { en: "Messaging", ru: "Обмен сообщениями", short: { en: "Messaging", ru: "Сообщения" }, parent: messaging }
   messaging.cache: { en: "Caches", ru: "Кэши", short: { en: "Caches", ru: "Кэши" }, parent: messaging }
   messaging.storage: { en: "Storage services", ru: "Сервисы хранения", short: { en: "Storage", ru: "Хранилища" }, parent: messaging }
@@ -435,6 +905,9 @@ documents:
   exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, "**/AGENTS.md", "**/CLAUDE.md", "**/GEMINI.md"]
   expect: []
   ignore: [code, html, thematicBreak, definition]
+# The roles a reader can read as. Each key is the natural key of a «Роль» entity (role.yaml): a kind's `audience` names
+# those roles, and a person holds them, so the audience of a kind and the actor of its use cases are the same entities
+# (madarch-64o5.109, madarch-64o5.115).
 roles:
   product: { lead: [strategy, discovery, requirements, rd], open: [stated, implementedby, linkedfrom, related, properties] }
   analyst: { lead: [strategy, requirements, data, contracts, information], open: [stated, implementedby, linkedfrom, related, properties, er, sequence, children] }
@@ -453,6 +926,7 @@ problems:
     hotspotCommits: 10
     hotspotScore: 10000
   rules:
+    evidence-applicability: { predicate: findings, kind: evidence-applicability, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Evidence no longer supports a current fact", ru: "Основание больше не подтверждает текущий факт" } }
     dependency.cycle: { predicate: dependency-cycle, kind: dependency-cycle, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Dependency cycle", ru: "Цикл зависимостей" } }
     security.sql-input: { predicate: sql-input, kind: sql-input, sonar: vulnerability, severity: blocker, section: code, action: task, enabled: true, label: { en: "Untrusted input reaches SQL", ru: "Внешние данные попадают в SQL" } }
     security.export-route: { predicate: route-outside-auth, kind: route-outside-auth, sonar: vulnerability, severity: critical, section: code, action: task, enabled: true, label: { en: "Route outside the auth group", ru: "Маршрут вне группы авторизации" } }
@@ -483,138 +957,3719 @@ catalog:
   extractor-mark: extractor
   template-policies: [page, member, none]
   relations:
-    affects: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "affects", "in": "affects"}, "ru": {"out": "влияет на", "in": "affects"}}}
-    allocates: {"labels": {"en": {"out": "allocates", "in": "allocates"}, "ru": {"out": "выделяет", "in": "allocates"}}}
-    appliesTo: {"labels": {"en": {"out": "applies to", "in": "appliesTo"}, "ru": {"out": "применяется к", "in": "appliesTo"}}}
-    approves: {"labels": {"en": {"out": "approves", "in": "approves"}, "ru": {"out": "одобряет", "in": "approves"}}}
-    assigns: {"labels": {"en": {"out": "assigns", "in": "assigns"}, "ru": {"out": "назначает", "in": "assigns"}}}
-    c4.uses: {"source": "https://c4model.com/abstractions", "labels": {"en": {"out": "uses", "in": "c4.uses"}, "ru": {"out": "использует", "in": "c4.uses"}}}
-    childOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "child of", "in": "childOf"}, "ru": {"out": "потомок", "in": "childOf"}}}
-    configures: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "configures", "in": "configures"}, "ru": {"out": "настраивает", "in": "configures"}}}
-    constrains: {"labels": {"en": {"out": "constrains", "in": "constrains"}, "ru": {"out": "ограничивает", "in": "constrains"}}}
-    consumesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "consumes API", "in": "consumesApi"}, "ru": {"out": "использует API", "in": "consumesApi"}}}
-    contains: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
-    defines: {"labels": {"en": {"out": "defines", "in": "defines"}, "ru": {"out": "определяет", "in": "defines"}}}
-    dependsOn: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "depends on", "in": "dependsOn"}, "ru": {"out": "зависит от", "in": "dependsOn"}}}
-    derivesFrom: {"labels": {"en": {"out": "derives from", "in": "derivesFrom"}, "ru": {"out": "происходит от", "in": "derivesFrom"}}}
-    documents: {"labels": {"en": {"out": "documents", "in": "documents"}, "ru": {"out": "документирует", "in": "documents"}}}
-    evidences: {"labels": {"en": {"out": "evidences", "in": "evidences"}, "ru": {"out": "обосновывает", "in": "evidences"}}}
-    fixedBy: {"labels": {"en": {"out": "fixed by", "in": "fixedBy"}, "ru": {"out": "исправляется", "in": "fixedBy"}}}
-    fixedIn: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "fixed in", "in": "fixedIn"}, "ru": {"out": "исправлено в", "in": "fixedIn"}}}
-    foundBy: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "found by", "in": "foundBy"}, "ru": {"out": "обнаружено", "in": "foundBy"}}}
-    generates: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "generates", "in": "generates"}, "ru": {"out": "порождает", "in": "generates"}}}
-    grants: {"labels": {"en": {"out": "grants", "in": "grants"}, "ru": {"out": "предоставляет", "in": "grants"}}}
-    handles: {"labels": {"en": {"out": "handles", "in": "handles"}, "ru": {"out": "обрабатывает", "in": "handles"}}}
-    hasAcceptanceCriterion: {"labels": {"en": {"out": "has acceptance criterion", "in": "hasAcceptanceCriterion"}, "ru": {"out": "имеет критерий приёмки", "in": "hasAcceptanceCriterion"}}}
-    hasDeclaredLicense: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has declared license", "in": "hasDeclaredLicense"}, "ru": {"out": "имеет заявленную лицензию", "in": "hasDeclaredLicense"}}}
-    hasDependencyManifest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has dependency manifest", "in": "hasDependencyManifest"}, "ru": {"out": "имеет манифест зависимостей", "in": "hasDependencyManifest"}}}
-    hasDistributionArtifact: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has distribution artifact", "in": "hasDistributionArtifact"}, "ru": {"out": "имеет артефакт поставки", "in": "hasDistributionArtifact"}}}
-    hasDocumentation: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has documentation", "in": "hasDocumentation"}, "ru": {"out": "имеет документацию", "in": "hasDocumentation"}}}
-    hasHost: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has host", "in": "hasHost"}, "ru": {"out": "имеет хост", "in": "hasHost"}}}
-    hasInput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has input", "in": "hasInput"}, "ru": {"out": "имеет вход", "in": "hasInput"}}}
-    hasMember: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has member", "in": "hasMember"}, "ru": {"out": "имеет участника", "in": "hasMember"}}}
-    hasOutput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has output", "in": "hasOutput"}, "ru": {"out": "имеет выход", "in": "hasOutput"}}}
-    hasPart: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has part", "in": "hasPart"}, "ru": {"out": "имеет часть", "in": "hasPart"}}}
-    hasRequirement: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has requirement", "in": "hasRequirement"}, "ru": {"out": "имеет требование", "in": "hasRequirement"}}}
-    hasTest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test", "in": "hasTest"}, "ru": {"out": "имеет тест", "in": "hasTest"}}}
-    hasTestCase: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test case", "in": "hasTestCase"}, "ru": {"out": "имеет тестовый случай", "in": "hasTestCase"}}}
-    implements: {"labels": {"en": {"out": "implements", "in": "implements"}, "ru": {"out": "реализует", "in": "implements"}}}
-    linksTo: {"labels": {"en": {"out": "links to", "in": "linked from"}, "ru": {"out": "ссылается на", "in": "ссылаются на"}}}
-    measures: {"labels": {"en": {"out": "measures", "in": "measures"}, "ru": {"out": "измеряет", "in": "measures"}}}
-    memberOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "member of", "in": "memberOf"}, "ru": {"out": "участник", "in": "memberOf"}}}
-    mitigates: {"labels": {"en": {"out": "mitigates", "in": "mitigates"}, "ru": {"out": "снижает риск", "in": "mitigates"}}}
-    monitors: {"labels": {"en": {"out": "monitors", "in": "monitors"}, "ru": {"out": "наблюдает за", "in": "monitors"}}}
-    ownedBy: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "owned by", "in": "ownedBy"}, "ru": {"out": "принадлежит", "in": "ownedBy"}}}
-    parentOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "parent of", "in": "parentOf"}, "ru": {"out": "родитель", "in": "parentOf"}}}
-    partOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "part of", "in": "part of"}, "ru": {"out": "часть", "in": "часть"}}}
-    providesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "provides API", "in": "providesApi"}, "ru": {"out": "предоставляет API", "in": "providesApi"}}}
-    publishes: {"labels": {"en": {"out": "publishes", "in": "publishes"}, "ru": {"out": "публикует", "in": "publishes"}}}
-    quarantines: {"labels": {"en": {"out": "quarantines", "in": "quarantines"}, "ru": {"out": "помещает в карантин", "in": "quarantines"}}}
-    realises: {"labels": {"en": {"out": "realises", "in": "realises"}, "ru": {"out": "осуществляет", "in": "realises"}}}
-    refines: {"labels": {"en": {"out": "refines", "in": "refines"}, "ru": {"out": "уточняет", "in": "refines"}}}
-    replicates: {"labels": {"en": {"out": "replicates", "in": "replicates"}, "ru": {"out": "реплицирует", "in": "replicates"}}}
-    restores: {"labels": {"en": {"out": "restores", "in": "restores"}, "ru": {"out": "восстанавливает", "in": "restores"}}}
-    reviews: {"labels": {"en": {"out": "reviews", "in": "reviews"}, "ru": {"out": "проверяет", "in": "reviews"}}}
-    routesTo: {"labels": {"en": {"out": "routes to", "in": "routesTo"}, "ru": {"out": "направляет в", "in": "routesTo"}}}
-    satisfies: {"labels": {"en": {"out": "satisfies", "in": "satisfies"}, "ru": {"out": "удовлетворяет", "in": "satisfies"}}}
-    subscribes: {"labels": {"en": {"out": "subscribes", "in": "subscribes"}, "ru": {"out": "подписывается", "in": "subscribes"}}}
-    supersedes: {"labels": {"en": {"out": "supersedes", "in": "supersedes"}, "ru": {"out": "заменяет", "in": "supersedes"}}}
-    threatens: {"labels": {"en": {"out": "threatens", "in": "threatens"}, "ru": {"out": "угрожает", "in": "threatens"}}}
-    triggers: {"labels": {"en": {"out": "triggers", "in": "triggers"}, "ru": {"out": "запускает", "in": "triggers"}}}
-    uses: {"labels": {"en": {"out": "uses", "in": "uses"}, "ru": {"out": "использует", "in": "uses"}}}
-    usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "usesTool"}, "ru": {"out": "использует инструмент", "in": "usesTool"}}}
-    verifies: {"labels": {"en": {"out": "verifies", "in": "verifies"}, "ru": {"out": "верифицирует", "in": "verifies"}}}
-    as-is: {"labels": {"en": {"out": "as is", "in": "as-is"}, "ru": {"out": "текущее состояние", "in": "as-is"}}}
-    history: {"labels": {"en": {"out": "history", "in": "history"}, "ru": {"out": "история", "in": "history"}}}
-    parent: {"labels": {"en": {"out": "parent", "in": "parent"}, "ru": {"out": "родитель", "in": "parent"}}}
-    touched: {"labels": {"en": {"out": "touched", "in": "touched"}, "ru": {"out": "затронул", "in": "touched"}}}
-    authored: {"labels": {"en": {"out": "authored", "in": "authored"}, "ru": {"out": "автор", "in": "authored"}}}
-    renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed-from"}, "ru": {"out": "переименовано из", "in": "renamed-from"}}}
-    renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed-to"}, "ru": {"out": "переименовано в", "in": "renamed-to"}}}
-    code.manifest-of: {"labels": {"en": {"out": "manifest of", "in": "code.manifest-of"}, "ru": {"out": "манифест", "in": "code.manifest-of"}}}
-    code.tests: {"labels": {"en": {"out": "tests", "in": "code.tests"}, "ru": {"out": "тестирует", "in": "code.tests"}}}
-    code.inherits: {"labels": {"en": {"out": "inherits", "in": "code.inherits"}, "ru": {"out": "наследует", "in": "code.inherits"}}}
-    code.facet-of: {"labels": {"en": {"out": "facet of", "in": "code.facet-of"}, "ru": {"out": "грань", "in": "code.facet-of"}}}
-    code.tasks: {"labels": {"en": {"out": "tasks", "in": "code.tasks"}, "ru": {"out": "ставит задачу", "in": "code.tasks"}}}
-    code.carries: {"labels": {"en": {"out": "carries", "in": "code.carries"}, "ru": {"out": "содержит", "in": "code.carries"}}}
-    code.contains: {"labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    affects: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "affects", "in": "affected by"}, "ru": {"out": "влияет на", "in": "подвержен влиянию"}}}
+    allocates: {"labels": {"en": {"out": "allocates", "in": "allocated to"}, "ru": {"out": "выделяет", "in": "выделено для"}}}
+    appliesTo: {"labels": {"en": {"out": "applies to", "in": "applied to by"}, "ru": {"out": "применяется к", "in": "применено к"}}}
+    approves: {"labels": {"en": {"out": "approves", "in": "approved by"}, "ru": {"out": "одобряет", "in": "одобрено"}}}
+    as-is: {"labels": {"en": {"out": "as is", "in": "is state of"}, "ru": {"out": "текущее состояние", "in": "состояние"}}}
+    assigns: {"labels": {"en": {"out": "assigns", "in": "assigned to"}, "ru": {"out": "назначает", "in": "назначено"}}}
+    authored: {"labels": {"en": {"out": "authored", "in": "authored by"}, "ru": {"out": "автор", "in": "автор"}}}
+    c4.uses: {"source": "https://c4model.com/abstractions", "labels": {"en": {"out": "uses", "in": "used by"}, "ru": {"out": "использует", "in": "используется"}}}
+    childOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "child of", "in": "parent of"}, "ru": {"out": "потомок", "in": "родитель"}}}
     code.as-is: {"labels": {"en": {"out": "as is", "in": "snapshot of"}, "ru": {"out": "текущее состояние", "in": "снимок"}}}
-    code.history: {"labels": {"en": {"out": "history", "in": "history of"}, "ru": {"out": "история", "in": "история"}}}
-    code.parent: {"labels": {"en": {"out": "parent", "in": "parent of"}, "ru": {"out": "родитель", "in": "родитель для"}}}
-    code.touched: {"labels": {"en": {"out": "touched", "in": "changed by"}, "ru": {"out": "затронул", "in": "изменён коммитами"}}}
     code.authored: {"labels": {"en": {"out": "authored", "in": "authored by"}, "ru": {"out": "автор", "in": "автор"}}}
-    code.renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed to"}, "ru": {"out": "переименовано из", "in": "переименовано в"}}}
-    code.renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed from"}, "ru": {"out": "переименовано в", "in": "переименовано из"}}}
+    code.builds: {"labels": {"en": {"out": "builds", "in": "built by"}, "ru": {"out": "собирает", "in": "собирается"}}}
+    code.built-by: {"labels": {"en": {"out": "built by", "in": "builds"}, "ru": {"out": "собирается", "in": "собирает"}}}
+    code.calls: {"labels": {"en": {"out": "calls", "in": "called by"}, "ru": {"out": "вызывает", "in": "вызывается"}}}
+    code.calls-remote: {"labels": {"en": {"out": "calls remote", "in": "called remotely by"}, "ru": {"out": "вызывает удалённо", "in": "вызывается удалённо"}}}
+    code.carries: {"labels": {"en": {"out": "carries", "in": "carried by"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    code.consumes: {"labels": {"en": {"out": "consumes", "in": "consumed by"}, "ru": {"out": "получает", "in": "получается"}}}
+    code.contains: {"labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    code.cycle-member: {"labels": {"en": {"out": "cycle member", "in": "cycle with"}, "ru": {"out": "участник цикла", "in": "цикл с"}}}
+    code.declared-in: {"labels": {"en": {"out": "declared in", "in": "declares"}, "ru": {"out": "объявлено в", "in": "объявляет"}}}
+    code.declares: {"labels": {"en": {"out": "declares", "in": "declared by"}, "ru": {"out": "объявляет", "in": "объявлено"}}}
+    code.depends-on: {"labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
+    code.exposes: {"labels": {"en": {"out": "exposes", "in": "exposed by"}, "ru": {"out": "открывает", "in": "открыто"}}}
+    code.facet-of: {"labels": {"en": {"out": "facet of", "in": "facet"}, "ru": {"out": "грань", "in": "грань чего"}}}
+    code.foreign-key: {"labels": {"en": {"out": "foreign key", "in": "referenced by"}, "ru": {"out": "внешний ключ", "in": "ссылается на"}}}
+    code.handled-by: {"labels": {"en": {"out": "handled by", "in": "handles"}, "ru": {"out": "обрабатывается", "in": "обрабатывает"}}}
     code.has-column: {"labels": {"en": {"out": "has column", "in": "column of"}, "ru": {"out": "имеет столбец", "in": "столбец таблицы"}}}
     code.has-index: {"labels": {"en": {"out": "has index", "in": "index of"}, "ru": {"out": "имеет индекс", "in": "индекс таблицы"}}}
-    code.foreign-key: {"labels": {"en": {"out": "foreign key", "in": "referenced by"}, "ru": {"out": "внешний ключ", "in": "ссылается на"}}}
-    code.declared-in: {"labels": {"en": {"out": "declared in", "in": "declares"}, "ru": {"out": "объявлено в", "in": "объявлена в"}}}
-    relates: {"labels": {"en": {"out": "relates", "in": "relates"}, "ru": {"out": "связано с", "in": "relates"}}}
-    stated-in: {"labels": {"en": {"out": "stated in", "in": "stated-in"}, "ru": {"out": "сказано в", "in": "stated-in"}}}
-    code.calls: {"labels": {"en": {"out": "calls", "in": "code.calls"}, "ru": {"out": "вызывает", "in": "code.calls"}}}
-    code.calls-remote: {"labels": {"en": {"out": "calls remote", "in": "code.calls-remote"}, "ru": {"out": "вызывает удалённо", "in": "code.calls-remote"}}}
-    code.consumes: {"labels": {"en": {"out": "consumes", "in": "code.consumes"}, "ru": {"out": "получает", "in": "code.consumes"}}}
-    code.depends-on: {"labels": {"en": {"out": "depends on", "in": "code.depends-on"}, "ru": {"out": "зависит от", "in": "code.depends-on"}}}
-    code.handled-by: {"labels": {"en": {"out": "handled by", "in": "code.handled-by"}, "ru": {"out": "обрабатывается", "in": "code.handled-by"}}}
-    code.references: {"labels": {"en": {"out": "references", "in": "code.references"}, "ru": {"out": "ссылается на", "in": "code.references"}}}
-    code.serves: {"labels": {"en": {"out": "serves", "in": "code.serves"}, "ru": {"out": "обслуживает", "in": "code.serves"}}}
-    code.reads-table: {"labels": {"en": {"out": "reads table", "in": "code.reads-table"}, "ru": {"out": "читает таблицу", "in": "code.reads-table"}}}
-    code.writes-table: {"labels": {"en": {"out": "writes table", "in": "code.writes-table"}, "ru": {"out": "пишет в таблицу", "in": "code.writes-table"}}}
-    code.cycle-member: {"labels": {"en": {"out": "cycle member", "in": "code.cycle-member"}, "ru": {"out": "участник цикла", "in": "code.cycle-member"}}}
-    code.builds: {"labels": {"en": {"out": "builds", "in": "code.builds"}, "ru": {"out": "собирает", "in": "code.builds"}}}
-    code.built-by: {"labels": {"en": {"out": "built by", "in": "code.built-by"}, "ru": {"out": "собирается", "in": "code.built-by"}}}
-    code.exposes: {"labels": {"en": {"out": "exposes", "in": "code.exposes"}, "ru": {"out": "открывает", "in": "code.exposes"}}}
-    code.runs: {"labels": {"en": {"out": "runs", "in": "code.runs"}, "ru": {"out": "запускает", "in": "code.runs"}}}
-    code.targets: {"labels": {"en": {"out": "targets", "in": "code.targets"}, "ru": {"out": "нацелено на", "in": "code.targets"}}}
-    code.declares: {"labels": {"en": {"out": "declares", "in": "code.declares"}, "ru": {"out": "объявляет", "in": "code.declares"}}}
-    code.implements: {"labels": {"en": {"out": "implements", "in": "code.implements"}, "ru": {"out": "реализует", "in": "code.implements"}}}
-    code.publishes: {"labels": {"en": {"out": "publishes", "in": "code.publishes"}, "ru": {"out": "публикует", "in": "code.publishes"}}}
-    code.reads: {"labels": {"en": {"out": "reads", "in": "code.reads"}, "ru": {"out": "читает", "in": "code.reads"}}}
+    code.history: {"labels": {"en": {"out": "history", "in": "history of"}, "ru": {"out": "история", "in": "история чего"}}}
+    code.implements: {"labels": {"en": {"out": "implements", "in": "implemented by"}, "ru": {"out": "реализует", "in": "реализовано"}}}
     code.imports: {"labels": {"en": {"out": "imports", "in": "imported by"}, "ru": {"out": "импортирует", "in": "импортируется из"}}}
     code.imports-package: {"labels": {"en": {"out": "imports a package", "in": "imported by"}, "ru": {"out": "импортирует пакет", "in": "импортируется из"}}}
-    code.writes: {"labels": {"en": {"out": "writes", "in": "code.writes"}, "ru": {"out": "пишет", "in": "code.writes"}}}
-    mentions: {"labels": {"en": {"out": "mentions", "in": "mentioned by"}, "ru": {"out": "mentions", "in": "упомянут в"}}}
-    grounds: {"labels": {"en": {"out": "grounds", "in": "grounds"}, "ru": {"out": "grounds", "in": "основание"}}}
-# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and
-# the capability that fills them. A kind with a capability takes that capability's contract for its fields.
+    code.inherits: {"labels": {"en": {"out": "inherits", "in": "inherited by"}, "ru": {"out": "наследует", "in": "наследуется"}}}
+    code.manifest-of: {"labels": {"en": {"out": "manifest of", "in": "manifest for"}, "ru": {"out": "манифест", "in": "манифест для"}}}
+    code.parent: {"labels": {"en": {"out": "parent", "in": "parent of"}, "ru": {"out": "родитель", "in": "родитель для"}}}
+    code.publishes: {"labels": {"en": {"out": "publishes", "in": "published by"}, "ru": {"out": "публикует", "in": "публикуется"}}}
+    code.reads: {"labels": {"en": {"out": "reads", "in": "read by"}, "ru": {"out": "читает", "in": "читается"}}}
+    code.reads-table: {"labels": {"en": {"out": "reads table", "in": "read by"}, "ru": {"out": "читает таблицу", "in": "читается"}}}
+    code.references: {"labels": {"en": {"out": "references", "in": "referenced by"}, "ru": {"out": "ссылается на", "in": "на него ссылаются"}}}
+    code.renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed to"}, "ru": {"out": "переименовано из", "in": "переименовано в"}}}
+    code.renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed from"}, "ru": {"out": "переименовано в", "in": "переименовано из"}}}
+    code.runs: {"labels": {"en": {"out": "runs", "in": "run by"}, "ru": {"out": "запускает", "in": "запущено"}}}
+    code.serves: {"labels": {"en": {"out": "serves", "in": "served by"}, "ru": {"out": "обслуживает", "in": "обслуживается"}}}
+    code.targets: {"labels": {"en": {"out": "targets", "in": "target of"}, "ru": {"out": "нацелено на", "in": "цель для"}}}
+    code.tasks: {"labels": {"en": {"out": "tasks", "in": "task of"}, "ru": {"out": "ставит задачу", "in": "задача от"}}}
+    code.tests: {"labels": {"en": {"out": "tests", "in": "tested by"}, "ru": {"out": "тестирует", "in": "тестируется"}}}
+    code.touched: {"labels": {"en": {"out": "touched", "in": "changed by"}, "ru": {"out": "затронул", "in": "изменён коммитами"}}}
+    code.writes: {"labels": {"en": {"out": "writes", "in": "written by"}, "ru": {"out": "пишет", "in": "записано"}}}
+    code.writes-table: {"labels": {"en": {"out": "writes table", "in": "written by"}, "ru": {"out": "пишет в таблицу", "in": "записано"}}}
+    configures: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "configures", "in": "configured by"}, "ru": {"out": "настраивает", "in": "настроено"}}}
+    constrains: {"labels": {"en": {"out": "constrains", "in": "constrained by"}, "ru": {"out": "ограничивает", "in": "ограничено"}}}
+    consumesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "consumes API", "in": "API consumed by"}, "ru": {"out": "использует API", "in": "API используется"}}}
+    contains: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    decides: {"labels": {"en": {"out": "decides", "in": "decided by"}, "ru": {"out": "решает", "in": "решено"}}}
+    defines: {"labels": {"en": {"out": "defines", "in": "defined by"}, "ru": {"out": "определяет", "in": "определено"}}}
+    dependsOn: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
+    derivesFrom: {"labels": {"en": {"out": "derives from", "in": "derived from by"}, "ru": {"out": "происходит от", "in": "от него происходит"}}}
+    documents: {"labels": {"en": {"out": "documents", "in": "documented by"}, "ru": {"out": "документирует", "in": "документировано"}}}
+    domain.covers: {"labels": {"en": {"out": "covers", "in": "covered by"}, "ru": {"out": "покрывает", "in": "покрыт"}}}
+    domain.covers-folder: {"labels": {"en": {"out": "covers folder", "in": "folder covered by"}, "ru": {"out": "покрывает папку", "in": "папка покрыта"}}}
+    domain.uses-term: {"labels": {"en": {"out": "uses term", "in": "term used by"}, "ru": {"out": "использует термин", "in": "термин используется"}}}
+    evidences: {"labels": {"en": {"out": "evidences", "in": "evidenced by"}, "ru": {"out": "обосновывает", "in": "обосновано"}}}
+    fixedBy: {"labels": {"en": {"out": "fixed by", "in": "fixes"}, "ru": {"out": "исправляется", "in": "исправляет"}}}
+    fixedIn: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "fixed in", "in": "fixes"}, "ru": {"out": "исправлено в", "in": "исправляет"}}}
+    flowsTo: {"source": "https://www.omg.org/spec/BPMN/", "labels": {"en": {"out": "flows to", "in": "flows from"}, "ru": {"out": "переходит в", "in": "приходит из"}}}
+    foundBy: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "found by", "in": "finds"}, "ru": {"out": "обнаружено", "in": "обнаруживает"}}}
+    generates: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "generates", "in": "generated by"}, "ru": {"out": "порождает", "in": "порождено"}}}
+    grants: {"labels": {"en": {"out": "grants", "in": "granted by"}, "ru": {"out": "предоставляет", "in": "предоставлено"}}}
+    grounds: {"labels": {"en": {"out": "grounds", "in": "grounded by"}, "ru": {"out": "обосновывает", "in": "обосновано"}}}
+    handles: {"labels": {"en": {"out": "handles", "in": "handled by"}, "ru": {"out": "обрабатывает", "in": "обрабатывается"}}}
+    hasAcceptanceCriterion: {"labels": {"en": {"out": "has acceptance criterion", "in": "acceptance criterion of"}, "ru": {"out": "имеет критерий приёмки", "in": "критерий приёмки для"}}}
+    hasAccessRole: {"labels": {"en": {"out": "has access role", "in": "access role of"}, "ru": {"out": "имеет роль доступа", "in": "роль доступа для"}}}
+    hasDeclaredLicense: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has declared license", "in": "declared license of"}, "ru": {"out": "имеет заявленную лицензию", "in": "заявленная лицензия для"}}}
+    hasDependencyManifest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has dependency manifest", "in": "dependency manifest of"}, "ru": {"out": "имеет манифест зависимостей", "in": "манифест зависимостей для"}}}
+    hasDistributionArtifact: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has distribution artifact", "in": "distribution artifact of"}, "ru": {"out": "имеет артефакт поставки", "in": "артефакт поставки для"}}}
+    hasDocumentation: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has documentation", "in": "documentation of"}, "ru": {"out": "имеет документацию", "in": "документация для"}}}
+    hasHost: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has host", "in": "host of"}, "ru": {"out": "имеет хост", "in": "хост для"}}}
+    hasInput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has input", "in": "input of"}, "ru": {"out": "имеет вход", "in": "вход для"}}}
+    hasMember: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has member", "in": "member of"}, "ru": {"out": "имеет участника", "in": "участник"}}}
+    hasOutput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has output", "in": "output of"}, "ru": {"out": "имеет выход", "in": "выход для"}}}
+    hasPart: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has part", "in": "part of"}, "ru": {"out": "имеет часть", "in": "часть"}}}
+    hasRequirement: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has requirement", "in": "requirement of"}, "ru": {"out": "имеет требование", "in": "требование для"}}}
+    hasTest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test", "in": "test of"}, "ru": {"out": "имеет тест", "in": "тест для"}}}
+    hasTestCase: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test case", "in": "test case of"}, "ru": {"out": "имеет тестовый случай", "in": "тестовый случай для"}}}
+    history: {"labels": {"en": {"out": "history", "in": "history of"}, "ru": {"out": "история", "in": "история чего"}}}
+    holds: {"labels": {"en": {"out": "holds", "in": "held by"}, "ru": {"out": "исполняет", "in": "исполняется"}}}
+    implements: {"labels": {"en": {"out": "implements", "in": "implemented by"}, "ru": {"out": "реализует", "in": "реализовано"}}}
+    linksTo: {"labels": {"en": {"out": "links to", "in": "linked from"}, "ru": {"out": "ссылается на", "in": "ссылаются на"}}}
+    manifest.depends-on: {"labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
+    measures: {"labels": {"en": {"out": "measures", "in": "measured by"}, "ru": {"out": "измеряет", "in": "измеряется"}}}
+    memberOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "member of", "in": "has member"}, "ru": {"out": "участник", "in": "имеет участника"}}}
+    mentions: {"labels": {"en": {"out": "mentions", "in": "mentioned by"}, "ru": {"out": "упоминает", "in": "упомянут в"}}}
+    mitigates: {"labels": {"en": {"out": "mitigates", "in": "mitigated by"}, "ru": {"out": "снижает риск", "in": "риск снижен"}}}
+    module.depends-on: {"labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
+    monitors: {"labels": {"en": {"out": "monitors", "in": "monitored by"}, "ru": {"out": "наблюдает за", "in": "под наблюдением"}}}
+    ownedBy: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "owned by", "in": "owns"}, "ru": {"out": "принадлежит", "in": "владеет"}}}
+    package.dependsOn: {"labels": {"en": {"out": "depends on", "in": "depended on by"}, "ru": {"out": "зависит от", "in": "от него зависят"}}}
+    parent: {"labels": {"en": {"out": "parent", "in": "parent of"}, "ru": {"out": "родитель", "in": "родитель для"}}}
+    parentOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "parent of", "in": "child of"}, "ru": {"out": "родитель", "in": "потомок"}}}
+    partOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "part of", "in": "has part"}, "ru": {"out": "часть", "in": "имеет часть"}}}
+    providesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "provides API", "in": "API provided by"}, "ru": {"out": "предоставляет API", "in": "API предоставляется"}}}
+    publishes: {"labels": {"en": {"out": "publishes", "in": "published by"}, "ru": {"out": "публикует", "in": "публикуется"}}}
+    quarantines: {"labels": {"en": {"out": "quarantines", "in": "quarantined by"}, "ru": {"out": "помещает в карантин", "in": "в карантине"}}}
+    realises: {"labels": {"en": {"out": "realises", "in": "realised by"}, "ru": {"out": "осуществляет", "in": "осуществлено"}}}
+    refines: {"labels": {"en": {"out": "refines", "in": "refined by"}, "ru": {"out": "уточняет", "in": "уточнено"}}}
+    relates: {"labels": {"en": {"out": "relates to", "in": "relates to"}, "ru": {"out": "связано с", "in": "связано с"}}}
+    renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed to"}, "ru": {"out": "переименовано из", "in": "переименовано в"}}}
+    renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed from"}, "ru": {"out": "переименовано в", "in": "переименовано из"}}}
+    replicates: {"labels": {"en": {"out": "replicates", "in": "replicated by"}, "ru": {"out": "реплицирует", "in": "реплицируется"}}}
+    restores: {"labels": {"en": {"out": "restores", "in": "restored by"}, "ru": {"out": "восстанавливает", "in": "восстановлено"}}}
+    reviews: {"labels": {"en": {"out": "reviews", "in": "reviewed by"}, "ru": {"out": "проверяет", "in": "проверено"}}}
+    routesTo: {"labels": {"en": {"out": "routes to", "in": "routes from"}, "ru": {"out": "направляет в", "in": "получает из"}}}
+    satisfies: {"labels": {"en": {"out": "satisfies", "in": "satisfied by"}, "ru": {"out": "удовлетворяет", "in": "удовлетворено"}}}
+    stated-in: {"labels": {"en": {"out": "stated in", "in": "states"}, "ru": {"out": "сказано в", "in": "говорит о"}}}
+    subscribes: {"labels": {"en": {"out": "subscribes", "in": "subscribed by"}, "ru": {"out": "подписывается", "in": "подписка"}}}
+    supersedes: {"labels": {"en": {"out": "supersedes", "in": "superseded by"}, "ru": {"out": "заменяет", "in": "заменено"}}}
+    threatens: {"labels": {"en": {"out": "threatens", "in": "threatened by"}, "ru": {"out": "угрожает", "in": "под угрозой"}}}
+    touched: {"labels": {"en": {"out": "touched", "in": "changed by"}, "ru": {"out": "затронул", "in": "изменён коммитами"}}}
+    triggers: {"labels": {"en": {"out": "triggers", "in": "triggered by"}, "ru": {"out": "запускает", "in": "запущено"}}}
+    uses: {"labels": {"en": {"out": "uses", "in": "used by"}, "ru": {"out": "использует", "in": "используется"}}}
+    usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "tool of"}, "ru": {"out": "использует инструмент", "in": "инструмент для"}}}
+    verifies: {"labels": {"en": {"out": "verifies", "in": "verified by"}, "ru": {"out": "верифицирует", "in": "верифицировано"}}}
+    domain.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    software-system.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    c4.component.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.service.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.module.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.directory.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    organization.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    token-group.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    data-catalog.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    epic.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    feature.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    stage.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    task.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    idea.evolved-into: {"labels": {"en": {"out": "evolved into", "in": "grew out of"}, "ru": {"out": "переросла в", "in": "выросла из"}}}
+    architecture.serves-domain: {"labels": {"en": {"out": "serves domain", "in": "served by"}, "ru": {"out": "обслуживает домен", "in": "обслуживается"}}}
+    container.contains-component: {"labels": {"en": {"out": "contains component", "in": "component of"}, "ru": {"out": "содержит компонент", "in": "компонент контейнера"}}}
+    component.implemented-by: {"labels": {"en": {"out": "implemented by", "in": "implements component"}, "ru": {"out": "реализован модулем", "in": "реализует компонент"}}}
+    term.in-domain: {"labels": {"en": {"out": "in subject field", "in": "defines concepts"}, "ru": {"out": "в предметной области", "in": "определяет понятия"}}}
+    product.uses-repository: {"labels": {"en": {"out": "uses repository", "in": "used by product"}, "ru": {"out": "использует репозиторий", "in": "используется продуктом"}}}
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: disk }
-  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
-  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }
-  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }
-  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }
-  - { name: code.imports, from: [code.file], to: [code.file], repeats: true, discriminator: place, capability: imports }
-  - { name: code.imports-package, from: [code.file], to: [code.package], repeats: true, discriminator: place, capability: imports }
-  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }
-  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }
-  - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }
-  - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }
-  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }
-  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }
-  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }
-  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }
-  # The relations any entity may state (decision 0036, section 3): an agent's mention of one entity in another,
-  # a link between two of them, and a statement's ground. `any` is every entity the schema holds, both ways.
-  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }
-  - { name: linksTo, from: [any], to: [any], repeats: true, discriminator: place }
-  - { name: grounds, from: [any], to: [any], repeats: true, discriminator: place }
+- name: code.contains
+  from:
+  - code.repository
+  - code.directory
+  to:
+  - code.directory
+  - code.file
+  - code.gitlink
+  capability: disk
+  labels:
+    en:
+      out: contains
+      in: contained in
+    ru:
+      out: содержит
+      in: содержится в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.as-is
+  from:
+  - code.repository
+  to:
+  - code.commit
+  capability: git
+  labels:
+    en:
+      out: as is
+      in: snapshot of
+    ru:
+      out: текущее состояние
+      in: снимок
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.history
+  from:
+  - code.repository
+  to:
+  - code.commit
+  capability: git
+  labels:
+    en:
+      out: history
+      in: history of
+    ru:
+      out: история
+      in: история чего
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  fields:
+  - name: walk
+    type: integer
+    producers: [git]
+
+- name: code.parent
+  from:
+  - code.commit
+  to:
+  - code.commit
+  capability: git
+  labels:
+    en:
+      out: parent
+      in: parent of
+    ru:
+      out: родитель
+      in: родитель для
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  fields:
+  - name: position
+    type: integer
+    producers: [git]
+
+- name: code.touched
+  from:
+  - code.commit
+  to:
+  - code.file
+  capability: git
+  labels:
+    en:
+      out: touched
+      in: changed by
+    ru:
+      out: затронул
+      in: изменён коммитами
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.imports
+  from:
+  - code.file
+  to:
+  - code.file
+  repeats: true
+  discriminator: place
+  capability: imports
+  labels:
+    en:
+      out: imports
+      in: imported by
+    ru:
+      out: импортирует
+      in: импортируется из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.imports-package
+  from:
+  - code.file
+  to:
+  - code.package
+  repeats: true
+  discriminator: place
+  capability: imports
+  labels:
+    en:
+      out: imports a package
+      in: imported by
+    ru:
+      out: импортирует пакет
+      in: импортируется из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.authored
+  from:
+  - code.author
+  to:
+  - code.commit
+  capability: git
+  labels:
+    en:
+      out: authored
+      in: authored by
+    ru:
+      out: автор
+      in: автор
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.renamed-from
+  from:
+  - code.file
+  to:
+  - code.file
+  repeats: true
+  discriminator: commit
+  capability: git
+  labels:
+    en:
+      out: renamed from
+      in: renamed to
+    ru:
+      out: переименовано из
+      in: переименовано в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: quarantines
+  from:
+  - code.test-quarantine
+  to:
+  - code.test-case
+  capability: test-quarantine
+  labels:
+    en:
+      out: quarantines
+      in: quarantined by
+    ru:
+      out: помещает в карантин
+      in: в карантине
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: fixedBy
+  from:
+  - code.test-quarantine
+  to:
+  - task
+  capability: test-quarantine
+  labels:
+    en:
+      out: fixed by
+      in: fixes
+    ru:
+      out: исправляется
+      in: исправляет
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.has-column
+  from:
+  - code.table
+  to:
+  - code.column
+  capability: db-schema
+  labels:
+    en:
+      out: has column
+      in: column of
+    ru:
+      out: имеет столбец
+      in: столбец таблицы
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.has-index
+  from:
+  - code.table
+  to:
+  - code.index
+  capability: db-schema
+  labels:
+    en:
+      out: has index
+      in: index of
+    ru:
+      out: имеет индекс
+      in: индекс таблицы
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.foreign-key
+  from:
+  - code.column
+  to:
+  - code.column
+  repeats: true
+  discriminator: column
+  capability: db-schema
+  labels:
+    en:
+      out: foreign key
+      in: referenced by
+    ru:
+      out: внешний ключ
+      in: ссылается на
+  fields:
+  - name: target_column
+    type: text
+    nullable: true
+    producers:
+    - db-schema
+  - name: constraint
+    type: text
+    nullable: true
+    producers:
+    - db-schema
+  - name: on_delete
+    type: text
+    nullable: true
+    producers:
+    - db-schema
+  - name: on_update
+    type: text
+    nullable: true
+    producers:
+    - db-schema
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.declared-in
+  from:
+  - code.table
+  to:
+  - code.file
+  capability: db-schema
+  labels:
+    en:
+      out: declared in
+      in: declares
+    ru:
+      out: объявлено в
+      in: объявляет
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: domain.covers
+  from:
+  - domain
+  to:
+  - code.module
+  labels:
+    en:
+      out: covers
+      in: covered by
+    ru:
+      out: покрывает
+      in: покрыт
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: domain.covers-folder
+  from:
+  - domain
+  to:
+  - code.directory
+  labels:
+    en:
+      out: covers folder
+      in: folder covered by
+    ru:
+      out: покрывает папку
+      in: папка покрыта
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: domain.uses-term
+  from:
+  - domain
+  to:
+  - doc.term
+  labels:
+    en:
+      out: uses term
+      in: term used by
+    ru:
+      out: использует термин
+      in: термин используется
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: module.depends-on
+  from:
+  - code.module
+  to:
+  - code.module
+  labels:
+    en:
+      out: depends on
+      in: depended on by
+    ru:
+      out: зависит от
+      in: от него зависят
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: mentions
+  from: [any]
+  to: [any]
+  repeats: true
+  discriminator: place
+  labels:
+    en:
+      out: mentions
+      in: mentioned by
+    ru:
+      out: упоминает
+      in: упомянут в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: linksTo
+  from: [any]
+  to: [any]
+  repeats: true
+  discriminator: place
+  labels:
+    en:
+      out: links to
+      in: linked from
+    ru:
+      out: ссылается на
+      in: ссылаются на
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: grounds
+  from: [any]
+  to: [any]
+  repeats: true
+  discriminator: place
+  labels:
+    en:
+      out: grounds
+      in: grounded by
+    ru:
+      out: обосновывает
+      in: обосновано
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: flowsTo
+  from:
+  - process-step
+  - process-gateway
+  - process-event
+  - activity-node
+  to:
+  - process-step
+  - process-gateway
+  - process-event
+  - activity-node
+  repeats: true
+  discriminator: place
+  labels:
+    en:
+      out: flows to
+      in: flows from
+    ru:
+      out: переходит в
+      in: приходит из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: package.dependsOn
+  from:
+  - code.manifest
+  to:
+  - code.package
+  repeats: true
+  discriminator: package
+  labels:
+    en:
+      out: depends on
+      in: depended on by
+    ru:
+      out: зависит от
+      in: от него зависят
+  fields:
+  - name: package
+    type: text
+    producers:
+    - imports
+  - name: version
+    type: text
+    nullable: true
+    producers:
+    - imports
+  - name: scope
+    type: text
+    nullable: true
+    producers:
+    - imports
+  - name: exact
+    type: boolean
+    nullable: true
+    producers:
+    - imports
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: ownedBy
+  from: [any]
+  to: [any]
+  labels:
+    en:
+      out: owned by
+      in: owns
+    ru:
+      out: принадлежит
+      in: владеет
+  fields:
+  - name: since
+    type: timestamp
+    nullable: true
+    producers:
+    - agent
+  - name: until
+    type: timestamp
+    nullable: true
+    producers:
+    - agent
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: suppression-by
+  from:
+  - suppression
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Corrected by
+      in: Referenced by
+    ru:
+      out: Автор поправки
+      in: Указано в
+- name: code.compose-service-file
+  from:
+  - code.compose-service
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.compose-service-depends-on
+  from:
+  - code.compose-service
+  to:
+  - code.compose-service
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Compose service
+      in: Referenced by
+    ru:
+      out: Сервис compose
+      in: Указано в
+  capability: operations
+- name: code.dockerfile-file
+  from:
+  - code.dockerfile
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.make-target-file
+  from:
+  - code.make-target
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.ci-workflow-repository
+  from:
+  - code.ci-workflow
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.ci-job-workflow
+  from:
+  - code.ci-job
+  to:
+  - code.ci-workflow
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: CI workflow
+      in: Referenced by
+    ru:
+      out: Процесс CI
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.process-service
+  from:
+  - code.process
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.port-service
+  from:
+  - code.port
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: process-step-process
+  from:
+  - process-step
+  to:
+  - business-process
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Business process
+      in: Referenced by
+    ru:
+      out: Бизнес-процесс
+      in: Указано в
+  on-parent-delete: restrict
+- name: process-step-performer
+  from:
+  - process-step
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: process-step-performed-by
+  from:
+  - process-step
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+- name: business-process-owner
+  from:
+  - business-process
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Owner
+      in: Referenced by
+    ru:
+      out: Владелец
+      in: Указано в
+- name: code.test-case-file
+  from:
+  - code.test-case
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.test-quarantine-repository
+  from:
+  - code.test-quarantine
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  capability: test-quarantine
+  on-parent-delete: restrict
+- name: code.test-quarantine-test
+  from:
+  - code.test-quarantine
+  to:
+  - code.test-case
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Test
+      in: Referenced by
+    ru:
+      out: Тест
+      in: Указано в
+  capability: test-quarantine
+- name: code.test-quarantine-task
+  from:
+  - code.test-quarantine
+  to:
+  - task
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repair task
+      in: Referenced by
+    ru:
+      out: Задача исправления
+      in: Указано в
+  capability: test-quarantine
+- name: code.test-quarantine-since
+  from:
+  - code.test-quarantine
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Quarantined since commit
+      in: Referenced by
+    ru:
+      out: Коммит введения карантина
+      in: Указано в
+  capability: test-quarantine
+- name: code.test-quarantine-latest-result
+  from:
+  - code.test-quarantine
+  to:
+  - test-result
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Latest quarantine CI result
+      in: Referenced by
+    ru:
+      out: Последний результат CI карантина
+      in: Указано в
+  capability: test-quarantine
+- name: test-result-test
+  from:
+  - test-result
+  to:
+  - code.test-case
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Test
+      in: Referenced by
+    ru:
+      out: Тест
+      in: Указано в
+  on-parent-delete: restrict
+- name: logical-data-model-domain
+  from:
+  - logical-data-model
+  to:
+  - domain
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Domain
+      in: Referenced by
+    ru:
+      out: Домен
+      in: Указано в
+- name: data-job-run-job
+  from:
+  - data-job-run
+  to:
+  - data-job
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Data job
+      in: Referenced by
+    ru:
+      out: Задача обработки данных
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.column-table
+  from:
+  - code.column
+  to:
+  - code.table
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: of table
+      in: has members
+    ru:
+      out: таблицы
+      in: содержит элементы
+  capability: db-schema
+  on-parent-delete: restrict
+- name: code.table-database
+  from:
+  - code.table
+  to:
+  - code.database
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in database
+      in: contains tables
+    ru:
+      out: в базе данных
+      in: содержит таблицы
+  capability: db-schema
+  on-parent-delete: restrict
+- name: code.database-repository
+  from:
+  - code.database
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  capability: db-schema
+  on-parent-delete: restrict
+- name: code.database-service
+  from:
+  - code.database
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+- name: code.migration-repository
+  from:
+  - code.migration
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.index-table
+  from:
+  - code.index
+  to:
+  - code.table
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: of table
+      in: has members
+    ru:
+      out: таблицы
+      in: содержит элементы
+  capability: db-schema
+  on-parent-delete: restrict
+- name: code.index-columns
+  from:
+  - code.index
+  to:
+  - code.column
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Columns
+      in: Referenced by
+    ru:
+      out: Столбцы
+      in: Указано в
+  capability: db-schema
+- name: doc.decision-decided-by
+  from:
+  - doc.decision
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: responsibility-responsible
+  from:
+  - responsibility
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: responsibility-executor
+  from:
+  - responsibility
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: link-type-from-kinds
+  from:
+  - link-type
+  to:
+  - kind
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: from kinds
+      in: Referenced by
+    ru:
+      out: связанный объект
+      in: Указано в
+- name: link-type-to-kinds
+  from:
+  - link-type
+  to:
+  - kind
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: to kinds
+      in: Referenced by
+    ru:
+      out: связанный объект
+      in: Указано в
+- name: comment-author
+  from:
+  - comment
+  to:
+  - person
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Author
+      in: Referenced by
+    ru:
+      out: Автор
+      in: Указано в
+- name: value-set-entry-set
+  from:
+  - value-set-entry
+  to:
+  - value-set
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: entry of
+      in: has entry
+    ru:
+      out: значение справочника
+      in: содержит значение
+  on-parent-delete: restrict
+- name: doc.use-case-primary-actor
+  from:
+  - doc.use-case
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: use-case-step-use-case
+  from:
+  - use-case-step
+  to:
+  - doc.use-case
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Use case
+      in: Referenced by
+    ru:
+      out: Сценарий
+      in: Указано в
+  on-parent-delete: restrict
+- name: use-case-step-actor
+  from:
+  - use-case-step
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: use-case-step-system-action
+  from:
+  - use-case-step
+  to:
+  - code.operation
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: API operation
+      in: Referenced by
+    ru:
+      out: Операция API
+      in: Указано в
+- name: use-case-step-extension-of
+  from:
+  - use-case-step
+  to:
+  - use-case-step
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Use-case step
+      in: Referenced by
+    ru:
+      out: Шаг сценария использования
+      in: Указано в
+- name: code.symbol-repository
+  from:
+  - code.symbol
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+- name: code.symbol-file
+  from:
+  - code.symbol
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.field-symbol
+  from:
+  - code.field
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Symbol
+      in: Referenced by
+    ru:
+      out: Символ
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.gitlink-repository
+  from:
+  - code.gitlink
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  capability: disk
+  on-parent-delete: restrict
+- name: code.gitlink-other-repository
+  from:
+  - code.gitlink
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: links to repository
+      in: linked by
+    ru:
+      out: ссылается на репозиторий
+      in: подключён ссылкой
+  capability: disk
+- name: code.entry-point-file
+  from:
+  - code.entry-point
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.entry-point-symbol
+  from:
+  - code.entry-point
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Symbol
+      in: Referenced by
+    ru:
+      out: Символ
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.module-folder
+  from:
+  - code.module
+  to:
+  - code.directory
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Folder
+      in: Referenced by
+    ru:
+      out: Папка
+      in: Указано в
+- name: code.directory-repository
+  from:
+  - code.directory
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  capability: disk
+  on-parent-delete: restrict
+- name: code.service-repository
+  from:
+  - code.service
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+- name: code.service-frameworks
+  from:
+  - code.service
+  to:
+  - code.package
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Frameworks
+      in: Referenced by
+    ru:
+      out: Фреймворки
+      in: Указано в
+- name: code.file-repository
+  from:
+  - code.file
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  capability: disk
+  on-parent-delete: restrict
+- name: code.file-directory
+  from:
+  - code.file
+  to:
+  - code.directory
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in directory
+      in: contains files
+    ru:
+      out: в каталоге
+      in: содержит файлы
+  capability: disk
+- name: code.file-added-in
+  from:
+  - code.file
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: added in
+      in: added files
+    ru:
+      out: добавлен в
+      in: добавил файлы
+  capability: git
+- name: code.file-removed-in
+  from:
+  - code.file
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: removed in
+      in: removed files
+    ru:
+      out: удалён в
+      in: удалил файлы
+  capability: git
+- name: code.channel-broker
+  from:
+  - code.channel
+  to:
+  - code.broker
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Message broker
+      in: Referenced by
+    ru:
+      out: Брокер сообщений
+      in: Указано в
+- name: code.route-service
+  from:
+  - code.route
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.route-handler
+  from:
+  - code.route
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Handler
+      in: Referenced by
+    ru:
+      out: Обработчик
+      in: Указано в
+- name: code.route-middleware
+  from:
+  - code.route
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Middleware
+      in: Referenced by
+    ru:
+      out: Промежуточные обработчики
+      in: Указано в
+- name: code.operation-contract
+  from:
+  - code.operation
+  to:
+  - code.contract
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Contract
+      in: Referenced by
+    ru:
+      out: Контракт
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.message-contract
+  from:
+  - code.message
+  to:
+  - code.contract
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Contract
+      in: Referenced by
+    ru:
+      out: Контракт
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.message-channel
+  from:
+  - code.message
+  to:
+  - code.channel
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Channel
+      in: Referenced by
+    ru:
+      out: Канал
+      in: Указано в
+- name: code.contract-repository
+  from:
+  - code.contract
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  on-parent-delete: restrict
+- name: code.input-symbol
+  from:
+  - code.input
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Symbol
+      in: Referenced by
+    ru:
+      out: Символ
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.debt-repository
+  from:
+  - code.debt
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.cycle-members
+  from:
+  - code.cycle
+  to:
+  - code.file
+  - code.module
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+- name: code.sql-sink-repository
+  from:
+  - code.sql-sink
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.sql-build-repository
+  from:
+  - code.sql-build
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.metrics-endpoint-service
+  from:
+  - code.metrics-endpoint
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.health-endpoint-service
+  from:
+  - code.health-endpoint
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: job-run-job
+  from:
+  - job-run
+  to:
+  - scheduled-job
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Scheduled job
+      in: Referenced by
+    ru:
+      out: Задача по расписанию
+      in: Указано в
+  on-parent-delete: restrict
+- name: code.manifest-repository
+  from:
+  - code.manifest
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.lockfile-repository
+  from:
+  - code.lockfile
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.lockfile-packages
+  from:
+  - code.lockfile
+  to:
+  - code.package
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Packages
+      in: Referenced by
+    ru:
+      out: Пакеты
+      in: Указано в
+  capability: operations
+- name: code.logger-service
+  from:
+  - code.logger
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.logger-file
+  from:
+  - code.logger
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: File
+      in: Referenced by
+    ru:
+      out: Файл
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.metric-service
+  from:
+  - code.metric
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.env-var-service
+  from:
+  - code.env-var
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.env-definition-variable
+  from:
+  - code.env-definition
+  to:
+  - code.env-var
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Environment variable
+      in: Referenced by
+    ru:
+      out: Переменная окружения
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.snapshot-repository
+  from:
+  - code.snapshot
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.snapshot-commit
+  from:
+  - code.snapshot
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Commit
+      in: Referenced by
+    ru:
+      out: Коммит
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: review-finding-place
+  from:
+  - review-finding
+  to:
+  - code.file
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Place
+      in: Referenced by
+    ru:
+      out: Место
+      in: Указано в
+- name: merge-merged-by
+  from:
+  - merge
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: merge-commit
+  from:
+  - merge
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Commit
+      in: Referenced by
+    ru:
+      out: Коммит
+      in: Указано в
+- name: constitution-product
+  from:
+  - constitution
+  to:
+  - product
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Product
+      in: Referenced by
+    ru:
+      out: Продукт
+      in: Указано в
+  on-parent-delete: restrict
+- name: work-span-who
+  from:
+  - work-span
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Who did it
+      in: Referenced by
+    ru:
+      out: Кто выполнил
+      in: Указано в
+- name: handoff-from
+  from:
+  - handoff
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: handoff-to
+  from:
+  - handoff
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: question-asked-by
+  from:
+  - question
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Person
+      in: Referenced by
+    ru:
+      out: Человек
+      in: Указано в
+- name: question-resolved-by
+  from:
+  - question
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Used by pages
+      in: Referenced by
+    ru:
+      out: Учтено на страницах
+      in: Указано в
+- name: document-repository
+  from:
+  - document
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: in repository
+      in: contains
+    ru:
+      out: в репозитории
+      in: содержит
+  on-parent-delete: restrict
+- name: document-commit
+  from:
+  - document
+  to:
+  - code.commit
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: grounded in commit
+      in: grounds
+    ru:
+      out: основан на коммите
+      in: обосновывает
+- name: guide-audience
+  from:
+  - guide
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: guide-document
+  from:
+  - guide
+  to:
+  - document
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Document
+      in: Referenced by
+    ru:
+      out: Документ
+      in: Указано в
+- name: code.document-section-document
+  from:
+  - code.document-section
+  to:
+  - document
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Document
+      in: Referenced by
+    ru:
+      out: Документ
+      in: Указано в
+  capability: operations
+  on-parent-delete: restrict
+- name: code.newcomer-command-repository
+  from:
+  - code.newcomer-command
+  to:
+  - code.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Repository
+      in: Referenced by
+    ru:
+      out: Репозиторий
+      in: Указано в
+  on-parent-delete: restrict
+- name: correction-by
+  from:
+  - correction
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Corrected by
+      in: Referenced by
+    ru:
+      out: Автор поправки
+      in: Указано в
+- name: correction-resolved-by
+  from:
+  - correction
+  to:
+  - person
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Used by pages
+      in: Referenced by
+    ru:
+      out: Учтено на страницах
+      in: Указано в
+- name: class-diagram-module
+  from:
+  - class-diagram
+  to:
+  - code.module
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Module
+      in: Referenced by
+    ru:
+      out: Модуль
+      in: Указано в
+- name: class-diagram-domain
+  from:
+  - class-diagram
+  to:
+  - domain
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Domain
+      in: Referenced by
+    ru:
+      out: Домен
+      in: Указано в
+- name: scenario-step-scenario
+  from:
+  - scenario-step
+  to:
+  - runtime-scenario
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Runtime scenario
+      in: Referenced by
+    ru:
+      out: Сценарий выполнения
+      in: Указано в
+  on-parent-delete: restrict
+- name: scenario-step-from-role
+  from:
+  - scenario-step
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: scenario-step-from-service
+  from:
+  - scenario-step
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+- name: scenario-step-to-role
+  from:
+  - scenario-step
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: scenario-step-to-service
+  from:
+  - scenario-step
+  to:
+  - code.service
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Service
+      in: Referenced by
+    ru:
+      out: Сервис
+      in: Указано в
+- name: state-machine-subject
+  from:
+  - state-machine
+  to:
+  - domain-entity
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Subject
+      in: Referenced by
+    ru:
+      out: Тема
+      in: Указано в
+- name: state-machine-lifecycle-of
+  from:
+  - state-machine
+  to:
+  - kind
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: lifecycle of
+      in: Referenced by
+    ru:
+      out: связанный объект
+      in: Указано в
+- name: process-event-process
+  from:
+  - process-event
+  to:
+  - business-process
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Business process
+      in: Referenced by
+    ru:
+      out: Бизнес-процесс
+      in: Указано в
+  on-parent-delete: restrict
+- name: process-gateway-process
+  from:
+  - process-gateway
+  to:
+  - business-process
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Business process
+      in: Referenced by
+    ru:
+      out: Бизнес-процесс
+      in: Указано в
+  on-parent-delete: restrict
+- name: activity-subject
+  from:
+  - activity
+  to:
+  - code.symbol
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Subject
+      in: Referenced by
+    ru:
+      out: Тема
+      in: Указано в
+- name: activity-node-activity
+  from:
+  - activity-node
+  to:
+  - activity
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Activity
+      in: Referenced by
+    ru:
+      out: Активность
+      in: Указано в
+  on-parent-delete: restrict
+- name: state-belongs-to-machine
+  from:
+  - state
+  to:
+  - state-machine
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: State machine
+      in: Referenced by
+    ru:
+      out: Конечный автомат
+      in: Указано в
+  on-parent-delete: restrict
+- name: transition-machine
+  from:
+  - transition
+  to:
+  - state-machine
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: State machine
+      in: Referenced by
+    ru:
+      out: Конечный автомат
+      in: Указано в
+  on-parent-delete: restrict
+- name: transition-from
+  from:
+  - transition
+  to:
+  - state
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: State
+      in: Referenced by
+    ru:
+      out: Состояние
+      in: Указано в
+  on-parent-delete: restrict
+- name: transition-to
+  from:
+  - transition
+  to:
+  - state
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: State
+      in: Referenced by
+    ru:
+      out: Состояние
+      in: Указано в
+  on-parent-delete: restrict
+- name: transition-event
+  from:
+  - transition
+  to:
+  - state-event
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Event
+      in: Referenced by
+    ru:
+      out: Событие
+      in: Указано в
+- name: product-audience
+  from:
+  - product
+  to:
+  - role
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: Role
+      in: Referenced by
+    ru:
+      out: Роль
+      in: Указано в
+- name: question-side-question
+  from:
+  - question-side
+  to:
+  - question
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: belongs to question
+      in: has side
+    ru:
+      out: принадлежит вопросу
+      in: имеет позицию
+  on-parent-delete: cascade
+- name: question-about
+  from:
+  - question
+  to: [any]
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: asks about
+      in: questioned by
+    ru:
+      out: спрашивает о
+      in: обсуждается в вопросе
+- name: correction-about
+  from:
+  - correction
+  to: [any]
+  cardinality:
+    from:
+      min: 0
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: corrects
+      in: corrected by
+    ru:
+      out: исправляет
+      in: исправляется
+
+- name: task-problem
+  from: [task]
+  to: [system.problem]
+  cardinality:
+    from: { min: 0, max: 1 }
+    to: { min: 0, max: null }
+  labels:
+    en: { out: tracks problem, in: tracked by task }
+    ru: { out: решает проблему, in: решается задачей }
+
+- name: code.blob-about
+  from: [code.blob]
+  to: [code.file, code.repository]
+  capability: disk
+  cardinality:
+    from: { min: 0, max: null }
+    to: { min: 0, max: null }
+  labels:
+    en: { out: captures, in: captured by }
+    ru: { out: фиксирует, in: зафиксировано в }
+
+- name: domain.contains
+  from:
+  - domain
+  to:
+  - domain
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: software-system.contains
+  from:
+  - software-system
+  to:
+  - software-system
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: c4.component.contains
+  from:
+  - c4.component
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.service.contains
+  from:
+  - code.service
+  to:
+  - code.service
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.module.contains
+  from:
+  - code.module
+  to:
+  - code.module
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.directory.contains
+  from:
+  - code.directory
+  to:
+  - code.directory
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: organization.contains
+  from:
+  - organization
+  to:
+  - organization
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: token-group.contains
+  from:
+  - token-group
+  to:
+  - token-group
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: data-catalog.contains
+  from:
+  - data-catalog
+  to:
+  - data-catalog
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: epic.contains
+  from:
+  - epic
+  to:
+  - epic
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: feature.contains
+  from:
+  - feature
+  to:
+  - feature
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: stage.contains
+  from:
+  - stage
+  to:
+  - stage
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: task.contains
+  from:
+  - task
+  to:
+  - task
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: idea.evolved-into
+  from:
+  - idea
+  to:
+  - idea
+  labels:
+    en:
+      out: evolved into
+      in: grew out of
+    ru:
+      out: переросла в
+      in: выросла из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: architecture.serves-domain
+  from:
+  - software-system
+  - c4.component
+  to:
+  - domain
+  labels:
+    en:
+      out: serves domain
+      in: served by
+    ru:
+      out: обслуживает домен
+      in: обслуживается
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: container.contains-component
+  from:
+  - code.service
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains component
+      in: component of
+    ru:
+      out: содержит компонент
+      in: компонент контейнера
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 1
+      max: 1
+  on-parent-delete: restrict
+- name: component.implemented-by
+  from:
+  - c4.component
+  to:
+  - code.module
+  labels:
+    en:
+      out: implemented by
+      in: implements component
+    ru:
+      out: реализован модулем
+      in: реализует компонент
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: term.in-domain
+  from:
+  - doc.term
+  to:
+  - domain
+  labels:
+    en:
+      out: in subject field
+      in: defines concepts
+    ru:
+      out: в предметной области
+      in: определяет понятия
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  on-parent-delete: restrict
+- name: product.uses-repository
+  from:
+  - product
+  to:
+  - code.repository
+  labels:
+    en:
+      out: uses repository
+      in: used by product
+    ru:
+      out: использует репозиторий
+      in: используется продуктом
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: profile-product
+  from:
+  - product-profile
+  to:
+  - system.product
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: 1
+  labels:
+    en:
+      out: Product
+      in: Product profile
+    ru:
+      out: Продукт
+      in: Профиль продукта
+  on-parent-delete: restrict
+
+semantic-bindings:
+  document:
+    kind: document
+    fields:
+      path: path
+      content: content
+      anchors: anchors
+    edges:
+      repository:
+        kind: document-repository
+        direction: from
+      commit:
+        kind: document-commit
+        direction: from
+  source:
+    kind: code.file
+    fields:
+      path: path
+      blob: blob
+    edges:
+      repository:
+        kind: code.file-repository
+        direction: from
+  file:
+    kind: code.file
+    fields:
+      path: path
+      mode: mode
+      blob: blob
+      bytes: bytes
+      form: form
+      lines: lines
+      language: language
+      languages: languages
+    values:
+      form:
+        text: text
+        binary: binary
+    edges:
+      repository:
+        kind: code.file-repository
+        direction: from
+      renamedFrom:
+        kind: code.renamed-from
+        direction: from
+  repository:
+    kind: code.repository
+    fields:
+      name: name
+      url: url
+      default_branch: default_branch
+      history_shallow: history_shallow
+      tree_snapshot: tree_snapshot
+    edges:
+      contains:
+        kind: code.contains
+        direction: from
+      asIs:
+        kind: code.as-is
+        direction: from
+      history:
+        kind: code.history
+        direction: from
+        fields:
+          walk: walk
+  question:
+    kind: question
+    fields:
+      file: file
+      language: language
+      questionType: type
+      status: status
+      questionText: question
+      why: why
+      answerText: answer
+      askedAt: asked_at
+      resolvedAt: resolved_at
+      presentationSlug: slug
+    edges:
+      about:
+        kind: question-about
+        direction: from
+      resolvedBy:
+        kind: question-resolved-by
+        direction: from
+  correction:
+    kind: correction
+    fields:
+      file: file
+      status: status
+      statementText: statement
+      reason: correction_reason
+      at: at
+      resolvedAt: resolved_at
+      presentationSlug: slug
+    edges:
+      about:
+        kind: correction-about
+        direction: from
+      resolvedBy:
+        kind: correction-resolved-by
+        direction: from
+  detector-cycle:
+    kind: code.cycle
+    fields:
+      cycleLevel: level
+    edges:
+      memberKeys:
+        kind: code.cycle-members
+        direction: from
+  detector-route:
+    kind: code.route
+    fields:
+      path: path
+      method: method
+    edges:
+      ownerKeys:
+        kind: code.route-service
+        direction: from
+      handlerKeys:
+        kind: code.route-handler
+        direction: from
+  detector-operation:
+    kind: code.operation
+    fields:
+      path: path
+      openToCallers: public
+    edges:
+      contractKeys:
+        kind: code.operation-contract
+        direction: from
+  detector-debt:
+    kind: code.debt
+    fields:
+      markerWord: marker
+      text: text
+      path: path
+      line: line
+  question-claim:
+    kind: question-side
+    fields:
+      ordinal: position
+      claimText: claim
+    edges:
+      parentKeys:
+        kind: question-side-question
+        direction: from
+  problem-task:
+    kind: task
+    fields:
+      title: title
+      description: description
+      status: status
+      tracker: tracker
+      key: key
+    values:
+      tracker:
+        local: local
+      status:
+        open: open
+    edges:
+      problems:
+        kind: task-problem
+        direction: from
+  commit:
+    kind: code.commit
+    fields:
+      hash: hash
+      subject: subject
+      author_date: author_date
+      author_offset_min: author_offset_min
+      commit_date: commit_date
+      commit_offset_min: commit_offset_min
+    edges:
+      parent:
+        kind: code.parent
+        direction: from
+        fields:
+          position: position
+      touched:
+        kind: code.touched
+        direction: from
+  author:
+    kind: code.author
+    fields:
+      name: name
+      email: email
+    edges:
+      authored:
+        kind: code.authored
+        direction: from
+  directory:
+    kind: code.directory
+    fields: {}
+  evidence-support:
+    kind: code.blob
+    fields: {}
+    edges:
+      about:
+        kind: code.blob-about
+        direction: from

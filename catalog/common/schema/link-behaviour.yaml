@@ -1,14 +1,13 @@
 id: manifest.link-behaviours
 purpose: structure
 audience: [architect, product-lead]
-definition: 'A link behaviour says what a link type does when its entities change: cardinality, backlink, whether it is required and how it is copied or removed.'
+definition: 'A link behaviour says what a link type does when its entities change: how many links an end may hold, whether the link comes back, whether it is required, and how it is copied or removed.'
 sources:
 - https://doc.anytype.io/anytype/organize/properties
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - constrains
@@ -16,7 +15,33 @@ relation-constraints:
   in:
   - constrains
   - defines
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the behaviour is declared under, such as the link type it belongs to.
+- name: cardinality
+  type: text
+  nullable: true
+  binding:
+    agent: 'How many links one end may hold: one, many, or a range.'
+- name: backlink
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the link shows at the other end too.
+- name: required
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether an entity must carry the link to exist.
+key:
+- name
 labels:
   en:
     one: Link behaviour
@@ -25,5 +50,7 @@ labels:
     one: Поведение связи
     many: Поведения связей
 description:
-  en: 'A link behaviour states the rules of one link type: how many links an end may have, whether a backlink appears on the other side, whether a link is required, and what happens to it when an entity is copied or deleted.'
-  ru: 'Поведение связи задаёт правила одного типа связи: сколько связей может быть у конца, появляется ли обратная ссылка на другой стороне, обязательна ли связь и что с ней происходит, когда сущность копируют или удаляют.'
+  en: 'A link behaviour states what a link type allows and what happens to the links when an entity changes: how many an end may hold, whether the other end shows it back, whether it is required, and how it is copied or removed with its entity.'
+  ru: 'Поведение связи говорит, что тип связи допускает и что происходит со связями при изменении сущности: сколько их может держать конец, показывает ли их другой конец, обязательна ли связь и как она копируется или удаляется вместе с сущностью.'
+derives-from:
+- link-type

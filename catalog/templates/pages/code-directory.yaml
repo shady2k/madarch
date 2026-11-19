@@ -15,7 +15,7 @@ sections:
     en: Details
     ru: Сведения
   query: |
-    repository
+    codeDirectoryRepository(first: 1) { edges { node { node { id label } } } }
     path
     contested
   params:
@@ -23,7 +23,7 @@ sections:
     - label:
         en: Repository
         ru: Репозиторий
-      path: repository
+      path: codeDirectoryRepository.edges.0.node.node.label
     - label:
         en: Path
         ru: Путь

@@ -24,3 +24,5 @@ labels:
 description:
   en: 'Special-category data is personal data that the GDPR treats as especially sensitive: health, genetic and biometric data, sexual life, religion, political opinions, ethnic origin and trade-union membership. Handling it needs a stronger legal ground and tighter protection.'
   ru: 'Особые категории данных — персональные сведения, которые GDPR защищает строже: здоровье, генетические и биометрические данные, половая жизнь, религия, политические взгляды, этническое происхождение и членство в профсоюзе. Для их обработки нужно более сильное правовое основание и более строгая защита.'
+derives-from:
+- personal-data

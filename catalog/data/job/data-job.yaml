@@ -5,16 +5,36 @@ definition: A data job is a unit of work that reads or writes datasets, identifi
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasInput
   - hasOutput
   in:
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: namespace
+  type: text
+  binding:
+    agent: The namespace the job is named in.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the job is known by inside its namespace; it is the job's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the job does, in one or two sentences, from the datasets it reads and writes in the graph.
+key:
+- namespace
+- name
 labels:
   en:
     one: Data job
@@ -25,3 +45,7 @@ labels:
 description:
   en: A data job is a step of data processing — a query, a script, a pipeline stage — that takes some datasets as input and produces others. Its namespace and name identify it, and its runs show when it worked and what it touched.
   ru: 'Задача обработки данных — шаг обработки: запрос, сценарий, этап конвейера, — который берёт одни наборы данных и создаёт другие. Пространство имён и имя отличают её, а запуски показывают, когда она работала и что затронула.'
+derives-from:
+- code.service
+- dataset
+- product-profile

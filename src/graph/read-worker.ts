@@ -21,6 +21,23 @@ declare const self: Worker;
 const stage = (name: string): void => self.postMessage({ kind: 'stage', stage: name });
 // Exact picture inputs include all labels, links, folds and language-specific words. Reads still take a fresh snapshot.
 const pictures = new Map<string, DiagramAnswer>();
+/**
+ * Answers by the graph's own write revision, checked before the read. `assertion.recorded_sequence` is assigned by the
+ * database on every write and is unique, so its maximum names the revision a freshly read graph is at: the same
+ * revision is the same graph, and a picture of it is the same picture (decision 0036, sections 7 and 8). The bounded
+ * map keeps a warm read worker from paying the whole catalogue read again for a page it has just drawn; any write
+ * moves the revision and the next request reads afresh.
+ */
+const warm = new Map<string, DiagramAnswer>();
+async function graphRevision(owner: DatabaseOwner): Promise<string> {
+  return await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'SELECT coalesce(max(recorded_sequence),0)::text AS revision FROM assertion';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const answer = await owner.run(tx => tx.query<{ revision: string }>(sql));
+    span.setAttribute('db.rows', answer.rows.length);
+    return answer.rows[0]!.revision;
+  });
+}
 async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extract<ReadWork, {kind: 'diagram'}>): Promise<DiagramNeighbourhood | undefined> {
   return await owner.transaction('snapshot', async (tx) => {
     await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
@@ -40,6 +57,10 @@ async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extrac
   });
 }
 async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: DatabaseOwner): Promise<DiagramAnswer> {
+  const request = { entity: asked.request.entity, depth: asked.request.depth ?? DIAGRAM_DEPTH, aggregateAbove: asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE, format: asked.request.format, lang: asked.request.lang ?? null, base: asked.request.base ?? '' };
+  const warmKey = owner === undefined || asked.descriptor === undefined ? undefined : JSON.stringify(['diagram', asked.descriptor.folder, await graphRevision(owner), request]);
+  const remembered = warmKey === undefined ? undefined : warm.get(warmKey);
+  if (remembered !== undefined) return remembered;
   stage('reading the neighbourhood');
   const hood = owner === undefined ? asked.neighbourhood : await neighbourhood(owner, asked.descriptor!.folder, asked);
   if (hood === undefined) return { status: 404, code: 'FAILED', error: `${import.meta.path}:1: the graph holds no entity "${asked.request.entity}"` };
@@ -61,6 +82,10 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
   if (bytes > DIAGRAM_MAX_BYTES) return { status: 200, code: 'TOO_LARGE', error: `${import.meta.path}:1: the diagram answer is over ${String(DIAGRAM_MAX_BYTES)} bytes` };
   if (pictures.size >= 8) pictures.delete(pictures.keys().next().value!);
   pictures.set(key, answer);
+  if (warmKey !== undefined) {
+    if (warm.size >= 8) warm.delete(warm.keys().next().value!);
+    warm.set(warmKey, answer);
+  }
   return answer;
 }
 /**
@@ -75,7 +100,7 @@ function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<stri
     for (const name of sources) {
       if (typeof name !== 'string' || !(LOG_SOURCES as readonly string[]).includes(name)) throw new Error(`${import.meta.path}:1: "sources" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}`);
     }
-    const level = asked['level'];
+    const level = asked.level;
     if (level !== undefined && (typeof level !== 'string' || !(LOG_LEVELS as readonly string[]).includes(level))) throw new Error(`${import.meta.path}:1: "level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}`);
     const whole = (key: string): number | undefined => {
       const held = asked[key];
@@ -107,7 +132,7 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
       ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder), logs: logsReaderOf(asked.descriptor) }, asked.operation)
       : await diagram(asked, owner);
     await owner?.close();
-    self.postMessage({ kind: 'answer', answer });
+    self.postMessage({ kind: 'read-complete', answer });
   } catch (error) {
     await owner?.close().catch(() => undefined);
     self.postMessage({ kind: 'error', message: error instanceof Error ? error.message : String(error) });

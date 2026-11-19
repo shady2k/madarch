@@ -81,7 +81,7 @@ describe('the starter set a draft copies', () => {
       });
       expect(output).toContain('check: conforms');
       if (closure.manifest.agent?.catalogue === true) {
-        expect(output).toContain('unit conformance-1: extracted');
+        expect(output).toContain('unit conformance-1: complete');
         expect(output).toContain('agent: unit conformance-1, session conformance, 1 turns');
         expect(output).toContain('pause: the session stayed paused past the heartbeat deadline and resumed');
         expect(output).toContain('stop: the plugin exited when asked');

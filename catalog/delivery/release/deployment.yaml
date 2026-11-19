@@ -24,3 +24,6 @@ labels:
 description:
   en: A deployment is the act of installing and starting one version of the product in one environment, such as staging or production. Its record says which version went where and when, and whether the deployment succeeded or was rolled back.
   ru: Развёртывание — установка и запуск одной версии продукта в одной среде, например на стенде или в промышленной среде. В записи о развёртывании указано, какая версия, куда и когда попала и прошло ли всё удачно или пришлось откатиться.
+derives-from:
+- deployment-environment
+- release

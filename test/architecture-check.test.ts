@@ -51,8 +51,25 @@ const FIXTURE: Readonly<Record<string, readonly string[]>> = {
   'src/index.ts': ["import { write } from './graph/index.js';", '', 'export const entry = write;', ''],
   'src/graph/write.ts': ['/** The graph store\'s one writer. */', 'export function write(): string {', "  return 'written';", '}', ''],
   'src/graph/index.ts': ["export { write } from './write.js';", ''],
-  'src/adapters/database-owner.ts': ['/** The process\'s one connection. */', 'export interface DatabaseOwner {', '  query(sql: string): Promise<unknown>;', '}', ''],
-  'src/sql-driver.ts': ['/** What a module runs a statement through. */', 'export interface SqlExecutor {', '  query(sql: string): Promise<unknown>;', '}', ''],
+  'src/adapters/database-owner.ts': [
+    "import type { SqlTransactionKind } from '../sql-driver.js';",
+    '',
+    '/** The process\'s one connection. */',
+    'export interface DatabaseOwner {',
+    '  query(sql: string): Promise<unknown>;',
+    '  transaction<T>(kind: SqlTransactionKind, work: (transaction: unknown) => Promise<T>): Promise<T>;',
+    '}',
+    '',
+  ],
+  'src/sql-driver.ts': [
+    '/** What a module runs a statement through. */',
+    'export interface SqlExecutor {',
+    '  query(sql: string): Promise<unknown>;',
+    '}',
+    '',
+    'export type SqlTransactionKind = \'snapshot\' | \'write\';',
+    '',
+  ],
   'src/extract/driver/index.ts': [
     '/** The extract driver: a fill runner and a producer\'s name beside it. */',
     "export const DRIVER_PRODUCER = 'driver';",
@@ -107,7 +124,385 @@ async function acceptWhatIsFound(root: string, rules: readonly ArchitectureRule[
   writeFileSync(join(root, VIOLATION_LIST), renderViolationListOf(report));
 }
 
+/** Shared protocol project; cases vary only the owner transaction consumer. */
+function protocolFixture(): { root: string; words: string[] } {
+  const root = fixtureProject();
+  const words = ['json', 'event', 'role', 'question', 'identity', 'scope', 'merge', 'blob', 'repository', 'target', 'snapshot', 'catalogue-only', 'arbitrary-array', 'private-type', 'unrelated-type'];
+  writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', ...words.flatMap(name => [`  - name: ${name}`, '    type: text'])]);
+  writeModule(root, 'src/graph/system-contract.ts', [
+    "const OPERATIONAL_KINDS = ['event', 'role', 'question'] as const;",
+    "const IDENTITY_KINDS = ['person'];",
+    "function identityKind(): VertexContract { return { fields: [{ name: 'identity' }] }; }",
+    "export const SYSTEM_CONTRACT: GraphContract = { vertex: [...OPERATIONAL_KINDS.map(name => ({name})), ...IDENTITY_KINDS.map(identityKind), { name: 'scope' }] };",
+    "const diagnostic = { name: 'catalogue-only' };",
+    "const UNRELATED_KINDS = ['arbitrary-array'];",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/graph/producer-binding.ts', [
+    "export type ProducerAction = 'assert' | 'merge';",
+    "type Private = 'private-type';",
+    "export type Unrelated = 'unrelated-type';",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/graph/evidence-targets.ts', [
+    "export interface EvidenceTargetKinds { readonly repository: string; }",
+    "export type EvidenceLocatorDraft = { readonly type: 'blob' };",
+    "export type EvidenceTarget = { readonly target: string };",
+  ]);
+  writeModule(root, 'src/graph/system-contract.ts', [
+    ...readFileSync(join(root, 'src/graph/system-contract.ts'), 'utf8').trimEnd().split('\n'),
+    "export const SYSTEM_VERTEX_DEFINITIONS = [{ name: 'system.fixture-a', fields: [{ name: 'json' }] }, { name: 'system.fixture-b', fields: [{ name: 'scope' }] }];",
+  ]);
+  writeModule(root, 'src/protected-read.ts', [
+    "import { loadAssertions } from './graph/assertion-read.js';",
+    "loadAssertions(null, 'vertex', 'system.fixture-a', ['json']);",
+  ]);
+  writeModule(root, 'src/protected-read-invalid.ts', [
+    "import { loadAssertions } from './graph/assertion-read.js';",
+    "loadAssertions(null, 'vertex', 'system.fixture-b', ['json']);",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/conditional-use.ts', [
+    "import { loadAssertions } from './graph/assertion-read.js';",
+    "async function records(tx: any, kind: string) { const properties = kind === 'system.fixture-a' ? ['json'] : ['scope']; return loadAssertions(tx, 'vertex', kind, properties); }",
+    "records(null, 'system.fixture-a'); records(null, 'system.fixture-b');",
+  ]);
+  writeModule(root, 'src/conditional-invalid.ts', [
+    "import { loadAssertions } from './graph/assertion-read.js';",
+    "async function records(tx: any, kind: string) { const properties = kind === 'system.fixture-a' ? ['json'] : ['scope']; return loadAssertions(tx, 'vertex', kind, properties); }",
+    "records(null, 'system.fixture-a'); records(null, 'arbitrary-product');",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';"]);
+  writeModule(root, 'src/graph/contract.ts', [
+    "export type FieldType = 'text' | 'json';",
+    "export interface FieldContract { readonly type: FieldType; }",
+  ]);
+  writeModule(root, 'src/field-use.ts', [
+    "import type { FieldContract, FieldType } from './graph/contract.js';",
+    "export function valid(field: FieldContract) { switch (field.type) { case 'json': return 1; } }",
+    "export function invalid(field: any) { switch (field.type) { case 'json': return 1; } }",
+    "export function scalar(type: FieldType) { return type === 'json'; }",
+    "export function scalarInvalid(type: string) { return type === 'json'; }",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/protocol-use.ts', [...words.map(word => `consume('${word}');`), "export const kind = 'example';"]);
+  writeModule(root, 'src/owner-use.ts', [
+    "import type { DatabaseOwner } from './adapters/database-owner.js';",
+    "export function valid(owner: DatabaseOwner) { return owner.transaction('snapshot', async () => {}); }",
+    "export function invalid(owner: any) { return owner.transaction('snapshot', async () => {}); }",
+    "consume('snapshot');",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/counterfeit-use.ts', [
+    "interface FieldContract { type: string }",
+    "export function counterfeit(field: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/wrong-import-use.ts', [
+    "import type { FieldContract } from './unrelated.js';",
+    "export function counterfeit(field: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/lexical-use.ts', [
+    "import type { FieldContract } from './graph/contract.js';",
+    "export function invalid(field: any, unrelated: FieldContract) { return field.type === 'json'; }",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/shadow-use.ts', [
+    "import type { FieldContract } from './graph/contract.js';",
+    "export function shadow(field: FieldContract) { return ((field: any) => field.type === 'json')({}); }",
+    "export const kind = 'example';",
+  ]);
+  writeModule(root, 'src/comparison-use.ts', [
+    "import type { SqlTransactionKind } from './sql-driver.js';",
+    "export function valid(kind: SqlTransactionKind) { return kind === 'snapshot'; }",
+    "export function invalid(kind: string) { return kind === 'snapshot'; }",
+    "export function unrelated(kind: SqlTransactionKind) { return kind === 'repository'; }",
+    "export const kind = 'example';",
+  ]);
+  return { root, words };
+}
+
 describe('the architecture check', () => {
+  for (const loop of [true, false]) test(`graph-definition ${loop ? 'trigger loop proves' : 'outside loop retains'} core table literals`, async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: context', '    type: text']);
+      writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+        'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS context (id bigint)`];',
+        ...(loop ? [
+          'export function generate() {',
+          "  for (const table of ['context']) {",
+          '    const statement = `CREATE TRIGGER dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+          '  }',
+          '}',
+        ] : ["export const unrelated = 'context';", "export const kind = 'example';"]),
+      ]);
+      expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual(loop ? [] : [
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 2, symbol: 'context' },
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 3, symbol: 'example' },
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  for (const [name, space] of [['two spaces', '  '], ['tab', '\t'], ['newline', '\n']] as const) {
+    test(`trigger header accepts ${name} whitespace`, async () => {
+      const root = fixtureProject();
+      try {
+        writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: context', '    type: text']);
+        writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+          'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS context (id bigint)`];',
+          'export function generate() {',
+          "  for (const table of ['context']) {",
+          '    const statement = `CREATE' + space + 'CONSTRAINT' + space + 'TRIGGER' + space + 'dirty' + space + 'AFTER' + space + 'UPDATE' + space + 'OF' + space + 'id' + space + 'OR' + space + 'INSERT' + space + 'ON' + space + '"${table}"' + space + 'FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+          '  }',
+          '}',
+        ]);
+        expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([]);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  }
+
+  test('a trigger name interpolation does not prove the loop table is its target', async () => {
+    const root = fixtureProject();
+    try {
+      writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: node', '    type: text']);
+      writeModule(root, 'src/adapters/schemas/graph-definition.ts', [
+        'export const SCHEMA = [`CREATE TABLE IF NOT EXISTS node (id bigint)`];',
+        'export function generate() {',
+        "  for (const table of ['node']) {",
+        '    const statement = `CREATE TRIGGER ${table} BEFORE INSERT ON context FOR EACH ROW EXECUTE FUNCTION dirty()`;',
+        '  }',
+        '}',
+        "export const kind = 'example';",
+      ]);
+      expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 7, symbol: 'example' },
+        { rule: 'no-product-data', file: 'src/adapters/schemas/graph-definition.ts', line: 3, symbol: 'node' },
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('I/O in a span callback retains its enclosing function through SWC argument wrappers', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'src/callbacks.ts', [
+      'export async function spanned(tx: any): Promise<unknown> {',
+      "  return await withSpan('read', {}, async () => await tx.query('SELECT 1'));",
+      '}',
+      'export async function unspanned(tx: any): Promise<unknown> {',
+      "  return await unrelated('read', {}, async () => await tx.query('SELECT 1'));",
+      '}',
+      'export function syncSpanned(path: string): string {',
+      "  return withSpanSync('read', {}, () => readFileSync(path, 'utf8'));",
+      '}',
+    ]);
+    expect((await architectureCheck({ root, rules: ['io-spans'] })).found).toEqual([
+      { rule: 'io-spans', file: 'src/callbacks.ts', line: 5, symbol: 'query()' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('system kinds and explicit protocol declarations are engine vocabulary, not arbitrary implementation literals', async () => {
+    const { root, words } = protocolFixture();
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/protocol-use.ts').map(one => one.symbol)).toEqual([...words, 'example'].sort());
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([]);
+    expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'merge')).toBe(false);
+    expect(report.found.some(one => one.file === 'src/graph/producer-binding.ts' && one.symbol === 'unrelated-type')).toBe(true);
+    expect(report.found.some(one => one.file === 'src/graph/evidence-targets.ts' && one.symbol === 'blob')).toBe(false);
+    expect(report.found.some(one => one.file === 'src/graph/system-contract.ts' && one.symbol === 'catalogue-only')).toBe(true);
+    expect(report.found.filter(one => one.file === 'src/graph/system-contract.ts').map(one => one.symbol)).toEqual(['arbitrary-array', 'catalogue-only', 'example']);
+    expect(report.found.filter(one => ['src/counterfeit-use.ts', 'src/wrong-import-use.ts', 'src/lexical-use.ts', 'src/shadow-use.ts'].includes(one.file))).toEqual([
+      { rule: 'no-product-data', file: 'src/counterfeit-use.ts', line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/counterfeit-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/lexical-use.ts', line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/lexical-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/shadow-use.ts', line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/shadow-use.ts', line: 2, symbol: 'json' },
+      { rule: 'no-product-data', file: 'src/wrong-import-use.ts', line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/wrong-import-use.ts', line: 2, symbol: 'json' },
+    ]);
+    expect(report.found.filter(one => one.file === 'src/protected-read.ts')).toEqual([]);
+    expect(report.found.filter(one => one.file === 'src/protected-read-invalid.ts').map(one => one.symbol)).toEqual(['example', 'json']);
+    expect(report.found.filter(one => one.file === 'src/conditional-use.ts')).toEqual([]);
+    expect(report.found.filter(one => one.file === 'src/conditional-invalid.ts').map(one => one.symbol)).toEqual(['example', 'json', 'scope']);
+    expect(report.found.filter(one => one.file === 'src/field-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/field-use.ts', line: 6, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/field-use.ts', line: 3, symbol: 'json' },
+    ]);
+    expect(report.found.filter(one => one.file === 'src/comparison-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export const kind'), symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export function unrelated'), symbol: 'repository' },
+      { rule: 'no-product-data', file: 'src/comparison-use.ts', line: lineOf(readFileSync(join(root, 'src/comparison-use.ts'), 'utf8').split('\n'), 'export function invalid'), symbol: 'snapshot' },
+    ]);
+    expect(report.found.filter(one => one.file === 'src/owner-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/owner-use.ts', line: lineOf(readFileSync(join(root, 'src/owner-use.ts'), 'utf8').split('\n'), 'export const kind'), symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/owner-use.ts', line: lineOf(readFileSync(join(root, 'src/owner-use.ts'), 'utf8').split('\n'), 'export function invalid'), symbol: 'snapshot' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+
+  test('an unused SQL transaction kind is reported', async () => {
+    const { root } = protocolFixture();
+    const sqlDriver = readFileSync(join(root, 'src/sql-driver.ts'), 'utf8').split('\n');
+    const owner = readFileSync(join(root, 'src/adapters/database-owner.ts'), 'utf8').trimEnd().split('\n');
+    writeModule(root, 'src/adapters/database-owner.ts', owner.filter(line => !line.includes('  transaction<T>')));
+    writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';", "export const kind = 'example';"]);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
+      { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('an untyped SQL transaction consumer does not establish transaction vocabulary', async () => {
+    const { root } = protocolFixture();
+    const sqlDriver = readFileSync(join(root, 'src/sql-driver.ts'), 'utf8').split('\n');
+    const owner = readFileSync(join(root, 'src/adapters/database-owner.ts'), 'utf8').trimEnd().split('\n');
+    writeModule(root, 'src/adapters/database-owner.ts', owner.map(line => line.replace('kind: SqlTransactionKind', 'kind: string')));
+    writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';", "export const kind = 'example';"]);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/sql-driver.ts' && one.symbol === 'snapshot')).toEqual([
+      { rule: 'no-product-data', file: 'src/sql-driver.ts', line: lineOf(sqlDriver, "'snapshot'"), symbol: 'snapshot' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('semantic role literals require the checked projector and document properties require its typed projection', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: document', '    type: text', '  - name: anchors', '    type: text', '  - name: repository', '    type: text']);
+    writeModule(root, 'src/model/semantic-role-protocol.ts', [
+      "import { Type } from 'typebox'; import { Value } from 'typebox/value';",
+      "export const ROLE_BINDING_SCHEMA = Type.Union([Type.Object({ role: Type.Literal('document'), properties: Type.Object({ anchors: Type.String(), repository: Type.String() }) }), Type.Object({ role: Type.Literal('repository'), properties: Type.Object({ name: Type.String() }) })]);",
+      "export function checkRoleProperties(value: unknown) { return Value.Check(ROLE_BINDING_SCHEMA, value); }",
+    ]);
+    writeModule(root, 'src/knowledge/semantic-bindings.ts', [
+      "import { checkRoleProperties } from '../model/semantic-role-protocol.js';",
+      "export function semanticEntities(...args: unknown[]) { checkRoleProperties(args); return []; }",
+    ]);
+    writeModule(root, 'src/knowledge/anchors.ts', [
+      "import { semanticEntities } from './semantic-bindings.js';",
+      "export interface DocumentOpinion { properties: { anchors: string } }",
+      "export function documentOpinions(graph: any, manifest: any, role: 'document' = 'document') { return semanticEntities(graph, manifest, role); }",
+      "export function valid(document: DocumentOpinion) { return document.properties['anchors']; }",
+      "export function invalid(document: any) { return document.properties['anchors']; }",
+      "export const kind = 'example';",
+    ]);
+    writeModule(root, 'src/role-use.ts', [
+      "import { semanticEntities, semanticBinding } from './knowledge/semantic-bindings.js';",
+      "semanticEntities(null, null, 'repository');",
+      "consume('repository');",
+      "const binding = semanticBinding(null, 'document'); binding.fields['repository'];",
+      "binding.fields['repository'];",
+      "export const kind = 'example';",
+    ]);
+    writeModule(root, 'src/role-shadow.ts', [
+      "import { semanticBinding } from './knowledge/semantic-bindings.js';",
+      "function counterfeit(semanticBinding: any) { const other = semanticBinding(null, 'document'); return other.fields['repository']; }",
+      "export const kind = 'example';",
+    ]);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/role-shadow.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 2, symbol: 'document' },
+      { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/role-shadow.ts', line: 2, symbol: 'repository' },
+    ]);
+    expect(report.found.filter(one => one.file === 'src/knowledge/anchors.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/knowledge/anchors.ts', line: 5, symbol: 'anchors' },
+      { rule: 'no-product-data', file: 'src/knowledge/anchors.ts', line: 6, symbol: 'example' },
+    ]);
+    expect(report.found.filter(one => one.file === 'src/role-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/role-use.ts', line: 6, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/role-use.ts', line: 3, symbol: 'repository' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('MCP argument diagnostics follow the published schema through lexical tool-list spreads', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: preconditions', '    type: text']);
+    const source = [
+      "import { Type } from 'typebox'; import { Value } from 'typebox/value';",
+      "const PRECONDITIONS = Type.Array(Type.String());",
+      "const WRITE_TOOLS = [{inputSchema: {properties: {preconditions: PRECONDITIONS}}}];",
+      "export const PRODUCT_TOOLS = [...WRITE_TOOLS];",
+      "function check(input: unknown) { const args = input as Record<string, unknown>; const value = args['preconditions']; if (!Value.Check(PRECONDITIONS, value)) throw new WriteRefusal('invalid', 'preconditions'); }",
+      "export const kind = 'example';",
+    ];
+    writeModule(root, 'src/mcp/authored.ts', source);
+    expect((await architectureCheck({ root, rules: ['no-product-data'] })).found).toEqual([
+      { rule: 'no-product-data', file: 'src/mcp/authored.ts', line: 6, symbol: 'example' },
+    ]);
+    for (const change of [
+      (line: string) => line.replace('Value.Check(PRECONDITIONS, value)', 'Value.Check(OTHER, value)'),
+      (line: string) => line.replace('[...WRITE_TOOLS]', '[]'),
+    ]) {
+      const negative = fixtureProject();
+      writeModule(negative, 'catalog/work/execution/example.yaml', ['fields:', '  - name: preconditions', '    type: text']);
+      writeModule(negative, 'src/mcp/authored.ts', source.map(change));
+      expect((await architectureCheck({ root: negative, rules: ['no-product-data'] })).found.some(one => one.symbol === 'preconditions')).toBe(true);
+      rmSync(negative, { recursive: true, force: true });
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('receipt namespaces require the checked host request return slot', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: request', '    type: text']);
+    writeModule(root, 'src/graph/operation-host.ts', [
+      "export interface OperationRequest { key: string; request: unknown }",
+      "function execute(request: OperationRequest) { operationReceipt(tx, contract, unit, request.key); }",
+    ]);
+    writeModule(root, 'src/receipt.ts', [
+      "import { operationReceipt, type OperationRequest } from './graph/operation-host.js';",
+      "function valid(): OperationRequest { return { key: 'request', request: {} }; }",
+      "function unknown() { return { key: 'request', request: {} }; }",
+      "operationReceipt(tx, contract, unit, 'request');",
+      "export const kind = 'example';",
+    ]);
+    for (const [name, body] of [
+      ['unknown', "function unknown() { return { key: 'request', request: {} }; }"],
+      ['wrong', "function wrong(): OperationRequest { return { key: 'other', request: 'request' }; }"],
+      ['slot', "operationReceipt(tx, contract, 'request', key);"],
+      ['shadow', "function shadow(operationReceipt: any) { operationReceipt(tx, contract, unit, 'request'); }"],
+    ]) writeModule(root, `src/receipt-${name}.ts`, ["import { operationReceipt, type OperationRequest } from './graph/operation-host.js';", body!, "export const kind = 'example';"]);
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/receipt.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/receipt.ts', line: 5, symbol: 'example' },
+      { rule: 'no-product-data', file: 'src/receipt.ts', line: 3, symbol: 'request' },
+    ]);
+    for (const name of ['unknown', 'wrong', 'slot', 'shadow']) expect(report.found.filter(one => one.file === `src/receipt-${name}.ts`)).toEqual([
+      { rule: 'no-product-data', file: `src/receipt-${name}.ts`, line: 3, symbol: 'example' },
+      { rule: 'no-product-data', file: `src/receipt-${name}.ts`, line: 2, symbol: 'request' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('receipt namespaces reject counterfeit or unconsumed host authority', async () => {
+    for (const authority of [
+      "interface OperationRequest { key: string }\nfunction execute(request: OperationRequest) { operationReceipt(tx, contract, unit, request.key); }",
+      "export interface OperationRequest { other: string }\nfunction execute(request: OperationRequest) { operationReceipt(tx, contract, unit, request.key); }",
+      "export interface OperationRequest { key: string }\nfunction execute(request: OperationRequest) { operationReceipt(tx, contract, unit, request.other); }",
+    ]) {
+      const root = fixtureProject();
+      writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', '  - name: request', '    type: text']);
+      writeModule(root, 'src/graph/operation-host.ts', authority.split('\n'));
+      writeModule(root, 'src/receipt.ts', [
+        "import { operationReceipt, type OperationRequest } from './graph/operation-host.js';",
+        "function request(): OperationRequest { return { key: 'request' }; }",
+        "export const kind = 'example';",
+      ]);
+      const report = await architectureCheck({ root, rules: ['no-product-data'] });
+      expect(report.found.filter(one => one.file === 'src/receipt.ts')).toEqual([
+        { rule: 'no-product-data', file: 'src/receipt.ts', line: 3, symbol: 'example' },
+        { rule: 'no-product-data', file: 'src/receipt.ts', line: 2, symbol: 'request' },
+      ]);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('a second writer of the graph fails with the rule, the file and the line, and passes when the plant is removed', async () => {
     const root = fixtureProject();
     await acceptWhatIsFound(root, ['graph-single-writer']);

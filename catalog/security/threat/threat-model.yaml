@@ -24,3 +24,6 @@ labels:
 description:
   en: A threat model sets out what is being protected, which trust boundaries it crosses, who might attack it and in which ways, and what is done about each. It is kept with the design, so it changes when the system does.
   ru: Модель угроз излагает, что защищают, какие границы доверия пересекает система, кто и какими способами может напасть и что с этим делают. Её хранят вместе с проектом, поэтому она меняется вместе с системой.
+derives-from:
+- software-system
+- trust-boundary

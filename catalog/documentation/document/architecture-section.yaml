@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An architecture section is one of the chapters arc42 divides an architecture description into: goals, constraints, context, building blocks, runtime, deployment, crosscutting concepts, decisions and quality. Each chapter answers one set of questions about the system.'
   ru: 'Раздел архитектуры — одна из глав, на которые arc42 делит описание архитектуры: цели, ограничения, контекст, строительные блоки, работу, развёртывание, сквозные понятия, решения и качество. Каждая глава отвечает на свой круг вопросов о системе.'
+derives-from:
+- architecture-description
+- document

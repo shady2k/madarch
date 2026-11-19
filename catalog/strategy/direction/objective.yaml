@@ -25,3 +25,5 @@ labels:
 description:
   en: An objective is one concrete aim for a period, such as cutting delivery time in half this quarter, whose progress key results measure. It points the work of a team at one result instead of a list of tasks.
   ru: 'Задача OKR — одна конкретная цель на период: например, вдвое сократить время доставки за квартал, — а её продвижение измеряют ключевые результаты. Она направляет работу команды на один результат, а не на список дел.'
+derives-from:
+- goal

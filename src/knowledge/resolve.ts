@@ -4,7 +4,7 @@
  * `doc:<path>#<anchor>` for a section of a document. A target that does not
  * resolve is shown as broken with the reason, never dropped and never linked.
  */
-import { graphDocument, documentSections } from './anchors.js';
+import { graphDocument, documentSections, type DocumentOpinion } from './anchors.js';
 import type { GraphEntity, GraphReader } from './graph-read.js';
 import type { CodeLocation } from './model.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -36,8 +36,8 @@ export const noEntityMessage = (key: string, language?: string): string => (lang
 
 export interface ResolverDeps {
   graph: GraphReader;
-  /** Manifest kinds with structured document opinions. */
-  documentKinds: readonly string[];
+  /** Documents projected through their declared semantic role. */
+  documents: readonly DocumentOpinion[];
   /** Markdown entities by id. */
   markdown: ReadonlyMap<string, MarkdownEntity>;
   /** Kinds the manifest declares, for whether an entity has a page. */
@@ -86,7 +86,7 @@ export class Resolver {
     const roots: (string | null)[] = named === null ? [null, ...this.deps.repositories()] : [named];
     const seen: string[] = [];
     for (const root of roots) {
-      const document = await graphDocument(this.deps.graph, root, where, this.deps.documentKinds);
+      const document = graphDocument(this.deps.documents, root, where);
       if (document === undefined) continue;
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.

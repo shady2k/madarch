@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A data-catalog entry describes one dataset for people looking for data: what it holds, who owns it, where it lives and how often it is updated. The dataset itself is one thing wherever it is described; the entry is one catalogue''s view of it.'
   ru: 'Запись каталога данных описывает один набор для тех, кто ищет данные: что в нём, кто владелец, где он лежит и как часто обновляется. Сам набор остаётся одним и тем же, где бы его ни описывали, а запись — взгляд одного каталога на него.'
+derives-from:
+- data-catalog
+- dataset
+- product-profile

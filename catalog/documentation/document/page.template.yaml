@@ -40,3 +40,6 @@ labels:
 description:
   en: A template names the parts one view of the product holds and the order they come in, and it says what each part shows. Every part of a view is drawn through the template it belongs to, so a change to the template changes every view that holds it.
   ru: 'Шаблон называет части одного представления продукта и порядок, в котором они идут, и говорит, что показывает каждая часть. Каждая часть представления рисуется через свой шаблон, поэтому правка шаблона меняет все представления, которые его держат.'
+
+derives-from:
+- system.product

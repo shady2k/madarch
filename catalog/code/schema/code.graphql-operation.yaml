@@ -24,3 +24,5 @@ labels:
 description:
   en: A GraphQL operation asks a GraphQL service for data (a query), changes it (a mutation) or listens for changes (a subscription). Its selection says which fields it needs, and its result follows the schema's types.
   ru: Операция GraphQL запрашивает данные (запрос), меняет их (мутация) или слушает изменения (подписка). Её выбор полей говорит, что нужно, а результат следует типам схемы.
+derives-from:
+- code.graphql-schema-type

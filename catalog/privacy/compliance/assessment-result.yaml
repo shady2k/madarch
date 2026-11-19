@@ -24,3 +24,6 @@ labels:
 description:
   en: An assessment result records, control by control, whether the system met it and what evidence showed that. A finding can be satisfied, partially satisfied or not satisfied, and each answer points to the evidence behind it.
   ru: Результат оценки по каждому контролю говорит, выполнила ли его система и какие доказательства это показали. Ответ бывает выполненным, частично выполненным или невыполненным, и каждый указывает на доказательства за ним.
+derives-from:
+- assessment-plan
+- evidence

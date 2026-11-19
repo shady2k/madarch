@@ -6,6 +6,7 @@ sources:
 - https://google.github.io/styleguide/
 - https://github.com/shady2k/madarch/blob/main/docs/vision.md
 acquisition:
+- agent-from-graph
 - conversation
 - document
 - not-implemented
@@ -20,39 +21,47 @@ relation-constraints:
   - verifies
 template-policy: page
 source: graph
-fields:
-- name: name
-  type: text
-  producers:
-  - person
-- name: rule
-  type: text
-  producers:
-  - person
-- name: example
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: paths
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-key: []
 origin: person
-nav: own-page
 details:
 - name
 - rule
 - example
 - paths
 - status
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the convention is known by, such as file names in kebab-case;
+      it is the convention's key.
+- name: rule
+  type: text
+  binding:
+    agent: The rule itself, in one sentence a person can check.
+- name: example
+  type: text
+  nullable: true
+  binding:
+    agent: An example of the code following the rule, where the product gives one.
+- name: paths
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:path-list:v1
+  nullable: true
+  binding:
+    agent: The paths the rule covers, where it covers some folders only.
+- name: status
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: Whether the convention is in force.
+key:
+- name
+nav: own-page
 labels:
   en:
     one: Code convention
@@ -63,3 +72,5 @@ labels:
 description:
   en: A code convention states one rule of how the code is written — which names, which structure, which patterns are forbidden — and where it applies. A linter configuration, a type check or an architecture check carries it, so the rule is enforced rather than remembered.
   ru: 'Соглашение о коде формулирует одно правило о том, как пишут код: какие имена, какая структура, какие образцы запрещены, — и где оно действует. Его держит настройка линтера, проверка типов или проверка архитектуры, поэтому правило исполняется, а не запоминается.'
+derives-from:
+- constitution

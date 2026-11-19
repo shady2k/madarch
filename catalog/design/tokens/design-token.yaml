@@ -25,3 +25,6 @@ labels:
 description:
   en: A design token gives a name to one design value — a colour, a spacing, a type size, a border radius — so that screens and styles use the name instead of repeating the value. A change to the token then reaches every place that uses it.
   ru: Токен дизайна даёт имя одному значению оформления — цвету, отступу, размеру шрифта, скруглению угла, — чтобы экраны и стили ссылались на имя, а не повторяли значение. Тогда изменение токена доходит до каждого места, где он используется.
+derives-from:
+- product-profile
+- token-group

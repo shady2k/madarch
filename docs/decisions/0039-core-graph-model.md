@@ -552,6 +552,8 @@ of exactly-once execution, make each accepted operation occur once.
   leaves a retryable unit; receipts prevent duplicated work. A crash after it
   leaves a completed unit. No queue payload is the sole copy of a durable fact.
 
+Clarification (2026-11-18, madarch-64o5.74, ALX-358): for a plugin's reconcile, the logical operation is one batch of the difference, and its key is the digest of its canonical request, which includes the preconditions it was decided from: for every subject it touches, the last recorded sequence of this source's stream for that subject. A batch boundary never separates an entity from its required edges or new parents, nor the retraction of a last required edge from its replacement or the child's retirement; groups are packed parents first on addition and children first on removal, in code-point order. A batch is bounded by the request limit and by the time it holds the graph write lock; the statements of one operation do not grow with the number of its facts.
+
 ### 25. Assertions are graph records with bitemporal, typed storage
 
 Engineering decision (madarch-64o5.137), following Datomic's immutable datoms

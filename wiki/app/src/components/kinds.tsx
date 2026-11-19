@@ -32,7 +32,7 @@ export function KindsSection({ context }: { readonly context: SectionContext }):
     .map((row) => row as KindRow)
     .filter((row) => typeof row.many === 'string' && Number(row.count) > 0)
     .sort((left, right) => Number(right.count) - Number(left.count) || String(left.many).localeCompare(String(right.many), context.language));
-  if (rows.length === 0) return <Paragraph>—</Paragraph>;
+  if (rows.length === 0) return <Paragraph>{t('common.emptyValue')}</Paragraph>;
   return (
     <Table data-testid="kinds">
       <TableHeader>

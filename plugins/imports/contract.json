@@ -25,6 +25,34 @@
             "required": true
           }
         ]
+      },
+      {
+        "kind": "code.blob",
+        "key": [
+          "digest"
+        ],
+        "fields": [
+          {
+            "name": "digest",
+            "type": "text",
+            "meaning": "SHA-256 of the exact UTF-8 content.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "required": true
+          },
+          {
+            "name": "content",
+            "type": "text",
+            "meaning": "The immutable source text.",
+            "example": "source",
+            "required": true
+          }
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "digest",
+          "contentField": "content",
+          "digestAlgorithm": "sha256"
+        }
       }
     ],
     "edges": [
@@ -61,7 +89,14 @@
             "example": [
               "readGraph"
             ],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           {
             "name": "type_only",
@@ -70,7 +105,21 @@
             "example": true,
             "required": false
           }
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.imports",
+            "in": "code.imports"
+          },
+          "ru": {
+            "out": "code.imports",
+            "in": "code.imports"
+          }
+        }
       },
       {
         "kind": "code.imports-package",
@@ -105,7 +154,14 @@
             "example": [
               "readFile"
             ],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           {
             "name": "type_only",
@@ -114,12 +170,54 @@
             "example": false,
             "required": false
           }
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.imports-package",
+            "in": "code.imports-package"
+          },
+          "ru": {
+            "out": "code.imports-package",
+            "in": "code.imports-package"
+          }
+        }
+      },
+      {
+        "kind": "code.blob-about",
+        "from": "code.blob",
+        "to": [
+          "code.file",
+          "code.repository"
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "captures",
+            "in": "captured by"
+          },
+          "ru": {
+            "out": "снимок",
+            "in": "снят в"
+          }
+        },
+        "fields": []
       }
     ]
   },
   "rights": {
     "network": "none",
-    "graph": true
+    "graph": true,
+    "graphReads": [
+      "files",
+      "value",
+      "ownFacts"
+    ]
   }
 }

@@ -25,3 +25,5 @@ labels:
 description:
   en: An assurance claim states something that must be true for the product to be acceptable, such as that no single fault can cause a hazardous failure. It is the top of an assurance case, which must show why it holds.
   ru: 'Утверждение обеспечения говорит, что должно быть верно, чтобы продукт был приемлем: например, что один отказ не может привести к опасному сбою. С него начинается обоснование обеспечения, которое должно показать, почему это верно.'
+derives-from:
+- assurance-case

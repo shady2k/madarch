@@ -26,3 +26,6 @@ labels:
 description:
   en: 'An approval records the decision a responsible person made about a package of changes: that it may be applied, or that it is refused and why. It names who decided and when.'
   ru: 'Согласование фиксирует решение ответственного человека о пакете изменений: применить его или отказать и почему. В нём указано, кто и когда решил.'
+derives-from:
+- approval-package
+- person

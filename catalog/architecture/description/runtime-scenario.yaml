@@ -7,13 +7,40 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
-  - documents
+  - hasPart
+  - realises
+  - implements
   in:
   - documents
-template-policy: none
+  - defines
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the scenario is told by, such as Place an order or Fill the domain; it is the scenario's key.
+- name: trigger
+  type: text
+  nullable: true
+  binding:
+    agent: What starts the scenario, from the route or the use case it realises in the graph.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What happens in the scenario, in two sentences, from the steps it holds and the parts that take them in the graph.
+key:
+- name
+derives-from:
+- code.service
+- doc.use-case
 labels:
   en:
     one: Runtime scenario

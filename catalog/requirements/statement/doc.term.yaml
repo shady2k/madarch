@@ -1,41 +1,56 @@
 id: practice.glossary-term
 purpose: understand
 audience: [product, analyst, developer, architect, designer, tester]
-definition: A glossary term is a word or phrase of the product's own language whose meaning the product fixes once, so everyone uses it the same way.
+definition: A glossary term is a concept with a definition in one subject field, named by a preferred label and synonyms.
 sources:
-- https://arc42.org/overview
+- https://www.w3.org/TR/skos-reference/
+- https://www.iso.org/standard/79077.html
 acquisition:
+- agent-from-graph
 - document
 - conversation
 relation-constraints:
   out:
   - defines
+  - partOf
+  - implements
+  - term.in-domain
   in:
   - uses
 template-policy: page
-title: title
 source: graph
-fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
-  type: json
-  nullable: true
-  producers:
-  - person
 origin: person
+fields:
+- name: identifier
+  type: text
+  binding:
+    agent: A stable identifier for this concept within its subject field, independent of its labels.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The preferred label of the concept; show the subject in brackets when the word is ambiguous.
+- name: synonyms
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Alternative labels for the same concept in this subject field.
+- name: definition
+  type: text
+  binding:
+    agent: The meaning of this concept within its subject field.
+- name: ambiguous
+  type: text
+  nullable: true
+  binding:
+    agent: Other meanings of this word in other subject fields; never merge them solely because their labels match.
+key:
+- identifier
 listing: glossary
 nav: own-page
 labels:
@@ -46,6 +61,14 @@ labels:
     one: Термин
     many: Термины
 description:
-  en: A glossary term is a word or a short phrase with a precise meaning in the product, such as order or settlement. The glossary states that meaning once, and the product's documents and people then use the word in exactly that sense.
-  ru: Термин — слово или короткое словосочетание с точным значением в продукте, например «заказ» или «расчёт». Глоссарий один раз задаёт это значение, и дальше документы и люди продукта употребляют слово именно в нём.
-key: []
+  en: A glossary term is a concept defined within a subject field. Its preferred name and synonyms are labels, not its identity.
+    The same word in two fields names two concepts; the field in brackets tells them apart.
+  ru: Термин — понятие, определённое в предметной области. Предпочтительное имя и синонимы служат обозначениями, а не идентичностью.
+    Одно слово в двух областях обозначает два понятия; область в скобках различает их.
+derives-from:
+- domain
+
+key-edges:
+- role: doc.term-subject
+  edge: term.in-domain
+  side: from

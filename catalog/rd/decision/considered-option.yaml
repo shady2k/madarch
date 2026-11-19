@@ -24,3 +24,5 @@ labels:
 description:
   en: A considered option is a choice a decision examined, described well enough to compare with the others. The record says why it was taken or rejected.
   ru: Рассмотренный вариант — один из вариантов, которые взвешивало решение, описанный так, чтобы его можно было сравнить с другими. В записи сказано, почему его приняли или отклонили.
+derives-from:
+- doc.decision

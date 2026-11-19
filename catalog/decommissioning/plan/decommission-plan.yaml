@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A decommission plan sets out how a system is shut down for good: what must be migrated, archived or destroyed, who does each step, and when the system stops serving its users. It also names what depends on the system and must move first.'
   ru: 'План вывода из эксплуатации описывает, как систему окончательно отключают: что нужно перенести, сохранить в архиве или уничтожить, кто выполняет каждый шаг и когда система перестаёт обслуживать пользователей. В нём также перечислено, что зависит от системы и должно переехать раньше.'
+derives-from:
+- software-system

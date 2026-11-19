@@ -1,7 +1,8 @@
+import { withAssertionContract } from '../src/graph/system-contract.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { createFillStateSchema, readChain } from '../src/fill/state-store.js';
-import { createOrchestratorSchema, readProgress } from '../src/fill/orchestrator-store.js';
+import { readChain } from '../src/graph/fill-state.js';
+import { createOrchestratorSchema, readProgress } from '../src/graph/fill-orchestration.js';
 /** Explicit preparation precedes every connect-only graph role (madarch-8bdc.10). */
 import { describe, expect, test } from 'bun:test';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -74,7 +75,15 @@ describe('explicit store preparation and connect-only clients', () => {
         const statements: string[] = [];
         const answers = await Promise.allSettled(Array.from({ length: 8 }, async (_, role) => {
           const connection = await createDatabaseOwner({ cluster, database, connectOnly: true });
-          const client = observed(connection, statements);
+          const observedOwner = observed(connection, statements);
+          const client = {
+            ...observedOwner,
+            transaction: observedOwner.transaction.bind(observedOwner),
+            run: observedOwner.run.bind(observedOwner),
+            exec: observedOwner.exec.bind(observedOwner),
+            close: observedOwner.close.bind(observedOwner),
+            graphContract: withAssertionContract(withManifestContract(repositoryContract)),
+          };
           try {
           switch (role) {
             case 0: await createOneGraphSchema(client, withManifestContract(repositoryContract)); break;
@@ -86,7 +95,7 @@ describe('explicit store preparation and connect-only clients', () => {
               break;
             }
             case 3:
-              await createFillStateSchema(client);
+
               expect(await readChain(client, 'fixture')).toBeNull();
               break;
             case 4:
@@ -94,7 +103,7 @@ describe('explicit store preparation and connect-only clients', () => {
               expect(await readProgress(client, 'fixture')).toEqual([]);
               break;
             case 5:
-              await createFillStateSchema(client);
+
               expect(await readChain(client, 'fixture')).toBeNull();
               break;
             default: {
@@ -115,4 +124,79 @@ describe('explicit store preparation and connect-only clients', () => {
       } finally { await owner.close(); }
     }
   }, 120_000);
+});
+
+
+describe('transaction client query admission', () => {
+  test('one transaction submits concurrent calls to its native client one at a time', async () => {
+    const owner = await fresh();
+    await owner.ready;
+    const { Client } = await import('pg');
+    const original = Client.prototype.query;
+    const active = new WeakMap<object, number>();
+    let maximum = 0;
+    Client.prototype.query = function (this: InstanceType<typeof Client>, ...args: unknown[]) {
+      const pending = (active.get(this) ?? 0) + 1;
+      active.set(this, pending);
+      maximum = Math.max(maximum, pending);
+      const finish = (): void => { active.set(this, (active.get(this) ?? 1) - 1); };
+      try {
+        const answer = Reflect.apply(original, this, args) as Promise<unknown>;
+        return answer.then((value) => { finish(); return value; }, (error: unknown) => { finish(); throw error; });
+      } catch (error) { finish(); throw error; }
+    } as typeof original;
+    try {
+      await owner.exec('CREATE TABLE queue_probe (position integer GENERATED ALWAYS AS IDENTITY, value integer NOT NULL)');
+      const answers = await owner.transaction('write', async (tx) => await Promise.all([
+        tx.query('SELECT pg_sleep(0.02)'),
+        ...[10, 20, 30].map((value) => tx.query<{ position: number; value: number }>('INSERT INTO queue_probe (value) VALUES ($1) RETURNING position,value', [value])),
+      ]));
+      expect(answers.slice(1).map((answer) => answer.rows)).toEqual([
+        [{ position: 1, value: 10 }], [{ position: 2, value: 20 }], [{ position: 3, value: 30 }],
+      ]);
+      expect(maximum).toBe(1);
+    } finally {
+      Client.prototype.query = original;
+      await owner.close();
+    }
+  });
+
+  test('a handled statement error can recover through its savepoint', async () => {
+    const owner = await fresh();
+    try {
+      await owner.exec('CREATE TABLE queue_probe (value integer NOT NULL)');
+      await owner.transaction('write', async (tx) => {
+        await tx.query('SAVEPOINT recover');
+        await expect(tx.query('SELECT 1 / 0')).rejects.toThrow();
+        await tx.query('ROLLBACK TO SAVEPOINT recover');
+        await tx.query('INSERT INTO queue_probe VALUES (7)');
+      });
+      expect((await owner.run((tx) => tx.query('SELECT value FROM queue_probe'))).rows).toEqual([{ value: 7 }]);
+    } finally { await owner.close(); }
+  });
+
+  test('callback rejection drains accepted calls before rollback and refuses calls through a retained executor', async () => {
+    const owner = await fresh();
+    let lateQuery: (() => Promise<unknown>) | undefined;
+    let settled = false;
+    let accepted: Promise<PromiseSettledResult<unknown>[]> | undefined;
+    const failure = new Error('fixture callback failed');
+    try {
+      await owner.exec('CREATE TABLE queue_probe (value integer NOT NULL)');
+      await expect(owner.transaction('write', async (tx) => {
+        lateQuery = () => tx.query('INSERT INTO queue_probe VALUES (99)');
+        accepted = Promise.allSettled([
+          tx.query('SELECT pg_sleep(0.02)'),
+          tx.query('INSERT INTO queue_probe VALUES (1)'),
+          tx.query('INSERT INTO queue_probe VALUES (2)'),
+        ]).then((answers) => { settled = true; return answers; });
+        throw failure;
+      })).rejects.toBe(failure);
+      expect(settled).toBe(true);
+      expect((await accepted!).every((answer) => answer.status === 'fulfilled')).toBe(true);
+      await expect(lateQuery!()).rejects.toThrow();
+      await owner.transaction('write', async (tx) => { await tx.query('INSERT INTO queue_probe VALUES (3)'); });
+      expect((await owner.run((tx) => tx.query('SELECT value FROM queue_probe ORDER BY value'))).rows).toEqual([{ value: 3 }]);
+    } finally { await owner.close(); }
+  });
 });

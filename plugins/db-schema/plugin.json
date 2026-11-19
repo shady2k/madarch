@@ -17,28 +17,60 @@
       "fields": "*",
       "reads": [
         "code.file"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.table",
       "fields": "*",
       "reads": [
         "code.file"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.column",
       "fields": "*",
       "reads": [
         "code.file"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.index",
       "fields": "*",
       "reads": [
         "code.file"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     }
   ],
   "concurrency": 1,

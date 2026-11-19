@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { ClosureRefusal, pluginManifestLine, type PluginManifest } from './closure.js';
-import type { KindsManifest } from '../product/manifest/kinds.js';
+import { PROTECTED_KIND_NAMES, type KindsManifest } from '../product/manifest/kinds.js';
 
 export type FillRead = NonNullable<PluginManifest['produces'][number]['reads']>[number];
 export interface FillKindDeclaration {
@@ -13,7 +13,26 @@ export interface FillKindDeclaration {
   readonly file: string;
   readonly line: number;
   readonly derivesFrom?: readonly string[];
+  readonly catalogueOnly?: boolean;
+  /** A protected engine kind from the installed contract: a declared prerequisite no product declares or produces. */
+  readonly engineProtected?: boolean;
+  /** Authored prerequisites stay in the closure but need no extraction turn. */
+  readonly producerRequired?: boolean;
 }
+/** All declared prerequisites, including catalogue-only kinds that have no storage or producer. */
+export function fillKindsOf(manifest: KindsManifest): FillKindDeclaration[] {
+  const declared = new Set([...manifest.kinds.keys(), ...(manifest.catalog?.kinds.keys() ?? [])]);
+  return [
+    ...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: kind.profileMarkers === undefined && kind.profileTechnologies === undefined ? (kind.fields ?? []).map((field) => field.name) : [], key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+    ...[...(manifest.catalog?.kinds.values() ?? [])].filter((kind) => !manifest.kinds.has(kind.name) && kind.templatePolicy === 'none')
+      .map((kind) => ({ name: kind.name, fields: [], file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom, catalogueOnly: true })),
+    // The installed contract's protected kinds are declared prerequisites without fields: the engine writes them, so a
+    // product neither declares them nor waits for a producer. Their names come from the contract, never from this file.
+    ...[...PROTECTED_KIND_NAMES].filter((name) => !declared.has(name)).sort(byCodePoint)
+      .map((name) => ({ name, fields: [], file: resolve(manifest.file), line: 1, engineProtected: true })),
+  ];
+}
+
 export interface FillPluginDeclaration {
   readonly manifest: PluginManifest;
   readonly file: string;
@@ -54,8 +73,20 @@ function restsOn(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly st
  * a repository's turn cannot read its own files back; such a read is left out. A deterministic producer's declared read
  * is never dropped: a read that would close a cycle is the manifest's error, refused by the unit graph.
  */
-function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly string[] }>, kind: string, reads: readonly T[], agent: boolean): T[] {
-  return agent ? reads.filter((read) => !restsOn(kinds, typeof read === 'string' ? read : read.kind, kind)) : [...reads];
+function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly string[] }>, kind: string, reads: readonly T[], agent: boolean, plugins: readonly FillPluginDeclaration[]): T[] {
+  if (!agent) return [...reads];
+  const retained = reads.filter((read) => !restsOn(kinds, typeof read === 'string' ? read : read.kind, kind));
+  const readNames = new Set(reads.map((read) => typeof read === 'string' ? read : read.kind));
+  const retainedNames = new Set(retained.map((read) => typeof read === 'string' ? read : read.kind));
+  return retained.filter((read) => {
+    const name = typeof read === 'string' ? read : read.kind;
+    const sources = plugins.flatMap((plugin) => plugin.manifest.produces
+      .filter((output) => output.support?.vertices.includes(name) && readNames.has(output.kind)
+        && (typeof read === 'string' || read.producer === plugin.manifest.name))
+      .map((output) => output.kind));
+    // Support attached to a forward source cannot survive as an unscoped read of every other source's support.
+    return sources.length === 0 || sources.some((source) => retainedNames.has(source));
+  });
 }
 
 /**
@@ -64,6 +95,7 @@ function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly 
  * rule the fill plans by, and the one a selective fill lists its added kinds by.
  */
 export function effectiveReadsOf(input: FillDeclarationInput, kind: string, asked?: ReadonlySet<string>): FillRead[] {
+  if (input.kinds.find((entry) => entry.name === kind)?.catalogueOnly) return [];
   const fieldsOf = (name: string): readonly string[] => input.kinds.find((entry) => entry.name === name)?.fields ?? [];
   const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[]; agent: boolean }[] = [];
   for (const plugin of input.plugins) {
@@ -82,7 +114,7 @@ export function effectiveReadsOf(input: FillDeclarationInput, kind: string, aske
   // An agent's fallback for a kind the fill was not asked for is not planned, so its reads are no input of this fill.
   const planned = (entry: { readonly declaration: FillPluginDeclaration['manifest']['produces'][number] }): boolean =>
     entry.declaration.coverage !== 'gaps' || asked === undefined || asked.has(kind);
-  return effective.filter(planned).flatMap((entry) => forwardReads(kinds, kind, entry.declaration.reads ?? [], entry.agent));
+  return effective.filter(planned).flatMap((entry) => forwardReads(kinds, kind, entry.declaration.reads ?? [], entry.agent, input.plugins));
 }
 
 export function planFillDeclarations(input: FillDeclarationInput) {
@@ -115,20 +147,23 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     return result;
   };
   for (const name of kinds.keys()) prerequisites(name);
+  const supportKinds = new Set(input.plugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
   const expanded: ExpandedOutput[] = [];
   for (const plugin of input.plugins) {
     if (plugin.manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${plugin.manifest.name} declares no output; declare produces, including Problem records for checks`);
     for (const [index, declaration] of plugin.manifest.produces.entries()) {
-      const names = declaration.kind === '*' ? [...kinds.keys()] : [declaration.kind];
+      const names = declaration.kind === '*' ? [...kinds.values()].filter((kind) => !kind.catalogueOnly && !kind.engineProtected && !supportKinds.has(kind.name)).map((kind) => kind.name) : [declaration.kind];
       for (const name of names) {
         const kind = kinds.get(name);
         if (kind === undefined) refuse(plugin, ['produces', index, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
+        if (kind!.engineProtected) refuse(plugin, ['produces', index, 'kind'], `${name} is a protected system kind: the engine writes it, and no product producer fills it`);
+        if (kind!.catalogueOnly) refuse(plugin, ['produces', index, 'kind'], `${name} is catalogue-only and declares no producer`);
         const declared = declaration.fields === '*' ? kind!.fields : declaration.fields;
         for (const field of declared) if (!kind!.fields.includes(field)) refuse(plugin, ['produces', index, 'fields'], `plugin ${plugin.manifest.name} names undeclared field ${name}.${field}`);
         // A deterministic claim states the kind's natural key with the vertex it makes, so the key is that producer's
         // field too; an agent's scoped output states only the fields it was asked for.
         const fields = declaration.coverage === 'gaps' || plugin.manifest.agent !== undefined ? declared : [...new Set([...declared, ...(kind!.key ?? [])])];
-        expanded.push({ plugin, index, kind: name, fields, reads: forwardReads(kinds, name, declaration.reads ?? [], plugin.manifest.agent !== undefined), declaration });
+        expanded.push({ plugin, index, kind: name, fields, reads: forwardReads(kinds, name, declaration.reads ?? [], plugin.manifest.agent !== undefined, input.plugins), declaration });
       }
     }
   }
@@ -170,6 +205,23 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     const reads = readVersions.get(name)!;
     reads.set(entry.kind, [...new Set([...(reads.get(entry.kind) ?? []), ...entry.reads])]);
   }
+  const ordinaryScope = new Set<string>();
+  const collectOrdinary = (kind: string): void => {
+    if (ordinaryScope.has(kind)) return;
+    ordinaryScope.add(kind);
+    for (const parent of kinds.get(kind)?.derivesFrom ?? []) collectOrdinary(parent);
+    for (const read of effectiveReadsOf(input, kind, new Set(input.selectedKinds ?? kinds.keys()))) collectOrdinary(typeof read === 'string' ? read : read.kind);
+  };
+  for (const kind of input.selectedKinds ?? kinds.keys()) collectOrdinary(kind);
+  const supportOwners = (kind: string, reader: ExpandedOutput, producer?: string): ExpandedOutput[] => {
+    const candidates = entries.filter((entry) => entry.declaration.support?.vertices.includes(kind) && (producer === undefined || entry.plugin.manifest.name === producer));
+    const readKinds = new Set(reader.reads.map((read) => typeof read === 'string' ? read : read.kind));
+    const sources = candidates.filter((entry) => readKinds.has(entry.kind));
+    const scoped = candidates.filter((entry) => ordinaryScope.has(entry.kind));
+    const owners = sources.length > 0 ? sources : scoped.length > 0 ? scoped : candidates;
+    if (owners.length > 1) refuse(reader.plugin, ['produces', reader.index, 'reads'], `support read ${kind} has ambiguous owner units: ${owners.map((entry) => `${entry.plugin.manifest.name}:${entry.kind}`).sort(byCodePoint).join(', ')}; name an earlier producer or select its source kind`);
+    return owners;
+  };
   const reachable = (from: string, to: string, edges: ReadonlyMap<string, ReadonlySet<string>>, seen = new Set<string>()): boolean => {
     if (seen.has(from)) return false;
     seen.add(from);
@@ -218,7 +270,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
       if (!kinds.has(kind)) refuse(entry.plugin, path, `${kind} is not a declared kind in produces, reads or derives-from`);
       // A plugin's own reads are its inputs, whatever the catalogue says a kind rests on: an output kind need not declare a
       // derives-from for each source its producer reads, and the unit's turn is ordered after the producers of those reads.
-      if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind)) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
+      if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind) && supportOwners(kind, entry, read.producer).length === 0) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
     }
   }
   for (const [name, output] of allOutputs) for (const kind of output.keys()) {
@@ -229,12 +281,17 @@ export function planFillDeclarations(input: FillDeclarationInput) {
       const versions = reads.filter((read) => (typeof read === 'string' ? read : read.kind) === readKind);
       const earlier = versions.filter((read): read is Exclude<FillRead, string> => typeof read !== 'string');
       const needsLatest = earlier.length === 0 || versions.some((read) => typeof read === 'string');
+      const reader = entries.find((entry) => entry.plugin.manifest.name === name && entry.kind === kind)!;
+      if (needsLatest && ![...allOutputs.values()].some((output) => output.has(readKind))) for (const owner of supportOwners(readKind, reader)) edges.add(unitId(owner.plugin.manifest.name, owner.kind));
       if (needsLatest) for (const [producer, outputs] of allOutputs) {
         // A unit that reads its own kind reads what stands before its turn: it never waits for itself.
         if (producer === name && readKind === kind) continue;
         if (outputs.has(readKind)) edges.add(unitId(producer, readKind));
       }
-      for (const read of earlier) edges.add(unitId(read.producer, readKind));
+      for (const read of earlier) {
+        if (allOutputs.get(read.producer)?.has(readKind)) edges.add(unitId(read.producer, readKind));
+        else for (const owner of supportOwners(readKind, reader, read.producer)) edges.add(unitId(owner.plugin.manifest.name, owner.kind));
+      }
     }
   }
   const requested = input.selectedKinds ?? [...kinds.keys()];
@@ -255,8 +312,13 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     if (!kinds.has(name)) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml'));
     collect(name);
   }
+  let selectedCount: number;
+  do {
+    selectedCount = selected.size;
+    for (const [id, unit] of unitInfo) if (selected.has(unit.kind)) for (const dependency of unitEdges.get(id)!) collect(unitInfo.get(dependency)!.kind);
+  } while (selected.size !== selectedCount);
   // A kind that declares no field has nothing for a producer to state: it needs none, and it is no silence.
-  for (const name of selected) if ((kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
+  for (const name of selected) if (kinds.get(name)?.producerRequired !== false && (kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name)) && !entries.some((entry) => selected.has(entry.kind) && entry.declaration.support?.vertices.includes(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
   const sortedUnits: string[] = [];
   const visiting: string[] = [];
   const visited = new Set<string>();
@@ -299,7 +361,10 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   return {
     unitPredecessors, readsFor, readVersions,
     reads: new Map([...readVersions].map(([name, output]) => [name, new Map([...output].map(([kind, reads]) => [kind, [...new Set(reads.map((read) => typeof read === 'string' ? read : read.kind))]]))])),
-    selectedKinds: [...selected],
+    // A protected prerequisite stands in the closure but runs no turn: it is not a kind this plan fills.
+    selectedKinds: [...selected].filter((name) => kinds.get(name)?.engineProtected !== true),
+    emptyKinds: [...selected].filter((name) => kinds.get(name)?.catalogueOnly).sort(byCodePoint)
+      .map((kind) => ({ kind, state: 'no-producer-declared' as const })),
     requiresAgent: agentNeeds.length > 0,
     agentNeeds, fieldProducers,
     order, outputs, refinements, concurrency, predecessors,
@@ -427,7 +492,8 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // The agent's wildcard capability is every kind's filler of last resort (decision 0035, item 22): one output per
   // declared kind, so the plan can name the fields the agent fills beside each deterministic producer and keep exactly
   // the fields no claim covers. A kind that declares no field has nothing for any producer to state, so it is no gap.
-  const fielded = (name: string): boolean => (manifest.kinds.get(name)?.fields ?? []).length > 0;
+  const supportKinds = new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.support?.vertices ?? [])));
+  const fielded = (name: string): boolean => manifest.kinds.get(name)?.profileMarkers === undefined && manifest.kinds.get(name)?.profileTechnologies === undefined && (manifest.kinds.get(name)?.fields ?? []).length > 0;
   // The agent fills the gaps of the kinds the fill was asked for: a kind that only joins the fill as an input of an asked
   // kind runs its deterministic producers, and its own agent gaps wait for a fill that asks for it (madarch-64o5.63).
   const asked = new Set(requestedKinds ?? selectedKinds ?? [...manifest.kinds.keys()]);
@@ -451,7 +517,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       if (output.kind !== '*') return [output];
       // A manifest read for its declarations alone (no kind selected) expands the wildcard over every fielded kind, so
       // its reads are judged by the same rule; nothing of it is planned.
-      const fieldedKinds = [...manifest.kinds.keys()].filter(fielded);
+      const fieldedKinds = [...manifest.kinds.keys()].filter((name) => fielded(name) && !supportKinds.has(name));
       const scoped = fieldedKinds.filter((kind) => asked.size === 0 || asked.has(kind));
       const chosen = scoped.length > 0 ? scoped : fieldedKinds;
       if (chosen.length === 0) return [output];
@@ -460,16 +526,16 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     return { ...plugin, manifest: { ...plugin.manifest, produces } };
   });
   const requested = selectedKinds ?? [...manifest.kinds.keys()];
-  const declared = [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom }));
+  const declared = fillKindsOf(manifest);
   // The declarations the plan hands the planner: one source of the reads a kind's turn takes.
   const input: FillDeclarationInput = { kinds: declared, plugins: executable };
   const askedKinds = new Set(requested);
-  const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
+  const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => [...(output.kind === '*' ? [...manifest.kinds.keys()].filter((name) => !supportKinds.has(name)) : [output.kind]), ...(output.support?.vertices ?? [])])));
   const selected = new Set<string>();
   const collect = (name: string): void => {
     if (selected.has(name)) return;
     selected.add(name);
-    for (const prerequisite of manifest.kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
+    for (const prerequisite of declared.find((kind) => kind.name === name)?.derivesFrom ?? []) collect(prerequisite);
     for (const read of effectiveReadsOf(input, name, askedKinds)) collect(typeof read === 'string' ? read : read.kind);
   };
   for (const name of requested) collect(name);
@@ -486,13 +552,16 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const unavailable = new Set([...selected].filter((name) => fielded(name) && !covered.has(name) && !nothingToFill.has(name)));
   for (const name of configuredMissing.keys()) if (selected.has(name)) unavailable.add(name);
   // A kind that rests on an unproduced kind, or reads one, cannot be filled either: the run reports that kind and lets
-  // the kinds that do not depend on it run.
+  // the kinds that do not depend on it run. A kind that declares no field propagates the same refusal: it contributes no
+  // turn of its own, and the dependants that do declare fields must not reach around it to the kind nothing produces.
   let changed = true;
   while (changed) {
     changed = false;
     for (const name of selected) {
-      if (unavailable.has(name) || !fielded(name)) continue;
-      const needs = [...(manifest.kinds.get(name)?.derivesFrom ?? []),
+      if (unavailable.has(name)) continue;
+      // The declaration is the source: a catalogue-only kind derives from its prerequisites exactly as a kind of the
+      // manifest does, and its dependants must see the same refusal.
+      const needs = [...(declared.find((kind) => kind.name === name)?.derivesFrom ?? []),
         ...effectiveReadsOf(input, name, askedKinds).map((read) => typeof read === 'string' ? read : read.kind).filter((read) => read !== name)];
       if (needs.some((dependency) => unavailable.has(dependency))) {
         unavailable.add(name);
@@ -512,8 +581,9 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   }
   const skipped: FillPlanSkip[] = hasAgent ? [] : [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
     .map((kind) => fillPlanSkip(unavailable, kind, input));
+  const plannedKinds = declared.map(kind => nothingToFill.has(kind.name) ? { ...kind, producerRequired: false } : kind);
   const plan = planFillDeclarations({
-    kinds: declared,
+    kinds: plannedKinds,
     plugins: executable,
     selectedKinds: requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name)),
     agentSelected: true,
@@ -526,7 +596,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
     const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
     const run = planFillDeclarations({
-      kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+      kinds: plannedKinds,
       plugins: deterministicPlugins,
       selectedKinds: runSelected,
       agentSelected: true,
@@ -542,8 +612,12 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   // What the person asked for: a page can name the plan's kinds — a pulled-in dependency among them — so the ask is the
   // requested selection when there is one, and never a dependency the plan pulled in (madarch-64o5.102).
   const askedSet = new Set(requestedKinds ?? requested);
+  const supported = new Set(executable.flatMap((plugin) => plugin.manifest.produces
+    .filter((output) => [...(plan.outputs.get(plugin.manifest.name)?.keys() ?? [])].some((kind) => output.kind === '*' || output.kind === kind))
+    .flatMap((output) => output.support?.vertices ?? [])));
   for (const kind of plan.selectedKinds) {
-    if (unavailable.has(kind) || nothingToFill.has(kind)) continue;
+    if (manifest.kinds.get(kind)?.profileMarkers !== undefined || manifest.kinds.get(kind)?.profileTechnologies !== undefined) continue;
+    if (unavailable.has(kind) || nothingToFill.has(kind) || supported.has(kind)) continue;
     const authored = authoredFields(kind);
     const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);
     if (empty.length === 0) continue;

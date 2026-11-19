@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A server is one computer, real or virtual, that runs the product''s software: its processor, memory, disks and network addresses. What it offers decides how much work it can carry and what it costs.'
   ru: 'Сервер — один компьютер, настоящий или виртуальный, на котором работает программа продукта: его процессор, память, диски и сетевые адреса. От того, что он даёт, зависит, сколько работы он выдержит и сколько стоит.'
+derives-from:
+- deployment-node
+- product-profile

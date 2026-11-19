@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A GitOps source names where the desired state lives: which repository, which folder in it and which branch, tag or commit. Changing the source changes what the agent will apply.'
   ru: 'Источник GitOps называет, где лежит желаемое состояние: какой репозиторий, какая папка в нём и какая ветка, тег или коммит. Смена источника меняет то, что применит агент.'
+derives-from:
+- code.commit
+- code.repository
