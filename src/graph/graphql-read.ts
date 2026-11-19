@@ -1866,7 +1866,7 @@ export class ReadContext {
 
   private async catalogueField(value: CatalogueValue, name: string, args: ConnectionArgs, lang: string | undefined): Promise<unknown> {
     if (name === 'id') return value.uid;
-    if (name === 'kind') return 'manifest.kind';
+    if (name === 'kind') return 'catalogue';
     if (name === 'label' || name === 'title') return this.catalogueTitle(value, lang);
     if (name === 'template') return this.productTemplates.catalogue;
     if (name === 'contested') return [];
@@ -1892,13 +1892,13 @@ export class ReadContext {
     if (name === 'derivesFrom') return this.catalogueLinks(value.derivesFrom, args, lang);
     if (name === 'derivedBy') return this.catalogueLinks(value.derivedBy, args, lang);
     const relation = this.relationByType.get('CatalogueEntity')?.get(name);
-    if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'manifest.kind', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
+    if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
     return null;
   }
 
   /** The entity a catalogue entry completes as. */
   private catalogueEntityValue(value: CatalogueValue, lang: string | undefined): EntityValue {
-    return { nodeId: value.nodeId, uid: value.uid, kind: 'manifest.kind', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) };
+    return { nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) };
   }
 
   /** The records of the kind this catalogue entry declares: the entities of that kind, one page of them. */
@@ -2051,6 +2051,12 @@ export class ReadContext {
     const uid = String(row['uid']);
     const key = row['key'] as Record<string, unknown>;
     const entityName = String(row['entity']);
+    // The catalogue's own entries are graph vertices of `manifest.kind`: they answer as catalogue entities, from the
+    // entry the product's start published, and are not records of a declared kind.
+    if (entityName === 'manifest.kind') {
+      const catalogue = this.catalogueRead?.byId.get(nodeId);
+      return catalogue === undefined ? undefined : { nodeId, uid, kind: 'catalogue', key, typeName: 'CatalogueEntity', catalogue, ...(lang === undefined ? {} : { lang }) };
+    }
     const typeName = kindTypeNameOf(entityName);
     if (!this.kindByType.has(typeName)) return undefined;
     return { nodeId, uid, kind: entityName, key, typeName, ...(lang === undefined ? {} : { lang }) };
