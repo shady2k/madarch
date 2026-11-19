@@ -95,7 +95,7 @@ async function stopQueues(state: RoleState): Promise<void> {
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
-  const refused = new Set<string>();
+  const openingErrors = new Map<string, Set<string>>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
@@ -164,7 +164,6 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         return 0;
       }
       for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
-        if (refused.has(storeFolder)) continue;
         let held = watched.get(storeFolder);
         if (held === undefined) {
           let owner: StoreOwner | undefined;
@@ -177,14 +176,19 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
+            openingErrors.delete(storeFolder);
           } catch (error) {
             if (owner !== undefined) {
-              await owner.close();
+              await owner.close().catch(() => undefined);
               state.owners.delete(owner);
             }
-            // An unprepared store needs preparation, not another connection every pass. Restart the role after repair.
-            refused.add(storeFolder);
-            log(`madarch fill: the store ${storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+            const message = error instanceof Error ? error.message : String(error);
+            const reported = openingErrors.get(storeFolder) ?? new Set<string>();
+            if (!reported.has(message)) {
+              reported.add(message);
+              openingErrors.set(storeFolder, reported);
+              log(`madarch fill: the store ${storeFolder} could not be opened: ${message}`);
+            }
             continue;
           }
         }
