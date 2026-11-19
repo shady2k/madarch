@@ -6,12 +6,13 @@ import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fi
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createDraft } from '../src/product/draft.js';
+import { manifestWithRepo } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -48,6 +49,17 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
     'semantic-bindings'?: Record<string, DraftBinding>;
     plugins: { id: string; outputs: string[] }[];
   };
+  // ALX-461: a plugin reads the product's declared code repositories, never the product's own folder (0029). A
+  // fixture that expects code facts connects one, as a person's product does with `madarch repo add`.
+  const repository = join(root, 'sources', name);
+  mkdirSync(join(repository, 'src'), { recursive: true });
+  writeFileSync(join(repository, 'src', `${name.replace(/[^a-z0-9]+/g, '-')}.ts`), `export const sample = '${name}';\n`);
+  git(repository, 'init', '-q', '-b', 'main');
+  git(repository, 'add', '-A');
+  git(repository, 'commit', '-qm', `the ${name} source`);
+  symlinkSync(repository, join(draft.folder, 'repos', name));
+  const workspace = join(draft.folder, 'workspace.yaml');
+  writeFileSync(workspace, manifestWithRepo(readFileSync(workspace, 'utf8'), { name, linked: true }));
   // The disk plugin's evidence support is a mechanism entry the product installs beside the kinds the test names: every
   // fact it writes stands on an immutable snapshot, and no code kind is published without one (0039, evidence).
   const declared = [...kinds, 'code.blob'];
