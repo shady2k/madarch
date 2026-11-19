@@ -149,8 +149,17 @@ describe('a unit generation', () => {
         const binding = { ...installed.binding, unitUid, permissions: installed.binding.permissions.filter(permission =>
           ['system.unit', 'system.fill-transition', 'system.fill-transition-subject'].includes(permission.kind)) };
         bindWriteCapability(tx, binding);
+        const scheduler = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], {
+          validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+        })).find(record => record.values['installation'] === JSON.stringify(['system-engine', 'fill-state']) && record.values['scope'] === binding.productUid)!;
+        expect(scheduler).toBeDefined();
+        const operationCount = async () => (await tx.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.operation'",
+        )).rows[0]!.count;
+        const operationsBefore = await operationCount();
         const step = await advanceUnitIn(tx, { unitId, event: { type: 'retry', at, generation: 1,
           cause: 'transient-failure', retryAt: at + 1, fence: attempt } }, { contract: installed.contract, binding });
+        expect(await operationCount()).toBe(operationsBefore);
         expect(step.ok).toBe(true);
         if (!step.ok) throw new Error(JSON.stringify(step));
         // The returned FSM record must be the graph record, even on the second retry.
@@ -163,7 +172,7 @@ describe('a unit generation', () => {
             subjectUids: [unitUid], validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
           });
           const selected = records[0]!.selectedAssertions.find(assertion => assertion.property === 'state')!;
-          expect(selected.source).not.toBe(binding.sourceUid);
+          expect(selected.source).toBe(scheduler.uid);
           const lineage = await tx.query<{relation:string;uid:string}>(`SELECT k.name AS relation,n.uid::text AS uid
             FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node n ON n.id=e.to_node
             WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid)

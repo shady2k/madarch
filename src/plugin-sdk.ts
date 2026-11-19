@@ -648,6 +648,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         const appliedEdges = new Set<string>();
         const reconcile = async (source: UnitResult, scope: ReconciliationScope, retainApplied = false): Promise<void> => {
           const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
+          // Discard the result intentionally: validate duplicates and scope before merging retained facts.
           if (retainApplied) reconcileFacts(source, { vertices: [], edges: [] }, scope);
           const desired = retainApplied ? {
             ...source,
@@ -658,6 +659,10 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
             if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
             const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
             await askHost('facts.apply', { unitId: unit.unitId, key, operation });
+            for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+            for (const edge of operation.edges ?? []) appliedEdges.add(edgeIdentity(edge));
+            for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
+            for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
           }
         };
         let explicitlyReconciled = false;

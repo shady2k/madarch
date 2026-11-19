@@ -59,6 +59,15 @@ test('an immediate operation is not retracted by its empty terminal answer', asy
   expect(operations).toEqual([{ vertices: [{ kind: 'Probe', key: { id: 'one' } }] }]);
 });
 
+test('explicit reconciliation facts survive a nonempty terminal answer', async () => {
+  const { outcome, operations } = await run(`await context.reconcile({vertices:[{kind:'Probe',key:{id:'one'}}],end:{state:'complete'}},{}); return {vertices:[{kind:'Probe',key:{id:'two'}}],end:{state:'complete'}};`, false, graph, true);
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([
+    { vertices: [{ kind: 'Probe', key: { id: 'one' } }] },
+    { vertices: [{ kind: 'Probe', key: { id: 'two' } }] },
+  ]);
+});
+
 test('terminal duplicate identities are refused after immediate writes', async () => {
   const { outcome } = await run(`await context.facts.apply('publish',{vertices:[{kind:'Probe',key:{id:'one'}}]}); return {vertices:[{kind:'Probe',key:{id:'one'}},{kind:'Probe',key:{id:'one'}}],end:{state:'complete'}};`, false, graph, true);
   expect(outcome.state).toBe('not-extracted');

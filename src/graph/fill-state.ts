@@ -187,9 +187,13 @@ async function bind(tx: SqlExecutor): Promise<WriteCapability> {
 }
 export interface GraphWriteContext { readonly contract: GraphContract; readonly binding: WriteCapability; }
 export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[] = [], context?: GraphWriteContext): Promise<void> {
-  const scheduler = await bind(tx);
   // Lifecycle assertions share one source stream; operation lineage and authority stay with the caller.
-  if(context) bindWriteCapability(tx,{...context.binding,sourceUid:scheduler.sourceUid});
+  if (context) {
+    const sources = (await readGraphRecords(tx, 'vertex', 'plugin', ['installation', 'scope']))
+      .filter(record => record.values['installation'] === JSON.stringify(['system-engine', 'fill-state']) && record.values['scope'] === context.binding.productUid);
+    if (sources.length !== 1) raise(`graph plugin: expected one fill-state source for product ${context.binding.productUid}, found ${sources.length}`);
+    bindWriteCapability(tx, { ...context.binding, sourceUid: sources[0]!.uid });
+  } else await bind(tx);
   try {
     await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
   } finally {
