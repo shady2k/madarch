@@ -111,12 +111,12 @@ describe('test quarantine extraction', () => {
     const folder = resolve('plugins/test-quarantine');
     const closure = closureOf(folder);
     const work = mkdtempSync(join(tmpdir(), 'madarch-quarantine-'));
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     let content = source;
     const operations: import('../src/plugin-sdk.js').FactsOperation[] = [];
+    // The host's own environment carries the choice, never the test process's: a leaked variable would run every later
+    // plugin of the run unconfined.
     const host = new PluginHost({ pluginFolder: folder, repository: work, workRoot: work,
-      trust: 'validation', closure, operations: { async apply(_unitId, _key, operation) { operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); return {accepted:true}; } },
+      trust: 'validation', closure, env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, operations: { async apply(_unitId, _key, operation) { operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); return {accepted:true}; } },
       // The one blob read, as a fill's host answers it (decision 0038): the graph names the blob, and the reader the
       // caller gave answers its text.
       readBlob: async (ask) => ({ text: ask.blob === 'blob-of-the-file' ? content : '', lines: 1, bytes: content.length, binary: ask.blob !== 'blob-of-the-file' }),
@@ -143,7 +143,6 @@ describe('test quarantine extraction', () => {
         expect(second.result).not.toHaveProperty('vertices');
       } finally { await session.close(); }
     } finally {
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX']; else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
       rmSync(work, { recursive: true, force: true });
     }
   });

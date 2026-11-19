@@ -72,9 +72,9 @@ await definePlugin({ name: 'reader', version: '1.0.0', contract: ${JSON.stringif
 
 /** Runs one unit of the reader plugin: the host answers its file read through the one path. */
 async function run(fixture: ReturnType<typeof product>): Promise<{ state: string; length?: number; cause?: string }> {
-  const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-  process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
   const operations: FactsOperation[] = [];
+  // The host's own environment carries the choice, never the test process's: a leaked variable would run every later
+  // plugin of the run unconfined.
   const host = new PluginHost({
     pluginFolder: fixture.reader, repository: fixture.folder, workRoot: mkdtempSync(join(tmpdir(), 'madarch-plugin-file-read-work-')),
     trust: 'production', releaseHashes: [closureOf(fixture.reader).hash],
@@ -83,17 +83,13 @@ async function run(fixture: ReturnType<typeof product>): Promise<{ state: string
     // The reader reconciles what it produced before (decision 0039): the host answers the unit's own facts, none here.
     graph: { ownFacts: async () => ({ vertices: [], edges: [] }), files: async () => [], value: async () => null },
   });
+  const session = await host.open();
   try {
-    const session = await host.open();
-    try {
-      const outcome = await session.runUnit({ unitId: 'reader', kind: 'probe.read', key: {}, inputs: { blob: fixture.blob } });
-      if (outcome.state !== 'extracted') return { state: 'not-extracted', cause: outcome.cause.message };
-      const vertex = operations.flatMap(operation => operation.vertices ?? [])[0];
-      return { state: outcome.result.end.state, length: vertex?.values?.['length'] as number | undefined, ...(outcome.result.end.state === 'partial' ? { cause: outcome.result.end.cause } : {}) };
-    } finally { await session.close(); }
-  } finally {
-    if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX']; else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
-  }
+    const outcome = await session.runUnit({ unitId: 'reader', kind: 'probe.read', key: {}, inputs: { blob: fixture.blob } });
+    if (outcome.state !== 'extracted') return { state: 'not-extracted', cause: outcome.cause.message };
+    const vertex = operations.flatMap(operation => operation.vertices ?? [])[0];
+    return { state: outcome.result.end.state, length: vertex?.values?.['length'] as number | undefined, ...(outcome.result.end.state === 'partial' ? { cause: outcome.result.end.cause } : {}) };
+  } finally { await session.close(); }
 }
 
 test('a plugin reads a file through the host, and a range past the byte bound is continued rather than cut', async () => {

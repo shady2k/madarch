@@ -4,9 +4,9 @@
  * the folders, the files and their text from the graph. A scripted ACP agent stands in for the model: it speaks the
  * protocol, it calls the session's server, and it answers from what it read.
  *
- * The plugin runs unconfined here (`MADARCH_PLUGIN_SANDBOX=off`): a sandboxed plugin has no network namespace of its
- * own, and an agent's model is reached over the network too, so a fill with an agent runs unconfined today (madarch-64o5.110
- * gives the agent session its own environment).
+ * The fill runs unconfined here (`unconfined: true`): a sandboxed plugin has no network namespace of its own, and an
+ * agent's model is reached over the network too, so a fill with an agent runs unconfined today (madarch-64o5.110 gives
+ * the agent session its own environment). The choice is the fill's, never the process's environment.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -168,8 +168,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
     expect(declarations.present).toBe(true);
     if (!declarations.present) return;
     expect(declarations.manifest.findings).toEqual([]);
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
       const run = await runFill({
@@ -178,6 +176,9 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         tokenCap: 200_000, database: owner,
         prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 2,
+        // The fill's own choice, never the test process's environment: a leaked variable would run every later plugin
+        // of the run unconfined (decision 0038).
+        unconfined: true,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record] }, connect: connectAcpAgent },
       });
       expect(run.ok).toBe(true);
@@ -239,8 +240,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       ]);
     } finally {
       await owner.close();
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
-      else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
     }
   }, 180_000);
 
@@ -252,8 +251,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
     const f = fixture();
     const declarations = readKinds(f.product);
     if (!declarations.present) return;
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
       const run = await runFill({
@@ -261,6 +258,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         tokenCap: 300, database: owner,
         prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 1,
+        unconfined: true,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record] }, connect: connectAcpAgent },
       });
       expect(run.ok).toBe(true);
@@ -286,8 +284,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       expect(turns.map((turn) => turn.task.kind)).toHaveLength(1);
     } finally {
       await owner.close();
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
-      else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
     }
   }, 180_000);
 
@@ -297,8 +293,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
     const f = fixture();
     const declarations = readKinds(f.product);
     if (!declarations.present) return;
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
       const run = await runFill({
@@ -306,6 +300,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         tokenCap: 200_000, database: owner,
         prepareContract: async (contract) => { await prepareTestStore(owner, { contract }); },
         home: f.home, steps: ['plugin-turns'], workers: 1,
+        unconfined: true,
         pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record, 'malformed'] }, connect: connectAcpAgent },
       });
       expect(run.ok).toBe(true);
@@ -329,8 +324,6 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       expect([turns[0]?.answer.vertices.length, turns[0]?.answer.edges.length]).toEqual([5, 3]);
     } finally {
       await owner.close();
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
-      else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
     }
   }, 180_000);
 });
