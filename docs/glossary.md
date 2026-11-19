@@ -279,6 +279,13 @@ without changing the graph.
 
 ## The system's own parts
 
+**Ready (daemon)**:
+The daemon has run the plugin sandbox probe, stopped database servers left
+by a crash, checked product manifests, and opened its listener. No public
+socket opens before these start steps finish. The client confirms readiness
+with the child's HMAC answer at `/api/daemon`, not its pid or start-phase file.
+Catalogue publication may still be pending after the daemon is ready.
+
 **Core**:
 The logic that joins facts, derives relations, evaluates rules and answers
 queries; it knows no source, transport or storage.
