@@ -37,7 +37,7 @@ test('0039.30: inventory follows explicit semantic kind, field and reversed edge
  const relation={...recordGraph.edge.find(edge=>edge.name===GIT_KINDS.contains)!,name:'belongs',from:['document'],to:['project']};
  const graph=withManifestContract({vertex:vertices,edge:[relation,{...relation,name:'includes',from:['project'],to:['document']}],dictionary:[]});
  const repositoryFields=['name','url','default_branch','history_shallow','tree_snapshot'];
- const fileFields=['path','mode','blob','bytes','form','lines','content','language','languages'];
+ const fileFields=['path','mode','blob','bytes','form','lines','language','languages'];
  const mappings=(names:string[])=>Object.fromEntries(names.map(name=>[name,'actual_'+name]));
  const bindings=[['repository',{kind:'project',line:7,fields:mappings(repositoryFields),edges:{contains:{kind:'belongs',direction:'to',line:9}}}],['file',{kind:'document',line:10,fields:mappings(fileFields),values:{form:{text:'plain',binary:'opaque'}}}]];
  const declaration={file:'/fixture/remapped/catalog.yaml',semanticBindings:{$map:bindings},kinds:{$map:graph.vertex.map(v=>[v.name,{name:v.name,key:v.key,fields:v.fields}])},edges:{$map:graph.edge.map(e=>[e.name,e])}};

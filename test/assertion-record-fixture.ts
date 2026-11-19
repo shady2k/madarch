@@ -19,14 +19,14 @@ import {withManifestContract} from '../src/graph/manifest-contract.js';
 export const recordGraph=withManifestContract(recordKinds);
 import {publishGraphDrafts} from '../src/graph/write.js';
 import {createTestDatabaseOwner} from './test-database.js';
-export async function createRecordOwner(options:{readonly parentPositionFieldType?:'integer'|'text'}={}){
- const contract=options.parentPositionFieldType===undefined?recordGraph:{...recordGraph,edge:recordGraph.edge.map(edge=>edge.name!==GIT_KINDS.parent?edge:{...edge,fields:edge.fields.map(field=>field.name==='position'?{...field,type:options.parentPositionFieldType!}:field)})};
+export async function createRecordOwner(options:{readonly parentPositionFieldType?:'integer'|'text';readonly contract?:GraphContract}={}){
+ const contract=options.contract??(options.parentPositionFieldType===undefined?recordGraph:{...recordGraph,edge:recordGraph.edge.map(edge=>edge.name!==GIT_KINDS.parent?edge:{...edge,fields:edge.fields.map(field=>field.name==='position'?{...field,type:options.parentPositionFieldType!}:field)})});
  const owner=await createTestDatabaseOwner({graphContract:contract});
  const fields=(names:string[])=>Object.fromEntries(names.map(name=>[name,name]));
  const edge=(kind:string,direction:'from'|'to',mapped:Record<string,string>={})=>({kind,direction,fields:mapped,line:1});
  const semanticBindings={$map:[
  ['repository',{kind:GIT_KINDS.repository,line:1,fields:fields(['name','url','default_branch','history_shallow','tree_snapshot']),edges:{contains:edge(GIT_KINDS.contains,'from'),asIs:edge(GIT_KINDS.asIs,'from'),history:edge(GIT_KINDS.history,'from',{walk:'walk'})}}],
- ['file',{kind:GIT_KINDS.file,line:1,fields:fields(['path','mode','blob','bytes','form','lines','language','languages','content']),values:{form:{text:'text',binary:'binary'}},edges:{repository:edge(GIT_KINDS.contains,'to'),renamedFrom:edge(GIT_KINDS.renamedFrom,'from')}}],
+ ['file',{kind:GIT_KINDS.file,line:1,fields:fields(['path','mode','blob','bytes','form','lines','language','languages']),values:{form:{text:'text',binary:'binary'}},edges:{repository:edge(GIT_KINDS.contains,'to'),renamedFrom:edge(GIT_KINDS.renamedFrom,'from')}}],
  ['directory',{kind:GIT_KINDS.directory,line:1,fields:{}}],
  ['commit',{kind:GIT_KINDS.commit,line:1,fields:fields(['hash','subject','author_date','author_offset_min','commit_date','commit_offset_min']),edges:{parent:edge(GIT_KINDS.parent,'from',{position:'position'}),touched:edge(GIT_KINDS.touched,'from')}}],
  ['author',{kind:GIT_KINDS.signature,line:1,fields:fields(['name','email']),edges:{authored:edge(GIT_KINDS.authored,'from')}}],

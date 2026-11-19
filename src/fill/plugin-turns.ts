@@ -287,7 +287,10 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
       const plugin = wiring.manifest.plugins?.get(producer);
       const kind = wiring.manifest.kinds.get(kindName);
       if (separator < 0 || plugin === undefined || kind === undefined || !fills(plugin, kind)) throw new Error(`${import.meta.path}:218: invalid own-facts unit ${query.unitId}`);
-      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName).map((edge) => edge.kind);
+      // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
+      // reconciliation must not withdraw it merely because the extract names no such edge of its own.
+      const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
+      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
       if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
       return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges);
     },
@@ -550,7 +553,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         vertices: checked.unit.vertices.map(vertex => ({ ...vertex, selectedFields: supportOutputs.get(vertex.kind) ?? allowedFields, evidence: draftEvidence(vertex.evidence), producer: unit.plugin.id, producerVersion: unit.lock.version })),
         edges: (operation.edges ?? []).map(edge => ({ ...edge, evidence: draftEvidence(edge.evidence), producer: unit.plugin.id, producerVersion: unit.lock.version })),
         edgeRemovals: (operation.edgeRemovals ?? []).map(edge => ({ ...edge, evidence: draftEvidence(edge.evidence), producer: unit.plugin.id })),
-        removals: (operation.removals ?? []).map(ref => ({ ...ref, evidence: draftEvidence(ref.evidence), producer: unit.plugin.id, selectedFields: allowedFields })),
+        // 0039 items 25-26: a reconciliation retracts only its own statements, existence included. Narrowing the removal
+        // to the declared fields would retract opinions and never existence, so the unit names no selected fields and
+        // removeEntity retires what this source alone stated, while the key stays identity.
+        removals: (operation.removals ?? []).map(ref => ({ ...ref, evidence: draftEvidence(ref.evidence), producer: unit.plugin.id })),
       }, 1, { author: `${unit.plugin.id}@${unit.lock.version}` }), preconditions);
       committedEntries += checked.unit.vertices.length + checked.unit.edges.length + checked.unit.removals.length;
       return written;
