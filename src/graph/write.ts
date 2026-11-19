@@ -90,12 +90,17 @@ function checkBindingRevision(binding:WriteCapability,version:string,context:num
  if(binding.contractVersion!==version)throw new Error(`${WHERE}:31: CONTRACT_CONFLICT authenticated contract revision is stale`);
 }
 interface PreparedContract {readonly contract:GraphContract;readonly version:string}
-function preparePublicationContract(declared:GraphContract):PreparedContract {
+const preparedContracts=new WeakMap<GraphContract,PreparedContract>();
+export function preparePublicationContract(declared:GraphContract):PreparedContract {
+ const cached=preparedContracts.get(declared);
+ if(cached!==undefined)return cached;
  const contract=structuredClone(withAssertionContract(declared));
  const freeze=(value:unknown):void=>{if(value!==null&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
  freeze(contract);
  validateValueContracts(contract);
- return {contract,version:graphContractVersion(contract)};
+ const prepared={contract,version:graphContractVersion(contract)};
+ preparedContracts.set(declared,prepared);
+ return prepared;
 }
 export function canonicalJson(value:unknown):string{return canonicalAssertionValue(value);}
 function comparable(field:FieldContract,value:unknown):unknown{
