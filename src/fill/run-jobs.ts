@@ -8,7 +8,8 @@
  */
 import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA } from '../adapters/pg-boss-queue.js';
 import { withSpan } from '../obs/trace.js';
-import { RUN_JOB_HEARTBEAT_SECONDS, RUN_JOB_LEASE_SECONDS } from './orchestrator-host.js';
+import { RUN_JOB_LEASE_SECONDS } from './orchestrator-host.js';
+import { RUN_JOB_HEARTBEAT_SECONDS } from './queue-limits.js';
 import type { ClaimedJob, QueueService } from './queue.js';
 
 /** The queue one product's fill requests wait in, at the product's store database: its claim is the run's lock. */

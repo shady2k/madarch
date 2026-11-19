@@ -18,6 +18,7 @@ import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-ow
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
+import { unitJobAttemptSeconds } from './queue-limits.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
@@ -58,6 +59,8 @@ export interface FillProduct {
 
 /** How one product's fill reads and writes. Every field is the caller's; nothing here guesses. */
 export interface ProductFillWiring {
+  /** Largest explicit plugin time bound in the pinned catalog; absent when none is declared. */
+  readonly pluginMaxMinutes?: number;
   readonly graphContract: import('../graph/contract.js').GraphContract;
   readonly operations:import('./orchestrator.js').UnitOperations;
   snapshot(): Promise<RunSnapshot> | RunSnapshot;
@@ -157,7 +160,6 @@ const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
 export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
-export const RUN_JOB_HEARTBEAT_SECONDS = 30;
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
@@ -226,7 +228,6 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        await opened.declare({ name: queueName, leaseSeconds: limits.attemptSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };
@@ -251,6 +252,10 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
+    const attemptSeconds = wiring.pluginMaxMinutes === undefined
+      ? limits.attemptSeconds
+      : Math.max(limits.attemptSeconds, unitJobAttemptSeconds(wiring.pluginMaxMinutes));
+    await queue.declare({ name: queueName, leaseSeconds: attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
     const built = createOrchestrator({
       database: { transaction: owner.transaction.bind(owner), graphContract: wiring.graphContract },
       registry,
