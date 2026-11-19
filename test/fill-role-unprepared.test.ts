@@ -38,7 +38,7 @@ test.each([false, true])('a store without file-texts is reported once and releas
       { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
     ] });
     const messages: string[] = [];
-    let passes = 0;
+    let lastCloses = -1;
     let closes = 0;
     const closedByPass: number[] = [];
     expect(await runFillRole({
@@ -46,8 +46,9 @@ test.each([false, true])('a store without file-texts is reported once and releas
       log: (line) => messages.push(line),
       idle: () => {
         expect(closes).toBe(opened.length);
-        closedByPass.push(closes);
-        return passes++ === 3;
+        if (closes !== lastCloses) closedByPass.push(closes);
+        lastCloses = closes;
+        return closes === 3;
       },
       openStore: async (folder) => {
         const owner = await createDatabaseOwner({ store: folder, connectOnly: true });
@@ -137,3 +138,78 @@ test('a store prepared after its first refusal is reopened and answers a file re
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+
+test('the fill role alone backs off opening an unprepared store', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-fill-alone-'));
+  const store = join(root, 'product', 'graph');
+  const preparation = await createDatabaseOwner({ store });
+  let opens = 0;
+  let failedAt = 0;
+  const retryGaps: number[] = [];
+  const messages: string[] = [];
+  try {
+    await prepareQueueSchema(preparation, { declarations: [
+      { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
+    ] });
+    await preparation.close();
+    const started = Date.now();
+    expect(await runFillRole({
+      knowledgeRoot: root,
+      log: (line) => { messages.push(line); failedAt = Date.now(); },
+      idle: () => Date.now() - started >= 3_000 && opens >= 2,
+      openStore: async (folder) => {
+        if (opens > 0) retryGaps.push(Date.now() - failedAt);
+        opens++;
+        const owner = await createDatabaseOwner({ store: folder, connectOnly: true });
+        return Object.assign(owner, { graphContract: withAssertionContract(EMPTY_CONTRACT) });
+      },
+    })).toBe(0);
+    expect(opens).toBeGreaterThanOrEqual(2);
+    expect(opens).toBeLessThanOrEqual(3);
+    expect(Math.min(...retryGaps)).toBeGreaterThanOrEqual(1_000);
+    expect(messages).toHaveLength(1);
+  } finally {
+    await preparation.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('changing opening errors are bounded by backoff and do not delay another store', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-fill-opening-errors-'));
+  mkdirSync(join(root, 'a-broken', 'graph'), { recursive: true });
+  const messages: string[] = [];
+  const attempts: number[] = [];
+  const healthyStore = join(root, 'b-ready', 'graph');
+  let healthyOpenedAt: number | undefined;
+  let preparation: Awaited<ReturnType<typeof createDatabaseOwner>> | undefined;
+  try {
+    preparation = await createDatabaseOwner({ store: healthyStore });
+    await prepareQueueSchema(preparation);
+    const started = Date.now();
+    expect(await runFillRole({
+      knowledgeRoot: root,
+      log: (line) => messages.push(line),
+      idle: () => Date.now() - started >= 3_000,
+      openStore: async (folder) => {
+        if (folder !== healthyStore) {
+          attempts.push(Date.now() - started);
+          throw new Error(`server failed\n${Date.now()} [${attempts.length}] variable startup log`);
+        }
+        healthyOpenedAt = Date.now() - started;
+        const owner = await createDatabaseOwner({ store: folder, connectOnly: true });
+        return Object.assign(owner, { graphContract: withAssertionContract(EMPTY_CONTRACT) });
+      },
+    })).toBe(0);
+    expect(attempts.length).toBeGreaterThanOrEqual(2);
+    expect(attempts.length).toBeLessThanOrEqual(3);
+    expect(attempts[1]! - attempts[0]!).toBeGreaterThanOrEqual(1_000);
+    expect(healthyOpenedAt).toBeDefined();
+    expect(healthyOpenedAt!).toBeLessThan(attempts[1]!);
+    expect(messages.length).toBe(attempts.length);
+    expect(messages.length).toBeLessThanOrEqual(3);
+  } finally {
+    await preparation?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30_000);

@@ -51,6 +51,10 @@ const ENDING_MS = 1_600;
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
 const PARENT_CHECK_MS = 50;
 
+/** Failed opens can start and stop PostgreSQL: retry each store separately, at most every thirty seconds. */
+const OPEN_RETRY_MS = 1_000;
+const MAX_OPEN_RETRY_MS = 30_000;
+
 /** Whether a process is still there: one this process may not signal counts as there. */
 function alive(pid: number): boolean {
   try {
@@ -95,7 +99,8 @@ async function stopQueues(state: RoleState): Promise<void> {
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
-  const openingErrors = new Map<string, Set<string>>();
+  const openingErrors = new Map<string, string>();
+  const openingRetries = new Map<string, { delay: number; after: number }>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
@@ -166,6 +171,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
         let held = watched.get(storeFolder);
         if (held === undefined) {
+          if (Date.now() < (openingRetries.get(storeFolder)?.after ?? 0)) continue;
           let owner: StoreOwner | undefined;
           try {
             owner = await options.openStore(join(storeFolder, 'graph'));
@@ -177,16 +183,17 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
             openingErrors.delete(storeFolder);
+            openingRetries.delete(storeFolder);
           } catch (error) {
             if (owner !== undefined) {
               await owner.close().catch(() => undefined);
               state.owners.delete(owner);
             }
+            const delay = Math.min(MAX_OPEN_RETRY_MS, (openingRetries.get(storeFolder)?.delay ?? OPEN_RETRY_MS / 2) * 2);
+            openingRetries.set(storeFolder, { delay, after: Date.now() + delay });
             const message = error instanceof Error ? error.message : String(error);
-            const reported = openingErrors.get(storeFolder) ?? new Set<string>();
-            if (!reported.has(message)) {
-              reported.add(message);
-              openingErrors.set(storeFolder, reported);
+            if (openingErrors.get(storeFolder) !== message) {
+              openingErrors.set(storeFolder, message);
               log(`madarch fill: the store ${storeFolder} could not be opened: ${message}`);
             }
             continue;
