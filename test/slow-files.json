@@ -36,16 +36,6 @@
       "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/authored-import.test.ts",
-      "seconds": 54.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The import regression suite passes but repeatedly prepares stores and archives source files for receipt and retry scenarios.",
-      "replacement": "Share only immutable source fixtures and assert byte-preserving import, interrupted archive retry, changed-source receipt identity, symlink refusal and exclusion of person Markdown in independent transactional cases.",
-      "exit": "Rewrite test/authored-import.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/catalog-check.test.ts",
       "seconds": 146.0,
       "reason": "green-slow",
@@ -54,16 +44,6 @@
       "defect": "The catalogue command suite passes but starts a fresh CLI and starter product for each invalid declaration.",
       "replacement": "Exercise declaration validation directly for omitted fields, missing edge translations and subgroup bounds, retaining one CLI assertion for counts and full file/line diagnostics.",
       "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/catalog-read.test.ts",
-      "seconds": 51.8,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The catalogue parser suite passes but combines bundled starter scans with store-backed catalogue read scenarios.",
-      "replacement": "Use a small two-level catalogue fixture to assert untranslated-kind findings, preserved pages and catalogue-only rows, retaining one complete bundled-declaration parity check.",
-      "exit": "Rewrite test/catalog-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/consistency-plugin.test.ts",
@@ -287,23 +267,13 @@
     },
     {
       "path": "test/history-change-report.test.ts",
-      "seconds": 51.825,
+      "seconds": 42.674,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
       "defect": "The history replay property case passes but drives twenty seeds through thousands of store operations while comparing every resulting assertion set.",
       "replacement": "Retain deterministic multi-source add/replace/retract histories and assert literal change-report replay equals current assertions after each step, with the larger seed sweep separated from blocking regression cases.",
       "exit": "Rewrite test/history-change-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/history.test.ts",
-      "seconds": 40.8,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The temporal history suite passes but repeats store setup across valid-time and known-time query combinations.",
-      "replacement": "Run table-driven history transitions over an isolated prepared store and assert pre-commit absence, valid-time removal, historical known-time visibility and unchanged-row identity.",
-      "exit": "Rewrite test/history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/knowledge-close-verdict.test.ts",
@@ -326,16 +296,6 @@
       "exit": "Rewrite test/knowledge-declared-entities.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/knowledge-publication-state.test.ts",
-      "seconds": 43.9,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Publication-state cases pass but each waits through product preparation and queue setup before observing pending or failed publication.",
-      "replacement": "Control publication completion explicitly and assert full unfilled pending/failed status, agent requirements, exactly-once queue dispatch, diagnostic failure and close cancellation without background polling.",
-      "exit": "Rewrite test/knowledge-publication-state.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/knowledge-reset.test.ts",
       "seconds": 59.7,
       "reason": "red-defect",
@@ -354,16 +314,6 @@
       "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
       "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/manifest-start.test.ts",
-      "seconds": 35.7,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Manifest-start cases pass but launch full daemon products for invalid-manifest and never-filled refresh checks.",
-      "replacement": "Validate malformed manifests before listener startup in a focused command case, then retain one ready daemon fixture asserting never-filled catalogue publication and refresh with content still unfilled.",
-      "exit": "Rewrite test/manifest-start.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-agent-fill.test.ts",
@@ -516,16 +466,6 @@
       "exit": "Rewrite test/product-serve.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/product-start-identity.test.ts",
-      "seconds": 40.3,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Startup identity and rename cases pass but repeat full product preparation to compare stable identities and preserved person opinions.",
-      "replacement": "Use one prepared contract with distinct product fixtures and assert restart keeps identity/current home, rename updates one node only and person-authored opinions remain unchanged.",
-      "exit": "Rewrite test/product-start-identity.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/queue.test.ts",
       "seconds": 47.8,
       "reason": "red-defect",
@@ -534,16 +474,6 @@
       "defect": "The same-clock-tick enqueue case expects tick-one then tick-two in the first two claims but receives tick-two then tick-one.",
       "replacement": "Make enqueue order explicit for equal-priority same-tick jobs and assert the first claim takes the two oldest, while jobs with an identical stored instant use the declared code-point id tie-break.",
       "exit": "Rewrite test/queue.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/removed-routes.test.ts",
-      "seconds": 69.1,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Removed-route checks pass but the surviving read-API case performs a full graph setup alongside cheap route-dispatch assertions.",
-      "replacement": "Test removed reads and method refusals with a minimal router fixture, then assert the app shell and one declared GraphQL read work against one prepared product.",
-      "exit": "Rewrite test/removed-routes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/repository-language-publication.test.ts",
@@ -564,16 +494,6 @@
       "defect": "Schema-stamp cases pass but create twenty stores with eight concurrent clients each to establish preparation and no-DDL behavior.",
       "replacement": "Retain one real prepared/unprepared-store boundary case and bounded concurrent clients, asserting no client DDL/retries, serialized transaction admission and savepoint recovery; separate the larger store-count stress sweep.",
       "exit": "Rewrite test/schema-stamp.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/server-observability.test.ts",
-      "seconds": 64.6,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "Observability cases pass but tracing one HTTP request requires a full server/store startup in addition to pure watchdog cases.",
-      "replacement": "Drive the watchdog with a controlled clock and use one ready server to assert request start/end trace and logs, concurrent stage isolation and cancellation warnings while an unrelated page still answers.",
-      "exit": "Rewrite test/server-observability.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/server-sources.test.ts",
