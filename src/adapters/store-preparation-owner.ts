@@ -13,10 +13,12 @@ const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
 export async function withStorePreparationOwner<T>(work: () => Promise<T>): Promise<T> {
   if (process.env['MADARCH_ROLE'] === 'api' || process.env['MADARCH_ROLE'] === 'fill') throw new Error('an API or fill role cannot own schema preparation (src/product/store-preparation.ts)');
   if (process.env[ADDRESS] !== undefined) return await work();
+  // The scope's lifetime ends when its work returns, never at the signal itself: a command that owns stores answers
+  // SIGTERM by draining what it was doing (the daemon's startup catalogue publication among it), and aborting here at
+  // the signal would refuse the preparation that drain waits for. The finally below aborts whatever is still in
+  // flight once the work has ended, so a preparation blocked on a schema lock cannot hold the scope open.
   const lifetime = new AbortController();
   const stop = (): void => { lifetime.abort(new Error(`${import.meta.path}:17: the store preparation owner is stopping`)); };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
   const { signal } = lifetime;
   // The scope keeps the pool; preparation only borrows its shutdown lifetime.
   const preparing = (owner: DatabaseOwner): DatabaseOwner => ({
@@ -106,8 +108,6 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
   try { return await work(); }
   finally {
     stop();
-    process.off('SIGTERM', stop);
-    process.off('SIGINT', stop);
     if (process.env[TOKEN] === token && process.env[ADDRESS] === server.url.origin) {
       delete process.env[ADDRESS]; delete process.env[TOKEN];
     }
