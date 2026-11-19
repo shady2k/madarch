@@ -469,7 +469,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   Teamlead, not automatically removed or rebaselined from one local run.
   Produce a single-file evidence row with the exact command (add `--slow` after
   `test` for an already listed file):
-  `scripts/plugin-sandbox-cgroup.sh bun run test --only test/integration/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.
+  `scripts/plugin-sandbox-cgroup.sh bun run test --only test/e2e/check-slow-tests.test.ts --timings=.github/workflows/single-file-timings.json --update-timings`.
   This target refuses updates without exactly one `--only`; a successful
   measurement merges only that row and preserves all other rows. The checks job keeps
   `bun install --frozen-lockfile`, `bun run check`, the PostgreSQL service and
