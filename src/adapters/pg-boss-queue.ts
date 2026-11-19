@@ -120,6 +120,7 @@ function reasonOf(output: object | null): string | null {
 class PgBossQueue implements QueueService {
   private readonly declared = new Map<string, QueueDeclaration>();
   private stopping: Promise<void> | undefined;
+  private readonly detach: () => void;
 
   constructor(
     private readonly boss: PgBossInstance,
@@ -127,7 +128,9 @@ class PgBossQueue implements QueueService {
     private readonly owner: DatabaseOwner,
     /** The schema of pg-boss's own tables. */
     private readonly schema: string,
-  ) {}
+  ) {
+    this.detach = owner.onClose(async () => { await this.stop(); });
+  }
 
   private declarationOf(queue: string): QueueDeclaration {
     const declaration = this.declared.get(queue);
@@ -354,6 +357,7 @@ class PgBossQueue implements QueueService {
     // it as it closes (madarch-64o5.74), and a case that stopped it on its own
     // path before that asks a second time.
     if (this.stopping !== undefined) return await this.stopping;
+    this.detach();
     this.stopping = this.boss.stop({ graceful: false });
     return await this.stopping;
   }
@@ -392,11 +396,5 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     throw error;
   }
   const queue = new PgBossQueue(boss, owner, schema);
-  // The client's own passes stop with the owner that lent it the database. An
-  // owner closed ahead of its client — a case abandoned at its deadline, a role
-  // that ends and gives the store up — would otherwise leave them asking a closed
-  // owner once per interval, which is the error flood one timeout left in a shard
-  // (madarch-64o5.74).
-  owner.onClose(async () => { await queue.stop(); });
   return queue;
 }

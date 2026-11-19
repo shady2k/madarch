@@ -12,12 +12,30 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Clock, type CompiledElement, type CompiledModel } from './api.js';
+import { databaseOwnerOf } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { QUEUE_SCENARIO_CHECKS } from './queue-expectations.js';
 import { runQueueScenario, SCENARIO_QUEUES } from './queue-scenario.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
+
+
+test('repeated queue create/stop cycles leave no attached work on one owner', async () => {
+  const shared = await createTestDatabaseOwner();
+  try {
+    await prepareStore(shared, { queue: { schema: 'close_cycles', declarations: [] } });
+    const databaseOwner = await shared.run(async (executor) => databaseOwnerOf(executor));
+    // Inspect the retained callbacks, not just their effects: an idempotent stop can hide a retained queue.
+    const { attached } = (databaseOwner as unknown as { inner: { attached: unknown[] } }).inner;
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      const queue = await createPgBossQueue({ owner: shared, schema: 'close_cycles', supervise: false });
+      expect(attached).toHaveLength(1);
+      await Promise.all([queue.stop(), queue.stop()]);
+      expect(attached).toHaveLength(0);
+    }
+  } finally { await shared.close(); }
+}, 60_000);
 
 const DAY = (day: number) => Date.UTC(2026, 9, day); // October 2026
 

@@ -156,8 +156,9 @@ export interface DatabaseOwner {
    * the queue's supervision timer — stops them here, so nothing keeps asking a
    * database the process has closed (madarch-64o5.74). A failure of the work is
    * reported with the close once the pool is given up, never instead of it.
+   * Returns an idempotent removal function for an adapter that stops before the owner.
    */
-  onClose(work: () => Promise<void> | void): void;
+  onClose(work: () => Promise<void> | void): () => void;
   /**
    * Stops accepting work, releases the pool and gives up this owner's hold of the store's server: the server stops only
    * when no process of the binary uses it any more, and keeps answering for the ones that do.
@@ -271,8 +272,12 @@ class PostgresOwner implements DatabaseOwner {
     return this.execWork<Row>(text);
   }
 
-  onClose(work: () => Promise<void> | void): void {
+  onClose(work: () => Promise<void> | void): () => void {
     this.attached.push(work);
+    return () => {
+      const index = this.attached.indexOf(work);
+      if (index !== -1) this.attached.splice(index, 1);
+    };
   }
 
   private ensureOpen(): void {
@@ -568,8 +573,8 @@ class ServerStoreOwner implements DatabaseOwner {
     });
   }
 
-  onClose(work: () => Promise<void> | void): void {
-    this.inner.onClose(work);
+  onClose(work: () => Promise<void> | void): () => void {
+    return this.inner.onClose(work);
   }
 
   close(): Promise<void> {
