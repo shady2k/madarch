@@ -35,6 +35,22 @@ test('vertex selection scopes the target unit but not its ordinary prerequisites
   expect(stage.unitScheduling!('summary:Summary@Summary:one').after).toEqual(['index:File']);
 });
 
+test('person-authored prerequisites remain selected without scheduling a producer', () => {
+  const original = manifestOf([kind('Product', ['title']), kind('File', ['title'], ['Product'])], [plugin('index')]);
+  const product = original.kinds.get('Product')!;
+  const manifest = { ...original, kinds: new Map(original.kinds).set('Product', {
+    ...product, fields: product.fields!.map(field => ({ ...field, producers: ['person'] })),
+  }) };
+  for (const pluginsOnly of [false, true]) {
+    const plan = planManifestFill(manifest, '/product', ['File'], false, undefined, pluginsOnly);
+    expect(plan.selectedKinds).toEqual(['Product', 'File']);
+    expect(plan.order).toEqual(['index']);
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+  }
+  expect(manifest.kinds.get('Product')!.fields!.map(field => field.name)).toEqual(['title']);
+});
+
 test('S1: universal agent capability does not schedule covered deterministic output', () => {
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
   expect(plan.order).toEqual(['index']);

@@ -14,6 +14,8 @@ export interface FillKindDeclaration {
   readonly line: number;
   readonly derivesFrom?: readonly string[];
   readonly catalogueOnly?: boolean;
+  /** Authored prerequisites stay in the closure but need no extraction turn. */
+  readonly producerRequired?: boolean;
 }
 /** All declared prerequisites, including catalogue-only kinds that have no storage or producer. */
 export function fillKindsOf(manifest: KindsManifest): FillKindDeclaration[] {
@@ -308,7 +310,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     for (const [id, unit] of unitInfo) if (selected.has(unit.kind)) for (const dependency of unitEdges.get(id)!) collect(unitInfo.get(dependency)!.kind);
   } while (selected.size !== selectedCount);
   // A kind that declares no field has nothing for a producer to state: it needs none, and it is no silence.
-  for (const name of selected) if ((kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name)) && !entries.some((entry) => selected.has(entry.kind) && entry.declaration.support?.vertices.includes(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
+  for (const name of selected) if (kinds.get(name)?.producerRequired !== false && (kinds.get(name)?.fields.length ?? 0) > 0 && ![...allOutputs.values()].some((output) => output.has(name)) && !entries.some((entry) => selected.has(entry.kind) && entry.declaration.support?.vertices.includes(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
   const sortedUnits: string[] = [];
   const visiting: string[] = [];
   const visited = new Set<string>();
@@ -567,8 +569,9 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   }
   const skipped: FillPlanSkip[] = hasAgent ? [] : [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
     .map((kind) => fillPlanSkip(unavailable, kind, input));
+  const plannedKinds = declared.map(kind => nothingToFill.has(kind.name) ? { ...kind, producerRequired: false } : kind);
   const plan = planFillDeclarations({
-    kinds: declared,
+    kinds: plannedKinds,
     plugins: executable,
     selectedKinds: requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name)),
     agentSelected: true,
@@ -581,7 +584,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
     const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
     const run = planFillDeclarations({
-      kinds: declared,
+      kinds: plannedKinds,
       plugins: deterministicPlugins,
       selectedKinds: runSelected,
       agentSelected: true,
