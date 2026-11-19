@@ -1,12 +1,12 @@
 /** A named run's durable projection; trace usage never supplies lifecycle or identity. */
-import { type FillStateDatabase, readRun, readRunUnitHistory } from '../graph/fill-state.js';
+import { type FillStateSnapshotDatabase, readRun, readRunUnitHistory } from '../graph/fill-state.js';
 import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../graph/fill-orchestration.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
 import type { FillRunView } from './model.js';
 import { SKIPPED_UNIT_PHASE, type UnitState, isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
 
 
-export async function readFillRunDetail(owner: FillStateDatabase, runId: string, options: { readonly now: number; readonly agentUsage?: AgentUsageReport | null; readonly summary?: FillRunView }) {
+export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId: string, options: { readonly now: number; readonly agentUsage?: AgentUsageReport | null; readonly summary?: FillRunView }) {
   const run = await readRun(owner, runId);
   if (run === null) return null;
   const [units, events, plans, publishedUnits, records] = await Promise.all([

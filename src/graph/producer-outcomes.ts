@@ -1,5 +1,5 @@
 import type { SqlExecutor } from '../sql-driver.js';
-import type { OrchestratorDatabase } from './fill-orchestration.js';
+import type { FillStateSnapshotDatabase } from './fill-state.js';
 import { producerSucceeded, type ProducerOutcome, type ProducerRunOutcome } from '../fill/producer-outcomes.js';
 import { edgeRowsIn, readNodeIdIn, readRecordsIn, readRunGraphUidIn, readSubjectsByValueIn, readUnitsIn } from './fill-state.js';
 import type { AssertionRecord } from './records.js';
@@ -58,6 +58,6 @@ export async function readProducerOutcomesIn(executor: SqlExecutor, options: { r
   return outcomes.sort((a, b) => a.unitId < b.unitId ? -1 : a.unitId > b.unitId ? 1 : a.generation - b.generation || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
 }
 
-export async function readProducerOutcomes(database: OrchestratorDatabase, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
+export async function readProducerOutcomes(database: FillStateSnapshotDatabase, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
   return await database.transaction('snapshot', async (executor) => await readProducerOutcomesIn(executor, options));
 }
