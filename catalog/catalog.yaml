@@ -514,6 +514,14 @@ value-types:
       $id: urn:madarch:value-type:value-set-value:v1
       type: string
       minLength: 1
+  value-set-value-list:
+    storage: json
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:value-set-value-list:v1
+      type: array
+      items:
+        $ref: urn:madarch:value-type:value-set-value:v1
   version:
     storage: text
     schema:

@@ -10,7 +10,8 @@ import { byCodePoint } from '../src/model/order.js';
 
 interface KindDeclaration {
   readonly name: string;
-  readonly fields: readonly { name: string; reference?: string }[];
+  readonly fields: readonly { name: string; type?: string }[];
+  readonly constraints?: { readonly out?: readonly string[]; readonly in?: readonly string[] };
   readonly description?: Record<string, unknown>;
 }
 
@@ -22,7 +23,8 @@ function kinds(): Map<string, KindDeclaration> {
     const name = path.split('/').pop()!.slice(0, -'.yaml'.length);
     held.set(name, {
       name,
-      fields: (declaration['fields'] as { name: string; reference?: string }[] | undefined) ?? [],
+      fields: (declaration['fields'] as { name: string; type?: string }[] | undefined) ?? [],
+      constraints: declaration['relation-constraints'] as KindDeclaration['constraints'],
       description: declaration['description'] as Record<string, unknown> | undefined,
     });
   }
@@ -48,16 +50,20 @@ const ISSUE = {
   comments: [{ author: 'shady2k', text: 'Проверь перенос полей.', created_at: '2026-11-13T11:00:00Z' }],
 } as const;
 
-/** Where each field of the export lives: a work kind's field, the kind that is the entity, or an edge. */
-const HOME: Partial<Record<keyof typeof ISSUE, { kind: string; field?: string; reference?: string }>> = {
+/** Where each field of the export lives: a kind's field with its type, or a relation the kind carries. */
+type Home =
+  | { readonly kind: string; readonly field: string; readonly type?: string }
+  | { readonly kind: string; readonly relation: string };
+
+const HOME: Partial<Record<keyof typeof ISSUE, Home>> = {
   id: { kind: 'task', field: 'key' },
   title: { kind: 'task', field: 'title' },
   description: { kind: 'task', field: 'description' },
-  status: { kind: 'task', field: 'status', reference: 'value-set-entry' },
-  priority: { kind: 'task', field: 'priority', reference: 'value-set-entry' },
-  labels: { kind: 'task', field: 'labels', reference: 'value-set-entry' },
+  status: { kind: 'task', field: 'status', type: 'value-set-value' },
+  priority: { kind: 'task', field: 'priority', type: 'value-set-value' },
+  labels: { kind: 'task', field: 'labels', type: 'value-set-value-list' },
   // A dependency and a comment are entities and edges of their own: the task points at them, the fields are theirs.
-  dependencies: { kind: 'comment', field: 'author' },
+  dependencies: { kind: 'task', relation: 'dependsOn' },
   comments: { kind: 'comment', field: 'body' },
 };
 
@@ -89,9 +95,13 @@ describe('the work kinds hold the tracker export (madarch-64o5.68)', () => {
       if (home === undefined) continue;
       const kind = catalogue.get(home.kind);
       if (kind === undefined) { missing.push(`${key}: the kind ${home.kind} is not declared`); continue; }
+      if ('relation' in home) {
+        if (!(kind.constraints?.out ?? []).includes(home.relation)) missing.push(`${key}: ${home.kind} does not carry the ${home.relation} relation`);
+        continue;
+      }
       const field = kind.fields.find((one) => one.name === home.field);
       if (field === undefined) { missing.push(`${key}: ${home.kind} declares no field ${home.field}`); continue; }
-      if (home.reference !== undefined && field.reference !== home.reference) missing.push(`${key}: ${home.kind}.${home.field} does not reference ${home.reference}`);
+      if (home.type !== undefined && field.type !== home.type) missing.push(`${key}: ${home.kind}.${home.field} has type ${field.type ?? 'none'}, not ${home.type}`);
     }
     expect(missing).toEqual([]);
     // The fields the export wrote that say how the tracker was run are not fields of a kind any more.
@@ -107,7 +117,14 @@ describe('the work kinds hold the tracker export (madarch-64o5.68)', () => {
     expect(task['relation-constraints'].out).toContain('hasPart');
     expect(catalogue.has('link')).toBe(false);
     const comment = catalogue.get('comment');
-    expect(comment?.fields.map((field) => field.name)).toEqual(expect.arrayContaining(['author', 'body', 'created_at']));
+    expect(comment?.fields.map((field) => field.name)).toEqual(expect.arrayContaining(['body', 'created_at']));
+    expect(comment?.fields.map((field) => field.name)).not.toContain('author');
+    // The author is the edge, not a field of the comment: one comment has exactly one author.
+    const edges = (parse(CATALOG_FILES['catalog.yaml']!) as { edges: { name: string; from: string[]; to: string[]; cardinality: { from: { min: number; max: number | null } } }[] }).edges;
+    const author = edges.find((edge) => edge.name === 'comment-author');
+    expect(author?.from).toEqual(['comment']);
+    expect(author?.to).toEqual(['person']);
+    expect(author?.cardinality.from).toEqual({ min: 1, max: 1 });
   });
 
   test('an issue type names a kind the catalogue declares', () => {

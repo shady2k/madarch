@@ -10324,7 +10324,7 @@ type KindTask implements Entity {
   scopeAssertions: [Assertion!]!
   doneCriterion: String
   doneCriterionAssertions: [Assertion!]!
-  labels: String
+  labels: JSON
   labelsAssertions: [Assertion!]!
   queuePosition: Int
   queuePositionAssertions: [Assertion!]!
@@ -23030,16 +23030,8 @@ input KindTaskKeyFilter {
 }
 
 input KindTaskLabelsFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
+  _eq: JSON
+  _neq: JSON
   _is_null: Boolean
 }
 
