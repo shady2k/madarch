@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { Value } from 'typebox/value';
+import { PluginEntityRef } from '../src/plugin/protocol.js';
 import { pluginInvocationAccess } from '../src/plugin/fill-access.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -125,9 +127,10 @@ const snapshotRun = '019a0000-0000-7000-8000-000000000078';
 async function snapshotFixture() {
   const { parseKinds } = await import('../src/product/manifest/kinds.js');
   const manifest = parseKinds({root:{kinds:{
-    'code.repository':{source:'graph',key:['name'],fields:[{name:'name',type:'text',producers:['fixture']}]},
+    'code.organisation':{source:'graph',key:['name'],fields:[{name:'name',type:'text',producers:['fixture']}]},
+    'code.repository':{source:'graph',key:['name'],'key-edges':[{role:'organisation',edge:'repository-organisation',side:'from'}],fields:[{name:'name',type:'text',producers:['fixture']}]},
     'code.file':{source:'graph',key:['path'],'key-edges':[{role:'repository',edge:'belongs',side:'from'}],fields:[{name:'path',type:'text',producers:['fixture']},{name:'content',type:'text',producers:['fixture']},{name:'language',type:'text',producers:['fixture']}]},
-  },edges:[{name:'belongs',from:['code.file'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}}]},at:()=>1},'/fixture/catalog.yaml','/fixture');
+  },'semantic-bindings':{file:{kind:'code.file',fields:{path:'path'},edges:{repository:{kind:'belongs',direction:'from'}}},repository:{kind:'code.repository',fields:{name:'name'}}},edges:[{name:'repository-organisation',from:['code.repository'],to:['code.organisation'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}},{name:'belongs',from:['code.file'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}}]},at:()=>1},'/fixture/catalog.yaml','/fixture');
   expect(manifest.findings).toEqual([]);
   const contract = withManifestContract(graphContractOf(manifest));
   const owner = await createTestDatabaseOwner({graphContract:contract});
@@ -142,16 +145,35 @@ async function snapshotFixture() {
   await publish([{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify(encode(manifest))},producer:'fixture',producerVersion:'1'},
     {kind:'system.run',uid:snapshotRun,key:{},values:{run_name:'original-run'},producer:'fixture',producerVersion:'1'},
     {kind:'system.unit',uid:snapshotUnit,key:{},values:{unit_name:'plugin-turns/base:Source',generation:3,state:'published',scope:'base:Source'},producer:'fixture',producerVersion:'1'},
-    {kind:'code.repository',key:{name:'repo'},producer:'fixture',producerVersion:'1'}]);
+    {kind:'code.organisation',key:{name:'org'},producer:'fixture',producerVersion:'1'},
+    {kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}},producer:'fixture',producerVersion:'1'}]);
   await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:snapshotUnit,key:{}},to:{kind:'system.run',uid:snapshotRun,key:{}},producer:'fixture',producerVersion:'1'}],removals:[]}));
   return {owner,manifest,contract,publish};
 }
+
+for (const mode of ['live','snapshot'] as const) test(`${mode} file references recursively match the public protocol`, async () => {
+  const {owner,publish,...wiring}=await snapshotFixture();
+  const key={path:'nested.ts'};
+  const keyEdges={repository:{kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}}}};
+  try {
+    await publish([{kind:'code.file',key,keyEdges,values:{content:'nested content',language:'typescript'},producer:'fixture',producerVersion:'1'}],true);
+    const now=await owner.transaction('snapshot',async tx=>(await tx.query<{now:string}>('SELECT transaction_timestamp()::text AS now')).rows[0]!.now);
+    const snapshot={unitUid:snapshotUnit,recordedAt:now,validAt:now};
+    const token=mode === 'live' ? undefined : snapshot;
+    const reader=pluginGraphAnswerer({...wiring,owner});
+    const files=await reader.files('**/*.ts',token);
+    expect(files).toHaveLength(1);
+    expect(Value.Check(PluginEntityRef,files[0])).toBe(true);
+    expect(files[0]).toEqual({kind:'code.file',key,keyEdges});
+    expect(await reader.value('code.file',key,'content',files[0]!.keyEdges,token)).toBe('nested content');
+  } finally {await owner.close();}
+},30_000);
 
 test('one reader indexes immutable graph snapshot files and fields once without sharing with another reader', async () => {
   const fixture = await snapshotFixture();
   const {owner,publish,...wiring}=fixture;
   const key={path:'a.ts'};
-  const keyEdges={repository:{kind:'code.repository',key:{name:'repo'}}};
+  const keyEdges={repository:{kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}}}};
   const vertex={kind:'code.file',key,keyEdges,values:{content:'saved',language:'typescript'},producer:'fixture',producerVersion:'1'};
   try {
     await publish([vertex],true);

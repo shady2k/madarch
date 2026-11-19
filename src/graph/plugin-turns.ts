@@ -14,6 +14,13 @@ import { readKindAssertions, readKindsAssertions } from './records.js';
 import { edgeRowsIn, readRunNodeIn } from './fill-state.js';
 import { withSpan } from '../obs/trace.js';
 
+/** The SDK reference envelope carries natural keys and parent roles, not host uids. */
+export function sdkReference(reference: import('./contract.js').EntityRefDraft): import('../plugin/protocol.js').PluginEntityRef {
+  return { kind: reference.kind, key: reference.key, ...(reference.keyEdges === undefined ? {} : {
+    keyEdges: Object.fromEntries(Object.entries(reference.keyEdges).map(([role, parent]) => [role, sdkReference(parent)])),
+  }) };
+}
+
 /** Reconstruct parent-key references from active graph edges, never scalar names. */
 export async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind: string, id: number, seen: ReadonlySet<number> = new Set(), selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<import('./contract.js').EntityRefDraft> {
   if (seen.has(id)) throw new Error(`${import.meta.path}:21: key-edge instance cycle at node ${id}`);
@@ -86,7 +93,7 @@ async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: stri
 export interface GraphFileRow {
   readonly repository: string;
   readonly path: string;
-  readonly keyEdges: Readonly<Record<string, import('./contract.js').EntityRefDraft>>;
+  readonly keyEdges: Readonly<Record<string, import('../plugin/protocol.js').PluginEntityRef>>;
 }
 
 /**
@@ -126,7 +133,7 @@ export async function graphFiles(owner: DatabaseOwner, contract: GraphContract):
       const scalar = (row: import('./records.js').AssertionRecord, field: string): unknown => Object.hasOwn(row.key, field) ? row.key[field] : row.values[field];
       const path = scalar(file, pathField), name = scalar(repository, nameField);
       if (typeof path !== 'string' || typeof name !== 'string') throw new Error(`${manifest.file}:${fileRole.line}: file path and repository name bindings require text values`);
-      rows.push({ repository: name, path, keyEdges: reference.keyEdges ?? {} });
+      rows.push({ repository: name, path, keyEdges: sdkReference(reference).keyEdges ?? {} });
     }
     return rows.sort((a,b)=>a.repository<b.repository?-1:a.repository>b.repository?1:a.path<b.path?-1:a.path>b.path?1:0);
   }));
@@ -199,7 +206,7 @@ export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: stri
 }
 
 /** Replay only assertions authored by the captured unit at its immutable boundary. */
-export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly keyEdges?: Readonly<Record<string, import('./contract.js').EntityRefDraft>>; readonly values: Readonly<Record<string, unknown>> }[]> {
+export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly keyEdges?: Readonly<Record<string, import('../plugin/protocol.js').PluginEntityRef>>; readonly values: Readonly<Record<string, unknown>> }[]> {
   return await withSpan('graph.pluginSnapshotVertices', {}, () => owner.transaction('snapshot', async tx => {
     const { readPublishedManifest } = await import('./manifest-publication.js');
     const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
@@ -227,7 +234,7 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
     const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
     const nodes = await tx.query<{ id: number; uid: string; key: import('../plugin/protocol.js').PluginKeyValues }>('SELECT id,uid::text,key FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid', [ids]);
     return await Promise.all(nodes.rows.map(async node => {
-      const ref = await referenceOf(tx, contract, kind, Number(node.id), new Set(), snapshot);
+      const ref = sdkReference(await referenceOf(tx, contract, kind, Number(node.id), new Set(), snapshot));
       const values = Object.fromEntries(selected.filter(assertion => assertion.subject.type === 'vertex' && assertion.subject.uid === node.uid && assertion.property !== '$exists').map(assertion => [assertion.property, assertion.value]));
       return { key: node.key, ...(ref.keyEdges === undefined ? {} : { keyEdges: ref.keyEdges }), values };
     }));
