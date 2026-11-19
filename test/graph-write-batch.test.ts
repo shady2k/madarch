@@ -203,7 +203,6 @@ test('absent key-edge parents name the required role', async () => {
  } finally {await owner.close();}
 },30000);
 
-
 test('removed key-edge parents name the required role', async () => {
  const graph:GraphContract={vertex:[
   {name:'code.repository',table:'unused_repository',key:['name'],fields:[{name:'name',type:'text'}],capability:'fixture'},
@@ -217,6 +216,7 @@ test('removed key-edge parents name the required role', async () => {
   await expect(owner.transaction('write',tx=>publishGraphDrafts(tx,graph,{vertices:[{kind:'probe.referrer',key:{path:'x.ts'},keyEdges:{repository:parent},...producer}],removals:[]}))).rejects.toThrow('REQUIRED_PARENT probe.referrer.repository');
  } finally {await owner.close();}
 },30000);
+
 test('typed value grouping hashes each slot once rather than each slot times assertions',async()=>{
  const hashes:number[]=[];
  for(const count of [10,100]){
