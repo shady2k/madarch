@@ -124,3 +124,57 @@ test('a renamed value-set kind and its renamed fields still publish the starter 
     });
   } finally { await owner.close(); }
 }, 60_000);
+
+
+test('repeat publication adds value-set entries by key and parent before resolving existing endpoints', async () => {
+  const folder = mkdtempSync(join(root, 'product-'));
+  mkdirSync(join(folder, 'madarch'), { recursive: true });
+  writeFolderManifest(folder, MANIFEST);
+  execFileSync('git', ['init', '-q', folder]);
+  execFileSync('git', ['-C', folder, '-c', 'user.name=Test', '-c', 'user.email=test@example.org', 'commit', '--allow-empty', '-qm', 'fixture']);
+  const first = validateProductManifests(folder);
+  if (!first.ok || first.value === undefined) throw new Error(JSON.stringify(first));
+  const contract = withManifestContract(graphContractOf(first.value.manifest));
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  const readEntries = () => owner.transaction('snapshot', async tx => ({
+    entries: await readKindAssertions(tx, 'vertex', 'dictionary-entry', ['caption_en'], { contract }),
+    sets: await readKindAssertions(tx, 'vertex', 'dictionary', [], { contract }),
+    parents: await readKindAssertions(tx, 'edge', 'dictionary-entry-set', [], { contract }),
+  }));
+  try {
+    expect(await publishValidatedManifests(owner, first.value)).toBeGreaterThan(0);
+    const before = await readEntries();
+    expect(before.entries.map(row => row.key)).toEqual([{ value: 'open' }]);
+    writeFolderManifest(folder, MANIFEST.replace('kinds:', `      - { value: closed, order: 20, labels: { en: Closed, ru: Закрыта }, description: Closed. }
+  review-status:
+    order: 20
+    labels: { en: "Review status", ru: "Статус проверки" }
+    entries:
+      - { value: open, order: 10, labels: { en: Reviewing, ru: Проверяется }, description: Reviewing. }
+kinds:`));
+    const second = validateProductManifests(folder);
+    if (!second.ok || second.value === undefined) throw new Error(JSON.stringify(second));
+    expect(await publishValidatedManifests(owner, second.value)).toBeGreaterThan(0);
+    const after = await readEntries();
+    expect(after.entries).toHaveLength(3);
+    expect(after.sets).toHaveLength(2);
+    expect(after.parents).toHaveLength(3);
+    const entry = (set: string, value: string) => {
+      const parent = after.sets.find(row => row.key['name'] === set)!;
+      return after.entries.find(row => row.key['value'] === value && after.parents.some(edge => edge.from === row.id && edge.to === parent.id))!;
+    };
+    expect(entry('task-status', 'open').uid).toBe(before.entries[0]!.uid);
+    expect(entry('task-status', 'open').values['caption_en']).toBe('Open');
+    expect(entry('task-status', 'closed').values['caption_en']).toBe('Closed');
+    expect(entry('review-status', 'open').values['caption_en']).toBe('Reviewing');
+    expect(entry('review-status', 'open').uid).not.toBe(before.entries[0]!.uid);
+    const counts = () => owner.run(async tx => (await tx.query<{ nodes: string; edges: string; assertions: string }>(
+      'SELECT (SELECT count(*)::text FROM node) AS nodes, (SELECT count(*)::text FROM edge) AS edges, (SELECT count(*)::text FROM assertion) AS assertions',
+    )).rows[0]!);
+    const published = await counts();
+    // This third call checks the unchanged fingerprint shortcut, not entry matching.
+    expect(await publishValidatedManifests(owner, second.value)).toBe(0);
+    expect(await readEntries()).toEqual(after);
+    expect(await counts()).toEqual(published);
+  } finally { await owner.close(); }
+}, 60_000);

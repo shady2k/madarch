@@ -192,6 +192,35 @@ async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRe
 export async function resolveEntityRef(executor:SqlExecutor,contract:GraphContract,ref:EntityRefDraft,context=1):Promise<{id:string;uid:string}>{
  return await withSpan('graph.identity.resolve',{'graph.kind':ref.kind},()=>endpoint(executor,withAssertionContract(contract),ref,context));
 }
+/** Resolves a phase's endpoints in one locked read; it never creates or revives identities. */
+export async function resolveEntityRefs(executor:SqlExecutor,declared:GraphContract,refs:readonly EntityRefDraft[],context=1):Promise<{id:string;uid:string}[]> {
+ return await withSpan('graph.identity.resolveBatch',{'graph.references':refs.length},async()=>{
+  if(refs.length===0)return [];
+  const contract=withAssertionContract(declared);
+  const requested:{kind:string;uid:string}[]=[];
+  let validationFailure: {error: unknown} | undefined;
+  for(const ref of refs){
+   try {
+    const resolved=await storedReference(executor,contract,ref);
+    requested.push({kind:ref.kind,uid:await refUid(executor,contract,resolved,context)});
+   } catch(error) { validationFailure={error}; break; }
+  }
+  const rows=requested.length===0?[]:(await withSpan('graph.write.endpointBatch',{'db.system':'postgres'},()=>executor.query<{id:string;uid:string;requested:string;kind:string;active:boolean}>(`WITH locked AS MATERIALIZED (
+   SELECT n.id,n.uid,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id
+   WHERE n.uid IN (SELECT value::uuid FROM unnest($1::text[]) input(value)) ORDER BY n.id FOR UPDATE OF n
+  ) SELECT id::text,uid::text,input.value AS requested,kind,graph_vertex_active(id,kind,$2::bigint) AS active
+    FROM locked JOIN unnest($1::text[]) input(value) ON locked.uid=input.value::uuid`,[[...new Set(requested.map(ref=>ref.uid))],context]))).rows;
+  const held=new Map(rows.map(row=>[row.requested,row]));
+  // Preserve scalar first-failure order even when a later reference fails identity validation.
+  const resolved=requested.map(ref=>{
+   const row=held.get(ref.uid);
+   if(!row||row.kind!==ref.kind||!row.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
+   return {id:row.id,uid:ref.uid};
+  });
+  if(validationFailure!==undefined)throw validationFailure.error;
+  return resolved;
+ });
+}
 export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context=1):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  const contract=withAssertionContract(declared);const version=checkBinding(requireWriteCapability(executor),contract,context);
  return await ensureCheckedVertex(executor,{contract,version},draft,context);

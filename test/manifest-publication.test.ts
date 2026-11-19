@@ -1,5 +1,8 @@
+import * as graphWriter from '../src/graph/write.js';
+import * as engineStageRegistry from '../src/fill/stages/index.js';
+import { StageRegistry } from '../src/fill/registry.js';
 import { createHash } from 'node:crypto';
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, test, spyOn } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -71,6 +74,115 @@ test('ALX-132 repeat reads are exactly equal with 200 foreign product vertices',
     expect(after.reads).toBe(before.reads);
   } finally { await owner.close(); }
 }, 60_000);
+
+
+test('publication refuses a relation to an undeclared kind with its declaration location', () => {
+  const folder = fixture();
+  writeFolderManifest(folder, `kinds:
+  term:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: missing:{name}
+`);
+  const read = validateProductManifests(folder);
+  expect(read.ok).toBe(false);
+  if (read.ok) throw new Error('undeclared relation endpoint was accepted');
+  expect(read.findings).toContainEqual({
+    file: join(folder, 'madarch/kinds/fixture/fixture/term.yaml'), line: 5,
+    message: 'relation mentions from term names undeclared kind missing',
+  });
+});
+
+test('changed catalogue checks assertion evidence in one batch, not once per property', async () => {
+  const validated = publicationFixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const changed = { ...validated, vertices: validated.vertices.map(draft => draft.kind === 'manifest.kind'
+      ? { ...draft, values: { declaration: '{"changed":true}' } } : draft) };
+    const evidenceQueries: string[] = [];
+    await owner.transaction('write', async tx => {
+      const query = tx.query;
+      tx.query = async (sql, values) => {
+        if (sql.startsWith('SELECT t.uid::text,e.discriminator') || sql.startsWith('SELECT a.uid::text AS assertion,t.uid::text,e.discriminator')) evidenceQueries.push(sql);
+        return await query.call(tx, sql, values) as never;
+      };
+      try {
+        const measured = { ...owner, transaction: async (_kind: unknown, work: (executor: typeof tx) => Promise<number>) => await work(tx) } as typeof owner;
+        await publishValidatedManifests(measured, changed);
+      } finally { tx.query = query; }
+    });
+    expect(evidenceQueries.length).toBeLessThanOrEqual(1);
+    const manifest = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    expect(manifest[0]!.values['declaration']).toBe('{"changed":true}');
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('changed fixed catalogue batches identity checks and held edge keys', async () => {
+  const folder = fixture();
+  writeFolderManifest(folder, 'kinds:\n' + Array.from({ length: 12 }, (_, i) => `  item${i}:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: item${i}:{name}
+`).join(''));
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const validated = read.value;
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const changed = { ...validated, vertices: validated.vertices.map(draft => draft.kind === 'manifest.catalogue'
+      ? { ...draft, values: { declaration: '{"changed":true}' } } : draft) };
+    const calls: string[] = [];
+    const resolver = spyOn(graphWriter, 'resolveEntityRef');
+    try {
+      await owner.transaction('write', async tx => {
+        const query = tx.query;
+        tx.query = async (sql, values) => { calls.push(sql); return await query.call(tx, sql, values) as never; };
+        try {
+          const measured = { ...owner, transaction: async (_kind: unknown, work: (executor: typeof tx) => Promise<number>) => await work(tx) } as typeof owner;
+          await publishValidatedManifests(measured, changed);
+        } finally { tx.query = query; }
+      });
+      // A direct resolveEntityRef per use defeats both prefetch and transaction-local reuse.
+      expect(resolver.mock.calls.length).toBe(0);
+      const endpointChecks = calls.filter(sql => sql.includes('graph_vertex_active') && sql.includes('FOR UPDATE') || sql.startsWith('SELECT graph_vertex_active'));
+      const keyReads = calls.filter(sql => sql.includes('f.key AS from_key,t.key AS to_key'));
+      console.log('X2 fixed catalogue', JSON.stringify({ endpointChecks: endpointChecks.length, keyReads: keyReads.length }));
+      expect(endpointChecks.length).toBe(3);
+      expect(keyReads.length).toBe(1);
+      expect((await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.relation-edge', ['relation'])))).toHaveLength(12);
+    } finally { resolver.mockRestore(); }
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('kind relation to a protected engine kind publishes its catalogue endpoint', async () => {
+  const folder = fixture();
+  writeFolderManifest(folder, `kinds:
+  term:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: system.product:{name}
+`);
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, read.value);
+    const kinds = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    const target = kinds.find(row => row.key['name'] === 'system.product');
+    expect(JSON.parse(String(target?.values['declaration']))).toMatchObject({ protected: true, taken: false });
+    const edges = await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.relation-edge', ['relation']));
+    expect(edges).toHaveLength(1);
+    expect(String(edges[0]!.to)).toBe(String(target!.id));
+  } finally { await owner.close(); }
+}, 30_000);
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -553,6 +665,34 @@ test('publishes complete metadata and declaration evidence without repository co
   } finally { await owner.close(); }
 }, 30_000);
 
+
+test('repeat publication adds a workflow stage beside an already published stage', async () => {
+  const folder = fixture();
+  const registry = engineStageRegistry.createEngineStageRegistry();
+  registry.register({ ...registry.all()[0]!, id: 'fixture-second' });
+  // The engine currently holds only plugin-turns; register a second declaration for this fixture.
+  const stages = registry.all();
+  const reader = spyOn(StageRegistry.prototype, 'all').mockReturnValue(stages);
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns] }\n');
+    const first = validateProductManifests(folder);
+    if (!first.ok || first.value === undefined) throw new Error(JSON.stringify(first));
+    expect(await publishValidatedManifests(owner, first.value)).toBeGreaterThan(0);
+    const before = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.workflow-stage', ['position']));
+    expect(before.map(row => row.key)).toEqual([{ name: 'plugin-turns' }]);
+    writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns, fixture-second] }\n');
+    const second = validateProductManifests(folder);
+    if (!second.ok || second.value === undefined) throw new Error(JSON.stringify(second));
+    expect(await publishValidatedManifests(owner, second.value)).toBeGreaterThan(0);
+    const after = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.workflow-stage', ['position']));
+    expect(after.map(row => [row.key['name'], row.values['position']]).sort())
+      .toEqual([['fixture-second', 1], ['plugin-turns', 0]]);
+    expect(after.find(row => row.key['name'] === 'plugin-turns')!.uid).toBe(before[0]!.uid);
+    // The third call checks the unchanged fingerprint shortcut, not stage matching.
+    expect(await publishValidatedManifests(owner, second.value)).toBe(0);
+  } finally { reader.mockRestore(); await owner.close(); }
+}, 30_000);
 
 test('workflow stages are protected metadata with parent edges, identities and declaration evidence', async () => {
   const folder = fixture();

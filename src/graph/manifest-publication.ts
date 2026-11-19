@@ -6,7 +6,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
-import { acquireGraphWriteLock, activateBoundIdentities, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRef, writeAssertion, type WriteCapability } from '../graph/write.js';
+import { acquireGraphWriteLock, activateBoundIdentities, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
@@ -30,7 +30,7 @@ import { homeKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
-const PUBLICATION_REVISION = 2;
+const PUBLICATION_REVISION = 6;
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -114,6 +114,16 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       findings.push({ file: join(folder, KINDS_FILE), line: 1, message: error.message });
     }
   }
+  if (read.present && findings.length === 0) {
+    const installed = new Set(withAssertionContract(withManifestContract(graphContractOf(read.manifest))).vertex.map(kind => kind.name));
+    for (const [name, kind] of read.manifest.kinds) for (const relation of kind.relations ?? []) {
+      const target = relation.to.split(':')[0]!;
+      if (!read.manifest.kinds.has(target) && !read.manifest.catalog?.kinds.has(target) && !installed.has(target)) {
+        findings.push({ file: read.manifest.kindFiles?.get(name) ?? KINDS_FILE, line: relation.line,
+          message: `relation ${relation.type} from ${name} names undeclared kind ${target}` });
+      }
+    }
+  }
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
@@ -176,6 +186,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, path, field.line ?? kind.line);
     for (const [index, relation] of (kind.relations ?? []).entries()) {
       add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
+      ensureKindVertex(relation.to.split(':')[0]!, path, relation.line);
       addEdge(MANIFEST_RELATION_EDGE, name, relation.to.split(':')[0]!, { from: name, ...relation }, path, relation.line, relation.type);
     }
     for (const dependency of kind.derivesFrom ?? []) { ensureKindVertex(dependency, path, kind.line); addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line); }
@@ -345,6 +356,23 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     const contract = publicationContractOf(validated.manifest, authored);
     const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
+    // Only valid between writer calls: a publication can create, retract or revive these endpoints.
+    const resolvedRefs = new Map<string, { id: string; uid: string }>();
+    const prefetchRefs = async (refs: readonly import('./contract.js').EntityRefDraft[]): Promise<void> => {
+      const missing = new Map(refs.filter(ref => !resolvedRefs.has(canonicalJson(ref))).map(ref => [canonicalJson(ref), ref]));
+      const keys = [...missing.keys()];
+      const resolved = await resolveEntityRefs(tx, publicationContract, [...missing.values()]);
+      keys.forEach((key, index) => resolvedRefs.set(key, resolved[index]!));
+    };
+    const resolveRef = (ref: import('./contract.js').EntityRefDraft): { id: string; uid: string } => {
+      const resolved = resolvedRefs.get(canonicalJson(ref));
+      if (resolved === undefined) throw new Error(`${import.meta.path}: missing prefetched publication reference`);
+      return resolved;
+    };
+    const publish: typeof publishGraphDrafts = async (...args) => {
+      try { return await publishGraphDrafts(...args); } finally { resolvedRefs.clear(); }
+    };
+    const evidenceRefs = (drafts: readonly (VertexDraft | EdgeDraft)[]) => drafts.flatMap(draft => (draft.evidence ?? []).map(evidence => evidence.target));
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
       const fields = new Map(kinds.map(kind => [kind, new Set<string>()]));
       for (const draft of drafts) {
@@ -362,81 +390,96 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
       return row === undefined || !row.activeSources.includes(binding.sourceUid) ||
         Object.entries(draft.values ?? {}).some(([property, value]) => !row.selectedAssertions.some(assertion => assertion.property === property && assertion.source === binding.sourceUid && canonicalJson(assertion.value) === canonicalJson(value)));
     });
-    await publishGraphDrafts(tx, publicationContract, { vertices: missingSnapshots, removals: [] });
+    await publish(tx, publicationContract, { vertices: missingSnapshots, removals: [] });
     const vertexRecords = await readPhase('vertex', MANIFEST_CONTRACT.vertex.map(kind => kind.name), validated.vertices);
     const held = new Map<string, VertexRemovalDraft>();
-    for (const kind of MANIFEST_CONTRACT.vertex) for (const row of vertexRecords.get(kind.name)!) {
-      const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
-      for (const role of kind.keyEdges ?? []) {
-        const parent = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.to_node JOIN entity pk ON pk.id=p.entity_id WHERE e.from_node=$1 AND ek.name=$2`, [row.id, role.edge]);
-        if (parent.rows.length !== 1) throw new Error(`${import.meta.path}:299: ${kind.name} ${row.uid} requires exactly one metadata parent`);
-        keyEdges[role.role] = { kind: parent.rows[0]!.kind, key: parent.rows[0]!.key };
+    const holdRecords = async (kinds: readonly import('./contract.js').VertexContract[], records: Map<string, AssertionRecord[]>): Promise<void> => {
+      for (const kind of kinds) for (const row of records.get(kind.name) ?? []) {
+        const keyEdges: Record<string, import('./contract.js').EntityRefDraft> = {};
+        for (const role of kind.keyEdges ?? []) {
+          const [subject, parent] = role.direction === 'from' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
+          const parents = await tx.query<{ kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT pk.name AS kind,p.key FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node p ON p.id=e.${parent} JOIN entity pk ON pk.id=p.entity_id WHERE e.${subject}=$1 AND ek.name=$2`, [row.id, role.edge]);
+          if (parents.rows.length !== 1) throw new Error(`${import.meta.path}:405: ${kind.name} ${row.uid} requires exactly one parent for ${role.role}`);
+          keyEdges[role.role] = { kind: parents.rows[0]!.kind, key: parents.rows[0]!.key };
+        }
+        const draft = { kind: kind.name, key: row.key as Record<string, import('./contract.js').KeyValueDraft>, ...(kind.keyEdges?.length ? { keyEdges } : {}), uid: row.uid, producer: 'manifest' };
+        held.set(identity(draft), draft);
       }
-      const draft = { kind: kind.name, key: row.key as Record<string, import('./contract.js').KeyValueDraft>, ...(kind.keyEdges?.length ? { keyEdges } : {}), uid: row.uid, producer: 'manifest' };
-      held.set(identity(draft), draft);
-    }
+    };
+    await holdRecords(MANIFEST_CONTRACT.vertex, vertexRecords);
     const wanted = new Set(validated.vertices.map(identity));
     const removals = [...held].filter(([key]) => !wanted.has(key)).map(([, draft]) => draft)
       .sort((left, right) => Number(right.keyEdges !== undefined) - Number(left.keyEdges !== undefined) || byCodePoint(identity(left), identity(right)));
-    const unchanged = async (draft: VertexDraft | EdgeDraft, rows: readonly AssertionRecord[]): Promise<boolean> => {
-      signal?.throwIfAborted();
-      if (rows.length === 0) return false;
+    const matchingRecord = (draft: VertexDraft | EdgeDraft, rows: readonly AssertionRecord[]): AssertionRecord | undefined => {
+      if (rows.length === 0) return undefined;
       let record: import('./records.js').AssertionRecord | undefined;
       if ('key' in draft) {
         const prior = held.get(identity(draft));
         if (prior !== undefined) record = rows.find(row => row.uid === prior.uid);
-        else if (draft.keyEdges !== undefined) {
-          const resolved = await resolveEntityRef(tx, publicationContract, draft);
-          record = rows.find(row => row.uid === resolved.uid);
-        } else record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
+        // Every key-edge kind in this phase is indexed by its existing key and parent identity.
+        // A missing draft is new, not an endpoint that can already be resolved.
+        else if (draft.keyEdges === undefined) record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
       }
       else {
-        const from = await resolveEntityRef(tx, publicationContract, draft.from);
-        const to = await resolveEntityRef(tx, publicationContract, draft.to);
+        const from = resolveRef(draft.from);
+        const to = resolveRef(draft.to);
         record = rows.find(row => String(row.from) === String(from.id) && String(row.to) === String(to.id) && (row.discriminator ?? '') === (draft.discriminator ?? ''));
       }
+      return record;
+    };
+    const prefetchEvidence = async (drafts: readonly (VertexDraft | EdgeDraft)[], records: Map<string, AssertionRecord[]>): Promise<void> => {
+      await prefetchRefs(evidenceRefs(drafts.filter(draft => matchingRecord(draft, records.get(draft.kind)!)?.activeSources.includes(binding.sourceUid))));
+    };
+    const unchanged = async (draft: VertexDraft | EdgeDraft, rows: readonly AssertionRecord[]): Promise<boolean> => {
+      signal?.throwIfAborted();
+      const record = matchingRecord(draft, rows);
       if (record === undefined || !record.activeSources.includes(binding.sourceUid)) return false;
       const expectedEvidence: string[] = [];
       for (const [index, evidence] of (draft.evidence ?? []).entries()) {
-        const target = await resolveEntityRef(tx, publicationContract, evidence.target);
+        const target = resolveRef(evidence.target);
         expectedEvidence.push(JSON.stringify([target.uid, { index, relation: evidence.relation ?? 'supports', locator: evidence.locator ?? {} }]));
       }
       for (const [property, value] of Object.entries({ '$exists': true, ...draft.values })) {
         const selected = record.selectedAssertions.find(assertion => assertion.property === property && assertion.source === binding.sourceUid);
         if (selected === undefined || JSON.stringify(selected.value) !== JSON.stringify(value)) return false;
-        const evidence = await tx.query<{ uid: string; discriminator: string }>(`SELECT t.uid::text,e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [selected.id]);
-        const actual = evidence.rows.map(row => JSON.stringify([row.uid, JSON.parse(row.discriminator)]));
-        // Item 25 retains earlier passes' evidence on a reused assertion. This pass needs its own attachments present,
-        // not the historical attachments absent.
-        const attached = new Set(actual.map(value => canonicalJson(JSON.parse(value))));
+        // Reused assertions retain historical evidence; this pass only requires its own attachments.
+        const attached = new Set(selected.evidenceAttachments.map(evidence => canonicalJson([evidence.targetUid, JSON.parse(evidence.locator)])));
         if (expectedEvidence.some(value => !attached.has(canonicalJson(JSON.parse(value))))) return false;
       }
       return true;
     };
+    await prefetchEvidence(validated.vertices, vertexRecords);
     const vertices: VertexDraft[] = [];
     for (const draft of validated.vertices) if (!await unchanged(draft, vertexRecords.get(draft.kind)!)) vertices.push(draft);
-    let written = await publishGraphDrafts(tx, publicationContract, { vertices, removals }, 1, { author: 'manifest' });
+    let written = await publish(tx, publicationContract, { vertices, removals }, 1, { author: 'manifest' });
     const edgeRecords = await readPhase('edge', MANIFEST_CONTRACT.edge.map(kind => kind.name), validated.edges);
+    await prefetchRefs(validated.edges.filter(draft => edgeRecords.get(draft.kind)!.length > 0).flatMap(draft => [draft.from, draft.to]));
+    await prefetchEvidence(validated.edges, edgeRecords);
     const edges: EdgeDraft[] = [];
     for (const draft of validated.edges) if (!await unchanged(draft, edgeRecords.get(draft.kind)!)) edges.push(draft);
     const wantedEdges = new Set(validated.edges.map(e => JSON.stringify([e.kind,e.from.key,e.to.key,e.discriminator ?? ''])));
     const edgeRemovals: EdgeRemovalDraft[] = [];
-    for (const kind of MANIFEST_CONTRACT.edge) {
-      if (MANIFEST_CONTRACT.vertex.some(vertex => vertex.keyEdges?.some(role => role.edge === kind.name))) continue;
+    const removableKinds = MANIFEST_CONTRACT.edge.filter(kind => !MANIFEST_CONTRACT.vertex.some(vertex => vertex.keyEdges?.some(role => role.edge === kind.name)));
+    const edgeIds = removableKinds.flatMap(kind => edgeRecords.get(kind.name)!.map(record => record.id));
+    const edgeEnds = edgeIds.length === 0 ? [] : (await tx.query<{ id: string; from_key: Record<string,string>; to_key: Record<string,string> }>(
+      'SELECT e.id::text AS id,f.key AS from_key,t.key AS to_key FROM edge e JOIN node f ON f.id=e.from_node JOIN node t ON t.id=e.to_node WHERE e.id=ANY($1::bigint[])', [edgeIds])).rows;
+    const endsById = new Map(edgeEnds.map(row => [row.id, row]));
+    for (const kind of removableKinds) {
       const records = edgeRecords.get(kind.name)!;
       for (const record of records) {
-        const ends = await tx.query<{ from_key: Record<string,string>; to_key: Record<string,string> }>('SELECT f.key AS from_key,t.key AS to_key FROM edge e JOIN node f ON f.id=e.from_node JOIN node t ON t.id=e.to_node WHERE e.id=$1',[record.id]);
-        const one=ends.rows[0]!;
+        const one=endsById.get(String(record.id))!;
         if (!wantedEdges.has(JSON.stringify([kind.name,one.from_key,one.to_key,record.discriminator ?? '']))) edgeRemovals.push({kind:kind.name,from:{kind:'manifest.kind',key:one.from_key},to:{kind:'manifest.kind',key:one.to_key},discriminator:record.discriminator,producer:'manifest'});
       }
     }
-    written += await publishGraphDrafts(tx, publicationContract, { vertices: [], edges, removals: [], edgeRemovals }, 1, { author: 'manifest' });
+    written += await publish(tx, publicationContract, { vertices: [], edges, removals: [], edgeRemovals }, 1, { author: 'manifest' });
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0) {
       const records = await readPhase('vertex', [...valueKinds], validated.starterValues);
+      await holdRecords(publicationContract.vertex.filter(kind => valueKinds.has(kind.name)), records);
+      await prefetchEvidence(validated.starterValues, records);
       const changed: VertexDraft[] = [];
       for (const draft of validated.starterValues) if (!await unchanged(draft, records.get(draft.kind)!)) changed.push(draft);
-      written += await publishGraphDrafts(tx, publicationContract, { vertices: changed, edges: [], removals: [] }, 1, { author: 'manifest' });
+      written += await publish(tx, publicationContract, { vertices: changed, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     const { name: kindName, nameField: nameRole } = productPageTemplate(validated.manifest);
     const currentTemplates = await readKindAssertions(tx, 'vertex', kindName, [], await publicationReadSelector(tx, publicationContract));
@@ -444,7 +487,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     const removedTemplates: VertexRemovalDraft[] = currentTemplates.filter(row => !wantedTemplates.has(String(row.key[nameRole]))).map(row => ({
       kind: kindName, key: row.key as VertexRemovalDraft['key'], producer: 'manifest',
     }));
-    written += await publishGraphDrafts(tx, publicationContract, { vertices: validated.templates, removals: removedTemplates }, 1, { author: 'manifest' });
+    written += await publish(tx, publicationContract, { vertices: validated.templates, removals: removedTemplates }, 1, { author: 'manifest' });
     return written;
   });
 }
