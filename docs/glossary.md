@@ -207,6 +207,36 @@ in the intended model, the text an agent read to write an element, an
 interface, a relation or a data entity: a file, its lines, and the commit and
 blob it was read at.
 
+**Assertion** (ru: мнение):
+One source's value for one property of a vertex or an edge — its existence
+included — over a valid-time interval, with its language, layer, recorded time,
+source and evidence; itself a vertex of the graph, append-only, never updated
+(decision 0039, items 14 and 25). A property may hold several at once.
+_Avoid_: opinion record, claim (a document's statement), fact (a plugin's
+statement of the earlier model)
+
+**Source stream** (ru: поток источника):
+The history of one source's assertions for one slot: subject, property,
+language, layer and source. Within it the last recorded assertion wins; across
+streams the newest wins (decision 0039, item 25).
+
+**Dispute** (ru: спор):
+Different source streams holding different values for the same slot over
+overlapping valid time; the writer opens an open question for it at write time.
+
+**Resolution** (ru: решение спора):
+A resolver's or person's judgement of a dispute: a resolution vertex with the
+judged assertions, rationale and evidence, and the assertion it writes into the
+disputed slot in the resolution stream.
+_Avoid_: answer (closes an open question of the earlier model), pin
+
+**Resolution stream** (ru: поток решений):
+The source stream of a principal's resolution source — a source with the role
+`resolution`, distinct from that principal's ordinary source — so a resolution
+never replaces or ends the principal's own edits. Only the writer writes to it:
+from the judged segment's start, ended or retracted when the dispute changes
+(decision 0039, amendment 2026-11-16).
+
 **Stale**:
 Said of evidence or a claim whose file has changed since the blob it names; the
 text read then may no longer say what was written from it.
@@ -387,6 +417,68 @@ _Avoid_: comment (a discussion message, which is a different record)
 What a page recommends doing next, decided from the graph alone: its own most
 depended-on open question first, then a scope nobody covered on a node the fill
 ranked important, then an assumption to review, and nothing when nothing waits.
+
+## Tests
+
+**Test layer** (ru: слой тестов):
+Where a test file stands in the pyramid — unit, integration or end-to-end — declared by
+its folder under `test/` and held by `check:tests` on what the file reaches. Most behaviour
+is checked in the cheapest layer that can catch its defect (owner, 2026-11-18: «Основную
+часть покрываем дешевыми unit тестами и лишь малую часть интеграционными и еще меньше e2e»).
+_Avoid_: test type, test level
+
+**Unit test** (ru: модульный тест):
+A test in `test/unit/` whose value imports reach no database, child process, socket or
+browser; it runs in milliseconds.
+_Avoid_: pure test, fast test (for the file)
+
+**Integration test** (ru: интеграционный тест):
+A test in `test/integration/` that runs in one process against real parts the unit layer
+cannot hold: a database on the test pass's server, a git fixture, an in-process HTTP server,
+the in-process plugin session.
+
+**End-to-end test** (ru: сквозной тест; e2e):
+A test in `test/e2e/` that runs madarch as a reader runs it: the binary or CLI as a
+process, the api and fill roles, a store folder another process reopens, the real plugin
+sandbox, a browser.
+_Avoid_: smoke test, system test
+
+**Fast suite** (ru: быстрый набор):
+The unit layer plus the integration and end-to-end files a change touches
+(`bun run test:fast`): the developer's and reviewer's check, seconds to a few minutes.
+
+**Full suite** (ru: полный набор):
+Every functional test of the three layers (`bun run test`): the check of CI and of
+acceptance, at most about fifteen minutes of wall time on CI's shape (owner, 2026-11-18).
+
+**Measurement suite** (ru: набор замеров):
+The tests in `test/measure/` that hold speed and memory requirements against recorded
+baselines, in their own blocking CI job; the only tests that assert elapsed time.
+_Avoid_: performance test (inside a functional case), perf flag
+
+**Case bound** (ru: срок случая):
+How long one test case may run before it fails, named with `bound()` together with the
+measurement it is three times; a case of the unit layer names none.
+_Avoid_: timeout (for a requirement)
+
+**Layer budget** (ru: бюджет слоя):
+The serial seconds a test layer may take on CI's shape (`test/budget.json`), summed from
+the shards' timings; the layers' budgets add up to the full suite's fifteen minutes.
+
+> **Note — open question for the Architect:** The agreed serial layer budgets total
+> 21.5 minutes (1.5 + 12 + 8), not the fifteen-minute wall limit. Meeting that wall
+> limit requires shards; it is not the sum of the serial budgets. The fast suite
+> includes unit plus affected integration/end-to-end files, not one folder. Please
+> confirm these interpretations before implementing the budget and fast-suite gates.
+> No owner-agreed number is changed by this note.
+
+**Check map** (ru: карта проверок):
+The list a test rewrite carries: each old case, the behaviour it checked, and the new
+cases and layer that check it now; with the coverage comparison it shows no check was lost.
+
+**Test pass** (ru: прогон тестов):
+One `bun test` invocation, with its own scratch home and one PostgreSQL server.
+_Avoid_: run (a run is a fill — see Run)
 
 ## Open
 

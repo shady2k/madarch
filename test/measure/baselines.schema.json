@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "test/measure/baselines.schema.json",
+  "title": "madarch measurement baselines",
+  "description": "The recorded medians test/support/measure.ts holds a measurement against, with the factor two. One entry per case name; test/measure/README.md says how an entry is taken.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "baselines"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema": { "const": 1 },
+    "environment": { "type": "string" },
+    "baselines": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/baseline" }
+    }
+  },
+  "$defs": {
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["medianMs", "runs"],
+      "properties": {
+        "medianMs": { "type": "number", "exclusiveMinimum": 0 },
+        "runs": { "type": "integer", "minimum": 3 },
+        "measuredAt": { "type": "string" },
+        "commit": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}
