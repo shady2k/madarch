@@ -3,9 +3,9 @@
  * starter set `madarch init --template everything` writes is materialised in a temporary folder, its manifest is
  * read the way a product's is, and the plugin contracts it declares supply the fields of the kinds they fill.
  *
- * Every kind of the catalogue holds its place in the schema: a kind's types carry the `Kind` prefix that keeps them apart
- * from the engine's own names (src/graphql/names.ts), so no kind is left out for a name. A manifest whose kinds still
- * collide with one another is refused by the schema itself, and nothing is written.
+ * Every kind of the catalogue holds its place in the schema: product types carry the `Kind` prefix that keeps them
+ * apart from the engine's own names (src/graphql/names.ts); `manifest.kind` uses the single `CatalogueEntity` type.
+ * A manifest whose kinds still collide with one another is refused by the schema itself, and nothing is written.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,9 +44,8 @@ function starterManifest(): PublishedManifest {
 }
 
 /**
- * The starter SDL, derived from the catalogue alone: every kind the schema can hold, every edge between them, and
- * the kinds a reserved name left out. The schema is derived once more over the kept kinds, so a collision the
- * kinds make together is refused rather than hidden by leaving a kind out.
+ * The starter SDL, derived from the complete catalogue: every kind and every edge between them. A collision
+ * between kinds is refused rather than hidden by leaving a kind out.
  */
 export function starterSchema(): StarterSchema {
   const manifest = starterManifest();
