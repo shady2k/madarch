@@ -25,6 +25,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     // pg-boss owns its transaction batches; only normal transactions borrow cancellation.
     run: owner.run.bind(owner),
     exec: owner.exec.bind(owner),
+    onClose: owner.onClose.bind(owner),
     close: owner.close.bind(owner),
   });
   const owners = new Map<string, DatabaseOwner>();

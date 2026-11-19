@@ -205,6 +205,28 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
   }
 }, 60_000);
 
+test('the queue stops with the owner that lent it: no pass of it asks a closed owner', async () => {
+  // The client's own supervision is a timer (decision 0027's recovery pass). A
+  // process that closes a case's database while the timer still runs gets a line
+  // per interval — the shape that flooded a shard after a case was abandoned —
+  // so the client stops with the owner instead of outliving it.
+  const alone = await createTestDatabaseOwner();
+  await prepareStore(alone, { queue: { schema: 'owner_lifetime', declarations: [{ name: 'supervised', leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false }] } });
+  const logged: string[] = [];
+  const queue = await createPgBossQueue({ owner: alone, schema: 'owner_lifetime', supervise: true, superviseIntervalSeconds: 1, log: (line) => { logged.push(line); } });
+  try {
+    await queue.declare({ name: 'supervised', leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
+    await alone.close();
+    // Two passes of the one-second supervision fall inside this wait. A client
+    // that outlived the owner would ask it and log the refusal at each pass.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(logged).toEqual([]);
+  } finally {
+    await queue.stop().catch(() => undefined);
+    await alone.close().catch(() => undefined);
+  }
+}, 60_000);
+
 test('an unprepared queue client refuses without creating its schema, and attaches after preparation', async () => {
   const racing = await createTestDatabaseOwner();
   try {

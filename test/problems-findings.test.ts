@@ -19,6 +19,7 @@ const unusedOwner: DatabaseOwner = {
   transaction: async () => { throw new Error('the findings fixture must not query SQL'); },
   run: async () => { throw new Error('the findings fixture must not query SQL'); },
   exec: async () => { throw new Error('the findings fixture must not query SQL'); },
+  onClose: () => undefined,
   close: async () => {},
 };
 

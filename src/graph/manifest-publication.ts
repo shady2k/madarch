@@ -282,6 +282,7 @@ export function publicationDatabaseOwner(owner: DatabaseOwner, signal: AbortSign
     transaction: (kind, work, options) => owner.transaction(kind, work, { signal: options?.signal === undefined ? signal : AbortSignal.any([signal, options.signal]) }),
     run: owner.run.bind(owner),
     exec: owner.exec.bind(owner),
+    onClose: owner.onClose.bind(owner),
     close: owner.close.bind(owner),
   };
 }

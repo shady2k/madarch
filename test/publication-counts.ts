@@ -36,7 +36,7 @@ export async function publicationCounts<T>(owner: DatabaseOwner, work: (measured
         location: owner.location, ready: owner.ready, hasVector: owner.hasVector,
         allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
         transaction: async (_kind, body) => await body(tx),
-        run: async body => await body(tx), exec: owner.exec.bind(owner), close: owner.close.bind(owner),
+        run: async body => await body(tx), exec: owner.exec.bind(owner), onClose: owner.onClose.bind(owner), close: owner.close.bind(owner),
       };
       result = await work(measured);
     } finally { tx.query = query; }
