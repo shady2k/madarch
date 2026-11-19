@@ -51,6 +51,7 @@ test("a starter product's domain page and diagram name relations in the declared
         { ...term, ...producer },
       ],
       edges: [
+        { kind: 'code.module-folder', from: module, to: folderEntity, ...producer },
         { kind: 'domain.covers', from: domain, to: module, ...producer },
         { kind: 'domain.covers-folder', from: domain, to: folderEntity, ...producer },
         { kind: 'domain.uses-term', from: domain, to: term, ...producer },
@@ -58,7 +59,7 @@ test("a starter product's domain page and diagram name relations in the declared
       removals: [],
     }, 1, { binding, author: 'fixture@1' }));
     const uid = (await owner.transaction('snapshot', async (tx) => await tx.query<{ uid: string }>(
-      `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'domain' AND n.key->>'name' = 'Payments' AND NOT n.removed`,
+      `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'domain' AND n.key->>'name' = 'Payments' AND graph_vertex_active(n.id, 'domain', 1)`,
     ))).rows[0]!.uid;
     const declared = {
       ru: { 'domain.covers': 'покрывает', 'domain.covers-folder': 'покрывает папку', 'domain.uses-term': 'использует термин' },
