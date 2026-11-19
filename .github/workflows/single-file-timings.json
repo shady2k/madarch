@@ -96,7 +96,7 @@
     "test/fill-selection.test.ts": 110300,
     "test/fill-serial-stage.test.ts": 7000,
     "test/fill-snapshot.test.ts": 9800,
-    "test/fill-state-store.test.ts": 7618,
+    "test/fill-state-store.test.ts": 10497,
     "test/fill-state-subject-fixes.test.ts": 6337,
     "test/fill-state-subject-reads.test.ts": 29022,
     "test/fill-states.test.ts": 34000,
