@@ -52,7 +52,7 @@ import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_QUEUE } from './file-texts.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
-import { runPhaseOf } from '../fill/fsm.js';
+import { FINAL_RUN_STATES, runPhaseOf } from '../fill/fsm.js';
 import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../graph/fill-orchestration.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readProductFillState, readRuns, hasSuccessfulFill, readRun, readLiveRun, readStoreStamp } from '../graph/fill-state.js';
@@ -263,7 +263,7 @@ export class KnowledgeProduct {
       const latest = snapshot.runs[0];
       const configuration = latest === undefined ? null : await readRunConfiguration(database, latest.runId);
       const ends = new Map<string, Awaited<ReturnType<typeof readFillEnd>>>();
-      for (const run of snapshot.runs.filter(run => ['succeeded', 'failed'].includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
+      for (const run of snapshot.runs.filter(run => FINAL_RUN_STATES.includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
         ends.set(run.runId, await readFillEnd(database, run.runId));
       }
       return { owner, snapshot, configuration, outcomes: new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>(), ends };
@@ -2387,7 +2387,7 @@ export class KnowledgeProduct {
       return;
     }
     // A run may finish between polls. Adopt its published end, not a terminal row whose store work is still settling.
-    const namedEnd = named !== null && (named.state === 'succeeded' || named.state === 'failed')
+    const namedEnd = named !== null && FINAL_RUN_STATES.includes(named.state)
       ? memo.ends.get(named.runId) ?? null : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;

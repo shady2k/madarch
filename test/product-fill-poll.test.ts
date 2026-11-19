@@ -96,3 +96,17 @@ test('optional producer outcome read failure does not fail status or poison its 
   } finally { cached.reader = original; cached.fillStateMemo = undefined; }
   expect((await reader.status()).fill.run?.runId).toBe('second');
 }, 60_000);
+
+for (const terminal of ['completed_partial', 'blocked'] as const) {
+  test(`status follows another process's ${terminal} end`, async () => {
+    await createRun(database, { runId: terminal, product: 'poll', at: terminal === 'completed_partial' ? 300 : 400 });
+    await advanceRun(database, { runId: terminal, event: { type: 'plan', at: 401, configuration: 'fixture' } });
+    await advanceRun(database, { runId: terminal, event: { type: 'start', at: 402, stages: 1 } });
+    expect((await reader.status()).fill.state).toBe('running');
+    await advanceRun(database, { runId: terminal, event: terminal === 'completed_partial'
+      ? { type: 'complete-partial', at: 403, evidence: { runnable: 0, inFlight: 0, waiting: 0, coverageMet: false } }
+      : { type: 'block', at: 403, starvationPath: 'consumer → capability → producer' } });
+    await writeFillEnd(database, { runId: terminal, state: terminal });
+    expect((await reader.status()).fill).toMatchObject({ state: 'failed', runPhase: terminal === 'completed_partial' ? 'partial' : 'failed' });
+  }, 60_000);
+}
