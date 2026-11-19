@@ -52,6 +52,18 @@ test('person-authored prerequisites remain selected without scheduling a produce
   }
 });
 
+test('a requested kind refuses a prerequisite that neither a plugin nor an agent can produce', () => {
+  const catalogue = [kind('File', ['title']), kind('Summary', ['description'], ['File'])];
+  const declarations = [
+    plugin('summary', [output('Summary')]),
+    plugin('summary-agent', [output('Summary', '*', { coverage: 'gaps' })], true),
+  ];
+  // The scoped agent can fill Summary only; choosing it cannot invent a producer for File.
+  expect(() => planFillDeclarations({
+    kinds: catalogue, plugins: declarations, selectedKinds: ['Summary'], agentSelected: true,
+  })).toThrow(/^\/product\/kinds\.yaml:4: selected kind File has no enabled producer; enable its producer$/);
+});
+
 test('S1: universal agent capability does not schedule covered deterministic output', () => {
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
   expect(plan.order).toEqual(['index']);
