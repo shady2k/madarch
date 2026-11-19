@@ -5,7 +5,7 @@
  */
 import { definePlugin, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dlopen, FFIType, toArrayBuffer } from 'bun:ffi';
 
 /** The C library the sandbox binds read-only: the fixture's one way to a call Bun has no wrapper for. */
@@ -125,6 +125,7 @@ await definePlugin({
       return normalAnswer(unit);
     }
     if (behavior === 'operation-hang') {
+      if (typeof unit.key['stderr'] === 'string') writeSync(2, unit.key['stderr']);
       await context.facts.apply('wait', { vertices: [] });
       await new Promise(() => undefined);
     }

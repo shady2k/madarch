@@ -960,14 +960,27 @@ ${text === '' ? '(empty)' : text}` };
 
   /** The outcome of a unit that did not extract, with the numbers read at this moment. */
   private notExtracted(held: InFlight, cause: UnitCause): UnitOutcome {
+    let counters: CgroupCounters = { memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 };
+    let stderr: StderrLog = { file: '', totalBytes: 0, truncated: false };
+    // Diagnostics must not prevent settling a unit or stopping its process tree.
+    try {
+      counters = this.sandbox?.counters() ?? counters;
+    } catch (error) {
+      log.warn(`${WHERE}:1: could not collect plugin counters: ${String(error)}`, {});
+    }
+    try {
+      stderr = this.sandbox?.stderr() ?? stderr;
+    } catch (error) {
+      log.warn(`${WHERE}:1: could not collect plugin stderr: ${String(error)}`, {});
+    }
     return {
       state: 'not-extracted',
       unitId: held.unitId,
       cause,
       bytes: held.bytes,
       durationMs: Date.now() - held.startedAt,
-      counters: this.sandbox?.counters() ?? { memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 },
-      stderr: this.sandbox?.stderr() ?? { file: '', totalBytes: 0, truncated: false },
+      counters,
+      stderr,
     };
   }
 

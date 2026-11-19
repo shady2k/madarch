@@ -14,7 +14,7 @@
  * lacks either, every case is skipped with the reason printed, never passed.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly inspect?: (host: PluginHost) => void; readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -64,6 +64,7 @@ async function open(folder: string, options: { readonly operations?: { apply(uni
     ...(options.requests === undefined ? {} : { requests: options.requests }),
     operations: options.operations ?? { async apply() { return { accepted:true }; } },
   });
+  options.inspect?.(host);
   return await host.open();
 }
 
@@ -291,19 +292,67 @@ describe('the heartbeat', () => {
 
   hostTest('cancel settles a unit waiting for facts.apply and clears its pending count', async () => {
     let entered!: () => void;
+    let release!: (value: unknown) => void;
+    const applying = new Promise<void>((resolve) => { entered = resolve; });
+    const response = new Promise<unknown>((resolve) => { release = resolve; });
+    let host!: PluginHost;
+    const session = await open(probeFolder, {
+      inspect: (opened) => { host = opened; },
+      limits: { heartbeatMs: 5_000, unitMs: 10_000 },
+      operations: { async apply() { entered(); return await response; } },
+    });
+    try {
+      const running = session.runUnit(unit('operation-hang'));
+      await applying;
+      const held = host['inFlight'].get('operation-hang')!;
+      expect(held.pendingOperations).toBe(1);
+      await session.cancel();
+      const outcome = await running;
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('session-cancelled');
+      expect(held.pendingOperations).toBe(0);
+      expect(host['inFlight'].size).toBe(0);
+      release({ accepted: true });
+      await response;
+      // Let the host's operation response and its finally callback finish.
+      await Bun.sleep(0);
+      expect(held.pendingOperations).toBe(0);
+      expect(host['inFlight'].size).toBe(0);
+      expect(await running).toBe(outcome);
+      await session.close();
+      expect(await running).toBe(outcome);
+    } finally {
+      release({ accepted: true });
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('cancel settles and kills the tree when writing stderr.log fails during facts.apply', async () => {
+    let entered!: () => void;
     const applying = new Promise<void>((resolve) => { entered = resolve; });
     const session = await open(probeFolder, {
       limits: { heartbeatMs: 5_000, unitMs: 10_000 },
       operations: { async apply() { entered(); return await new Promise(() => undefined); } },
     });
+    let logFile: string | undefined;
     try {
-      const running = session.runUnit(unit('operation-hang'));
+      const running = session.runUnit({ ...unit('operation-hang'), key: { behavior: 'operation-hang', stderr: 'cancel diagnostic' } });
       await applying;
+      for (let attempt = 0; attempt < 100 && session.stderr().totalBytes === 0; attempt += 1) await Bun.sleep(10);
+      const stderr = session.stderr();
+      expect(stderr.totalBytes).toBeGreaterThan(0);
+      logFile = stderr.file;
+      rmSync(logFile);
+      symlinkSync('/dev/full', logFile);
+      expect(() => session.stderr()).toThrow('ENOSPC');
       await session.cancel();
       const outcome = await running;
       expect(outcome.state).toBe('not-extracted');
       if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('session-cancelled');
+      for (let attempt = 0; attempt < 200 && session.counters().pidsCurrent !== 0; attempt += 1) await Bun.sleep(10);
+      expect(session.counters().pidsCurrent).toBe(0);
     } finally {
+      if (logFile !== undefined) rmSync(logFile, { force: true });
       await session.close();
     }
   }, 30_000);
