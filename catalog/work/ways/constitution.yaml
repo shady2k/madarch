@@ -63,4 +63,4 @@ key-edges:
   edge: constitution-product
   side: from
 derives-from:
-- product
+- system.product

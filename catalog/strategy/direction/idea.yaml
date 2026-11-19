@@ -39,7 +39,7 @@ fields:
 key:
 - identifier
 derives-from:
-- product
+- system.product
 labels:
   en:
     one: Idea

@@ -25,4 +25,4 @@ description:
   en: A protection profile names a kind of product — a firewall, a smart card, an operating system — and states the security problem and the requirements any such product must meet. ISO/IEC 15408 defines it as the vendor-independent half of a security evaluation.
   ru: Профиль защиты называет вид продукта — межсетевой экран, смарт-карту или операционную систему — и излагает проблему безопасности и требования, которым должен соответствовать любой такой продукт. ISO/IEC 15408 определяет его как независимую от изготовителя половину оценки безопасности.
 derives-from:
-- product
+- system.product

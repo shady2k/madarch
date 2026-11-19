@@ -25,4 +25,4 @@ description:
   en: A decision log keeps the decisions of a product in the order they were taken, so a reader can follow how the architecture arrived where it is. Each entry points to the decision it supersedes or is superseded by.
   ru: Журнал решений хранит решения продукта в порядке их принятия, чтобы читатель видел, как архитектура пришла к нынешнему виду. Каждая запись указывает на решение, которое она заменяет или которым заменена.
 derives-from:
-- product
+- system.product

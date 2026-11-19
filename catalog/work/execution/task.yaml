@@ -105,4 +105,4 @@ description:
   en: 'A task is one piece of work a person or an agent plans and then does: it states what has to change, what result counts as done and who carries it out. Tasks are usually grouped under a larger unit of work, such as a user story, a stage or a release.'
   ru: 'Задача — единица работы с очерченной областью и критерием готовности, которую поручают человеку или агенту. В ней сказано, что нужно изменить, какой результат считается достигнутым и кто её выполняет. Обычно задачи входят в более крупную единицу работы: историю пользователя, этап или выпуск.'
 derives-from:
-- product
+- system.product

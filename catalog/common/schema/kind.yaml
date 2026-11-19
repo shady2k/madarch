@@ -53,4 +53,4 @@ description:
   en: 'A kind is the product’s declaration of a type of entity: what it is, the sources it was taken from, how its entities are acquired, the relations it may carry and what a reader sees of its entities. The catalogue is made of kinds, and a kind is itself an entity a reader can open.'
   ru: 'Вид — объявление продуктом типа сущности: что это, из каких источников взято, как сущности появляются, какие связи допустимы и что видит читатель. Каталог состоит из видов, и сам вид — сущность, которую читатель может открыть.'
 derives-from:
-- product
+- system.product
