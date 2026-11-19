@@ -7,7 +7,7 @@ import { byCodePoint } from '../model/order.js';
 import { raise, here, withLocation } from '../fill/fsm-core.js';
 import { withSpan } from '../obs/trace.js';
 import { FACT_RANK_FIELDS } from '../fill/facts.js';
-import { edgeRowsIn, readRecordsIn, readRunGraphUidIn, readUnitGraphUidIn, type FillStateDatabase, type FillStateSnapshotDatabase } from './fill-state.js';
+import { advanceRun, edgeRowsIn, readRecordsIn, readRun, readRunGraphUidIn, readUnitGraphUidIn, type FillStateDatabase, type FillStateSnapshotDatabase } from './fill-state.js';
 import { readKindAssertions as readSelectedKindAssertions, type AssertionRecord } from './records.js';
 import { EMPTY_CONTRACT, type GraphContract } from './contract.js';
 import { startupBinding } from './manifest-publication.js';
@@ -335,6 +335,18 @@ export async function writeFillEnd(database:OrchestratorDatabase,end:FillEnd):Pr
  await publishGraphDrafts(tx,contract,{vertices:[],removals:previous.map(row=>({kind:'system.unread',uid:row.uid,key:{},producer:binding.sourceUid}))});
  for(const row of end.unread??[])await child(tx,'system.unread','system.unread-run','system.run',uid,{repository:row.repository,path:row.path,reason:row.reason});
 });}
+/**
+ * Settles a run that failed before its host began (ALX-464): only a run still `created` — never an existing active or
+ * terminal one — reaches `failed`, and its cause stands in the run's end, which a press's page and `madarch trace` read.
+ */
+export async function failRequestedFill(database:FillStateDatabase,runId:string,message:string):Promise<boolean>{
+  const run=await readRun(database,runId);
+  if(run?.state!=='created')return false;
+  const failed=await advanceRun(database,{runId,expectedState:'created',event:{type:'fail',at:Date.now(),cause:'initialization-failed',detail:message}});
+  if(!failed.ok)return false;
+  await writeFillEnd(database,{runId,state:'failed',message});
+  return true;
+}
 export async function readFillEnd(database:FillStateSnapshotDatabase,runId:string):Promise<FillEnd|null>{return snapshotTransaction(database,async tx=>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return null;const run=await read(tx,'system.run',uid);if(!run?.values.end_recorded)return null;
  const unread=(await related(tx,'system.unread','system.unread-run',uid)).map(row=>({repository:String(row.values.repository),path:String(row.values.path),reason:String(row.values.reason)}));

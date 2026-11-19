@@ -24,7 +24,7 @@ import { fillIsolation } from '../plugin/sandbox-probe.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
-import { readProgress, writeFillEnd } from '../graph/fill-orchestration.js';
+import { failRequestedFill, readProgress, writeFillEnd } from '../graph/fill-orchestration.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
 import { advanceRun, createRun, readChain, readRun } from '../graph/fill-state.js';
 import { TERMINAL_RUN_STATES } from '../fill/orchestrator.js';
@@ -34,6 +34,9 @@ import { withAssertionContract } from '../graph/system-contract.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
 import { readProduct } from '../product/manifest.js';
 
+/** A run that failed before its host began is ended where the run's end lives (`graph/fill-orchestration.ts`). */
+export { failRequestedFill };
+
 
 /**
  * The refusals that mean a fill of this product already runs, and nothing is wrong with the product (madarch-8bdc.2.18):
@@ -41,16 +44,6 @@ import { readProduct } from '../product/manifest.js';
  * the chain has no transition from what the chain stands in — the same thing read one step later, which is how the
  * reader used to meet `fill-chain/no-transition`. A fill of this product runs one at a time (decision 0027).
  */
-/** Settle only a request that failed before its host began; never overwrite an existing active or terminal run. */
-export async function failRequestedFill(database: import('../graph/fill-state.js').FillStateDatabase, runId: string, message: string): Promise<boolean> {
-  const run = await readRun(database, runId);
-  if (run?.state !== 'created') return false;
-  const failed = await advanceRun(database, { runId, expectedState: 'created', event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
-  if (!failed.ok) return false;
-  await writeFillEnd(database, { runId, state: 'failed', message });
-  return true;
-}
-
 const ALREADY_RUNNING = ['fill-orchestrator/chain-active', 'fill-orchestrator/chain-held'];
 
 /** Whether one refusal means a fill of this product is already running. */

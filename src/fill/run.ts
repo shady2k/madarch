@@ -18,6 +18,9 @@ import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun 
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import { fillSteps } from './steps.js';
 import { createRunRepositoryInputs } from '../plugin/repository-input.js';
+import { failRequestedFill } from '../graph/fill-orchestration.js';
+import { withAssertionContract } from '../graph/system-contract.js';
+import { EMPTY_CONTRACT } from '../graph/contract.js';
 
 import type { StageRegistry } from './registry.js';
 import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
@@ -124,7 +127,9 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
 
 /**
  * Runs one fill and answers what the host answered. A refused, failed or blocked run is
- * the caller's to report: this function never turns a failure into a smaller success.
+ * the caller's to report: this function never turns a failure into a smaller success. A
+ * fill that fails before its host begins ends the run it was asked for `failed`, with the
+ * cause, and throws that failure (ALX-464).
  */
 export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
   const product = resolve(options.product);
@@ -166,11 +171,21 @@ async function runFillTraced(options: RunFillOptions, runId: string, store: stri
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
   const repositoryInputs = createRunRepositoryInputs();
   try {
-    const fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }), tokenCap: options.tokenCap }), database: options.database, store, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }), ...(options.unconfined === true ? { unconfined: true } : {}) });
-    const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
-    // Reading the pins is what names a checkout with no commit: the answer says what the run did for
-    // it once the run has settled, and a run of this product still reads every other repository.
-    await fill.wiring.snapshot();
+    let fill: Awaited<ReturnType<typeof createStagesFill>>;
+    let wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring'];
+    try {
+      fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }), tokenCap: options.tokenCap }), database: options.database, store, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }), ...(options.unconfined === true ? { unconfined: true } : {}) });
+      wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
+      // Reading the pins is what names a checkout with no commit: the answer says what the run did for
+      // it once the run has settled, and a run of this product still reads every other repository.
+      await fill.wiring.snapshot();
+    } catch (error) {
+      // A fill that never began leaves no run standing: the run a caller asked for (the api role writes it when the
+      // person presses the fill) ends `failed` with this cause, where a reader would otherwise see it `running` for
+      // ever (ALX-464). A run that already stands active or terminal is not touched.
+      await failRequestedFill({ transaction: options.database.transaction.bind(options.database), graphContract: withAssertionContract(EMPTY_CONTRACT) }, runId, error instanceof Error ? error.message : String(error)).catch(() => undefined);
+      throw error;
+    }
     const service = createFillOrchestratorService({
       owner: options.database as never,
       registry: fill.registry,
