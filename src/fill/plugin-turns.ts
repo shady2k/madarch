@@ -28,7 +28,7 @@ import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotV
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName, graphContractVersion } from '../graph/contract.js';
 import { applyPluginFacts } from '../graph/graph-writes.js';
-import { producerFacts } from '../graph/producer-facts.js';
+import { producerFacts, sdkReference } from '../graph/producer-facts.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
@@ -275,7 +275,10 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
     const identity = canonicalJsonDigest({ snapshot, kind });
     let held = snapshots.get(identity);
     if (held === undefined) {
-      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => [canonicalEntity({ kind, ...row }), row])));
+      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => {
+        const reference = sdkReference({ kind, key: row.key, ...(row.keyEdges === undefined ? {} : { keyEdges: row.keyEdges }) });
+        return [canonicalEntity(reference), { ...row, ...reference }];
+      })));
       snapshots.set(identity, held);
     }
     return held;
@@ -303,7 +306,7 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
           return { path: key.path, keyEdges: keyEdges ?? {} };
         });
       return files.filter((file) => matchesAny([pattern], file.path))
-        .map((file) => ({ kind: 'code.file', key: { path: file.path }, keyEdges: file.keyEdges }));
+        .map((file) => sdkReference({ kind: 'code.file', key: { path: file.path }, keyEdges: file.keyEdges }));
     },
     value: async (kind, key, field, keyEdges, snapshot) => {
       const ref = { kind, key };
