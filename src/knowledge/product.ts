@@ -261,10 +261,10 @@ export class KnowledgeProduct {
       const database: Pick<DatabaseOwner, 'transaction'> = { transaction: async (_kind, work) => await work(tx) };
       const snapshot = await readProductFillState(database, product);
       const latest = snapshot.runs[0];
-      const configuration = latest === undefined ? null : await readRunConfiguration(database, latest.runId);
+      const configuration = latest === undefined ? null : await readRunConfiguration(database, latest.runId).catch(() => null);
       const ends = new Map<string, Awaited<ReturnType<typeof readFillEnd>>>();
       for (const run of snapshot.runs.filter(run => FINAL_RUN_STATES.includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
-        ends.set(run.runId, await readFillEnd(database, run.runId));
+        ends.set(run.runId, await readFillEnd(database, run.runId).catch(() => null));
       }
       return { owner, snapshot, configuration, outcomes: new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>(), ends };
     });
@@ -2141,7 +2141,7 @@ export class KnowledgeProduct {
     // to a later revision, and these counts must not be remembered under that later one.
     const statusSeq = this.reader?.seq ?? 0;
     const read = await this.manifestRead(product.folder);
-    const run = await this.runViewOf(undefined, this.fillStateMemo);
+    const run = await this.runViewOf(undefined, this.fillStateMemo).catch(() => null);
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
     const runId = this.fillRunId ?? run?.runId;
     const outcomes = runId === undefined ? undefined : await this.producerOutcomes(this.reader!.owner, runId);
@@ -2338,7 +2338,13 @@ export class KnowledgeProduct {
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
     const identity = this.product();
     if ('message' in identity) return;
-    const memo = await this.productFillState(this.reader.owner, identity.name);
+    let memo: NonNullable<KnowledgeProduct['fillStateMemo']>;
+    try {
+      memo = await this.productFillState(this.reader.owner, identity.name);
+    } catch {
+      // The store cannot be read: the answer is what this process last knew.
+      return;
+    }
     const moved = this.storeStamp !== memo.snapshot.stamp;
     if (moved) {
       try {

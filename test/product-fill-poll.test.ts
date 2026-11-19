@@ -110,3 +110,33 @@ for (const terminal of ['completed_partial', 'blocked'] as const) {
     expect((await reader.status()).fill).toMatchObject({ state: 'failed', runPhase: terminal === 'completed_partial' ? 'partial' : 'failed' });
   }, 60_000);
 }
+
+test('unreadable run state retains the last fill answer and does not fail fileText', async () => {
+  const before = await reader.status();
+  const transaction = owner.transaction.bind(owner);
+  const queryFault: DatabaseOwner = Object.create(owner) as DatabaseOwner;
+  let invalidStates = 0;
+  queryFault.transaction = (kind, work, options) => transaction(kind, tx => work({
+    ...tx,
+    query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+      const result = await tx.query<Row>(sql, values);
+      if (!values?.includes('system.run')) return result;
+      return { ...result, rows: result.rows.map(row => {
+        if (!('property' in row) || row.property !== 'state') return row;
+        invalidStates += 1;
+        return { ...row, value: 'unknown-fixture-state' };
+      }) };
+    },
+  }), options);
+  const cached = reader as unknown as { reader: { owner: DatabaseOwner; seq: number }; fillStateMemo: unknown };
+  const original = cached.reader;
+  cached.reader = { ...original, owner: queryFault };
+  cached.fillStateMemo = undefined;
+  try {
+    const status = await reader.status();
+    expect(status.fill.state).toBe(before.fill.state);
+    expect(status.fill.runPhase).toBe(before.fill.runPhase);
+    expect(await reader.fileText('poll', 'missing.txt')).toBeUndefined();
+    expect(invalidStates).toBeGreaterThan(0);
+  } finally { cached.reader = original; cached.fillStateMemo = undefined; }
+}, 60_000);
