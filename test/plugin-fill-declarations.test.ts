@@ -52,6 +52,18 @@ test('person-authored prerequisites remain selected without scheduling a produce
   }
 });
 
+test('a requested kind refuses a prerequisite that neither a plugin nor an agent can produce', () => {
+  const catalogue = [kind('File', ['title']), kind('Summary', ['description'], ['File'])];
+  const declarations = [
+    plugin('summary', [output('Summary')]),
+    plugin('summary-agent', [output('Summary', '*', { coverage: 'gaps' })], true),
+  ];
+  // The scoped agent can fill Summary only; choosing it cannot invent a producer for File.
+  expect(() => planFillDeclarations({
+    kinds: catalogue, plugins: declarations, selectedKinds: ['Summary'], agentSelected: true,
+  })).toThrow(/^\/product\/kinds\.yaml:4: selected kind File has no enabled producer; enable its producer$/);
+});
+
 test('S1: universal agent capability does not schedule covered deterministic output', () => {
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
   expect(plan.order).toEqual(['index']);
@@ -363,6 +375,15 @@ test('review 2: target selection does not count an unasked kind\'s agent fallbac
   const plan = planManifestFill(manifest, '/product', ['A'], true, ['A']);
   expect(plan.errors).toEqual([]);
   expect(plan.order).toEqual(['pb', 'pa']);
+});
+
+test('a requested derived kind runs its agent without filling unasked conceptual prerequisites', () => {
+  const manifest = manifestOf([kind('Summary', ['title'], ['Component']), kind('Component', ['title'], ['Service']), kind('Service', ['title'])], [general()]);
+  const plan = planManifestFill(manifest, '/product', ['Summary'], true, ['Summary']);
+  expect(plan.errors).toEqual([]);
+  expect([...plan.outputs.get('general')!.keys()]).toEqual(['Summary']);
+  expect(plan.skipped.map(entry => entry.kind).sort()).toEqual(['Component', 'Service']);
+  expect(plan.unitPredecessors('general', 'Summary')).toEqual([]);
 });
 
 test('review 3: with an agent plugin, a kind whose input has no producer is an error, and the other kinds still run', async () => {

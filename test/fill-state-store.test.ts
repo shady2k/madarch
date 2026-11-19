@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
@@ -135,6 +138,64 @@ describe('a fill run', () => {
 });
 
 describe('a unit generation', () => {
+  test('operation retries share the scheduler stream and read back their exact record', async () => {
+    const unitId = 'unit-operation-retry-stream';
+    await runningUnit(unitId);
+    for (const attempt of [1, 2]) {
+      const at = NOW + attempt * 10;
+      const retried = await database.transaction('write', async tx => {
+        const installed = await startupBinding(tx, database.graphContract, 'retry-operation-fixture');
+        const unitUid = (await readUnitGraphUidIn(tx, unitId))!;
+        const binding = { ...installed.binding, unitUid, permissions: installed.binding.permissions.filter(permission =>
+          ['system.unit', 'system.fill-transition', 'system.fill-transition-subject'].includes(permission.kind)) };
+        bindWriteCapability(tx, binding);
+        const scheduler = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], {
+          validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+        })).find(record => record.values['installation'] === JSON.stringify(['system-engine', 'fill-state']) && record.values['scope'] === binding.productUid)!;
+        expect(scheduler).toBeDefined();
+        const operationCount = async () => (await tx.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.operation'",
+        )).rows[0]!.count;
+        const operationsBefore = await operationCount();
+        const step = await advanceUnitIn(tx, { unitId, event: { type: 'retry', at, generation: 1,
+          cause: 'transient-failure', retryAt: at + 1, fence: attempt } }, { contract: installed.contract, binding });
+        expect(await operationCount()).toBe(operationsBefore);
+        expect(step.ok).toBe(true);
+        if (!step.ok) throw new Error(JSON.stringify(step));
+        // The returned FSM record must be the graph record, even on the second retry.
+        expect(await readUnitIn(tx, unitId)).toEqual(step.record);
+        expect(step.record.state).toBe('retry_wait');
+        expect(step.record.context).toMatchObject({ attempt, retriesLeft: 2 - attempt, retryAt: at + 1 });
+        expect(requireWriteCapability(tx)).toEqual(binding);
+        if (attempt === 2) {
+          const records = await readKindAssertions(tx, 'vertex', 'system.unit', ['state'], {
+            subjectUids: [unitUid], validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+          });
+          const selected = records[0]!.selectedAssertions.find(assertion => assertion.property === 'state')!;
+          expect(selected.source).toBe(scheduler.uid);
+          const lineage = await tx.query<{relation:string;uid:string}>(`SELECT k.name AS relation,n.uid::text AS uid
+            FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node n ON n.id=e.to_node
+            WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid)
+            AND k.name IN ('system.assertion-operation','system.assertion-unit','system.assertion-author')`, [selected.id]);
+          expect(lineage.rows).toEqual(expect.arrayContaining([
+            { relation: 'system.assertion-operation', uid: binding.operationUid },
+            { relation: 'system.assertion-unit', uid: unitUid },
+            { relation: 'system.assertion-author', uid: binding.principalUid },
+          ]));
+        }
+        return step.record;
+      });
+      expect(await readUnit(database, unitId)).toEqual(retried);
+      if (attempt === 1) {
+        await advanceUnit(database, { unitId, event: { type: 'retry', at: at + 1, generation: 1,
+          cause: 'transient-failure', retryAt: at + 1, fence: 1 } });
+        const started = await advanceUnit(database, { unitId, event: { type: 'start', at: at + 2, generation: 1, fence: 2 } });
+        expect(started.ok).toBe(true);
+        expect((await readUnit(database, unitId))?.state).toBe('running');
+      }
+    }
+  });
+
   
   
   test('records queue attempt zero at start and the next externally supplied attempt after retry', async () => {

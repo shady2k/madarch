@@ -15,7 +15,14 @@ import { closureOf } from '../src/plugin/closure.js';
 import { planManifestFill } from '../src/plugin/fill-declarations.js';
 import { runFill } from '../src/fill/run.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { createHash } from 'node:crypto';
+import { readKindAssertions } from '../src/graph/records.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
+import { byCodePoint } from '../src/model/order.js';
+
+const digestOf = (content: string) => createHash('sha256').update(content).digest('hex');
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -50,7 +57,7 @@ function fixture(mode: Mode) {
   const scenarioContract = mode === 'system-git' ? { vertices: contract.vertices.filter(vertex => vertex.kind !== 'Healthy'), edges: [] } : contract;
   writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value', 'ownFacts'] } }));
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));
-  writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(scenarioContract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
+  writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(scenarioContract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files.map(file => ({ ...file, digest: digestOf(file.content) })))}; export const sourceDigest=${JSON.stringify(digestOf('Authored source.\n'))};\n`);
   const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
   const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', inputs: [...new Set(entries.flatMap(([, reads]) => [...reads]))], outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
   if (mode === 'system-git') {
@@ -58,7 +65,7 @@ function fixture(mode: Mode) {
     const outputs = { vertices: contract.vertices.filter(vertex => vertex.kind === 'Healthy'), edges: [] };
     writeFileSync(join(healthy, 'plugin.json'), JSON.stringify({ name: 'healthy', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Healthy', fields: '*', reads: [] }] }));
     writeFileSync(join(healthy, 'contract.json'), JSON.stringify({ id: 'healthy', version: '1.0.0', outputs, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
-    writeFileSync(join(healthy, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk'; await definePlugin({ name: 'healthy', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract() { return { vertices: [{ kind: 'Healthy', key: { id: 'independent' }, values: { text: 'still filled' }, evidence: { repository: 'repo', path: 'source.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } }; } });`);
+    writeFileSync(join(healthy, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk'; await definePlugin({ name: 'healthy', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract() { return { vertices: [{ kind: 'Healthy', key: { id: 'independent' }, values: { text: 'still filled' }, evidence: { target: { kind: 'system.content-snapshot', key: { digest: '${digestOf('Authored source.\n')}' } }, path: 'source.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } }; } });`);
     plugins[0]!.outputs = ['X', 'Y'];
     plugins.push({ id: 'healthy', version: 1, path: 'plugins/healthy', inputs: [], outputs: ['Healthy'], closure: ['plugins/healthy/plugin.json', 'plugins/healthy/contract.json', 'plugins/healthy/main.js'] });
   }
@@ -72,12 +79,26 @@ function fixture(mode: Mode) {
 
 async function open(f: ReturnType<typeof fixture>) {
   const owner = await createTestDatabaseOwner({ btreeGist: true });
-  await prepareStore(owner, { contract: await readPinnedGraphContract(f.product) });
+  const contract = await readPinnedGraphContract(f.product);
+  await prepareStore(owner, { contract });
+  // Capture the authored bytes as fixture input, not as extra plugin-produced outputs.
+  const contents = [...new Set([...f.files.map(file => file.content), 'Authored source.\n'])];
+  await owner.transaction('write', async tx => {
+    const installed = await startupBinding(tx, contract, 'scenario-input');
+    await publishGraphDrafts(tx, installed.contract, { vertices: contents.map(content => ({
+      kind: 'system.content-snapshot', key: { digest: digestOf(content) }, values: { content },
+      producer: 'scenario-input', producerVersion: '1',
+    })), removals: [] });
+  });
   const run = async (target: string | readonly string[], runId: string) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
     steps: ['plugin-turns'], targets: { kinds: typeof target === 'string' ? [target] : target }, runId,
     prepareContract: async contract => { await prepareStore(owner, { contract }); } });
-  const rows = async (kind: string) => (await owner.transaction('snapshot', async tx => await tx.query<Record<string, unknown>>(`SELECT o.*, n.key->>'path' AS path FROM ${generatedTableName(kind, 'vertex')} o JOIN node n ON n.id=o.node_id WHERE o.state='open' ORDER BY n.key->>'path' COLLATE "C"`))).rows;
-  return { owner, run, rows };
+  const rows = async (kind: string) => await owner.transaction('snapshot', async tx => {
+    const declaration = contract.vertex.find(vertex => vertex.name === kind)!;
+    return (await readKindAssertions(tx, 'vertex', kind, declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name), { contract }))
+      .map((record): Record<string, unknown> & { assertions: typeof record.selectedAssertions } => ({ ...record.key, ...record.values, assertions: record.selectedAssertions }));
+  });
+  return { owner, run, rows, contract };
 }
 
 test('2,603 fully covered Files fill without scheduling the available general agent or Summary', async () => {
@@ -90,7 +111,7 @@ test('2,603 fully covered Files fill without scheduling the available general ag
     expect([...plan.outputs.get('scenarios')!.keys()]).toEqual(['Files']);
     expect(plan.outputs.has('agent-fill')).toBe(false);
   }
-  const { owner, run, rows } = await open(f);
+  const { owner, run, rows, contract } = await open(f);
   try {
     // No adapter or token cap is supplied; merely available agent capability cannot require either.
     const result = await run('Files', 'files-covered');
@@ -99,8 +120,20 @@ test('2,603 fully covered Files fill without scheduling the available general ag
     expect(result.units.filter(unit => unit.stageId === 'plugin-turns').map(unit => unit.unitId)).toEqual(['plugin-turns/scenarios:Files']);
     const actual = await rows('Files');
     expect(actual).toHaveLength(2603);
-    expect(actual.map(row => [row.path, row.content, row.description]).sort()).toEqual(f.files.map(file => [file.path, file.content, file.description]).sort());
-    expect(actual.every(row => String(row.said_by).startsWith('scenarios@') && Array.isArray(row.evidence) && row.evidence.length > 0)).toBe(true);
+    expect(actual.map(row => [row.path, row.content, row.description]).sort((a, b) => byCodePoint(String(a[0]), String(b[0])))).toEqual(f.files.map(file => [file.path, file.content, file.description]).sort((a, b) => byCodePoint(a[0]!, b[0]!)));
+    const sources = await owner.transaction('snapshot', tx => readKindAssertions(tx, 'vertex', 'plugin', ['installation'], { contract }));
+    const producer = sources.filter(source => source.values['installation'] === JSON.stringify(['system-engine', 'scenarios']));
+    expect(producer).toHaveLength(1);
+    const snapshots = await owner.transaction('snapshot', tx => readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content'], { contract }));
+    const sourceByPath = new Map(f.files.map(file => [file.path, snapshots.find(snapshot => snapshot.key['digest'] === digestOf(file.content))]));
+    expect(actual.every(row => {
+      const snapshot = sourceByPath.get(String(row.path));
+      return snapshot !== undefined && snapshot.values['content'] === row.content && row.assertions.filter(assertion => assertion.property !== '$exists').every(assertion =>
+        assertion.source === producer[0]!.uid && assertion.evidence.includes(snapshot.uid)
+        && assertion.evidenceAttachments.some(attachment => attachment.targetUid === snapshot.uid
+          && JSON.parse(attachment.locator).locator.path === row.path
+          && JSON.parse(attachment.locator).locator.lineStart === 1 && JSON.parse(attachment.locator).locator.lineEnd === 1));
+    })).toBe(true);
     expect(await rows('Summary')).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'files-covered' })).toEqual([expect.objectContaining({ kind: 'Files', outcome: 'completed', produced: 2603 })]);
   } finally { await owner.close(); }
@@ -131,7 +164,12 @@ test.each(['unselected-write', 'undeclared-read'] as const)('real plugin %s fail
     expect(await rows(target)).toEqual([]);
     if (mode === 'unselected-write') expect(await rows('Summary')).toEqual([]);
     else { expect(await rows('Y')).toEqual([]); expect(await rows('X')).toHaveLength(1); }
-    expect(await readProducerOutcomes(owner, { runId: mode })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: target, outcome: 'failed' })]));
+    const outcomes = await readProducerOutcomes(owner, { runId: mode });
+    expect(outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: target, outcome: 'failed' })]));
+    expect(outcomes.find(outcome => outcome.kind === target)?.reason).toContain(mode === 'unselected-write'
+      ? 'the plugin declares no vertex kind "Summary"; it declares Files'
+      : 'undeclared catalogue read of Y; declare this input in produces[].reads');
+    expect(await readProducerOutcomes(owner, { runId: mode })).toEqual(outcomes);
   } finally { await owner.close(); }
 }, 300_000);
 
@@ -158,8 +196,8 @@ test.each(['unavailable', 'old'] as const)('system Git %s fails each Git output 
     }
     expect(await rows('X')).toEqual([]); expect(await rows('Y')).toEqual([]);
     expect(await rows('Healthy')).toEqual([expect.objectContaining({ text: 'still filled' })]);
-    const retried = await owner.transaction('snapshot', async tx => await tx.query(`SELECT unit_id FROM fill_event WHERE run_id=$1 AND kind='unit-retried'`, [runId]));
-    expect(retried.rows).toEqual([]);
+    const retried = (await readProgress(owner, runId)).filter(event => event.kind === 'unit-retried');
+    expect(retried).toEqual([]);
     const outcomes = await readProducerOutcomes(owner, { runId });
     // Dependants skipped by the failed plugin publish no outcome; the unrelated producer still does.
     expect(outcomes).toHaveLength(1);

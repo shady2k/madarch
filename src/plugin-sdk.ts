@@ -642,18 +642,44 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const extract = planning ? definition.planOutput : definition.extract;
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
-        const reconcile = async (source: UnitResult, scope: ReconciliationScope): Promise<void> => {
+        const vertexIdentity = (vertex: EntityRef): string => canonical([vertex.kind, vertex.key, vertex.keyEdges ?? {}]);
+        const edgeIdentity = (edge: EdgeResult): string => canonical([edge.kind, edge.from, edge.to, edge.discriminator ?? '']);
+        const appliedVertices = new Set<string>();
+        const appliedEdges = new Set<string>();
+        const reconcile = async (source: UnitResult, scope: ReconciliationScope, retainApplied = false): Promise<void> => {
           const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
-          for (const operation of reconciliationBatches(reconcileFacts(source, current, scope), definition.contract, unit)) {
+          // Discard the result intentionally: validate duplicates and scope before merging retained facts.
+          if (retainApplied) reconcileFacts(source, { vertices: [], edges: [] }, scope);
+          const desired = retainApplied ? {
+            ...source,
+            vertices: [...new Map([...current.vertices.filter(vertex => appliedVertices.has(vertexIdentity(vertex))), ...(source.vertices ?? [])].map(vertex => [vertexIdentity(vertex), vertex])).values()],
+            edges: [...new Map([...current.edges.filter(edge => appliedEdges.has(edgeIdentity(edge))), ...(source.edges ?? [])].map(edge => [edgeIdentity(edge), edge])).values()],
+          } : source;
+          for (const operation of reconciliationBatches(reconcileFacts(desired, current, scope), definition.contract, unit)) {
             if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
             const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
             await askHost('facts.apply', { unitId: unit.unitId, key, operation });
+            for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+            for (const edge of operation.edges ?? []) appliedEdges.add(edgeIdentity(edge));
+            for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
+            for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
           }
+          // A successful reconciliation also confirms facts whose values did not need a write.
+          for (const vertex of desired.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+          for (const edge of desired.edges ?? []) appliedEdges.add(edgeIdentity(edge));
         };
+        let explicitlyReconciled = false;
         const result = await extract(unit, {
-          reconcile,
+          reconcile: async (source, scope) => { await reconcile(source, scope); explicitlyReconciled = true; },
           signal: controller.signal,
-          facts: { apply: async (key, operation, options) => await askHost('facts.apply', { unitId: unit.unitId, key, operation, ...options }) },
+          facts: { apply: async (key, operation, options) => {
+            const response = await askHost('facts.apply', { unitId: unit.unitId, key, operation, ...options });
+            for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+            for (const edge of operation.edges ?? []) appliedEdges.add(edgeIdentity(edge));
+            for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
+            for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
+            return response;
+          } },
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
@@ -670,7 +696,10 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         if (planning || definition.readOnly === true) answer(id, { unitId: unit.unitId, ...result });
         else {
           const produced = result as UnitResult;
-          await reconcile(produced, {});
+          for (const vertex of produced.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
+          if (!explicitlyReconciled || (produced.vertices?.length ?? 0) > 0 || (produced.edges?.length ?? 0) > 0 || (produced.removals?.length ?? 0) > 0) {
+            await reconcile(produced, {}, true);
+          }
           if (!running.has(id)) return;
           const { vertices: _vertices, edges: _edges, removals: _removals, ...terminal } = produced;
           answer(id, { unitId: unit.unitId, ...terminal });

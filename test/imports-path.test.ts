@@ -124,6 +124,14 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
     // nothing else. The host stub accepts every operation, so this check stands in for the reconciliation it omits.
     const vertices = operations.flatMap(operation=>operation.vertices??[]);
     expect(vertices.filter((vertex) => vertex.kind !== 'code.blob').map((vertex) => ({ kind: vertex.kind, key: vertex.key }))).toEqual([{ kind: 'code.package', key: { ecosystem: 'node', name: 'pg' } }]);
+    const snapshots = [...Object.entries(FILES), ['src/absent.ts', 'export const absent = 1;\n']].map(([path, content]) => ({ path: path!, content: content!, digest: createHash('sha256').update(content!).digest('hex') })).sort((a, b) => a.digest < b.digest ? -1 : a.digest > b.digest ? 1 : 0);
+    expect(operations.flatMap(operation=>operation.vertices??[]).map(({ kind, key, values }) => ({ kind, key, ...(values === undefined ? {} : { values }) }))).toEqual([
+      ...snapshots.map(({ content, digest }) => ({ kind: 'code.blob', key: { digest }, values: { content } })),
+      { kind: 'code.package', key: { ecosystem: 'node', name: 'pg' } },
+    ]);
+    expect(operations.flatMap(operation=>operation.edges??[]).filter(edge => edge.kind === 'code.blob-about')).toEqual(
+      snapshots.map(({ path, digest }) => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest } }, to: { kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'app' } } } } })),
+    );
     // Missing endpoints are reported as problems and never sent to the atomic writer.
     const dangling=operations.flatMap(operation=>operation.edges??[]).filter(edge=>edge.kind==='code.imports'&&edge.from.key['path']==='src/dangling.ts');
     expect(dangling).toEqual([]);
@@ -178,7 +186,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product repository filled with 
       const imports = contract.edge.find((edge) => edge.name === 'code.imports')!;
       const packages = contract.edge.find((edge) => edge.name === 'code.imports-package')!;
       const read=async(edge:typeof imports,packageEdge:boolean)=>await owner.run(async tx=>{
-        const assertions=await readKindAssertions(tx,'edge',edge.name,['place','specifier','form']);
+        const assertions=await readKindAssertions(tx,'edge',edge.name,['place','specifier','form'],{contract});
         const nodes=await tx.query<{id:number;key:Record<string,string>}>('SELECT id,key FROM node');
         const keys=new Map(nodes.rows.map(n=>[Number(n.id),n.key]));
         return assertions.sort((a,b)=>(a.discriminator??'')<(b.discriminator??'')?-1:1).map(row=>({kind:edge.name,discriminator:row.discriminator!,place:String(row.values['place']),specifier:String(row.values['specifier']),form:String(row.values['form']),from:String(keys.get(row.from!)?.['path']),to:String(keys.get(row.to!)?.[packageEdge?'name':'path']),repository:'app'}));

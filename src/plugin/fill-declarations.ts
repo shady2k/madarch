@@ -549,7 +549,12 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     return declared.length > 0 && declared.every((field) => (field.producers ?? []).includes('person'));
   };
   const nothingToFill = new Set(hasAgent ? [] : [...selected].filter((name) => authoredOnly(name)));
-  const unavailable = new Set([...selected].filter((name) => fielded(name) && !covered.has(name) && !nothingToFill.has(name)));
+  // Unasked conceptual prerequisites keep their agent gaps for a later fill. A declared producer read still
+  // needs a real source now; only the derives-from closure may stand without an extraction turn.
+  const deferredAgentKinds = new Set([...selected].filter(name => !asked.has(name) && !covered.has(name)
+    && declarations.some(plugin => plugin.manifest.agent !== undefined && plugin.manifest.produces.some(output => output.kind === '*' || output.kind === name))
+    && ![...selected].some(reader => effectiveReadsOf(input, reader, askedKinds).some(read => (typeof read === 'string' ? read : read.kind) === name))));
+  const unavailable = new Set([...selected].filter((name) => fielded(name) && !covered.has(name) && !nothingToFill.has(name) && !deferredAgentKinds.has(name)));
   for (const name of configuredMissing.keys()) if (selected.has(name)) unavailable.add(name);
   // A kind that rests on an unproduced kind, or reads one, cannot be filled either: the run reports that kind and lets
   // the kinds that do not depend on it run. A kind that declares no field propagates the same refusal: it contributes no
@@ -581,7 +586,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   }
   const skipped: FillPlanSkip[] = hasAgent ? [] : [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
     .map((kind) => fillPlanSkip(unavailable, kind, input));
-  const plannedKinds = declared.map(kind => nothingToFill.has(kind.name) ? { ...kind, producerRequired: false } : kind);
+  const plannedKinds = declared.map(kind => nothingToFill.has(kind.name) || deferredAgentKinds.has(kind.name) ? { ...kind, producerRequired: false } : kind);
   const plan = planFillDeclarations({
     kinds: plannedKinds,
     plugins: executable,

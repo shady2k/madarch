@@ -9,7 +9,8 @@ import { parseDocument, stringify } from 'yaml';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { connectAcpAgent } from '../src/fill/acp.js';
 import { runFill } from '../src/fill/run.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { createHash } from 'node:crypto';
+import { readKindAssertions } from '../src/graph/records.js';
 import { fillPlanView } from '../src/knowledge/fill-plan.js';
 import { kindClosure } from '../src/knowledge/starter-templates.js';
 import { readTraceSpans } from '../src/obs/trace-report.js';
@@ -34,6 +35,7 @@ const DECISIONS = [
 
 /** A scripted ACP peer: it reads both decisions through the host's file reads and answers them with evidence. */
 const FAKE = `import { createInterface } from 'node:readline';
+import { createHash } from 'node:crypto';
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
 let sequence = 0;
 const pending = new Map();
@@ -50,13 +52,48 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     for (const file of files) read.push(await ask('fs/read_text_file', { sessionId, path: '/' + 'app/' + file.path }));
     const readable = read.every((answer) => typeof answer.result?.content === 'string');
     const result = readable
-      ? { vertices: files.map((file, at) => ({ kind: 'doc.decision', key: { legacy_id: file.id }, values: { title: file.title, body: file.body }, evidence: { repository: 'app', path: file.path, lineStart: 1, lineEnd: 3 } })), end: { state: 'complete' } }
+      ? { vertices: files.map((file, at) => ({ kind: 'doc.decision', key: { legacy_id: file.id }, values: { title: file.title, body: file.body }, evidence: { target: { kind: 'code.blob', key: { digest: createHash('sha256').update(read[at].result.content).digest('hex') } }, path: file.path, lineStart: 1, lineEnd: 3 } })), end: { state: 'complete' } }
       : { vertices: [], end: { state: 'partial', cause: 'a decision file could not be read: ' + JSON.stringify(read) } };
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } } });
     send({ id: m.id, result: { stopReason: 'end_turn', usage: { totalTokens: 120, inputTokens: 100, outputTokens: 20 } } });
   }
 });
 `;
+
+const DECISION_QUERY = `{ allDocDecision(first: 10, orderBy: [{ field: legacyId }]) { edges { node {
+  legacyId title body bodyAssertions { selected source { id } evidence { locator target { kind ... on KindCodeBlob { digest } } } }
+} } } }`;
+
+async function evidenceFiles(owner: Parameters<typeof executeGraphql>[0], manifest: Parameters<typeof executeGraphql>[1]) {
+  const blobs = await executeGraphql(owner, manifest, { query: '{ allCodeBlob(first: 10) { totalCount edges { node { digest codeBlobAbout(first: 10) { totalCount edges { node { node { id ... on KindCodeFile { path } } } } } } } } }' });
+  const files = await executeGraphql(owner, manifest, { query: '{ allCodeFile(first: 10) { totalCount edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
+  expect(blobs.status).toBe(200);
+  expect(files.status).toBe(200);
+  const fileConnection = (files.body as { data: any }).data.allCodeFile;
+  const blobConnection = (blobs.body as { data: any }).data.allCodeBlob;
+  expect(fileConnection.edges.length).toBe(fileConnection.totalCount);
+  expect(blobConnection.edges.length).toBe(blobConnection.totalCount);
+  for (const { node } of blobConnection.edges) expect(node.codeBlobAbout.edges.length).toBe(node.codeBlobAbout.totalCount);
+  const fileRows = fileConnection.edges.map((edge: any) => edge.node);
+  return new Map<string, { repository: string; path: string }[]>((blobs.body as { data: any }).data.allCodeBlob.edges.map((edge: any) => [edge.node.digest,
+    edge.node.codeBlobAbout.edges.map((held: any) => ({ path: held.node.node.path,
+      repository: fileRows.find((file: any) => file.id === held.node.node.id)?.codeFileRepository.edges[0]?.node.node.name })),
+  ]));
+}
+
+function decisionEvidence(assertion: any, files: Map<string, { repository: string; path: string }[]>) {
+  return assertion.evidence.map((ground: any) => ({
+    kind: ground.target.kind, digest: ground.target.digest,
+    path: ground.locator.path, lineStart: ground.locator.lineStart, lineEnd: ground.locator.lineEnd,
+    files: files.get(ground.target.digest),
+  }));
+}
+
+function expectedEvidence() {
+  const file = DECISIONS[0]!;
+  return [{ kind: 'code.blob', digest: createHash('sha256').update(`# ${file.title}\n\n${file.body}\n`).digest('hex'),
+    path: file.path, lineStart: 1, lineEnd: 3, files: [{ repository: 'app', path: file.path }] }];
+}
 
 function fixture(options: { readonly agent?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'madarch-agent-decisions-'));
@@ -155,11 +192,11 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
       expect(run.units.map((unit) => unit.unitId)).toContain('plugin-turns/agent-fill:doc.decision');
-      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ legacy_id: string; title: string; evidence: { repository: string; path: string; line_start: number; line_end: number }[] }>(
-        `SELECT n.key->>'legacy_id' AS legacy_id, v.title, v.evidence FROM ${generatedTableName('doc.decision', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state='open' ORDER BY n.key->>'legacy_id'`,
-      ));
-      expect(rows.rows.map((row) => [row.legacy_id, row.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
-      expect(rows.rows[0]?.evidence).toEqual([expect.objectContaining({ repository: 'app', path: 'docs/decisions/0001-choose-postgres.md', line_start: 1, line_end: 3 })]);
+      const held = await executeGraphql(owner, { manifest: declarations.manifest, folder: f.product }, { query: DECISION_QUERY });
+      expect(held.status).toBe(200);
+      const rows = (held.body as { data: any }).data.allDocDecision.edges.map((edge: any) => edge.node);
+      expect(rows.map((row: any) => [row.legacyId, row.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
+      expect(decisionEvidence(rows[0].bodyAssertions.find((assertion: any) => assertion.selected), await evidenceFiles(owner, { manifest: declarations.manifest, folder: f.product }))).toEqual(expectedEvidence());
       // The run keeps what the agent spent, and the cap the press held it to.
       const usage = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; field: string; total_tokens: number; reported: boolean }>(
         'SELECT kind, field, total_tokens, reported FROM agent_usage WHERE run_id = $1 ORDER BY kind, field', [run.runId],
@@ -176,14 +213,15 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
     const reader = await createDatabaseOwner({ store: storeDatabasePath(store) });
     try {
       const answer = await executeGraphql(reader, { manifest: declarations.manifest, folder: f.product }, {
-        query: '{ allDocDecision(orderBy: [{ field: legacyId }]) { edges { node { legacyId title body bodyOpinions { producer evidence { repository path lineStart lineEnd } } } } } }',
+        query: DECISION_QUERY,
       });
       expect(answer.status).toBe(200);
       const data = (answer.body as { data: any }).data;
       expect(data.allDocDecision.edges.map((edge: any) => [edge.node.legacyId, edge.node.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
-      const opinions = data.allDocDecision.edges[0].node.bodyOpinions;
-      expect(opinions.map((opinion: any) => opinion.producer)).toEqual(['agent-fill']);
-      expect(opinions[0].evidence).toEqual([{ repository: 'app', path: 'docs/decisions/0001-choose-postgres.md', lineStart: 1, lineEnd: 3 }]);
+      const opinions = data.allDocDecision.edges[0].node.bodyAssertions.filter((assertion: any) => assertion.selected);
+      const sources = await reader.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'plugin', ['label']));
+      expect(opinions.map((opinion: any) => sources.find((source) => source.uid === opinion.source.id)?.values['label'])).toEqual(['agent-fill']);
+      expect(decisionEvidence(opinions[0], await evidenceFiles(reader, { manifest: declarations.manifest, folder: f.product }))).toEqual(expectedEvidence());
     } finally { await reader.close(); }
   }, 300_000);
 

@@ -28,7 +28,7 @@ import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotV
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName, graphContractVersion } from '../graph/contract.js';
 import { applyPluginFacts } from '../graph/graph-writes.js';
-import { producerFacts } from '../graph/producer-facts.js';
+import { producerFacts, sdkReference } from '../graph/producer-facts.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
@@ -129,7 +129,8 @@ function declaredSupport(wiring: PluginTurnWiring, unit: PluginTurnUnit) {
 }
 
 /** Runtime-only authority, resolved from the selected plugin declaration rather than producer input. */
-export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } {
+export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } | undefined {
+  if (id.startsWith(MISSING_KIND_UNIT)) return undefined;
   const unit = unitOf(wiring, id);
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const fields = plan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
@@ -274,7 +275,10 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
     const identity = canonicalJsonDigest({ snapshot, kind });
     let held = snapshots.get(identity);
     if (held === undefined) {
-      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => [canonicalEntity({ kind, ...row }), row])));
+      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => {
+        const reference = sdkReference({ kind, key: row.key, ...(row.keyEdges === undefined ? {} : { keyEdges: row.keyEdges }) });
+        return [canonicalEntity(reference), { ...row, ...reference }];
+      })));
       snapshots.set(identity, held);
     }
     return held;
@@ -290,7 +294,8 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
       // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
       // reconciliation must not withdraw it merely because the extract names no such edge of its own.
       const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
-      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
+      const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
+      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
       if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
       return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges);
     },
@@ -301,7 +306,7 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
           return { path: key.path, keyEdges: keyEdges ?? {} };
         });
       return files.filter((file) => matchesAny([pattern], file.path))
-        .map((file) => ({ kind: 'code.file', key: { path: file.path }, keyEdges: file.keyEdges }));
+        .map((file) => sdkReference({ kind: 'code.file', key: { path: file.path }, keyEdges: file.keyEdges }));
     },
     value: async (kind, key, field, keyEdges, snapshot) => {
       const ref = { kind, key };

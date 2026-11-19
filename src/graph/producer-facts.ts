@@ -8,7 +8,7 @@ import { loadAssertions, type StoredAssertion } from './assertion-read.js';
 import { referenceOf } from './plugin-turns.js';
 
 /** The SDK reference envelope carries natural keys and parent roles, not host uids. */
-function sdkReference(reference: import('./contract.js').EntityRefDraft): PluginEntityRef {
+export function sdkReference(reference: import('./contract.js').EntityRefDraft): PluginEntityRef {
   return { kind: reference.kind, key: reference.key, ...(reference.keyEdges === undefined ? {} : {
     keyEdges: Object.fromEntries(Object.entries(reference.keyEdges).map(([role, parent]) => [role, sdkReference(parent)])),
   }) };
