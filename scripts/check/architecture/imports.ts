@@ -113,10 +113,10 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
           ? [{ local: specifier.exported?.value ?? specifier.orig.value, imported: specifier.orig.value }]
           : []), reExport: true, typeOnly, wholeModule: false });
     } else if (item.type === 'ExportAllDeclaration') {
-      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], bindings: [], reExport: true, typeOnly: false, wholeModule: true });
+      statements.push({ specifier: item.source.value, line: lineAt(bytes, item.span.start), names: [], bindings: [], reExport: true, typeOnly: 'typeOnly' in item && item.typeOnly === true, wholeModule: true });
     }
   }
-  for (const dynamic of dynamicImportsOf(module)) {
+  for (const dynamic of moduleLoadsOf(module)) {
     statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], bindings: dynamic.bindings, reExport: false, typeOnly: false, wholeModule: true });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
@@ -148,12 +148,18 @@ interface DynamicImport {
   readonly start: number;
 }
 
+/** Whether an SWC call loads a module via dynamic import() or CommonJS require(). */
+function isModuleLoadCallee(callee: Record<string, unknown> | undefined): boolean {
+  return callee !== null && typeof callee === 'object' &&
+    (callee['type'] === 'Import' || (callee['type'] === 'Identifier' && callee['value'] === 'require'));
+}
+
 /**
  * Every literal `import('…')` or `require('…')` call in a module's body.
  * A require declaration also carries its local bindings. A computed specifier
  * cannot name a module here and is left to the reader.
  */
-function dynamicImportsOf(node: unknown): DynamicImport[] {
+function moduleLoadsOf(node: unknown): DynamicImport[] {
   const found: DynamicImport[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -183,7 +189,7 @@ function dynamicImportsOf(node: unknown): DynamicImport[] {
         found.push({ specifier: String(first['value']), start: (init['span'] as { start: number }).start, bindings });
       }
     }
-    if (held['type'] === 'CallExpression' && callee !== null && typeof callee === 'object' && (callee['type'] === 'Import' || (callee['type'] === 'Identifier' && callee['value'] === 'require'))) {
+    if (held['type'] === 'CallExpression' && isModuleLoadCallee(callee)) {
       const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
       const expression = first?.['expression'] as Record<string, unknown> | undefined;
       const span = held['span'] as { start: number } | undefined;
