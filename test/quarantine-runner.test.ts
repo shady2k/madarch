@@ -36,3 +36,53 @@ process.exitCode = await child.exited;
   expect(readFileSync(summary, 'utf8')).toContain('No quarantined cases');
   expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ cases: [] });
 });
+
+
+test('the report displays file exclusions without executing them', async () => {
+  folder = mkdtempSync(join(tmpdir(), 'quarantine-files-'));
+  mkdirSync(join(folder, 'test'));
+  writeFileSync(join(folder, 'test/slow.test.ts'), "throw new Error('excluded file must not execute');\n");
+  const entry = { path: 'test/slow.test.ts', seconds: 41, reason: 'red-defect', result: 'red', owner: 'madarch-x9a7', defect: 'Named | defect', replacement: 'Focused assertion', exit: 'Replacement passes' };
+  const manifest = join(folder, 'test/slow-files.json');
+  const text = JSON.stringify({ version: 1, measuredOn: '2026-11-18', files: [entry] }, null, 2);
+  writeFileSync(manifest, text);
+  const report = join(folder, 'quarantine-results.json');
+  const summary = join(folder, 'summary.md');
+  const child = Bun.spawn([process.execPath, resolve('scripts/run-quarantine.ts')], {
+    cwd: folder, env: { ...process.env, MADARCH_QUARANTINE_REPORT: report, GITHUB_STEP_SUMMARY: summary }, stdout: 'pipe', stderr: 'pipe',
+  });
+  const output = await new Response(child.stdout).text();
+  const errors = await new Response(child.stderr).text();
+  expect(await child.exited).toBe(0);
+  expect(errors).toBe('');
+  const line = text.slice(0, text.indexOf(JSON.stringify(entry.path))).split('\n').length;
+  for (const value of [entry.path, entry.owner, entry.replacement, entry.exit, `${manifest}:${line}`, 'Named &#124; defect']) {
+    expect(output).toContain(value);
+    expect(readFileSync(summary, 'utf8')).toContain(value);
+  }
+  expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ cases: [], excludedFiles: [{ ...entry, manifest, line }] });
+});
+
+
+test('file exclusion reporting leaves anchored per-case execution and result records intact', async () => {
+  folder = mkdtempSync(join(tmpdir(), 'quarantine-case-'));
+  mkdirSync(join(folder, 'test'));
+  const since = '3ec0f2b1d7923fa81901d0293e2e92d34df300a8';
+  writeFileSync(join(folder, 'test/sample.test.ts'), `import { test, expect } from 'bun:test';
+import { quarantined } from ${JSON.stringify(resolve('test/quarantine.ts'))};
+quarantined('madarch-x9a7', test, 'broken', '${since}')('only [case]', () => { expect(true).toBe(true); });
+test('only [case] extra', () => { throw new Error('must not execute'); });
+`);
+  const report = join(folder, 'quarantine-results.json');
+  const child = Bun.spawn([process.execPath, resolve('scripts/run-quarantine.ts')], {
+    cwd: folder, env: { ...process.env, MADARCH_QUARANTINE_REPORT: report, GITHUB_STEP_SUMMARY: '' }, stdout: 'pipe', stderr: 'pipe',
+  });
+  const output = await new Response(child.stdout).text();
+  const errors = await new Response(child.stderr).text();
+  expect(await child.exited).toBe(0);
+  expect(output).toContain('PASS: only [case]');
+  expect(errors).not.toContain('must not execute');
+  const recorded = JSON.parse(readFileSync(report, 'utf8'));
+  expect(recorded.cases).toHaveLength(1);
+  expect(recorded.cases[0]).toMatchObject({ file: 'test/sample.test.ts', name: 'only [case]', task: 'madarch-x9a7', since, result: 'PASS' });
+});

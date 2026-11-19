@@ -2,7 +2,7 @@
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { quarantineInventory } from './check-quarantine.js';
+import { excludedFileInventory, quarantineInventory, type ExcludedFile } from './check-quarantine.js';
 
 const PROCESS_TIMEOUT_MS = 900_000;
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -10,9 +10,11 @@ const cell = (text: string): string => text.replace(/\|/g, '&#124;').replace(/[\
 const results: string[] = ['## Quarantined tests', '', '| Task | File | Case | Reason | Since | Result |', '| --- | --- | --- | --- | --- | --- |'];
 const recorded: Record<string, unknown>[] = [];
 let failed = false;
+let excluded: ExcludedFile[] = [];
 const folder = mkdtempSync(join(tmpdir(), 'madarch-quarantine-'));
 try {
   const cases = quarantineInventory();
+  excluded = excludedFileInventory();
   for (const [index, entry] of cases.entries()) {
     const report = join(folder, `${index}.xml`);
     let result: string;
@@ -50,12 +52,17 @@ try {
     results.push(`| ${cell(entry.task)} | ${cell(entry.file)} | ${cell(entry.name)} | ${cell(entry.reason)} | ${cell(entry.since)} | ${cell(result)} |`);
   }
   if (!cases.length) results.push('| — | — | No quarantined cases | — | — | — |');
+  if (excluded.length) {
+    results.push('', '## Excluded test files', '', '| Manifest | File | Owner | Reason | Measured result | Seconds | Defect | Replacement | Exit |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    for (const entry of excluded) results.push(`| ${cell(`${entry.manifest}:${entry.line}`)} | ${cell(entry.path)} | ${cell(entry.owner ?? '')} | ${cell(entry.reason)} | ${cell(entry.result ?? '')} | ${entry.seconds} | ${cell(entry.defect ?? '')} | ${cell(entry.replacement ?? '')} | ${cell(entry.exit ?? '')} |`);
+    results.push('', 'File exclusions are repair obligations, not passing test results; this command runs only per-case quarantines.', '');
+  }
 } catch (error) {
   failed = true;
   results.push('', `Inventory failed: ${cell(error instanceof Error ? error.message : String(error))}`);
 } finally {
   rmSync(folder, { recursive: true, force: true });
-  if (process.env.MADARCH_QUARANTINE_REPORT) writeFileSync(process.env.MADARCH_QUARANTINE_REPORT, `${JSON.stringify({ cases: recorded }, null, 2)}\n`);
+  if (process.env.MADARCH_QUARANTINE_REPORT) writeFileSync(process.env.MADARCH_QUARANTINE_REPORT, `${JSON.stringify({ cases: recorded, ...(excluded.length ? { excludedFiles: excluded } : {}) }, null, 2)}\n`);
   const summary = `${results.join('\n')}\n`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);

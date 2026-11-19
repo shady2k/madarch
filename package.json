@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit && bun run check:architecture && bun run check:ui && bun run check:catalog && bun run check:workflows && bun run check:quarantine && bun run check:tests",
+    "check": "tsc --noEmit && bun run check:architecture && bun run check:ui && bun run check:catalog && bun run check:workflows && bun run check:slow-tests && bun run check:quarantine && bun run check:tests",
     "check:architecture": "bun scripts/check-architecture.ts",
     "check:tests": "bun scripts/check-tests.ts",
     "check:ui": "bun scripts/check-ui-architecture.ts",
@@ -12,8 +12,11 @@
     "check:quarantine": "bun scripts/check-quarantine.ts",
     "test:quarantine": "bun scripts/run-quarantine.ts",
     "check:workflows": "bun scripts/check-workflows.ts",
+    "check:slow-tests": "bun scripts/check-slow-tests.ts",
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard && bun scripts/check-ui-architecture.ts --base-guard",
-    "test": "bun test test/",
+    "test": "bun scripts/run-tests.ts",
+    "test:fast": "bun scripts/run-tests.ts",
+    "test:slow": "bun scripts/run-tests.ts --slow",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
     "install:plugins": "bun scripts/plugin-deps.ts",
     "postinstall": "bun run install:plugins"

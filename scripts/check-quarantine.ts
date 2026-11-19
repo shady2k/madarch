@@ -1,9 +1,25 @@
 #!/usr/bin/env bun
 import { parseSync } from '@swc/core';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { jsonArrayLocations } from './json-lines.js';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { readSlowList, SLOW_LIST, testFiles, type SlowFile } from './run-tests.js';
 
 export interface QuarantinedCase { file: string; line: number; task: string; name: string; reason: string; since: string }
+export interface ExcludedFile extends SlowFile { readonly manifest: string; readonly line: number }
+
+/** File exclusions stay separate from literal per-case markers and are never executed here. */
+export function excludedFileInventory(root = process.cwd()): ExcludedFile[] {
+  const manifest = resolve(root, SLOW_LIST);
+  if (!existsSync(manifest)) return [];
+  const text = readFileSync(manifest, 'utf8');
+  const locations = jsonArrayLocations(text);
+  return readSlowList(root, testFiles(root)).files.map((entry, index) => {
+    const location = locations[index]!;
+    return { ...entry, manifest, line: location.propertyLines.path ?? location.entryLine };
+  });
+}
+
 type Ast = { type: string; value?: string; span?: { start: number }; callee?: Ast; arguments?: { expression: Ast }[] };
 const TASK = /^madarch-[a-z0-9]+(?:\.[0-9]+)*$/;
 const identifier = (node: Ast | undefined, name: string): boolean => node?.type === 'Identifier' && node.value === name;
@@ -81,6 +97,9 @@ if (import.meta.main) {
     const cases = quarantineInventory();
     for (const entry of cases) console.log(`${entry.file}:${entry.line} ${entry.task} ${entry.name}`);
     console.log(`${cases.length} quarantined cases (static inventory; no tracker queries)`);
+    const excluded = excludedFileInventory();
+    for (const entry of excluded) console.log(`${entry.manifest}:${entry.line} ${entry.path} owner=${entry.owner} reason=${entry.reason} result=${entry.result} seconds=${entry.seconds} defect=${entry.defect} replacement=${entry.replacement} exit=${entry.exit}`);
+    console.log(`${excluded.length} excluded files (static inventory; no tracker queries)`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
