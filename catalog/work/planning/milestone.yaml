@@ -11,8 +11,10 @@ acquisition:
 relation-constraints:
   out:
   - hasPart
+  - work.depends-on
   in:
   - partOf
+  - work.depends-on
 template-policy: page
 source: graph
 fields:

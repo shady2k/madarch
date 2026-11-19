@@ -11,11 +11,11 @@ acquisition:
 relation-constraints:
   out:
   - hasPart
-  - dependsOn
+  - work.depends-on
   - stage.contains
   in:
   - partOf
-  - dependsOn
+  - work.depends-on
   - stage.contains
 template-policy: page
 source: graph

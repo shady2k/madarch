@@ -10,7 +10,7 @@ acquisition:
 - conversation
 relation-constraints:
   out:
-  - dependsOn
+  - work.depends-on
   - hasPart
   - refines
   - partOf
@@ -19,7 +19,7 @@ relation-constraints:
   in:
   - partOf
   - hasPart
-  - dependsOn
+  - work.depends-on
   - task.contains
 template-policy: page
 source: graph

@@ -86,7 +86,9 @@ test('adding one kind to the full starter publishes only its own field, relation
         expectedPairs.add(JSON.stringify([MANIFEST_DEPENDS_ON, name, dependency, '']));
       }
     }
-    expect(expectedPairs.size).toBe(813 + 185 + 1); // Whole catalogue dependencies, concrete edge endpoints, and a declared relation.
+    // Whole catalogue dependencies, concrete edge endpoints, a declared relation, and the six work kinds at both
+    // ends of work.depends-on.
+    expect(expectedPairs.size).toBe(813 + 185 + 1 + 36);
     expect(new Set(before.edges.map(one => JSON.stringify([one.kind, one.from.key['name'], one.to.key['name'], one.discriminator ?? ''])))).toEqual(expectedPairs);
     expect(before.edges).toHaveLength(expectedPairs.size);
 

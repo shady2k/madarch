@@ -12,10 +12,12 @@ relation-constraints:
   out:
   - hasPart
   - refines
+  - work.depends-on
   - epic.contains
   in:
   - partOf
   - realises
+  - work.depends-on
   - epic.contains
 template-policy: page
 source: graph
