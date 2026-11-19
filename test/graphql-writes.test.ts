@@ -477,7 +477,7 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25  } }],
     });
     expect(edge.written).toBeGreaterThan(0);
-    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindManifestKind { mentionsOf(first: 5) { totalCount } } } }`, { id: catalogue.id });
+    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on CatalogueEntity { mentionsOf(first: 5) { totalCount } } } }`, { id: catalogue.id });
     expect((read['entity'] as Record<string, any>).mentionsOf.totalCount).toBeGreaterThanOrEqual(1);
   });
 
