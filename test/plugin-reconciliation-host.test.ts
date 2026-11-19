@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { PluginHost, type GraphAnswerer } from '../src/plugin/host.js';
 import { closureOf } from '../src/plugin/closure.js';
 
-async function run(source: string, readOnly = false, graph?: GraphAnswerer, retainApplied = false) {
+async function run(source: string, readOnly = false, graph?: GraphAnswerer, retainApplied = false, failApplyAt?: number) {
   const root = mkdtempSync(join(tmpdir(), 'madarch-reconciliation-host-'));
   try {
     writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'writer-probe', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, readOnly, produces: [{ kind: 'Probe', fields: '*' }] }));
@@ -15,8 +15,9 @@ async function run(source: string, readOnly = false, graph?: GraphAnswerer, reta
     const closure = closureOf(root);
     const operations: import('../src/plugin-sdk.js').FactsOperation[] = [];
     let removed = false;
+    let applyCalls = 0;
     const liveGraph = graph === undefined ? undefined : { ...graph, ownFacts: async (query: Parameters<NonNullable<GraphAnswerer['ownFacts']>>[0]) => retainApplied ? { vertices: operations.flatMap(operation => operation.vertices ?? []), edges: [] } : removed ? { vertices: [], edges: [] } : await graph.ownFacts!(query) };
-    const host = new PluginHost({ operations: { async apply(_unit, _key, operation) { operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); removed = true; return { accepted: true }; } }, pluginFolder: root, closure, repository: root, workRoot: join(root, 'work'), trust: 'production', releaseHashes: [closure.hash], env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, graph: liveGraph });
+    const host = new PluginHost({ operations: { async apply(_unit, _key, operation) { if (++applyCalls === failApplyAt) throw new Error('injected batch failure'); operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); removed = true; return { accepted: true }; } }, pluginFolder: root, closure, repository: root, workRoot: join(root, 'work'), trust: 'production', releaseHashes: [closure.hash], env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, graph: liveGraph });
     const session = await host.open();
     try { const outcome = await session.runUnit({ unitId: 'u1', kind: 'Probe', key: { id: 'one' }, inputs: { repositories: [{ repository: 'sample', commit: 'current' }] } }); return { outcome, operations }; }
     finally { await session.close(); }
@@ -65,6 +66,54 @@ test('explicit reconciliation facts survive a nonempty terminal answer', async (
   expect(operations).toEqual([
     { vertices: [{ kind: 'Probe', key: { id: 'one' } }] },
     { vertices: [{ kind: 'Probe', key: { id: 'two' } }] },
+  ]);
+});
+
+test('unchanged reconciled vertex survives a nonempty terminal answer on a repeated run', async () => {
+  const { outcome, operations } = await run(`await context.reconcile({vertices:[{kind:'Probe',key:{id:'one'}}],end:{state:'complete'}},{}); return {vertices:[{kind:'Probe',key:{id:'two'}}],end:{state:'complete'}};`, false, {
+    ...graph, ownFacts: async () => ({ vertices: [{ kind: 'Probe', key: { id: 'one' } }], edges: [] }),
+  });
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([{ vertices: [{ kind: 'Probe', key: { id: 'two' } }] }]);
+});
+
+test('unchanged reconciled edge survives a nonempty terminal answer on a repeated run', async () => {
+  const endpoint = { kind: 'Probe', key: { id: 'one' } };
+  const { outcome, operations } = await run(`await context.reconcile({edges:[{kind:'link',from:{kind:'Probe',key:{id:'one'}},to:{kind:'Probe',key:{id:'one'}}}],end:{state:'complete'}},{}); return {vertices:[{kind:'Probe',key:{id:'two'}}],end:{state:'complete'}};`, false, {
+    ...graph, ownFacts: async () => ({ vertices: [], edges: [{ kind: 'link', from: endpoint, to: endpoint }] }),
+  });
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([{ vertices: [{ kind: 'Probe', key: { id: 'two' } }] }]);
+});
+
+test('changed reconciled values survive a nonempty terminal answer', async () => {
+  const { outcome, operations } = await run(`await context.reconcile({vertices:[{kind:'Probe',key:{id:'one'},values:{text:'new'}}],end:{state:'complete'}},{}); return {vertices:[{kind:'Probe',key:{id:'two'}}],end:{state:'complete'}};`, false, {
+    ...graph, ownFacts: async () => ({ vertices: [{ kind: 'Probe', key: { id: 'one' }, values: { text: 'old' } }], edges: [] }),
+  }, true);
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([
+    { vertices: [{ kind: 'Probe', key: { id: 'one' }, values: { text: 'new' } }] },
+    { vertices: [{ kind: 'Probe', key: { id: 'two' } }] },
+  ]);
+});
+
+test('a later reconciliation can retire a previously confirmed unchanged fact', async () => {
+  const { outcome, operations } = await run(`await context.reconcile({vertices:[{kind:'Probe',key:{id:'one'}}],end:{state:'complete'}},{}); await context.reconcile({end:{state:'complete'}},{}); return {vertices:[{kind:'Probe',key:{id:'two'}}],end:{state:'complete'}};`, false, {
+    ...graph, ownFacts: async () => ({ vertices: [{ kind: 'Probe', key: { id: 'one' } }], edges: [] }),
+  });
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([
+    { removals: [{ kind: 'Probe', key: { id: 'one' } }] },
+    { vertices: [{ kind: 'Probe', key: { id: 'two' } }] },
+  ]);
+});
+
+test('a caught failure in the second reconciliation batch retains only accepted facts', async () => {
+  const { outcome, operations } = await run(`let failed=false; try { await context.reconcile({vertices:Array.from({length:501},(_,i)=>({kind:'Probe',key:{id:String(i).padStart(3,'0')}})),end:{state:'complete'}},{}); } catch(error) { if(!error.message.includes('injected batch failure')) throw error; failed=true; } if(!failed) throw new Error('expected batch failure'); return {vertices:[{kind:'Probe',key:{id:'terminal'}}],end:{state:'complete'}};`, false, graph, true, 2);
+  expect(outcome.state).toBe('extracted');
+  expect(operations).toEqual([
+    { vertices: Array.from({ length: 500 }, (_, i) => ({ kind: 'Probe', key: { id: String(i).padStart(3, '0') } })) },
+    { vertices: [{ kind: 'Probe', key: { id: 'terminal' } }] },
   ]);
 });
 

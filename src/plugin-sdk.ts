@@ -664,6 +664,9 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
             for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
             for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
           }
+          // A successful reconciliation also confirms facts whose values did not need a write.
+          for (const vertex of desired.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+          for (const edge of desired.edges ?? []) appliedEdges.add(edgeIdentity(edge));
         };
         let explicitlyReconciled = false;
         const result = await extract(unit, {
