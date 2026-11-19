@@ -19,8 +19,8 @@ import {withManifestContract} from '../src/graph/manifest-contract.js';
 export const recordGraph=withManifestContract(recordKinds);
 import {publishGraphDrafts} from '../src/graph/write.js';
 import {createTestDatabaseOwner} from './test-database.js';
-export async function createRecordOwner(options:{readonly parentPositionFieldType?:'integer'|'text'}={}){
- const contract=options.parentPositionFieldType===undefined?recordGraph:{...recordGraph,edge:recordGraph.edge.map(edge=>edge.name!==GIT_KINDS.parent?edge:{...edge,fields:edge.fields.map(field=>field.name==='position'?{...field,type:options.parentPositionFieldType!}:field)})};
+export async function createRecordOwner(options:{readonly parentPositionFieldType?:'integer'|'text';readonly contract?:GraphContract}={}){
+ const contract=options.contract??(options.parentPositionFieldType===undefined?recordGraph:{...recordGraph,edge:recordGraph.edge.map(edge=>edge.name!==GIT_KINDS.parent?edge:{...edge,fields:edge.fields.map(field=>field.name==='position'?{...field,type:options.parentPositionFieldType!}:field)})});
  const owner=await createTestDatabaseOwner({graphContract:contract});
  const fields=(names:string[])=>Object.fromEntries(names.map(name=>[name,name]));
  const edge=(kind:string,direction:'from'|'to',mapped:Record<string,string>={})=>({kind,direction,fields:mapped,line:1});

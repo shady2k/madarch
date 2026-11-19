@@ -129,6 +129,29 @@ test('0039.1: parent-bound file facts need no history and a missing file is null
  }finally{await files.close();}
 });
 
+test('0039.1: a repository read walks the whole contains tree', async () => {
+  const nested = { ...recordGraph, edge: recordGraph.edge.map(edge => edge.name === GIT_KINDS.contains
+    ? { ...edge, from: [GIT_KINDS.repository, GIT_KINDS.directory], to: [GIT_KINDS.directory, GIT_KINDS.file] }
+    : edge) };
+  const store = await createRecordOwner({ contract: nested });
+  try {
+    const directory = { kind: GIT_KINDS.directory, key: { path: 'src' } };
+    await store.transaction('write', tx => publishGraphDrafts(tx, nested, {
+      vertices: [
+        { ...repoRef('nested'), ...fixtureProducer },
+        { ...directory, ...fixtureProducer },
+        { ...fileRef('src/a.ts'), values: { blob: 'b'.repeat(40), bytes: 1, form: 'text', lines: 1, language: 'TypeScript', languages: ['TypeScript'] }, ...fixtureProducer },
+      ],
+      edges: [
+        { kind: GIT_KINDS.contains, from: repoRef('nested'), to: directory, ...fixtureProducer },
+        { kind: GIT_KINDS.contains, from: directory, to: fileRef('src/a.ts'), ...fixtureProducer },
+      ], removals: [],
+    }));
+    expect((await listFiles(store, { repository: 'nested', limit: 10 })).rows.map(row => row.path)).toEqual(['src/a.ts']);
+    expect(await repositoryFacts(store, 'nested')).toMatchObject({ fileCount: 1, directoryCount: 1 });
+  } finally { await store.close(); }
+}, 30_000);
+
 describe('the two passes over one fixture', () => {
   test('write the tree and the history, and a second run writes nothing', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
