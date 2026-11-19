@@ -73,13 +73,15 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const contract = withAssertionContract(writeContractOf(manifest));
   const vertex = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: no field contract is declared`);
-  try { parseRequest(catalogueRequests(contract).authored(kind, action), args); }
+  const inherited = manifest.kinds.get(kind)?.systemBase?.fields ?? [];
+  const authorable = vertex.fields.filter((field) => !inherited.some((base) => base.name === field.name));
+  try { parseRequest(catalogueRequests(contract).authored(kind, action, authorable), args); }
   catch (error) {
     if (!(error instanceof GraphRefusal)) throw error;
     throw new AuthoredRefusal(400, error.message, undefined, error);
   }
   const result = { kind, fields: vertex.fields };
-  if (action === 'schema') return result;
+  if (action === 'schema') return { ...result, fields: authorable };
   const identity = person === undefined ? undefined : producerIdentityOf(person);
   let admitted: WriteCapability | undefined;
   if (action !== 'list' && action !== 'read') {

@@ -5,7 +5,8 @@ import { installSystemSources, personBinding } from '../src/graph/system-install
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { activateGraphProducer } from '../src/graph/producer-binding.js';
 import { readKindAssertions } from '../src/graph/records.js';
-import { authoredEntity } from '../src/graph/authored.js';
+import { AuthoredRefusal, authoredEntity } from '../src/graph/authored.js';
+import { GraphRefusal } from '../src/graph/validation.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 
@@ -51,6 +52,22 @@ test('person-authored system extensions do not require or overwrite inherited in
     const binding = await personBinding(owner, contract);
     const made = await owner.transaction('write', async (tx) => await authoredEntity(tx, manifest, 'product', binding, 'create', 'person', { values: { name: 'Participant' } }));
     expect(made.entity!.values.name).toBe('Participant');
-    await expect(owner.transaction('write', async (tx) => await authoredEntity(tx, manifest, 'product', binding, 'edit', 'person', { uid: made.entity!.uid, values: { installation: 'forged' } }))).rejects.toThrow('not declared');
+    expect(made.entity!.values).toHaveProperty('installation');
+    const schema = await owner.transaction('snapshot', async tx => authoredEntity(tx, manifest, 'product', undefined, 'schema', 'person'));
+    expect(schema.fields.map(field => field.name)).toEqual(['name']);
+    const read = await owner.transaction('snapshot', async tx => authoredEntity(tx, manifest, 'product', undefined, 'read', 'person', { uid: made.entity!.uid }));
+    expect(read.fields.map(field => field.name)).toContain('installation');
+    expect(read.entity!.values).toHaveProperty('installation');
+    for (const action of ['create', 'edit'] as const) {
+      try {
+        await owner.transaction('write', async tx => authoredEntity(tx, manifest, 'product', binding, action, 'person', { uid: made.entity!.uid, values: { installation: 'forged' } }));
+        throw new Error('accepted inherited system input');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AuthoredRefusal);
+        const refusal = (error as AuthoredRefusal).refusal;
+        expect(refusal).toBeInstanceOf(GraphRefusal);
+        expect(refusal!.toJSON()).toMatchObject({ code: 'SCHEMA_INVALID', path: '/values/installation', actual: 'forged' });
+      }
+    }
   } finally { await owner.close(); }
 });

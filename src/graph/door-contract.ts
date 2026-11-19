@@ -91,7 +91,7 @@ export function catalogueRequests(contract: GraphContract) {
     let schema: z.ZodType;
       switch (field.type) {
         case 'text': schema = z.string(); break;
-        case 'integer': schema = z.int32(); break;
+        case 'integer': schema = z.int32({ error: field.type }); break;
         case 'bigint': schema = z.union([z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER), z.string().refine(value => fits(field, value), 'signed 64-bit integer').meta({ pattern: bigintPattern })]); break;
         case 'boolean': schema = z.boolean(); break;
         case 'timestamp': schema = instant; break;
@@ -99,12 +99,15 @@ export function catalogueRequests(contract: GraphContract) {
       }
     schema = schema.refine(value => {
       try { validateFieldValue(contract, field, value); return true; } catch { return false; }
-    }, `declared value contract for ${field.name}`);
+    }, field.valueType ?? field.type);
     if (field.schema !== undefined) schema = schema.meta(field.schema);
     else if (field.valueType !== undefined && contract.valueTypes?.[field.valueType] !== undefined) schema = schema.meta(contract.valueTypes[field.valueType]!.schema);
     return field.nullable === true ? schema.nullable() : schema;
   };
   function fields(declared: readonly FieldContract[], required: boolean): z.ZodType {
+    return fieldsSchema(declared, required);
+  }
+  function fieldsSchema(declared: readonly FieldContract[], required: boolean): z.ZodType {
     return z.strictObject(Object.fromEntries(declared.map(field => [field.name, required && field.nullable !== true ? fieldType(field) : fieldType(field).optional()])));
   }
   const keyEdgesOf = (kind: VertexContract): z.ZodType => z.strictObject(Object.fromEntries((kind.keyEdges ?? []).map(role => {
@@ -141,10 +144,11 @@ export function catalogueRequests(contract: GraphContract) {
       z.strictObject({ entity: alternatives(vertices.map(kind => kind.retract)), evidence, words, ...operationOptions }),
       z.strictObject({ edge: alternatives(edges.map(kind => kind.retract)), evidence, words, ...operationOptions }),
     ]),
-    authored(kind: string, action: string): z.ZodType {
+    authored(kind: string, action: string, fields?: readonly FieldContract[]): z.ZodType {
       const held = vertices.find(vertex => vertex.kind === kind);
       if (held === undefined) throw new GraphRefusal('/kind', 'declared kind', kind);
-      return held.authored(action);
+      if (fields === undefined) return held.authored(action);
+      return z.strictObject({ uid: text.optional(), values: action === 'create' && fields.some(field => field.nullable !== true) ? fieldsSchema(fields, true) : fieldsSchema(fields, action === 'create').optional(), words, ifRevision: text.optional(), recordUnchanged: z.boolean().optional() });
     },
     kinds: z.enum(contract.vertex.map(kind => kind.name)),
   };
