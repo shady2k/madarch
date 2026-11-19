@@ -51,9 +51,14 @@ const ENDING_MS = 1_600;
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
 const PARENT_CHECK_MS = 50;
 
-/** Failed opens can start and stop PostgreSQL: retry each store separately, at most every thirty seconds. */
+/** Failed opens can start and stop PostgreSQL: retry each store separately, with pauses capped at five seconds. */
 const OPEN_RETRY_MS = 1_000;
-const MAX_OPEN_RETRY_MS = 30_000;
+export const MAX_OPEN_RETRY_MS = 5_000;
+
+/** The next pause after a failed open, doubled until it reaches the ceiling. */
+export function nextOpenRetryDelay(previous?: number): number {
+  return Math.min(MAX_OPEN_RETRY_MS, (previous ?? OPEN_RETRY_MS / 2) * 2);
+}
 
 /** Whether a process is still there: one this process may not signal counts as there. */
 function alive(pid: number): boolean {
@@ -171,7 +176,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
         let held = watched.get(storeFolder);
         if (held === undefined) {
-          if (Date.now() < (openingRetries.get(storeFolder)?.after ?? 0)) continue;
+          if (performance.now() < (openingRetries.get(storeFolder)?.after ?? 0)) continue;
           let owner: StoreOwner | undefined;
           try {
             owner = await options.openStore(join(storeFolder, 'graph'));
@@ -189,8 +194,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
               await owner.close().catch(() => undefined);
               state.owners.delete(owner);
             }
-            const delay = Math.min(MAX_OPEN_RETRY_MS, (openingRetries.get(storeFolder)?.delay ?? OPEN_RETRY_MS / 2) * 2);
-            openingRetries.set(storeFolder, { delay, after: Date.now() + delay });
+            const delay = nextOpenRetryDelay(openingRetries.get(storeFolder)?.delay);
+            openingRetries.set(storeFolder, { delay, after: performance.now() + delay });
             const message = error instanceof Error ? error.message : String(error);
             if (openingErrors.get(storeFolder) !== message) {
               openingErrors.set(storeFolder, message);

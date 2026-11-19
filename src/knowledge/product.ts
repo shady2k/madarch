@@ -49,7 +49,7 @@ import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, t
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
-import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_QUEUE } from './file-texts.js';
+import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_DEADLINE_MS, FILE_TEXT_QUEUE } from './file-texts.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { runPhaseOf } from '../fill/fsm.js';
@@ -131,9 +131,6 @@ import { WriteRefusal, writeContractOf, type WriteSource } from '../graph/graph-
  * this is the product's default, editable in the product settings, and the prepare page offers it for one run.
  */
 export const DEFAULT_TOKEN_CAP = 200_000;
-
-/** How long a page waits for its text: the plugin host claims the request within a pass, and a read of a blob is quick. */
-const FILE_TEXT_DEADLINE_MS = 30_000;
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field

@@ -8,11 +8,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { declareFileTextQueue, readFileTextByBlob } from '../src/knowledge/file-texts.js';
+import { declareFileTextQueue, FILE_TEXT_DEADLINE_MS, readFileTextByBlob } from '../src/knowledge/file-texts.js';
 import { prepareQueueSchema } from '../src/adapters/schemas/queue.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
-import { runFillRole } from '../src/knowledge/fill-role.js';
+import { MAX_OPEN_RETRY_MS, nextOpenRetryDelay, runFillRole } from '../src/knowledge/fill-role.js';
+
+test('opening retry ceiling leaves six attempts within the file-text deadline', () => {
+  expect(MAX_OPEN_RETRY_MS * 6).toBeLessThanOrEqual(FILE_TEXT_DEADLINE_MS);
+});
+
+test('opening retry delays double from one second up to five seconds', () => {
+  const delays: number[] = [];
+  let previous: number | undefined;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    previous = nextOpenRetryDelay(previous);
+    delays.push(previous);
+  }
+  expect(delays).toEqual([1_000, 2_000, 4_000, 5_000, 5_000]);
+});
 
 test('default store preparation installs the file-text queue', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-file-text-queue-'));
@@ -145,7 +159,7 @@ test('the fill role alone backs off opening an unprepared store', async () => {
   const store = join(root, 'product', 'graph');
   const preparation = await createDatabaseOwner({ store });
   let opens = 0;
-  let failedAt = 0;
+  let openedAt = 0;
   const retryGaps: number[] = [];
   const messages: string[] = [];
   try {
@@ -153,13 +167,15 @@ test('the fill role alone backs off opening an unprepared store', async () => {
       { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
     ] });
     await preparation.close();
-    const started = Date.now();
+    const started = performance.now();
     expect(await runFillRole({
       knowledgeRoot: root,
-      log: (line) => { messages.push(line); failedAt = Date.now(); },
-      idle: () => Date.now() - started >= 3_000 && opens >= 2,
+      log: (line) => messages.push(line),
+      idle: () => performance.now() - started >= 3_000 && opens >= 2,
       openStore: async (folder) => {
-        if (opens > 0) retryGaps.push(Date.now() - failedAt);
+        const now = performance.now();
+        if (opens > 0) retryGaps.push(now - openedAt);
+        openedAt = now;
         opens++;
         const owner = await createDatabaseOwner({ store: folder, connectOnly: true });
         return Object.assign(owner, { graphContract: withAssertionContract(EMPTY_CONTRACT) });
@@ -186,17 +202,17 @@ test('changing opening errors are bounded by backoff and do not delay another st
   try {
     preparation = await createDatabaseOwner({ store: healthyStore });
     await prepareQueueSchema(preparation);
-    const started = Date.now();
+    const started = performance.now();
     expect(await runFillRole({
       knowledgeRoot: root,
       log: (line) => messages.push(line),
-      idle: () => Date.now() - started >= 3_000,
+      idle: () => performance.now() - started >= 3_000,
       openStore: async (folder) => {
         if (folder !== healthyStore) {
-          attempts.push(Date.now() - started);
-          throw new Error(`server failed\n${Date.now()} [${attempts.length}] variable startup log`);
+          attempts.push(performance.now() - started);
+          throw new Error(`server failed\n${performance.now()} [${attempts.length}] variable startup log`);
         }
-        healthyOpenedAt = Date.now() - started;
+        healthyOpenedAt = performance.now() - started;
         const owner = await createDatabaseOwner({ store: folder, connectOnly: true });
         return Object.assign(owner, { graphContract: withAssertionContract(EMPTY_CONTRACT) });
       },
