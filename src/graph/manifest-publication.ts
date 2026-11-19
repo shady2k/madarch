@@ -25,8 +25,8 @@ import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
 import { readPublicationFingerprint } from './startup-read.js';
-import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
-import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
+import { productPageTemplate } from '../knowledge/page-template-kind.js';
+import { homeKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
@@ -137,13 +137,10 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     snapshots.set(digest, { kind: 'system.content-snapshot', key: { digest }, values: { content }, producer: 'manifest', producerVersion: '1' });
     return [{ target: { kind: 'system.content-snapshot', key: { digest } }, locator: { digest, lineStart: line, lineEnd: line } }];
   };
-  const templateKind = pageTemplateKind(manifest);
-  const fallback = cataloguePageTemplate();
-  const nameRole = templateKind?.pageTemplate?.['name'] ?? fallback.nameField;
-  const bodyRole = templateKind?.pageTemplate?.['body'] ?? fallback.bodyField;
-  const pathRole = templateKind?.pageTemplate?.['path'] ?? fallback.pathField;
+  const templateKind = productPageTemplate(manifest);
+  const { nameField: nameRole, bodyField: bodyRole, pathField: pathRole } = templateKind;
   const templates: VertexDraft[] = templateSources.map(template => ({
-    kind: templateKind?.name ?? fallback.name, key: { [nameRole]: template.name },
+    kind: templateKind.name, key: { [nameRole]: template.name },
     values: { [bodyRole]: template.body, ...(pathRole === undefined ? {} : { [pathRole]: template.path }) },
     evidence: evidence(template.path, 1), producer: 'manifest', producerVersion: '1',
   }));
@@ -441,10 +438,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
       for (const draft of validated.starterValues) if (!await unchanged(draft, records.get(draft.kind)!)) changed.push(draft);
       written += await publishGraphDrafts(tx, publicationContract, { vertices: changed, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
-    const templateKind = pageTemplateKind(validated.manifest);
-    const fallback = cataloguePageTemplate();
-    const kindName = templateKind?.name ?? fallback.name;
-    const nameRole = templateKind?.pageTemplate?.['name'] ?? fallback.nameField;
+    const { name: kindName, nameField: nameRole } = productPageTemplate(validated.manifest);
     const currentTemplates = await readKindAssertions(tx, 'vertex', kindName, [], await publicationReadSelector(tx, publicationContract));
     const wantedTemplates = new Set(validated.templates.map(draft => String(draft.key[nameRole])));
     const removedTemplates: VertexRemovalDraft[] = currentTemplates.filter(row => !wantedTemplates.has(String(row.key[nameRole]))).map(row => ({

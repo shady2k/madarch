@@ -13,8 +13,8 @@ import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { withAssertionContract } from './system-contract.js';
 import { startSpan } from '../obs/trace.js';
-import { pageTemplateKind, type KindsManifest } from '../product/manifest/kinds.js';
-import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
+import { productPageTemplate } from '../knowledge/page-template-kind.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
@@ -74,13 +74,7 @@ export function templatesOf(files: readonly TemplateFile[], bodies: ReadonlyMap<
  */
 export async function readPublishedTemplates(executor: SqlExecutor, manifest: KindsManifest): Promise<{ templates: ProductTemplates; files: readonly TemplateFile[]; findings: readonly TemplateFinding[] }> {
   // The product's own kind wins; a product whose manifest names none publishes its templates as the catalogue's kind.
-  const kind = pageTemplateKind(manifest);
-  const declared = kind?.pageTemplate;
-  const fallback = cataloguePageTemplate();
-  const kindName = kind?.name ?? fallback.name;
-  const nameRole = declared?.['name'] ?? fallback.nameField;
-  const bodyRole = declared?.['body'] ?? fallback.bodyField;
-  const pathRole = declared?.['path'] ?? fallback.pathField;
+  const { name: kindName, nameField: nameRole, bodyField: bodyRole, pathField: pathRole } = productPageTemplate(manifest);
   const contract = withAssertionContract(withManifestContract(graphContractOf(manifest)));
   const span = startSpan('graph.templates.read', { 'madarch.kinds': String(manifest.kinds.size) });
   let rows: Awaited<ReturnType<typeof readKindAssertions>>;
