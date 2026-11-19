@@ -122,11 +122,11 @@ export async function setProductOperationRunState(owner:DatabaseOwner,contract:G
   });
 }
 
-export async function operationReceipt(tx:OuterTransaction,_contract:GraphContract,unitUid:string,key:string,context=1):Promise<{canonicalRequest:string;digest:string;result:string}|undefined>{
+export async function operationReceipt(tx:OuterTransaction,_contract:GraphContract,unitUid:string,key:string,context=1):Promise<{canonicalRequest:string;digest:string;result:string|undefined}|undefined>{
   return await withSpan('graph.operation.receipt', {}, async () => {
     const receipt=(await tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id JOIN edge e ON e.from_node=n.id JOIN entity ek ON ek.id=e.entity_id JOIN node u ON u.id=e.to_node WHERE k.name='system.operation' AND ek.name='system.operation-unit' AND u.uid=$1::uuid AND n.id IN (SELECT attachment_edge.to_node FROM assertion a JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge attachment_edge ON attachment_edge.id=attachment.subject_edge_id JOIN "${assertionValueTableName('system.operation','vertex','key')}" v ON v.assertion_id=a.assertion_id WHERE a.property='key' AND v.value=$2)`,[unitUid,key])).rows[0];
     if(!receipt)return undefined;
-    return {canonicalRequest:await selected(tx,'system.operation',receipt.uid,'canonical_request',context) as string,digest:await selected(tx,'system.operation',receipt.uid,'digest',context) as string,result:await selected(tx,'system.operation',receipt.uid,'result',context) as string};
+    return {canonicalRequest:await selected(tx,'system.operation',receipt.uid,'canonical_request',context) as string,digest:await selected(tx,'system.operation',receipt.uid,'digest',context) as string,result:await selected(tx,'system.operation',receipt.uid,'result',context) as string|undefined};
   });
 }
 
@@ -167,7 +167,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         if(receipt){
           if(receipt.canonicalRequest!==canonical||receipt.digest!==digest)throw new Error(`${WHERE}:81: IDEMPOTENCY_CONFLICT ${request.key}`);
           if(request.completion&&await options.queue.fence(options.job,tx))await options.queue.complete(options.job.queue,options.job,request.completion.output,tx);
-          return JSON.parse(receipt.result) as Result;
+          return (receipt.result === undefined ? undefined : JSON.parse(receipt.result)) as Result;
         }
         if(!await options.queue.fence(options.job,tx))throw new Error(`${WHERE}:84: ATTEMPT_STALE`);
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
@@ -189,12 +189,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         if(!principal)throw new Error(`${WHERE}:116: TARGET_MISSING principal ${options.capability.principalUid}`);
         const result=await apply(tx,{contract:options.contract,binding:trusted(options.capability,operationUid,options.unitUid)});
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
-        canonicalJson(result);
+        const canonicalResult = result === undefined ? undefined : canonicalJson(result);
         await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
         await reconcileDisputes(tx,options.contract);
         const affected=(await tx.query<{uid:string}>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node WHERE op.uid=$1::uuid ORDER BY n.uid::text COLLATE "C"`,[operationUid])).rows;
         if(affected.length)await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:affected.map(target=>({kind:'system.operation-affected',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.assertion',uid:target.uid,key:{}},discriminator:target.uid,producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}))},context);
-        for(const [property,value] of Object.entries({key:request.key,canonical_request:canonical,digest,result:canonicalJson(result)}))await set(tx,options.contract,'system.operation',operationUid,property,value,context);
+        for(const [property,value] of Object.entries({key:request.key,canonical_request:canonical,digest,...(canonicalResult === undefined ? {} : {result:canonicalResult})}))await set(tx,options.contract,'system.operation',operationUid,property,value,context);
         const count=Number(await selected(tx,'system.unit',options.unitUid,'committed_operations',context)??0);
         await set(tx,options.contract,'system.unit',options.unitUid,'committed_operations',count+1,context);
         await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',request.key,context);
