@@ -280,3 +280,17 @@ test('producer read matches item 25 for merged identities, disputed values and u
   expect(actual as unknown[]).toEqual(expected as unknown[]);
  } finally {await f.owner.close();}
 },60000);
+
+test('supplied survivor identities hydrate absorbed member assertions',async()=>{
+ const f=await fixture();try{
+  await f.execute(f.r,tx=>resolveDuplicate(tx,contract,f.r,f.input));
+  await f.owner.transaction(SQL_TRANSACTION_KINDS.snapshot,async tx=>{
+   const target=Number((await tx.query<{id:string}>(`SELECT graph_merge_target($1::bigint,1,transaction_timestamp(),transaction_timestamp())::text AS id`,[f.rows[0]!.id])).rows[0]!.id);
+   const survivor=f.rows.find(row=>row.id===target)!;
+   const supplied=await readKindAssertions(tx,'vertex','sample',['name','note','synonyms'],{contract,identities:[{id:survivor.id,uid:survivor.uid,key:survivor.key}]});
+   expect(supplied).toHaveLength(1);
+   expect(supplied[0]!.assertions.filter(a=>a.property==='note').map(a=>a.value).sort()).toEqual(['one','two']);
+   expect(supplied[0]!.assertions.filter(a=>a.property==='note').every(a=>a.subjectId===survivor.id)).toBe(true);
+  });
+ }finally{await f.owner.close();}
+},60000);
