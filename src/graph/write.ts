@@ -295,8 +295,7 @@ interface BatchAssertion extends AssertionInput {uid:string;id?:string;repeat?:b
  * Admit at one instant and keep database work set based (0039.25–29). */
 async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,drafts:GraphDrafts,context:number):Promise<number>{
  return await withSpan('graph.write.publishBatch',{},async()=>{
- const {contract,version}=prepared,binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
- if(drafts.vertices.length===0&&(drafts.edges?.length??0)===0){await acquireGraphWriteLock(executor);return 0;}
+ const {contract,version}=prepared;let binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
  const kinds=new Map(contract.vertex.map(kind=>[kind.name,kind]));
  const references:EntityRefDraft[]=[];const vertexUids:string[]=[];
  const collect=async(ref:EntityRefDraft):Promise<string>=>{
@@ -309,9 +308,13 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  for(const draft of drafts.vertices)for(const evidence of draft.evidence??[])await collect(evidence.target);
  for(const draft of drafts.edges??[])for(const evidence of draft.evidence??[])await collect(evidence.target);
  const mentions=drafts.vertices.flatMap(draft=>Object.values(draft.values??{}).flatMap(value=>scanMentions(value,''))).concat((drafts.edges??[]).flatMap(draft=>Object.values(draft.values??{}).flatMap(value=>scanMentions(value,''))));
- const requested=new Set<string>([...vertexUids,binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid)]);
+ const requested=new Set<string>([...vertexUids,...mentions.map(mention=>mention.uid)]);
  for(const ref of references)requested.add(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined?ref.uid:await refUid(executor,contract,ref,context));
  await acquireGraphWriteLock(executor);
+ binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
+ if(drafts.vertices.length===0&&(drafts.edges?.length??0)===0)return 0;
+ for(const draft of drafts.vertices)permitted(binding,draft.kind,'$exists');
+ for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[])])requested.add(uid);
  const {entities,instant}=await immutableCatalogue(executor,contract);
  const keyRoles=contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({kind:kind.name,edge:role.edge,direction:role.direction})));
  const cache=await immutableLookups(executor);
