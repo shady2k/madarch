@@ -30,7 +30,7 @@ import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
-const PUBLICATION_REVISION = 4;
+const PUBLICATION_REVISION = 5;
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -416,6 +416,8 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
         const prior = held.get(identity(draft));
         if (prior !== undefined) record = rows.find(row => row.uid === prior.uid);
         else if (draft.keyEdges !== undefined) {
+          // The held map covers every published manifest vertex, including its parent identity.
+          if (MANIFEST_CONTRACT.vertex.some(kind => kind.name === draft.kind)) return undefined;
           const resolved = resolveRef(draft);
           record = rows.find(row => row.uid === resolved.uid);
         } else record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
@@ -448,9 +450,6 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
       }
       return true;
     };
-    await prefetchRefs([
-      ...validated.vertices.filter(draft => draft.keyEdges !== undefined && !held.has(identity(draft)) && (vertexRecords.get(draft.kind)?.length ?? 0) > 0),
-    ]);
     await prefetchEvidence(validated.vertices, vertexRecords);
     const vertices: VertexDraft[] = [];
     for (const draft of validated.vertices) if (!await unchanged(draft, vertexRecords.get(draft.kind)!)) vertices.push(draft);

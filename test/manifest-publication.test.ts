@@ -1,4 +1,6 @@
 import * as graphWriter from '../src/graph/write.js';
+import * as engineStageRegistry from '../src/fill/stages/index.js';
+import { StageRegistry } from '../src/fill/registry.js';
 import { createHash } from 'node:crypto';
 import { afterAll, expect, test, spyOn } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -151,7 +153,7 @@ test('changed fixed catalogue batches identity checks and held edge keys', async
       const endpointChecks = calls.filter(sql => sql.includes('graph_vertex_active') && sql.includes('FOR UPDATE') || sql.startsWith('SELECT graph_vertex_active'));
       const keyReads = calls.filter(sql => sql.includes('f.key AS from_key,t.key AS to_key'));
       console.log('X2 fixed catalogue', JSON.stringify({ endpointChecks: endpointChecks.length, keyReads: keyReads.length }));
-      expect(endpointChecks.length).toBeLessThanOrEqual(4);
+      expect(endpointChecks.length).toBe(3);
       expect(keyReads.length).toBe(1);
       expect((await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.relation-edge', ['relation'])))).toHaveLength(12);
     } finally { resolver.mockRestore(); }
@@ -663,6 +665,33 @@ test('publishes complete metadata and declaration evidence without repository co
   } finally { await owner.close(); }
 }, 30_000);
 
+
+test('repeat publication adds a workflow stage beside an already published stage', async () => {
+  const folder = fixture();
+  const registry = engineStageRegistry.createEngineStageRegistry();
+  registry.register({ ...registry.all()[0]!, id: 'fixture-second' });
+  // The engine currently holds only plugin-turns; register a second declaration for this fixture.
+  const stages = registry.all();
+  const reader = spyOn(StageRegistry.prototype, 'all').mockReturnValue(stages);
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns] }\n');
+    const first = validateProductManifests(folder);
+    if (!first.ok || first.value === undefined) throw new Error(JSON.stringify(first));
+    expect(await publishValidatedManifests(owner, first.value)).toBeGreaterThan(0);
+    const before = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.workflow-stage', ['position']));
+    expect(before.map(row => row.key)).toEqual([{ name: 'plugin-turns' }]);
+    writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  alpha: { status: planned, stages: [plugin-turns, fixture-second] }\n');
+    const second = validateProductManifests(folder);
+    if (!second.ok || second.value === undefined) throw new Error(JSON.stringify(second));
+    expect(await publishValidatedManifests(owner, second.value)).toBeGreaterThan(0);
+    const after = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.workflow-stage', ['position']));
+    expect(after.map(row => [row.key['name'], row.values['position']]).sort())
+      .toEqual([['fixture-second', 1], ['plugin-turns', 0]]);
+    expect(after.find(row => row.key['name'] === 'plugin-turns')!.uid).toBe(before[0]!.uid);
+    expect(await publishValidatedManifests(owner, second.value)).toBe(0);
+  } finally { reader.mockRestore(); await owner.close(); }
+}, 30_000);
 
 test('workflow stages are protected metadata with parent edges, identities and declaration evidence', async () => {
   const folder = fixture();

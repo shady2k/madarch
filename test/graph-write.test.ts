@@ -371,7 +371,7 @@ test('bulk repeated edges keep shared endpoints, discriminators, typed values an
   });
 });
 
- test('batched reference checks equal scalar checks, including duplicates, missing, inactive and scope refusals', async () => {
+test('batched reference checks equal scalar checks, including duplicates, missing, inactive and scope refusals', async () => {
   await fixture(async owner => {
     await owner.transaction('write', async tx => {
       await bindTestWriteCapability(tx, graph);
