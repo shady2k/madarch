@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
+import { reconcileDisputes } from '../src/graph/disputes.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
@@ -36,7 +37,9 @@ async function writeAs<T>(source: WriteSource, work: (tx: import('../src/history
   return await owner.transaction('write', async (tx) => {
     const digest = (await import('node:crypto')).createHash('sha256').update(source.producer).digest('hex');
     await bindTestWriteCapability(tx, contract, `${digest.slice(0, 8)}-0000-7000-8000-000000000001`);
-    return await work(tx);
+    const result = await work(tx);
+    await reconcileDisputes(tx, contract);
+    return result;
   });
 }
 const putEntityAssertion = (_owner: DatabaseOwner, source: WriteSource, input: Parameters<typeof putEntityIn>[2]) => writeAs(source, (tx) => putEntityIn(tx, source, input));
@@ -206,7 +209,7 @@ describe('the agent writes the graph', () => {
     expect(term.titleAssertions[0].evidence[0]).toMatchObject({ target: { kind: 'system.content-snapshot' }, locator: { path: 'conversation.txt' } });
   });
 
-  test('an agent and a plugin that disagree give null, contested and both opinions', async () => {
+  test('an agent and a plugin that disagree give the agent\'s value, contested and both opinions', async () => {
     // A plugin's opinion of a repository's description, written through the same one writer.
     await owner.transaction('write', async (tx) => {
       await bindTestWriteCapability(tx, contract);
@@ -474,7 +477,7 @@ describe('the agent writes the graph', () => {
       evidence: [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25  } }],
     });
     expect(edge.written).toBeGreaterThan(0);
-    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on ManifestKind { mentionsOf(first: 5) { totalCount } } } }`, { id: catalogue.id });
+    const read = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindManifestKind { mentionsOf(first: 5) { totalCount } } } }`, { id: catalogue.id });
     expect((read['entity'] as Record<string, any>).mentionsOf.totalCount).toBeGreaterThanOrEqual(1);
   });
 
