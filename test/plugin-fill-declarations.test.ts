@@ -365,6 +365,15 @@ test('review 2: target selection does not count an unasked kind\'s agent fallbac
   expect(plan.order).toEqual(['pb', 'pa']);
 });
 
+test('a requested derived kind runs its agent without filling unasked conceptual prerequisites', () => {
+  const manifest = manifestOf([kind('Summary', ['title'], ['Component']), kind('Component', ['title'], ['Service']), kind('Service', ['title'])], [general()]);
+  const plan = planManifestFill(manifest, '/product', ['Summary'], true, ['Summary']);
+  expect(plan.errors).toEqual([]);
+  expect([...plan.outputs.get('general')!.keys()]).toEqual(['Summary']);
+  expect(plan.skipped.map(entry => entry.kind).sort()).toEqual(['Component', 'Service']);
+  expect(plan.unitPredecessors('general', 'Summary')).toEqual([]);
+});
+
 test('review 3: with an agent plugin, a kind whose input has no producer is an error, and the other kinds still run', async () => {
   const catalogue = [
     { name: 'Summary', fields: [{ name: 'title', type: 'text', binding: { kind: 'agent', description: 'A title.' } }] },
