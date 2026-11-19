@@ -196,6 +196,16 @@ type CatalogueEntity implements Entity {
   instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type CatalogueEntityConnection {
@@ -2145,6 +2155,16 @@ interface Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type EntityConnection {
@@ -2529,6 +2549,16 @@ type KindAgent implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindAgentConnection {
@@ -2563,6 +2593,16 @@ type KindAgentSession implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindAgentSessionConnection {
@@ -2591,6 +2631,16 @@ type KindAgentUsage implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindAgentUsageConnection {
@@ -2671,6 +2721,16 @@ type KindC4Component implements Entity {
   c4ComponentContainsOf(first: Int, after: String): C4ComponentContainsConnection!
   componentImplementedBy(first: Int, after: String): ComponentImplementedByConnection!
   containerContainsComponentOf(first: Int, after: String): ContainerContainsComponentConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindC4ComponentConnection {
@@ -6149,6 +6209,16 @@ type KindEvent implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindEventConnection {
@@ -6447,8 +6517,18 @@ type KindIdea implements Entity {
   statusAssertions: [Assertion!]!
   deathReason: String
   deathReasonAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
   ideaEvolvedInto(first: Int, after: String): IdeaEvolvedIntoConnection!
   ideaEvolvedIntoOf(first: Int, after: String): IdeaEvolvedIntoConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindIdeaConnection {
@@ -6574,6 +6654,16 @@ type KindK8sAutoscaler implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sAutoscalerConnection {
@@ -6600,6 +6690,16 @@ type KindK8sConfigmap implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sConfigmapConnection {
@@ -6626,6 +6726,16 @@ type KindK8sCronjob implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sCronjobConnection {
@@ -6652,6 +6762,16 @@ type KindK8sDaemonset implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sDaemonsetConnection {
@@ -6678,6 +6798,16 @@ type KindK8sIngress implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sIngressConnection {
@@ -6704,6 +6834,16 @@ type KindK8sJob implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sJobConnection {
@@ -6730,6 +6870,16 @@ type KindK8sNamespace implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sNamespaceConnection {
@@ -6756,6 +6906,16 @@ type KindK8sPod implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sPodConnection {
@@ -6782,6 +6942,16 @@ type KindK8sSecret implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sSecretConnection {
@@ -6808,6 +6978,16 @@ type KindK8sStatefulset implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindK8sStatefulsetConnection {
@@ -6925,6 +7105,16 @@ type KindKubernetesCluster implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindKubernetesClusterConnection {
@@ -6951,6 +7141,16 @@ type KindKubernetesNode implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindKubernetesNodeConnection {
@@ -7112,6 +7312,18 @@ type KindManifestCatalogue implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  publicationFingerprint: String
+  publicationFingerprintAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestCatalogueConnection {
@@ -7142,6 +7354,16 @@ type KindManifestDependency implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestDependencyConnection {
@@ -7172,6 +7394,16 @@ type KindManifestField implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestFieldConnection {
@@ -7202,6 +7434,16 @@ type KindManifestKind implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestKindConnection {
@@ -7232,6 +7474,16 @@ type KindManifestRelation implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestRelationConnection {
@@ -7262,6 +7514,16 @@ type KindManifestWorkflow implements Entity {
   nameAssertions: [Assertion!]!
   declaration: String
   declarationAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindManifestWorkflowConnection {
@@ -7292,8 +7554,8 @@ type KindManifestWorkflowStage implements Entity {
   nameAssertions: [Assertion!]!
   position: Int
   positionAssertions: [Assertion!]!
-  executor: String
-  executorAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -7304,7 +7566,6 @@ type KindManifestWorkflowStage implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
-  workflowStagesOf(first: Int, after: String): WorkflowStagesConnection!
 }
 
 type KindManifestWorkflowStageConnection {
@@ -7421,6 +7682,16 @@ type KindMlModel implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindMlModelConnection {
@@ -7447,6 +7718,16 @@ type KindNodePool implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindNodePoolConnection {
@@ -7475,6 +7756,16 @@ type KindOperation implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindOperationConnection {
@@ -7505,6 +7796,16 @@ type KindPageTemplate implements Entity {
   nameAssertions: [Assertion!]!
   body: String
   bodyAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindPageTemplateConnection {
@@ -7636,6 +7937,16 @@ type KindPlugin implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindPluginConnection {
@@ -7756,6 +8067,16 @@ type KindProblem implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindProblemConnection {
@@ -7980,7 +8301,17 @@ type KindProductProfile implements Entity {
   languagesAssertions: [Assertion!]!
   frameworks: JSON
   frameworksAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   profileProduct(first: Int, after: String): ProfileProductConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindProductProfileConnection {
@@ -8297,6 +8628,16 @@ type KindRun implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindRunConnection {
@@ -8458,6 +8799,16 @@ type KindScreen implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindScreenConnection {
@@ -8486,6 +8837,16 @@ type KindSetting implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSettingConnection {
@@ -8566,6 +8927,16 @@ type KindSource implements Entity {
   versionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSourceConnection {
@@ -8817,6 +9188,16 @@ type KindSystemAssertion implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemAssertionConnection {
@@ -8847,6 +9228,16 @@ type KindSystemAuthoredImport implements Entity {
   sourcePathAssertions: [Assertion!]!
   contentDigest: String
   contentDigestAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemAuthoredImportConnection {
@@ -8879,6 +9270,16 @@ type KindSystemChain implements Entity {
   stateAssertions: [Assertion!]!
   updatedAt: BigInt
   updatedAtAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemChainConnection {
@@ -8909,6 +9310,16 @@ type KindSystemContentSnapshot implements Entity {
   digestAssertions: [Assertion!]!
   content: String
   contentAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemContentSnapshotConnection {
@@ -8943,6 +9354,16 @@ type KindSystemDisputePin implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemDisputePinConnection {
@@ -8979,6 +9400,16 @@ type KindSystemDisputeQuestion implements Entity {
   segmentToAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemDisputeQuestionConnection {
@@ -9011,6 +9442,16 @@ type KindSystemDisputeResolution implements Entity {
   segmentFromAssertions: [Assertion!]!
   segmentTo: DateTime
   segmentToAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemDisputeResolutionConnection {
@@ -9055,6 +9496,16 @@ type KindSystemFillTransition implements Entity {
   fenceAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemFillTransitionConnection {
@@ -9085,6 +9536,16 @@ type KindSystemKindApplicability implements Entity {
   stateAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemKindApplicabilityConnection {
@@ -9097,6 +9558,124 @@ type KindSystemKindApplicabilityConnection {
 type KindSystemKindApplicabilityEdge {
   cursor: String!
   node: KindSystemKindApplicability!
+}
+
+type KindSystemMerge implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+}
+
+type KindSystemMergeAllocation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  direction: String
+  directionAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+}
+
+type KindSystemMergeAllocationConnection {
+  edges: [KindSystemMergeAllocationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeAllocationEdge {
+  cursor: String!
+  node: KindSystemMergeAllocation!
+}
+
+type KindSystemMergeConnection {
+  edges: [KindSystemMergeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeEdge {
+  cursor: String!
+  node: KindSystemMerge!
+}
+
+type KindSystemMergeQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+}
+
+type KindSystemMergeQuestionConnection {
+  edges: [KindSystemMergeQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeQuestionEdge {
+  cursor: String!
+  node: KindSystemMergeQuestion!
 }
 
 type KindSystemOperation implements Entity {
@@ -9121,6 +9700,16 @@ type KindSystemOperation implements Entity {
   digestAssertions: [Assertion!]!
   result: String
   resultAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemOperationConnection {
@@ -9155,6 +9744,16 @@ type KindSystemProblem implements Entity {
   reasonAssertions: [Assertion!]!
   locator: String
   locatorAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
   taskProblemOf(first: Int, after: String): TaskProblemConnection!
 }
 
@@ -9182,7 +9781,17 @@ type KindSystemProduct implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   profileProductOf(first: Int, after: String): ProfileProductConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemProductConnection {
@@ -9223,6 +9832,16 @@ type KindSystemProgress implements Entity {
   kindFieldAssertions: [Assertion!]!
   summary: String
   summaryAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemProgressConnection {
@@ -9293,6 +9912,16 @@ type KindSystemRun implements Entity {
   updatedAtAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemRunConnection {
@@ -9331,6 +9960,16 @@ type KindSystemRunSelection implements Entity {
   pluginNameAssertions: [Assertion!]!
   stageUnitName: String
   stageUnitNameAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemRunSelectionConnection {
@@ -9365,6 +10004,16 @@ type KindSystemRunStage implements Entity {
   unitsAssertions: [Assertion!]!
   publications: Int
   publicationsAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemRunStageConnection {
@@ -9397,6 +10046,16 @@ type KindSystemRunTarget implements Entity {
   nameAssertions: [Assertion!]!
   position: Int
   positionAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemRunTargetConnection {
@@ -9435,6 +10094,16 @@ type KindSystemTrackedRead implements Entity {
   seqAssertions: [Assertion!]!
   at: BigInt
   atAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemTrackedReadConnection {
@@ -9521,6 +10190,16 @@ type KindSystemUnit implements Entity {
   committedOperationsAssertions: [Assertion!]!
   lastProgress: String
   lastProgressAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemUnitCacheVersion implements Entity {
@@ -9539,6 +10218,16 @@ type KindSystemUnitCacheVersion implements Entity {
   nameAssertions: [Assertion!]!
   version: String
   versionAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemUnitCacheVersionConnection {
@@ -9583,6 +10272,16 @@ type KindSystemUnread implements Entity {
   pathAssertions: [Assertion!]!
   reason: String
   reasonAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindSystemUnreadConnection {
@@ -9674,6 +10373,16 @@ type KindTechnicalDebt implements Entity {
   priorityAssertions: [Assertion!]!
   queuePosition: Int
   queuePositionAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindTechnicalDebtConnection {
@@ -9830,6 +10539,16 @@ type KindUnit implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   labelField: String
   labelFieldAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
 type KindUnitConnection {
@@ -10064,7 +10783,6 @@ type KindWorkflow implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
-  workflowStages(first: Int, after: String): WorkflowStagesConnection!
 }
 
 type KindWorkflowConnection {
@@ -11168,25 +11886,6 @@ type WorkSpanWhoEdge {
   node: Entity!
 }
 
-type WorkflowStagesConnection {
-  edges: [WorkflowStagesConnectionEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type WorkflowStagesConnectionEdge {
-  cursor: String!
-  node: WorkflowStagesEdge!
-}
-
-type WorkflowStagesEdge {
-  id: ID!
-  discriminator: String!
-  assertions: [Assertion!]!
-  node: Entity!
-}
-
 type Query {
   entity(id: ID!, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Entity
   allAccounting(where: KindAccountingWhere, orderBy: [KindAccountingOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindAccountingConnection!
@@ -11509,6 +12208,12 @@ type Query {
   allSystemFillTransitionAggregate(where: KindSystemFillTransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemKindApplicability(where: KindSystemKindApplicabilityWhere, orderBy: [KindSystemKindApplicabilityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemKindApplicabilityConnection!
   allSystemKindApplicabilityAggregate(where: KindSystemKindApplicabilityWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMerge(where: KindSystemMergeWhere, orderBy: [KindSystemMergeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeConnection!
+  allSystemMergeAggregate(where: KindSystemMergeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeAllocation(where: KindSystemMergeAllocationWhere, orderBy: [KindSystemMergeAllocationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeAllocationConnection!
+  allSystemMergeAllocationAggregate(where: KindSystemMergeAllocationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeQuestion(where: KindSystemMergeQuestionWhere, orderBy: [KindSystemMergeQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeQuestionConnection!
+  allSystemMergeQuestionAggregate(where: KindSystemMergeQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemOperation(where: KindSystemOperationWhere, orderBy: [KindSystemOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemOperationConnection!
   allSystemOperationAggregate(where: KindSystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProblem(where: KindSystemProblemWhere, orderBy: [KindSystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProblemConnection!
@@ -18101,9 +18806,24 @@ input KindManifestCatalogueOrder {
   nulls: NullsOrder
 }
 
+input KindManifestCataloguePublicationFingerprintFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input KindManifestCatalogueWhere {
   name: KindManifestCatalogueNameFilter
   declaration: KindManifestCatalogueDeclarationFilter
+  publicationFingerprint: KindManifestCataloguePublicationFingerprintFilter
 }
 
 input KindManifestDependencyDeclarationFilter {
@@ -18296,7 +19016,7 @@ input KindManifestWorkflowOrder {
   nulls: NullsOrder
 }
 
-input KindManifestWorkflowStageExecutorFilter {
+input KindManifestWorkflowStageDeclarationFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -18345,7 +19065,7 @@ input KindManifestWorkflowStagePositionFilter {
 input KindManifestWorkflowStageWhere {
   name: KindManifestWorkflowStageNameFilter
   position: KindManifestWorkflowStagePositionFilter
-  executor: KindManifestWorkflowStageExecutorFilter
+  declaration: KindManifestWorkflowStageDeclarationFilter
 }
 
 input KindManifestWorkflowWhere {
@@ -20784,6 +21504,108 @@ input KindSystemKindApplicabilityStateFilter {
 input KindSystemKindApplicabilityWhere {
   state: KindSystemKindApplicabilityStateFilter
   reason: KindSystemKindApplicabilityReasonFilter
+}
+
+input KindSystemMergeAllocationDirectionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeAllocationOrder {
+  field: KindSystemMergeAllocationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeAllocationWhere {
+  direction: KindSystemMergeAllocationDirectionFilter
+}
+
+input KindSystemMergeOrder {
+  field: KindSystemMergeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionOrder {
+  field: KindSystemMergeQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionWhere {
+  state: KindSystemMergeQuestionStateFilter
+  reason: KindSystemMergeQuestionReasonFilter
+}
+
+input KindSystemMergeReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeWhere {
+  state: KindSystemMergeStateFilter
+  reason: KindSystemMergeReasonFilter
 }
 
 input KindSystemOperationCanonicalRequestFilter {
@@ -23739,6 +24561,7 @@ enum KindLogicalDataModelOrderField {
 enum KindManifestCatalogueOrderField {
   name
   declaration
+  publicationFingerprint
 }
 
 enum KindManifestDependencyOrderField {
@@ -23769,7 +24592,7 @@ enum KindManifestWorkflowOrderField {
 enum KindManifestWorkflowStageOrderField {
   name
   position
-  executor
+  declaration
 }
 
 enum KindMergeOrderField {
@@ -24039,6 +24862,20 @@ enum KindSystemFillTransitionOrderField {
 }
 
 enum KindSystemKindApplicabilityOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeAllocationOrderField {
+  direction
+}
+
+enum KindSystemMergeOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeQuestionOrderField {
   state
   reason
 }
