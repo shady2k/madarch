@@ -8,6 +8,7 @@ import { Value } from 'typebox/value';
 import { Type, type Static } from 'typebox';
 import { agentExchangeFolder, AgentExchangeRecorder } from '../fill/agent-exchange.js';
 import { englishOnly } from './english-task.js';
+import { byCodePoint } from '../model/order.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
@@ -133,7 +134,7 @@ export class PluginAgentBridge {
       });
       // The agent asks its MCP server for graph context, rather than receiving a second file inventory.
       const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(englishOnly(task ?? null))}`;
-      exchange?.setGiven({ prompt, task: englishOnly(task ?? null), files: [] });
+      exchange?.setGiven({ prompt, task: englishOnly(task ?? null), files: [...byPath.keys()].sort(byCodePoint) });
       let connection: PluginAgentConnection | undefined;
       let sessionId: string | undefined;
       /** The empty folder the agent runs in: made for the session, and removed with it. */
