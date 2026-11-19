@@ -99,7 +99,7 @@ export function catalogueRequests(contract: GraphContract) {
       }
     schema = schema.refine(value => {
       try { validateFieldValue(contract, field, value); return true; } catch { return false; }
-    }, field.type);
+    }, field.valueType ?? field.type);
     if (field.schema !== undefined) schema = schema.meta(field.schema);
     else if (field.valueType !== undefined && contract.valueTypes?.[field.valueType] !== undefined) schema = schema.meta(contract.valueTypes[field.valueType]!.schema);
     return field.nullable === true ? schema.nullable() : schema;

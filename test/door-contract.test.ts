@@ -57,6 +57,18 @@ test('field refusals report the declared field type', () => {
   catch (error) { expect(error).toMatchObject({ expected: 'integer', path: '/values/count', actual: '2' }); }
 });
 
+
+test('named field refusals report the declared value type, not JSON storage', () => {
+  const aliases = { storage: 'json' as const, schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://example.test/types/aliases/v1', type: 'array', items: { type: 'string' } } };
+  const named: GraphContract = { vertex: [{ name: 'demo.note', table: 'k_note', capability: 'test', key: [], fields: [{ name: 'aliases', type: 'json', valueType: 'aliases', schema: { $schema: aliases.schema.$schema, $ref: aliases.schema.$id } }] }], edge: [], dictionary: [], valueTypes: { aliases } };
+  const door = catalogueRequests(named);
+  for (const schema of [door.put_entity, door.authored('demo.note', 'create')]) {
+    const envelope = schema === door.put_entity ? { kind: 'demo.note', evidence } : {};
+    expect(parseRequest(schema, { ...envelope, values: { aliases: ['First', 'Second'] } })).toMatchObject({ values: { aliases: ['First', 'Second'] } });
+    expect(() => parseRequest(schema, { ...envelope, values: { aliases: 1 } })).toThrow(expect.objectContaining({ code: 'SCHEMA_INVALID', expected: 'aliases', path: '/values/aliases', actual: 1 }));
+  }
+});
+
 test('key-edge identities and edge attributes follow their own catalogue contracts', () => {
   const link = { kind: 'link', key: {}, keyEdges: { target: { kind: 'sample', key: { name: 'n' } } } };
   expect(parseRequest(requests.put_entity, { ...link, values: {}, evidence })).toMatchObject(link);
