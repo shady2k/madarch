@@ -51,6 +51,6 @@ test('person-authored system extensions do not require or overwrite inherited in
     const binding = await personBinding(owner, contract);
     const made = await owner.transaction('write', async (tx) => await authoredEntity(tx, manifest, 'product', binding, 'create', 'person', { values: { name: 'Participant' } }));
     expect(made.entity!.values.name).toBe('Participant');
-    await expect(owner.transaction('write', async (tx) => await authoredEntity(tx, manifest, 'product', binding, 'edit', 'person', { uid: made.entity!.uid, values: { installation: 'forged' } }))).rejects.toThrow('not declared');
+    await expect(owner.transaction('write', async (tx) => await authoredEntity(tx, manifest, 'product', binding, 'edit', 'person', { uid: made.entity!.uid, values: { installation: 'forged' } }))).rejects.toThrow('installation');
   } finally { await owner.close(); }
 });

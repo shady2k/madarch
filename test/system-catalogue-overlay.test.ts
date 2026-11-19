@@ -2,12 +2,23 @@ import { expect, test } from 'bun:test';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { SYSTEM_CONTRACT, withSystemContract } from '../src/graph/system-contract.js';
+import { catalogueRequests, parseRequest } from '../src/graph/door-contract.js';
 
 function read(body: string) {
   return parseKinds(`kinds:
   person:
 ${body}`, '/tmp/overlay/madarch/catalog.yaml', '/tmp/overlay');
 }
+
+test('authored schema omits inherited system fields', () => {
+  const manifest = read(`    extends: system:person
+    origin: person
+`);
+  const contract = withSystemContract(graphContractOf(manifest));
+  const inherited = manifest.kinds.get('person')!.systemBase!.fields;
+  const authorable = contract.vertex.find(kind => kind.name === 'person')!.fields.filter(field => !inherited.some(base => base.name === field.name));
+  expect(() => parseRequest(catalogueRequests(contract).authored('person', 'create', authorable), { values: {} })).not.toThrow();
+});
 
 test('explicit system extension retains base identity, extra fields and edges', () => {
   const manifest = read(`    extends: system:person

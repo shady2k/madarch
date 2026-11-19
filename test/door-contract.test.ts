@@ -52,6 +52,11 @@ test('catalogue types, ranges, keys and closed values are refused before product
   expect(parseRequest(requests.put_entity, { ...valid, values: { optional: null } })).toMatchObject({ values: { optional: null } });
 });
 
+test('field refusals report the declared field type', () => {
+  try { parseRequest(requests.put_entity, { ...valid, values: { count: '2' } }); throw new Error('accepted invalid field'); }
+  catch (error) { expect(error).toMatchObject({ expected: 'integer', path: '/values/count', actual: '2' }); }
+});
+
 test('key-edge identities and edge attributes follow their own catalogue contracts', () => {
   const link = { kind: 'link', key: {}, keyEdges: { target: { kind: 'sample', key: { name: 'n' } } } };
   expect(parseRequest(requests.put_entity, { ...link, values: {}, evidence })).toMatchObject(link);
