@@ -183,15 +183,16 @@ test('an unknown format, a depth below one and a missing entity are refused by t
       const answer = await part.diagram(new Request(`http://localhost/render/diagram?${query}`));
       return answer.response;
     };
-    const format = await ask('entity=1&format=svg');
-    expect(format.status).toBe(400);
-    expect(((await format.json()) as { error: { message: string } }).error.message).toContain('"format" is one of "likec4", "mermaid" and "archify"');
-    const depth = await ask('entity=1&format=mermaid&depth=0');
-    expect(depth.status).toBe(400);
-    expect(((await depth.json()) as { error: { message: string } }).error.message).toContain('"depth" is a whole number of levels, 1 or more');
-    const missing = await ask('format=mermaid');
-    expect(missing.status).toBe(400);
-    expect(((await missing.json()) as { error: { message: string } }).error.message).toContain('"entity" is the id of the entity');
+    // The door's generated contract refuses the request before the handler reads it (decision 0039, items 7 and 30):
+    // the answer is the coded body `{ error: { code, path, expected, actual, retryable } }` with the field's path and
+    // no `message`, so the refusal is read by `code` and `path`.
+    const refusal = async (query: string): Promise<{ status: number; error: { code: string; path: string } }> => {
+      const answer = await ask(query);
+      return { status: answer.status, error: ((await answer.json()) as { error: { code: string; path: string } }).error };
+    };
+    expect(await refusal('entity=1&format=svg')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/format' } });
+    expect(await refusal('entity=1&format=mermaid&depth=0')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/depth' } });
+    expect(await refusal('format=mermaid')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/entity' } });
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
