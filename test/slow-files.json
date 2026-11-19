@@ -26,6 +26,16 @@
       "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/catalog-check.test.ts",
+      "seconds": 41.4,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but every case runs the catalog check as a subprocess over a starter manifest it rewrites, so seven cases pay a full check each: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Check the starter manifest and its edited variants in-process through the same parse and check the command calls, keeping one subprocess case for the command's exit, counts and file/line refusal text.",
+      "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/consistency-plugin.test.ts",
       "seconds": 144.2,
       "reason": "red-defect",
@@ -194,6 +204,16 @@
       "defect": "The history fixture setup fails at git init before any file-history assertion runs.",
       "replacement": "Build a small local repository with explicit add, rename, deletion and merge commits, then assert historical file identities, authors and commit links without depending on the failed shared setup.",
       "exit": "Rewrite test/git-file-history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/graph-merges.test.ts",
+      "seconds": 48.5,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its fourteen merge cases each prepare a store and press fills over equivalence and immutable-snapshot fixtures, and the stack added the whole file: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Reuse one prepared store per equivalence set, split and merge through its recorded snapshots, and keep only the cases whose assertions need a separate fixture on their own store.",
+      "exit": "Rewrite test/graph-merges.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/graph-records.test.ts",
