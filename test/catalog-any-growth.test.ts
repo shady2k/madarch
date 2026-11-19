@@ -44,7 +44,9 @@ test('repository extraction closes with product interpretation and a product pro
     expect(plan.skipped).toEqual([]);
     expect(plan.selectedKinds).toContain('code.repository');
     expect(plan.selectedKinds).toContain('code.blob');
-    expect(plan.selectedKinds).toContain('product');
+    // R1 (the owner's decision of 2026-11-19, 0b5028570): the closure roots on the engine's protected `system.product`, and
+    // the catalogue kind `product` is the product's description, which no kind depends on any more.
+    expect(plan.selectedKinds).not.toContain('product');
     expect(plan.selectedKinds).toContain('product-profile');
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }, 30_000);

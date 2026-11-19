@@ -10,8 +10,6 @@
  * connection.
  */
 import { decodeSourceResponse, type SourceLanguage } from '../page-contract/source-response.js';
-import { Type } from 'typebox';
-import { Value } from 'typebox/value';
 import { here } from '../model/raise.js';
 import { commandRequests, queryRequests } from './knowledge-contract.js';
 import { GraphRefusal } from '../graph/validation.js';
@@ -31,18 +29,6 @@ import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import { diagramFailurePage } from '../render/diagram-failure.js';
-
-/** The answer command's HTTP boundary, independent of product kind names. */
-export const ANSWER_REQUEST_SCHEMA = Type.Object({
-  question: Type.String({ description: 'the id of the question being answered' }),
-  text: Type.String({ description: 'the answer' }),
-}, { additionalProperties: false });
-
-export const PROPOSE_TASK_REQUEST_SCHEMA = Type.Object({
-  question: Type.String({ description: 'the id of the answered question the task comes from' }),
-  choice: Type.Union([Type.Literal('code'), Type.Literal('docs')]),
-  language: Type.Optional(Type.Union([Type.Literal('ru'), Type.Literal('en')])),
-}, { additionalProperties: false });
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -594,11 +580,9 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      if (!Value.Check(ANSWER_REQUEST_SCHEMA, body)) {
-        const error = [...Value.Errors(ANSWER_REQUEST_SCHEMA, body)][0]!;
-        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:501: ${error.message}` });
-      }
-      const done = await product.answer(body.question, body.text);
+      // The door's generated contract already refused any body this handler would reject (decision 0039, items 7 and 30).
+      const asked = body as { question: string; text: string };
+      const done = await product.answer(asked.question, asked.text);
       return { response: json(200, { question: done.question.slug, state: 'answered', committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.question.answer!.by, at: done.question.answer!.at }) };
     }),
     correction: guarded('save the correction', async (request) => {
@@ -807,11 +791,8 @@ function fillRefusalCode(message: string): string | undefined {
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      if (!Value.Check(PROPOSE_TASK_REQUEST_SCHEMA, body)) {
-        const error = [...Value.Errors(PROPOSE_TASK_REQUEST_SCHEMA, body)][0]!;
-        return refused(400, { field: error.instancePath.slice(1), message: `${import.meta.path}:716: ${error.message}` });
-      }
-      return { response: json(200, await product.proposeTask(body.question, body.choice, body.language)) };
+      const asked = body as { question: string; choice: 'code' | 'docs'; language?: 'en' | 'ru' };
+      return { response: json(200, await product.proposeTask(asked.question, asked.choice, asked.language)) };
     }),
     closeTask: guarded('close a task by hand', async (request) => {
       const crossSite = foreign(request);

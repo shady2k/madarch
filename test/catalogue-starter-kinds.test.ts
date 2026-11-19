@@ -30,7 +30,10 @@ test('a starter product publishes its catalogue and the page lists the new kinds
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(manifest)) });
     await publishValidatedManifests(owner, validation.value);
     const total = await executeGraphql(owner, { manifest, folder }, { query: '{ allCatalogueEntity(first: 1) { totalCount } }' });
-    expect((total.body as MessageBody).data).toMatchObject({ allCatalogueEntity: { totalCount: manifest.catalog!.kinds.size } });
+    // The page also lists the protected engine kinds the catalogue's declarations name (decision 0039, item 9):
+    // `system.product`, the root every kind derives from after R1 (the owner's decision of 2026-11-19, 0b5028570), and
+    // `system.problem`, the end of `task-problem`. Both are one vertex each, not duplicates of catalogue kinds.
+    expect((total.body as MessageBody).data).toMatchObject({ allCatalogueEntity: { totalCount: manifest.catalog!.kinds.size + 2 } });
     // Every kind the owner agreed is a catalogue entity a reader reaches, with its name in both languages.
     for (const kind of ['person', 'role', 'permission', 'iam-role', 'activity', 'activity-node', 'class-diagram', 'logical-data-model', 'use-case-step', 'scenario-step', 'process-event', 'state-machine', 'state-event', 'proposed-kind', 'doc.decision', 'business-process', 'runtime-scenario', 'work-span', 'container-health-check']) {
       const page = await executeGraphql(owner, { manifest, folder }, { query: `{ catalogueEntity(name: "${kind}", lang: "ru") { name label } }` });

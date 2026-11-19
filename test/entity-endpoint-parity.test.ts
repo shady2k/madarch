@@ -6,7 +6,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
-import { typeNameOf } from '../src/graphql/names.js';
+import { kindTypeNameOf } from '../src/graphql/names.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { assertionValueTableName, type EntityRefDraft, type VertexDraft } from '../src/graph/contract.js';
@@ -70,7 +70,9 @@ test('ALX-65: schema Entity kinds equal writer and deferred SQL wildcard accepta
   if (!isInterfaceType(entity)) throw new Error(`${import.meta.path}:72: Entity must be an interface`);
   const implementations = sorted(schema.getImplementations(entity).objects.map(type => type.name));
   // CatalogueEntity represents catalogue records; it is not a stored vertex kind.
-  expect(implementations).toEqual(sorted(['CatalogueEntity', ...effective.vertex.map(kind => typeNameOf(kind.name))]));
+  // A kind's type carries the schema's `Kind` prefix (decision 0036, section 1). `page.template` is the one declared endpoint
+  // the schema has no Entity implementation for; the Architect has not decided it (ALX-518), so this stays red on it alone.
+  expect(implementations).toEqual(sorted(['CatalogueEntity', ...effective.vertex.map(kind => kindTypeNameOf(kind.name))]));
   const expected = sorted(effective.vertex.map(kind => kind.name));
   for (const name of ['source', 'person', 'plugin', 'agent', 'agent-session', 'system.assertion', 'manifest.workflow-stage']) expect(expected).toContain(name);
   const owner = await createTestDatabaseOwner({ graphContract: declared });
