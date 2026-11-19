@@ -168,8 +168,9 @@ export function generateContractStatements(declared: GraphContract) {
                   bool_or(a.operation<>'assert' OR a.language IS NOT NULL OR v.value IS DISTINCT FROM ${projected}) AS contradictory
                 FROM (SELECT id FROM edge WHERE to_node=n.id OFFSET 0) attachment
                 CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=attachment.id OFFSET 0) s
-                CROSS JOIN LATERAL (SELECT * FROM assertion WHERE assertion_id=s.assertion_id AND property=${literal(field.name)} OFFSET 0) a
+                CROSS JOIN LATERAL (SELECT * FROM assertion WHERE assertion_id=s.assertion_id OFFSET 0) a
                 LEFT JOIN LATERAL (SELECT * FROM "${table}" WHERE assertion_id=a.assertion_id OFFSET 0) v ON true
+                WHERE a.property=${literal(field.name)}
               ) checked
               WHERE n.entity_id=(SELECT id FROM entity WHERE name=${literal(kind.name)})
                 AND (NOT (n.key ? ${literal(field.name)}) OR checked.total=0 OR checked.contradictory)`);
