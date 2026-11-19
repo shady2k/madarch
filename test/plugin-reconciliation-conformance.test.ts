@@ -21,8 +21,6 @@ const run = (cwd: string, args: string[]): string => {
 for (const plugin of ['disk', 'git', 'imports', 'db-schema', 'glossary', 'test-quarantine']) {
   test(`${plugin} reconciles its real source reader through the SDK: add/remove/update only`, async () => {
     const work = mkdtempSync(join(tmpdir(), 'madarch-reconcile-'));
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     try {
       run(work, ['init', '-q']);
       for (const name of ['added', 'changed', 'unchanged']) writeFileSync(join(work, `${name}.ts`), `export const ${name} = 1;\n`);
@@ -46,12 +44,13 @@ for (const plugin of ['disk', 'git', 'imports', 'db-schema', 'glossary', 'test-q
       const report = await checkReconciliationConformance({
         readBlob: async request => { const text = texts[request.blob] ?? ''; return { text, bytes: text.length, lines: text.split('\n').length, binary: false }; },
         pluginFolder: resolve('plugins', plugin), repository: work, workRoot: work, graph, limits: { handshakeMs: 2_000, unitMs: 10_000, stopGraceMs: 100 },
+        // The kit's own environment carries the choice, never the test process's.
+        env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' },
         unit: { unitId: 'fixture', kind, key: {}, inputs: { repositories: [pin], contract, edgeOutputs: [], patterns: ['**/*.ts'] } },
       });
       expect(report.lines.filter(line => !line.ok).map(line => line.text)).toEqual([]);
       expect(report.ok).toBe(true);
     } finally {
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX']; else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
       rmSync(work, { recursive: true, force: true });
     }
   }, 30_000);

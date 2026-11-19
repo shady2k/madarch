@@ -12,8 +12,6 @@ test('a plugin turn leaves an absent optional pattern to the plugin default', as
   const root = mkdtempSync(join(tmpdir(), 'madarch-plugin-pattern-'));
   const graphContract = withSystemContract({ dictionary: [], vertex: [{ name: 'Probe', table: generatedTableName('Probe', 'vertex'), key: ['name'], fields: [{ name: 'name', type: 'text' }], capability: 'pattern-probe' }], edge: [] });
   const owner = await createTestDatabaseOwner({ graphContract });
-  const previous = process.env.MADARCH_PLUGIN_SANDBOX;
-  process.env.MADARCH_PLUGIN_SANDBOX = 'off';
   try {
     const declaration = { name: 'pattern-probe', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Probe', fields: '*', partition: 'key' }] };
     const contract = { vertices: [{ kind: 'Probe', key: ['name'], fields: [] }], edges: [] };
@@ -37,13 +35,14 @@ await definePlugin({ name: 'pattern-probe', version: '1.0.0', contract: ${JSON.s
       owner,
       contract: graphContract,
       releaseHashes: [closure.hash],
+      // The plugin's own turn runs unconfined, as a fill on a machine whose person chose so (decision 0038): the choice
+      // is the turn's, and the process's environment stays what the run gave it.
+      unconfined: true,
     } as unknown as PluginTurnWiring;
     let planned = false;
     await runPluginTurn(wiring, 'pattern-probe:Probe', () => { throw new Error('planning reports no outcome'); }, undefined, undefined, undefined, undefined, { plan(partitions) { expect(partitions).toEqual([]); planned = true; } });
     expect(planned).toBe(true);
   } finally {
-    if (previous === undefined) delete process.env.MADARCH_PLUGIN_SANDBOX;
-    else process.env.MADARCH_PLUGIN_SANDBOX = previous;
     await owner.close();
     rmSync(root, { recursive: true, force: true });
   }

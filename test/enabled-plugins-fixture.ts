@@ -180,6 +180,11 @@ function seedFixtureProduct(folder: string): void {
   writeFileSync(file, lock.toString());
 }
 
+/** The closure this fixture seeds for the starter root: a test's own release, named in a fill's `releaseHashes`. */
+export function fixtureProductClosure(): string {
+  return closureOf(join(import.meta.dir, 'fixtures/plugin-product')).hash;
+}
+
 /** Seeds a fresh repository-only fixture with both complete closures, not the everything starter's other plugins. */
 export function seedRepositoryPlugins(folder: string): void {
   const ids = ['disk', 'git'];

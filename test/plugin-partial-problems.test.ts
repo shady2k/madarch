@@ -11,8 +11,6 @@ import { runPluginTurn, type PluginTurnWiring } from '../src/fill/plugin-turns.j
 
 test('a partial unit keeps its file problems beside the general cause', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-plugin-partial-'));
-  const previous = process.env.MADARCH_PLUGIN_SANDBOX;
-  process.env.MADARCH_PLUGIN_SANDBOX = 'off';
   try {
     const declaration = { name: 'partial-probe', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Probe', fields: '*' }] };
     const contract = { vertices: [{ kind: 'Probe', key: ['name'], fields: [] }], edges: [] };
@@ -32,6 +30,9 @@ await definePlugin({ name: 'partial-probe', version: '1.0.0', readOnly: true, co
       locks: new Map([[plugin.id, { id: plugin.id, version: '1.0.0', closure: closure.hash }]]),
       contract: { vertex: [], edge: [] },
       releaseHashes: [closure.hash],
+      // The plugin's own turn runs unconfined, as a fill on a machine whose person chose so (decision 0038): the choice
+      // is the turn's, and the process's environment stays what the run gave it.
+      unconfined: true,
     } as unknown as PluginTurnWiring;
     const writes: { kind: string; value: unknown }[] = [];
     const draft = { write(write: { kind: string; value: unknown }) { writes.push(write); }, writes() { return { writes: [] }; } };
@@ -41,8 +42,6 @@ await definePlugin({ name: 'partial-probe', version: '1.0.0', readOnly: true, co
     expect(outcome?.reason).toContain('the rest could not be read');
     expect(outcome?.reason).toContain('app/src/a.ts:2:3 it broke');
   } finally {
-    if (previous === undefined) delete process.env.MADARCH_PLUGIN_SANDBOX;
-    else process.env.MADARCH_PLUGIN_SANDBOX = previous;
     rmSync(root, { recursive: true, force: true });
   }
 });

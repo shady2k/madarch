@@ -20,7 +20,8 @@
       "files",
       "value",
       "removedEnds",
-      "unevidenced"
+      "unevidenced",
+      "ownFacts"
     ]
   }
 }

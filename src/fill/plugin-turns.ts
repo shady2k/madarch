@@ -84,6 +84,8 @@ export interface PluginTurnWiring {
   readonly traces?: string;
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run plugins without isolation (decision 0038): the turn's own choice. */
+  readonly unconfined?: boolean;
   readonly debug?: boolean;
   /**
    * The run's agent metering (madarch-stm0.4, decision 0035, item 22): the fill run's id, the counter the run's plugin
@@ -504,7 +506,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
-        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot))
+        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot, { ...(wiring.unconfined === true ? { unconfined: true } : {}) }))
         : { filesystemInputs: [], repositories: currentPins.map((pin) => ({ repository: pin.id, commit: pin.commit })) };
     } catch (error) {
       withSpanSync('plugin.cleanup', {}, () => rmSync(workRoot, { recursive: true, force: true }));
@@ -559,6 +561,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
     ...(agentMinutes === undefined ? {} : { limits: { agentUnitMs: agentMinutes * 60_000 } }),
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
+    ...(wiring.unconfined === true ? { unconfined: true } : {}),
     ...(requests === undefined ? {} : { requests }),
   });
   /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */

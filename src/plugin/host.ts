@@ -747,6 +747,17 @@ ${text === '' ? '(empty)' : text}` };
     return { outcome: 'refused', size: 0, cause: 'graph-denied' };
   }
 
+  /**
+   * Refuses the introduction: the plugin hears the refusal by the id it asked with, and the waiting handshake is rejected
+   * — which is what settles `open()`. Clearing the handshake before failing would leave the same refusal to be answered
+   * as a handshake timeout, seconds later.
+   */
+  private refuseIntroduction(id: number | string, cause: UnitCause): false {
+    this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+    this.fail(cause);
+    return false;
+  }
+
   /** The introduction: held to the schema and the protocol version, then answered; false when it was refused. */
   private takeIntroduction(id: number | string, params: unknown): boolean {
     const greeting = this.handshake;
@@ -757,32 +768,19 @@ ${text === '' ? '(empty)' : text}` };
     const declared = params as PluginIntroduce;
     if (declared === null || typeof declared !== 'object' || declared.protocol !== PROTOCOL_VERSION) {
       const said = declared === null || typeof declared !== 'object' ? 'no introduction' : `protocol ${String((declared as { protocol?: unknown }).protocol)}`;
-      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the plugin speaks ${said}, and this host speaks ${PROTOCOL_VERSION}`));
-      greeting.reject({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
-      this.handshake = undefined;
-      this.fail({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
-      return false;
+      return this.refuseIntroduction(id, { code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
     }
     if (this.contractRights !== undefined && JSON.stringify(canonicalRights(declared.rights ?? { network: 'none' })) !== JSON.stringify(canonicalRights(this.contractRights))) {
       const cause: UnitCause = { code: 'rights-mismatch', message: `${WHERE}:1: the plugin introduced itself with the rights ${JSON.stringify(declared.rights ?? { network: 'none' })}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractRights)}: the contract is what the host grants, and the introduction repeats it` };
-      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
-      this.handshake = undefined;
-      this.fail(cause);
-      return false;
+      return this.refuseIntroduction(id, cause);
     }
     if ((declared.reads ?? 'unit') !== this.contractReads) {
       const cause: UnitCause = { code: 'reads-mismatch', message: `${WHERE}:1: the plugin introduced itself as reading ${JSON.stringify(declared.reads ?? 'unit')}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractReads)}: the contract is what the host plans it by, and the introduction repeats it` };
-      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
-      this.handshake = undefined;
-      this.fail(cause);
-      return false;
+      return this.refuseIntroduction(id, cause);
     }
     if (declared.rights?.network !== undefined && declared.rights.network !== 'none') {
       const cause: UnitCause = { code: 'rights-unsupported', message: `${WHERE}:1: the plugin asks for the network profile "${String(declared.rights.network)}", and this build runs only "none": the network namespace is unshared and socket creation refused` };
-      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
-      this.handshake = undefined;
-      this.fail(cause);
-      return false;
+      return this.refuseIntroduction(id, cause);
     }
     const agentOutputs = this.options.agent?.outputs;
     if (this.agentPart !== undefined && agentOutputs !== undefined) declared.outputs = agentOutputs;

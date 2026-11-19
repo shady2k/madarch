@@ -39,7 +39,7 @@ test('complete plugin turns retire old support relations but preserve immutable 
       { kind: 'Fixture.snapshot', key: ['digest'], fields: ['digest', 'content'].map(field), evidence: immutable },
     ], edges: [edge] };
     writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'support', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Fixture.file', fields: '*', reads: [] }, { kind: 'Fixture.fact', fields: '*', reads: ['Fixture.file'], support: { vertices: ['Fixture.snapshot'], edges: ['Fixture.snapshot-about'] } }] }));
-    writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'support', version: '1.0.0', outputs, rights: { network: 'none' } }));
+    writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'support', version: '1.0.0', outputs, rights: { network: 'none', graph: true, graphReads: ['files', 'value', 'ownFacts'] } }));
     writeFileSync(join(plugin, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk';
 import { content } from './scenario.js';
 import { createHash } from 'node:crypto';
