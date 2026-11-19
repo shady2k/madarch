@@ -50,6 +50,20 @@ describe('declaration-scoped protocol literals', () => {
     expect(run("import type { SqlTransactionKind } from '../sql-driver.js'; export interface DatabaseOwner { transaction(work: unknown, kind: SqlTransactionKind): void }")).toEqual([false, false]);
   });
 
+  test('the registry form requires the indexed alias to read that registry, not just its key', () => {
+    const file = 'src/sql-driver.ts', ownerFile = 'src/adapters/database-owner.ts';
+    const module = parsed(file, [
+      "export const OTHER = { snapshot: 'snapshot', write: 'write' } as const;",
+      "export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;",
+      'export type SqlTransactionKind = typeof OTHER[keyof typeof SQL_TRANSACTION_KINDS];',
+    ].join('\n'));
+    const modules = new Map([
+      [file, module],
+      [ownerFile, parsed(ownerFile, "import type { SqlTransactionKind } from '../sql-driver.js'; export interface DatabaseOwner { transaction(kind: SqlTransactionKind, work: unknown): void }")],
+    ]);
+    expect(literals(module.tree).map(node => declarationProtocolLiteral(module, node, modules))).toEqual([false, false, false, false]);
+  });
+
   test('typed transaction mode initializer requires its actual owner consumer', () => {
     expect(decisions(`import type { DatabaseOwner } from './adapters/database-owner.js'; import type { SqlTransactionKind } from './sql-driver.js';
       function valid(owner: DatabaseOwner) { const kind: SqlTransactionKind = 'snapshot'; trace(kind); owner.transaction(kind, work); }

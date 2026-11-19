@@ -64,12 +64,12 @@ interface GuardSpec<Context, Event extends FillEventObject> {
   readonly check: (context: Context, event: Event) => boolean;
 }
 
+export const CONTEXT_ACTION = 'context';
+
 /**
  * A named action. `effect` is performed by the caller after the new state is
  * persisted; `context` is a pure update XState applies while it steps.
  */
-export const CONTEXT_ACTION = 'context';
-
 type ActionSpec<Context, Event extends FillEventObject> =
   | { readonly kind: 'effect'; readonly describe: string }
   | { readonly kind: typeof CONTEXT_ACTION; readonly describe: string; readonly apply: (context: Context, event: Event) => Context };

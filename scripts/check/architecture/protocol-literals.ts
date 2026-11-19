@@ -245,9 +245,12 @@ function transactionKindDeclaration(module: GateModule, node: Node): Node | unde
     || registry?.['type'] !== 'VariableDeclarator' || !named(registry['id'], 'SQL_TRANSACTION_KINDS')
     || ancestors[4]?.['kind'] !== 'const' || ancestors[5]?.['type'] !== 'ExportDeclaration') return undefined;
   const indexed = alias['typeAnnotation'] as Node | undefined;
-  const index = indexed?.['type'] === 'TsIndexedAccessType' ? indexed['indexType'] as Node : undefined;
-  const keyOf = index?.['type'] === 'TsTypeOperator' && index['op'] === 'keyof' ? index['typeAnnotation'] as Node : undefined;
-  if (keyOf?.['type'] !== 'TsTypeQuery' || !same(keyOf['exprName'] as Node, registry['id'] as Node)) return undefined;
+  if (indexed?.['type'] !== 'TsIndexedAccessType') return undefined;
+  const read = indexed['objectType'] as Node, indexType = indexed['indexType'] as Node;
+  const readType = read['type'] === 'TsParenthesizedType' ? read['typeAnnotation'] as Node : read;
+  const keyOf = indexType['type'] === 'TsTypeOperator' && indexType['op'] === 'keyof' ? indexType['typeAnnotation'] as Node : undefined;
+  if (readType['type'] !== 'TsTypeQuery' || !same(readType['exprName'] as Node, registry['id'] as Node)
+    || keyOf?.['type'] !== 'TsTypeQuery' || !same(keyOf['exprName'] as Node, registry['id'] as Node)) return undefined;
   const values = (object['properties'] as Node[]).map(part => part['type'] === 'KeyValueProperty' ? part['value'] as Node : undefined);
   return values.every(part => value(part) !== undefined) ? alias : undefined;
 }

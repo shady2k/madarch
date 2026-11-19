@@ -323,6 +323,10 @@ describe('gate 1: the engine holds no product data', () => {
         'export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];',
         "export const arbitrary = 'snapshot';",
       ].join('\n'),
+      'src/adapters/database-owner.ts': [
+        "import type {SqlTransactionKind} from '../sql-driver.js';",
+        'export interface DatabaseOwner { transaction(kind:SqlTransactionKind,work:unknown):Promise<unknown> }',
+      ].join('\n'),
       'src/reader.ts': [
         "import type {DatabaseOwner} from './adapters/database-owner.js';",
         "type Owner=Pick<DatabaseOwner,'transaction'>;",
@@ -332,6 +336,18 @@ describe('gate 1: the engine holds no product data', () => {
       ].join('\n'),
     });
     expect(productDataViolations(home).map(finding=>[finding.file,finding.line])).toEqual([['src/reader.ts',3],['src/sql-driver.ts',3]]);
+  });
+
+  test('the registry form declares no mode word without a typed owner consumer', () => {
+    const driver=[
+      "export const SQL_TRANSACTION_KINDS = { snapshot: 'snapshot', write: 'write' } as const;",
+      'export type SqlTransactionKind = typeof SQL_TRANSACTION_KINDS[keyof typeof SQL_TRANSACTION_KINDS];',
+    ].join('\n');
+    const tree={ ...catalogue('demo.kind','fields:\n  - name: snapshot\n    type: text\n'), 'src/sql-driver.ts': driver };
+    const findings=(files:Readonly<Record<string,string>>)=>productDataViolations(fixture(files))
+      .filter(finding=>finding.file==='src/sql-driver.ts').map(finding=>[finding.line,finding.symbol]);
+    expect(findings(tree)).toEqual([[1,'snapshot']]);
+    expect(findings({ ...tree, 'src/adapters/database-owner.ts': 'export interface DatabaseOwner { transaction(kind:string,work:unknown):void }' })).toEqual([[1,'snapshot']]);
   });
 
   test('logical state selectors require the exact system template projection', () => {
