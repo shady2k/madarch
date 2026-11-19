@@ -1,15 +1,15 @@
 import { definePlugin } from 'madarch-plugin-sdk';
-import { contract, mode, files } from './scenario.js';
+import { contract, mode, files, sourceDigest } from './scenario.js';
 
 // One ordinary plugin has independently scoped outputs. No native stage or model.
 await definePlugin({
   name: 'scenarios', version: '1.0.0', graph: true, graphReads: ['value'], contract,
   async extract(unit, context) {
-    const evidence = { repository: 'repo', path: 'source.md', lineStart: 1, lineEnd: 1 };
+    const evidence = { target: { kind: 'system.content-snapshot', key: { digest: sourceDigest } }, path: 'source.md', lineStart: 1, lineEnd: 1 };
     if (unit.kind === 'Files') {
       const vertices = files.map(file => ({ kind: 'Files', key: { path: file.path },
         values: { content: file.content, description: file.description },
-        evidence: { repository: 'repo', path: file.path, lineStart: 1, lineEnd: 1 } }));
+        evidence: { target: { kind: 'system.content-snapshot', key: { digest: file.digest } }, path: file.path, lineStart: 1, lineEnd: 1 } }));
       if (mode === 'unselected-write') vertices.push({ kind: 'Summary', key: { id: 'forbidden' }, values: { text: 'must not publish' }, evidence });
       return { vertices, end: { state: 'complete' } };
     }
