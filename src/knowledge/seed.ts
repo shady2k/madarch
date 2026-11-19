@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { parseCatalogYaml } from '../product/manifest/kinds.js';
 import { CATALOG_FILES } from './catalog-assets.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
-import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
+import { DEFAULT_STARTER_TEMPLATE, kindClosure, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
@@ -178,7 +178,11 @@ export function starterKindNames(template: StarterTemplate): readonly string[] {
     if (matches.length === 0) throw new Error(`catalog/templates/${template.id}.yaml:1: unknown kind or folder ${JSON.stringify(selector)}`);
     for (const kind of matches) names.add(kind.name);
   }
-  return CATALOG_KINDS.filter((kind) => names.has(kind.name)).map((kind) => kind.name);
+  // A template that names kinds names what they rest on too: a manifest that declares code.repository without
+  // product-profile would refuse its own derives-from.
+  const derivesFrom = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.derivesFrom ?? []]));
+  const needed = new Set(kindClosure(names, (name) => derivesFrom.get(name)));
+  return CATALOG_KINDS.filter((kind) => needed.has(kind.name)).map((kind) => kind.name);
 }
 
 /** The kinds one template's manifest shows as pages: the catalogue kinds whose template policy is not `none`. */
