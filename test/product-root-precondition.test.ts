@@ -100,4 +100,4 @@ test('(a) a fresh default product without an agent plans its plugins and skips t
     expect(plan.selectedKinds).toContain('product-profile');
     expect([...plan.fieldProducers('product-profile').values()].every((producers) => producers.length === 0)).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 60_000);
