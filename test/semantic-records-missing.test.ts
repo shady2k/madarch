@@ -20,6 +20,7 @@ function missingParentOwner(role:'repository'|'commit'):DatabaseOwner {
  const uid='00000000-0000-4000-8000-000000000001';
  const tx={query:async(sql:string,parameters?:readonly unknown[])=>{
   if(sql.includes('WITH anchors AS'))return {rows:[]};
+  if(sql.includes("k.name='system.merge'"))return {rows:[{present:false}]};
   if(sql==='SELECT transaction_timestamp() AS now')return {rows:[{now}]};
   if(parameters?.[0]!=='manifest.catalogue')return {rows:[]};
   if(sql.includes('FROM node n'))return {rows:[{request_index:0,id:1,uid,key:{name:'product'},read_at:now}]};
@@ -29,6 +30,7 @@ function missingParentOwner(role:'repository'|'commit'):DatabaseOwner {
    context_id:1,language:null,source:uid,author:uid,unit:null,operation_uid:uid,evidence:[],
    operation:'assert',valid_from:'2020-01-01T00:00:00.000Z',valid_to:null,
    recorded_at:'2020-01-01T00:00:00.000Z',recorded_sequence:String(index+1),
+   selected:true,active:true,
   }))};
   throw new Error(`unexpected query: ${sql}`);
  }} as SqlExecutor;

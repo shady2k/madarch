@@ -82,6 +82,7 @@ describe('explicit store preparation and connect-only clients', () => {
             run: observedOwner.run.bind(observedOwner),
             exec: observedOwner.exec.bind(observedOwner),
             close: observedOwner.close.bind(observedOwner),
+            onClose: observedOwner.onClose.bind(observedOwner),
             graphContract: withAssertionContract(withManifestContract(repositoryContract)),
           };
           try {
