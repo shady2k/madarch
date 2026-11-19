@@ -1040,6 +1040,8 @@ type CodeIndexColumnsEdge {
   id: ID!
   discriminator: String!
   assertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
   node: Entity!
 }
 
@@ -3119,7 +3121,7 @@ type KindCodeColumn implements Entity {
   codeForeignKey(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
   codeForeignKeyOf(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
   codeHasColumnOf(first: Int, after: String): CodeHasColumnConnection!
-  codeIndexColumnsOf(first: Int, after: String): CodeIndexColumnsConnection!
+  codeIndexColumnsOf(where: CodeIndexColumnsEdgeWhere, orderBy: [CodeIndexColumnsEdgeOrder!], first: Int, after: String): CodeIndexColumnsConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -4030,7 +4032,7 @@ type KindCodeIndex implements Entity {
   where: String
   whereAssertions: [Assertion!]!
   codeHasIndexOf(first: Int, after: String): CodeHasIndexConnection!
-  codeIndexColumns(first: Int, after: String): CodeIndexColumnsConnection!
+  codeIndexColumns(where: CodeIndexColumnsEdgeWhere, orderBy: [CodeIndexColumnsEdgeOrder!], first: Int, after: String): CodeIndexColumnsConnection!
   codeIndexTable(first: Int, after: String): CodeIndexTableConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   grounds(first: Int, after: String): GroundsConnection!
@@ -12612,6 +12614,28 @@ input CodeImportsPackageEdgeWhere {
   form: CodeImportsPackageEdgeFormFilter
   names: CodeImportsPackageEdgeNamesFilter
   typeOnly: CodeImportsPackageEdgeTypeOnlyFilter
+}
+
+input CodeIndexColumnsEdgeOrder {
+  field: CodeIndexColumnsEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeIndexColumnsEdgePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeIndexColumnsEdgeWhere {
+  position: CodeIndexColumnsEdgePositionFilter
 }
 
 input CodeParentEdgeOrder {
@@ -23859,6 +23883,10 @@ enum CodeImportsPackageEdgeOrderField {
   form
   names
   typeOnly
+}
+
+enum CodeIndexColumnsEdgeOrderField {
+  position
 }
 
 enum CodeParentEdgeOrderField {

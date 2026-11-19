@@ -825,7 +825,7 @@ function answerOf(model: Model): UnitResult {
             model.problems.push({ repository: index.place.repository, path: index.place.path, line: index.place.lineStart, message: `index ${index.name} names missing column ${name}` });
             continue;
           }
-          edges.push({ kind: 'code.index-column', from: child, to: columnRef(database, table.name, name), discriminator: String(position), values: { position }, evidence: evidenceOf(index.place) });
+          edges.push({ kind: 'code.index-columns', from: child, to: columnRef(database, table.name, name), discriminator: String(position), values: { position }, evidence: evidenceOf(index.place) });
         }
       }
     }
@@ -942,7 +942,7 @@ const CONTRACT = {
   edges: [
 {"kind": "code.blob-about", "from": "code.blob", "to": ["code.file", "code.repository"], "cardinality": {"from": "many", "to": "many"}, "labels": {"en": {"out": "captures", "in": "captured by"}, "ru": {"out": "снимок", "in": "снят в"}}, "fields": []},
     ...[['code.database-repository', DATABASE_KIND, 'code.repository'], ['code.table-database', TABLE_KIND, DATABASE_KIND], ['code.column-table', COLUMN_KIND, TABLE_KIND], ['code.index-table', INDEX_KIND, TABLE_KIND]].map(([kind, from, to]) => ({ kind: kind!, from: from!, to: to!, cardinality: { from: 'many' as const, to: 'one' as const }, labels: { en: { out: 'belongs to', in: 'contains' }, ru: { out: 'принадлежит', in: 'содержит' } } })),
-    { cardinality: {from:'many',to:'many'}, labels:{en:{out:'includes',in:'included in'},ru:{out:'содержит',in:'входит в'}}, kind: 'code.index-column', from: INDEX_KIND, to: COLUMN_KIND, fields: [field('position', 'integer', 'The column position in the index.', 0, true)] },
+    { cardinality: {from:'many',to:'many'}, labels:{en:{out:'includes',in:'included in'},ru:{out:'содержит',in:'входит в'}}, kind: 'code.index-columns', from: INDEX_KIND, to: COLUMN_KIND, fields: [field('position', 'integer', 'The column position in the index.', 0, true)] },
     { cardinality:{from:'many',to:'one'},labels:{en:{out:'has column',in:'column of'},ru:{out:'содержит столбец',in:'столбец таблицы'}}, kind: HAS_COLUMN, from: TABLE_KIND, to: COLUMN_KIND },
     { cardinality:{from:'many',to:'one'},labels:{en:{out:'has index',in:'index of'},ru:{out:'содержит индекс',in:'индекс таблицы'}}, kind: HAS_INDEX, from: TABLE_KIND, to: INDEX_KIND },
     {
