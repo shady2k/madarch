@@ -112,7 +112,7 @@
     "test/graphql-schema.test.ts": 8300,
     "test/graphql-starter.test.ts": 27400,
     "test/graphql-writes.test.ts": 51100,
-    "test/history-change-report.test.ts": 45500,
+    "test/history-change-report.test.ts": 51825,
     "test/history-sources.test.ts": 11300,
     "test/history.test.ts": 40800,
     "test/identity.test.ts": 7300,

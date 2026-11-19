@@ -287,7 +287,7 @@
     },
     {
       "path": "test/history-change-report.test.ts",
-      "seconds": 45.5,
+      "seconds": 51.825,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7",
