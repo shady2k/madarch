@@ -41,4 +41,4 @@ description:
   en: A workflow is a named sequence of stages a product runs, such as the first reading of a product or an update by commit, with a status saying whether it can run today. The product declares its workflows, and a run shows the states each one passes.
   ru: 'Рабочий процесс — именованная последовательность стадий, которую запускает продукт: первое чтение продукта или обновление по коммиту, — со статусом, говорящим, может ли она выполниться сегодня. Продукт объявляет свои процессы, а прогон показывает состояния, которые проходит каждый из них.'
 derives-from:
-- product
+- system.product

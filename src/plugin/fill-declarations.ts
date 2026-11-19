@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { ClosureRefusal, pluginManifestLine, type PluginManifest } from './closure.js';
-import type { KindsManifest } from '../product/manifest/kinds.js';
+import { PROTECTED_KIND_NAMES, type KindsManifest } from '../product/manifest/kinds.js';
 
 export type FillRead = NonNullable<PluginManifest['produces'][number]['reads']>[number];
 export interface FillKindDeclaration {
@@ -14,15 +14,22 @@ export interface FillKindDeclaration {
   readonly line: number;
   readonly derivesFrom?: readonly string[];
   readonly catalogueOnly?: boolean;
+  /** A protected engine kind from the installed contract: a declared prerequisite no product declares or produces. */
+  readonly engineProtected?: boolean;
   /** Authored prerequisites stay in the closure but need no extraction turn. */
   readonly producerRequired?: boolean;
 }
 /** All declared prerequisites, including catalogue-only kinds that have no storage or producer. */
 export function fillKindsOf(manifest: KindsManifest): FillKindDeclaration[] {
+  const declared = new Set([...manifest.kinds.keys(), ...(manifest.catalog?.kinds.keys() ?? [])]);
   return [
     ...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: kind.profileMarkers === undefined && kind.profileTechnologies === undefined ? (kind.fields ?? []).map((field) => field.name) : [], key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
     ...[...(manifest.catalog?.kinds.values() ?? [])].filter((kind) => !manifest.kinds.has(kind.name) && kind.templatePolicy === 'none')
       .map((kind) => ({ name: kind.name, fields: [], file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom, catalogueOnly: true })),
+    // The installed contract's protected kinds are declared prerequisites without fields: the engine writes them, so a
+    // product neither declares them nor waits for a producer. Their names come from the contract, never from this file.
+    ...[...PROTECTED_KIND_NAMES].filter((name) => !declared.has(name)).sort(byCodePoint)
+      .map((name) => ({ name, fields: [], file: resolve(manifest.file), line: 1, engineProtected: true })),
   ];
 }
 
@@ -145,10 +152,11 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   for (const plugin of input.plugins) {
     if (plugin.manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${plugin.manifest.name} declares no output; declare produces, including Problem records for checks`);
     for (const [index, declaration] of plugin.manifest.produces.entries()) {
-      const names = declaration.kind === '*' ? [...kinds.values()].filter((kind) => !kind.catalogueOnly && !supportKinds.has(kind.name)).map((kind) => kind.name) : [declaration.kind];
+      const names = declaration.kind === '*' ? [...kinds.values()].filter((kind) => !kind.catalogueOnly && !kind.engineProtected && !supportKinds.has(kind.name)).map((kind) => kind.name) : [declaration.kind];
       for (const name of names) {
         const kind = kinds.get(name);
         if (kind === undefined) refuse(plugin, ['produces', index, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
+        if (kind!.engineProtected) refuse(plugin, ['produces', index, 'kind'], `${name} is a protected system kind: the engine writes it, and no product producer fills it`);
         if (kind!.catalogueOnly) refuse(plugin, ['produces', index, 'kind'], `${name} is catalogue-only and declares no producer`);
         const declared = declaration.fields === '*' ? kind!.fields : declaration.fields;
         for (const field of declared) if (!kind!.fields.includes(field)) refuse(plugin, ['produces', index, 'fields'], `plugin ${plugin.manifest.name} names undeclared field ${name}.${field}`);
@@ -353,7 +361,8 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   return {
     unitPredecessors, readsFor, readVersions,
     reads: new Map([...readVersions].map(([name, output]) => [name, new Map([...output].map(([kind, reads]) => [kind, [...new Set(reads.map((read) => typeof read === 'string' ? read : read.kind))]]))])),
-    selectedKinds: [...selected],
+    // A protected prerequisite stands in the closure but runs no turn: it is not a kind this plan fills.
+    selectedKinds: [...selected].filter((name) => kinds.get(name)?.engineProtected !== true),
     emptyKinds: [...selected].filter((name) => kinds.get(name)?.catalogueOnly).sort(byCodePoint)
       .map((kind) => ({ kind, state: 'no-producer-declared' as const })),
     requiresAgent: agentNeeds.length > 0,
@@ -543,13 +552,16 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const unavailable = new Set([...selected].filter((name) => fielded(name) && !covered.has(name) && !nothingToFill.has(name)));
   for (const name of configuredMissing.keys()) if (selected.has(name)) unavailable.add(name);
   // A kind that rests on an unproduced kind, or reads one, cannot be filled either: the run reports that kind and lets
-  // the kinds that do not depend on it run.
+  // the kinds that do not depend on it run. A kind that declares no field propagates the same refusal: it contributes no
+  // turn of its own, and the dependants that do declare fields must not reach around it to the kind nothing produces.
   let changed = true;
   while (changed) {
     changed = false;
     for (const name of selected) {
-      if (unavailable.has(name) || !fielded(name)) continue;
-      const needs = [...(manifest.kinds.get(name)?.derivesFrom ?? []),
+      if (unavailable.has(name)) continue;
+      // The declaration is the source: a catalogue-only kind derives from its prerequisites exactly as a kind of the
+      // manifest does, and its dependants must see the same refusal.
+      const needs = [...(declared.find((kind) => kind.name === name)?.derivesFrom ?? []),
         ...effectiveReadsOf(input, name, askedKinds).map((read) => typeof read === 'string' ? read : read.kind).filter((read) => read !== name)];
       if (needs.some((dependency) => unavailable.has(dependency))) {
         unavailable.add(name);

@@ -51,4 +51,4 @@ description:
   en: 'A person is a human the product knows: the owner who runs it, a developer whose commits carry their name, a reviewer who settles a dispute. A person holds roles, and a role says what they may do and answer for; the concrete person and the role they play are two kinds, related by «holds».'
   ru: 'Человек — тот, кого продукт знает: владелец, который им управляет, разработчик, чьи коммиты несут его имя, ревьюер, который решает спор. Человек исполняет роли, а роль говорит, что ему можно и за что он отвечает; конкретный человек и его роль — два вида, связанные отношением «исполняет».'
 derives-from:
-- product
+- system.product

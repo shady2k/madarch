@@ -66,7 +66,7 @@ test.each(selections)('fixture plugin selection keeps the kinds its plugins fill
     expect(plan.order).toEqual(selected.includes('disk') ? ['disk', 'db-schema'] : []);
 });
 
-test('repository restriction preserves the draft plugins and product producers without fixture-product', () => {
+test('repository restriction preserves the draft plugins and kinds, and needs no fixture-product', () => {
   const draft = createDraft({ home: join(folder, 'products'), name: 'repository-walk', gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   useFixturePlugins(draft.folder, ['disk', 'git']);
@@ -79,5 +79,6 @@ test('repository restriction preserves the draft plugins and product producers w
   if (!read.present) throw new Error('fixture manifest is absent');
   expect(read.manifest.findings).toEqual([]);
   expect(after.plugins).toEqual(before.plugins);
-  expect(after.kinds.product.fields).toEqual(before.kinds.product.fields);
+  // The restriction narrows the declarations to the repository kinds; it changes nothing about the kinds it keeps.
+  for (const [name, kind] of Object.entries(after.kinds)) expect({ name, kind }).toEqual({ name, kind: before.kinds[name] });
 }, 30_000);

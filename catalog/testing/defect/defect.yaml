@@ -74,4 +74,4 @@ description:
   en: A defect is a flaw in something the team produced — code, a document, a design, a test — that can lead the product to fail. It is the cause; a failure is what a person sees when the defect is exercised.
   ru: 'Дефект — изъян в том, что сделала команда: коде, документе, проекте или тесте, — который может привести продукт к сбою. Это причина; сбой — то, что видит человек, когда дефект проявляется.'
 derives-from:
-- product
+- system.product

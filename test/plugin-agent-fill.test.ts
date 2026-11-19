@@ -123,7 +123,7 @@ plugins:
   const manifest = parseDocument(readFolderManifestText(product));
   const starter = parseDocument(starterManifestText()).toJS();
   for (const key of ['catalog', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
-  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
+  for (const name of ['code.repository', 'product-profile', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
     manifest.setIn(['kinds', name], starter.kinds[name]);
   }
   writeFolderManifest(product, manifest.toString());

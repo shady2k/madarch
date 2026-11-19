@@ -157,6 +157,17 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       values: { declaration: JSON.stringify(encode(declaration)), ...(relation === undefined ? {} : { relation }) },
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
   };
+  // A declared prerequisite may name a protected engine kind the product does not declare (decision 0039 item 9): the
+  // manifest gives it the same kind vertex a relation's protected endpoint gets, taken from the installed contract.
+  const installedKind = (name: string): import('./contract.js').VertexContract | undefined =>
+    withAssertionContract(withManifestContract(graphContractOf(manifest))).vertex.find((vertex) => vertex.name === name);
+  const ensureKindVertex = (name: string, path: string, line: number): void => {
+    if (manifest.kinds.has(name) || (manifest.catalog?.kinds.has(name) ?? false)) return;
+    if (vertices.some((vertex) => vertex.kind === 'manifest.kind' && vertex.key['name'] === name)) return;
+    const installed = installedKind(name);
+    if (installed === undefined) throw new Error(`${import.meta.path}:${line}: depends-on names undeclared kind ${name}`);
+    add('kind', name, { contract: installed, protected: true, taken: false, plugins: [] }, path, line);
+  };
   add('catalogue', 'product', manifest, KINDS_FILE, 1);
   // The plugins whose contract declares a kind's vertices: the catalogue entity says what fills it.
   const pluginsOf = (name: string): string[] => [...(manifest.plugins?.values() ?? [])]
@@ -170,12 +181,12 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
       addEdge(MANIFEST_RELATION_EDGE, name, relation.to.split(':')[0]!, { from: name, ...relation }, path, relation.line, relation.type);
     }
-    for (const dependency of kind.derivesFrom ?? []) addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line);
+    for (const dependency of kind.derivesFrom ?? []) { ensureKindVertex(dependency, path, kind.line); addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line); }
   }
   for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) {
     const path = manifest.kindFiles?.get(name) ?? KINDS_FILE;
     add('kind', name, { catalog: kind, derivesFrom: kind.derivesFrom, taken: false, plugins: [] }, path, kind.line);
-    for (const dependency of kind.derivesFrom ?? []) addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line);
+    for (const dependency of kind.derivesFrom ?? []) { ensureKindVertex(dependency, path, kind.line); addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line); }
   }
   for (const [name, edge] of manifest.edges ?? []) {
     add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);

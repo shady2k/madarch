@@ -84,7 +84,7 @@ fields:
   - profile-markers
 key: []
 derives-from:
-- product
+- system.product
 labels:
   en:
     one: Product profile

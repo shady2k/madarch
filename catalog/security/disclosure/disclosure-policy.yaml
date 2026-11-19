@@ -25,4 +25,4 @@ description:
   en: A disclosure policy states how a security researcher should report a weakness, what the team promises in return and when the details may be published. It sets the timetable between the report, the fix and the public note.
   ru: Политика раскрытия говорит, как исследователю безопасности сообщать о слабости, что команда обещает взамен и когда подробности можно публиковать. Она задаёт сроки между сообщением, исправлением и публичным извещением.
 derives-from:
-- product
+- system.product

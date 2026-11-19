@@ -72,4 +72,4 @@ description:
   en: A value set names a closed list of values one field may take, such as task status, priority, issue type, link type or a label. Each value is an entry of the set, and an entity's field points at one entry instead of repeating its text.
   ru: 'Справочник называет закрытый список значений, которые может принимать одно поле: статус задачи, приоритет, тип задачи, тип связи или метку. Каждое значение — запись справочника, и поле сущности указывает на запись, а не повторяет её текст.'
 derives-from:
-- product
+- system.product

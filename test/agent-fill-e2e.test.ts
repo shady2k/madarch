@@ -11,6 +11,7 @@ import { connectAcpAgent } from '../src/fill/acp.js';
 import { runFill } from '../src/fill/run.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { fillPlanView } from '../src/knowledge/fill-plan.js';
+import { kindClosure } from '../src/knowledge/starter-templates.js';
 import { readTraceSpans } from '../src/obs/trace-report.js';
 import { traceFiles } from '../src/obs/trace.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
@@ -70,7 +71,11 @@ function fixture(options: { readonly agent?: boolean } = {}) {
   const home = join(root, 'home');
   const product = makeProduct(home, 'decision-shop', repository, 'app');
   const starter = parseDocument(readFolderManifestText(product)).toJS() as Record<string, any>;
-  const codeKinds = ['code.repository', 'code.directory', 'code.file', 'code.blob', 'code.gitlink', 'code.commit', 'code.author'];
+  const selectedKinds = ['code.repository', 'code.directory', 'code.file', 'code.blob', 'code.gitlink', 'code.commit', 'code.author'];
+  // The kinds the selected ones rest on, from the same closure a template uses: code.repository derives from
+  // product-profile, and a manifest that declares it without that kind refuses its own derives-from.
+  const codeKinds = [...kindClosure(selectedKinds, (name) => starter['kinds'][name]?.['derives-from'])]
+    .filter((name) => starter['kinds'][name] !== undefined);
   const kinds: Record<string, unknown> = Object.fromEntries(codeKinds.map((name) => [name, starter['kinds'][name]]));
   kinds['doc.decision'] = {
     id: 'practice.decision',
@@ -93,7 +98,8 @@ function fixture(options: { readonly agent?: boolean } = {}) {
       { name: 'body', type: 'text', nullable: true, binding: { agent: 'What was decided and why.' } },
     ],
   };
-  const names = new Set(Object.keys(kinds));
+  // The profile's key edge ends at the engine's protected root, which no product declares.
+  const names = new Set([...Object.keys(kinds), 'system.product']);
   const plugins = (starter['plugins'] as { id: string }[]).filter((plugin) => ['disk', 'git', ...(options.agent === false ? [] : ['agent-fill'])].includes(plugin.id));
   // This fixture declares the disk/git graph and the immutable blobs that ground the agent's evidence.
   // Reader questions and detector roles belong to other products, not this decision fixture's semantic contract.

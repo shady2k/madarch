@@ -25,4 +25,4 @@ description:
   en: A quality characteristic names one aspect of how well the product works — performance, reliability, security, usability, maintainability — as ISO/IEC 25010 divides them. A quality requirement is stated against one such characteristic and measured with its sub-characteristics.
   ru: 'Характеристика качества называет одну сторону того, насколько хорошо работает продукт: производительность, надёжность, безопасность, удобство, сопровождаемость, — как их делит ISO/IEC 25010. Требование качества заявляют против такой характеристики и измеряют её подхарактеристиками.'
 derives-from:
-- product
+- system.product

@@ -60,3 +60,21 @@ export function starterTemplateIds(templates: readonly StarterTemplate[] = START
 export function templateMenuLines(templates: readonly StarterTemplate[] = STARTER_TEMPLATES, language: 'en' | 'ru' = 'en'): string[] {
   return templates.map((template, at) => `  ${at + 1}. ${template.title[language]} — ${template.description[language]}`);
 }
+
+/**
+ * The kinds a selection needs: every kind it names, then each kind that kind derives from, transitively. A name no
+ * declaration holds stays in the result as the prerequisite it is (a protected engine kind); a caller that writes
+ * declarations keeps only the kinds it holds. One closure answers both a template's kind selection and the fixtures
+ * that narrow the starter catalogue, so neither keeps a smaller set than its kinds rest on.
+ */
+export function kindClosure(selected: Iterable<string>, derivesFromOf: (kind: string) => readonly string[] | undefined): string[] {
+  const held = new Set<string>();
+  const pending = [...selected];
+  while (pending.length > 0) {
+    const kind = pending.pop()!;
+    if (held.has(kind)) continue;
+    held.add(kind);
+    for (const parent of derivesFromOf(kind) ?? []) pending.push(parent);
+  }
+  return [...held];
+}

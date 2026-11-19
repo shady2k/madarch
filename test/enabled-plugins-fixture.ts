@@ -1,10 +1,8 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { closureOf } from '../src/plugin/closure.js';
 import { parseDocument } from 'yaml';
 import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
-import { fixtureProductFiles, withFixtureProduct } from './product-producer-fixture.js';
 
 /** Keeps only exercised plugins; excluded bindings become passive provenance, with every field retained. */
 export function useFixturePlugins(folder: string, ids: readonly string[], keepKinds: readonly string[] = []): void {
@@ -163,28 +161,6 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
   writeFolderManifest(folder, manifest.toString());
 }
 
-/** A real deterministic producer for the starter root, so repository fixtures need no model. */
-function seedFixtureProduct(folder: string): void {
-  const relative = 'plugins/fixture-product';
-  const target = join(folder, relative);
-  mkdirSync(target, { recursive: true });
-  for (const file of fixtureProductFiles) {
-    writeFileSync(join(folder, file.path), file.content);
-  }
-  writeFolderManifest(folder, withFixtureProduct(readFolderManifestText(folder)));
-  const file = join(folder, 'madarch/plugins.lock');
-  const lock = parseDocument(readFileSync(file, 'utf8'));
-  const locked = (lock.toJS().plugins ?? []).filter((plugin: { id: string }) => plugin.id !== 'fixture-product');
-  locked.push({ id: 'fixture-product', version: '1.0.0', path: relative, closure: closureOf(target).hash });
-  lock.set('plugins', locked);
-  writeFileSync(file, lock.toString());
-}
-
-/** The closure this fixture seeds for the starter root: a test's own release, named in a fill's `releaseHashes`. */
-export function fixtureProductClosure(): string {
-  return closureOf(join(import.meta.dir, 'fixtures/plugin-product')).hash;
-}
-
 /** Seeds a fresh repository-only fixture with both complete closures, not the everything starter's other plugins. */
 export function seedRepositoryPlugins(folder: string): void {
   const ids = ['disk', 'git'];
@@ -200,8 +176,7 @@ export function seedRepositoryPlugins(folder: string): void {
       writeFileSync(target, file.bytes ?? file.content, { flag: 'wx' });
     }
   }
-  seedFixtureProduct(folder);
-  useFixturePlugins(folder, [...ids, 'fixture-product']);
+  useFixturePlugins(folder, ids);
 }
 
 /** Declares repository fact inputs for fixtures that previously relied on native stages. */
@@ -245,6 +220,5 @@ export function useRepositoryPlugins(folder: string): void {
   }
   lock.set('plugins', locked);
   writeFileSync(lockFile, lock.toString());
-  seedFixtureProduct(folder);
-  if (!hadManifest) useFixturePlugins(folder, ['disk', 'git', 'fixture-product']);
+  if (!hadManifest) useFixturePlugins(folder, ['disk', 'git']);
 }

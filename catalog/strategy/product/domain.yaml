@@ -51,7 +51,7 @@ fields:
 key:
 - name
 derives-from:
-- product
+- system.product
 labels:
   en:
     one: Domain
