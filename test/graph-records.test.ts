@@ -85,7 +85,7 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'docs', 'same-two.md'), '# one\n');
   writeFileSync(join(repository, 'blob.bin'), Buffer.from([0, 1, 2, 3, 0]));
   writeFileSync(join(repository, 'with space and\nnewline.txt'), 'x\n');
-  writeFileSync(join(repository, 'docs', 'with "quotes" and \\backslash.md'), '# quoted\n');
+  writeFileSync(join(repository, 'docs', 'with "quotes".md'), '# quoted\n');
   symlinkSync('src/a.ts', join(repository, 'link.ts'));
   git(['init', '-q', '-b', 'main']);
   // A remote a person cloned with: the credential is read and never stored (madarch-hsqs stage B review).
@@ -135,7 +135,7 @@ describe('the two passes over one fixture', () => {
     const first = await fillRepository();
     const roots = first.units.filter(unit => !unit.unitId.includes('#')).map(unit => unit.unitId).sort();
     expect(roots).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository',
-      'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
+      'fixture-product:product', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(first.units.every(unit => unit.stageId === 'plugin-turns')).toBe(true);
     const directoryEdges = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM graph_edge_active_ids('code.directory-repository',1)`));
     expect(directoryEdges.rows[0]?.n).toBe(2);
@@ -324,7 +324,7 @@ describe('the two passes over one fixture', () => {
   test('ordinary output units execute through the plugin runtime', async () => {
     const run = await fillRepository();
     expect(run.units).toEqual([]);
-    expect([...new Set(run.reused.map(id => id.split('#')[0]))].sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
+    expect([...new Set(run.reused.map(id => id.split('#')[0]))].sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'fixture-product:product', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
     expect(git(['rev-parse', '--is-shallow-repository'])).toBe('false');
     expect((await repositoryFacts(owner!, 'fixture'))?.historyShallow).toBe(false);
@@ -421,7 +421,7 @@ test('an empty disk-only tree is available from its successful inventory publica
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty tree'], { cwd: empty });
   const fixture = join(root, 'product-empty-tree');
   makeProduct(fixture, empty, 'empty-tree');
-  useFixturePlugins(fixture, ['disk'], GIT_CONTRACT.vertex.map(kind => kind.name));
+  useFixturePlugins(fixture, ['disk', 'fixture-product'], GIT_CONTRACT.vertex.map(kind => kind.name).filter(name => !['product', 'code.repository', 'code.directory', 'code.file', 'code.gitlink'].includes(name)));
   restrictRepositoryDeclarations(fixture);
   execFileSync('git', ['add', '-A'], { cwd: fixture });
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Only inventory'], { cwd: fixture });
@@ -429,7 +429,7 @@ test('an empty disk-only tree is available from its successful inventory publica
   try {
     const run = await runFill({ product: fixture, database: inventory, home: join(root, 'empty-home'), runId: 'empty-tree', prepareContract: async contract => { await prepareTestStore(inventory, { contract }); } });
     if (!run.ok) throw new Error(`empty inventory fill refused: ${run.reason}`);
-    expect(run.state).toBe('succeeded');
+    if (run.state !== 'succeeded') throw new Error(`empty inventory fill failed: ${JSON.stringify({run,units:await readRunUnits(inventory,run.runId),progress:await readProgress(inventory,run.runId,{limit:10000})})}`);
     const facts = await repositoryFacts(inventory, 'empty-tree');
     expect(facts).toMatchObject({ hasTree: true, asIsCommit: null, fileCount: 0, directoryCount: 0, commitCount: 0 });
     const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);

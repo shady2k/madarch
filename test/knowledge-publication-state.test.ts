@@ -95,7 +95,10 @@ test('publication failure ends the waiting fill with diagnostics and never queue
 test('close cancels a waiting fill without waiting for daemon publication', async () => {
   const { product, queued } = fixture();
   expect(await product.startFill({ agent: 'claude-code', tokenCap: 1000 })).toMatchObject({ started: true });
+  const abort = spyOn(AbortController.prototype, 'abort');
   await product.close();
+  expect(abort.mock.calls.some(([reason]) => reason instanceof Error && reason.message === 'the wiki is shutting down')).toBe(true);
+  abort.mockRestore();
   await product.settled();
   expect(queued).not.toHaveBeenCalled();
 });
@@ -106,11 +109,68 @@ test('publication wait settles on state transitions and supports cancellation', 
   const abort = new AbortController();
   const waiting = waitForManifestPublication(folder);
   const cancelled = waitForManifestPublication(folder, abort.signal);
-  abort.abort();
-  await expect(cancelled).rejects.toThrow('shutting down');
+  const reason = new Error('the reader cancelled this request');
+  abort.abort(reason);
+  await expect(cancelled).rejects.toBe(reason);
+  const alreadyCancelled = new AbortController();
+  alreadyCancelled.abort();
+  await expect(waitForManifestPublication(folder, alreadyCancelled.signal)).rejects.toBe(alreadyCancelled.signal.reason);
   setManifestPublicationState(folder, { status: 'published' });
   expect(await waiting).toEqual({ status: 'published' });
   expect(await waitForManifestPublication(folder)).toEqual({ status: 'published' });
+});
+
+test('the fill-plan route passes its request cancellation signal to the product', async () => {
+  const { folder, product } = fixture();
+  setManifestPublicationState(folder, { status: 'published' });
+  const planned = spyOn(product, 'fillPlan').mockResolvedValue([] as unknown as Awaited<ReturnType<KnowledgeProduct['fillPlan']>>);
+  const part = createKnowledgePart({
+    json: (status, body) => Response.json(body, { status }),
+    refused: (status, error) => ({ response: Response.json({ error }, { status }) }),
+    errorLog: () => undefined,
+  }, product, () => []);
+  const controller = new AbortController();
+  const request = new Request('http://wiki.test/api/fill-plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ selected: ['probe.summary'], pluginsOnly: true }), signal: controller.signal,
+  });
+  expect((await part.fillPlan(request)).response.status).toBe(200);
+  expect(planned).toHaveBeenCalledWith(['probe.summary'], true, request.signal);
+});
+
+test('aborting a fill-plan request cancels a publication wait without opening the store', async () => {
+  const { folder, product, open } = fixture();
+  writeFolderManifest(folder, 'kinds:\n  probe.summary: {description: {en: A summary}, source: graph, derives-from: []}\n');
+  setManifestPublicationState(folder, { status: 'published' });
+  const realPlan = product.fillPlan.bind(product);
+  let entered!: () => void;
+  const planning = new Promise<void>(resolve => { entered = resolve; });
+  // Publication can become pending after the HTTP guard and before the product's read.
+  spyOn(product, 'fillPlan').mockImplementation((selected, pluginsOnly, signal) => {
+    setManifestPublicationState(folder, { status: 'pending' });
+    entered();
+    return realPlan(selected, pluginsOnly, signal);
+  });
+  const part = createKnowledgePart({
+    json: (status, body) => Response.json(body, { status }),
+    refused: (status, error) => ({ response: Response.json({ error }, { status }) }),
+    errorLog: () => undefined,
+  }, product, () => []);
+  const controller = new AbortController();
+  const response = part.fillPlan(new Request('http://wiki.test/api/fill-plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ selected: ['probe.summary'], pluginsOnly: true }), signal: controller.signal,
+  }));
+  await planning;
+  controller.abort(new Error('the reader cancelled the plan'));
+  const cancelledBeforePublication = await Promise.race([
+    response.then(() => true), delay(100).then(() => false),
+  ]);
+  // Release even a broken wait so a missing signal fails rather than leaving a pending test.
+  setManifestPublicationState(folder, { status: 'published' });
+  expect((await response).response.status).toBe(500);
+  expect(cancelledBeforePublication).toBe(true);
+  expect(open).not.toHaveBeenCalled();
 });
 
 function selectedPress() {

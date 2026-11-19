@@ -2797,7 +2797,7 @@ export class KnowledgeProduct {
   /** Stops a running fill at its next commit and closes the store. */
   async close(): Promise<void> {
     this.closed = true;
-    this.publicationWait.abort();
+    this.publicationWait.abort(new Error('the wiki is shutting down'));
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
     await this.fillRun?.control('stop').catch(() => undefined);
