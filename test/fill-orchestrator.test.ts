@@ -998,6 +998,30 @@ describe('the service the background server owns', () => {
 });
 
 describe('what the review found, kept as tests', () => {
+  test('repeated operation retries stay retry_wait until the third failure exhausts the unit', async () => {
+    let attempts = 0;
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => { attempts += 1; throw new Error('transient producer failure'); },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { retries: 2, retryDelayMs: 0 },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
+      expect(attempts).toBe(attempt);
+      expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
+      await sweepUnits(opened.orchestrator, { runId });
+      await admitUnits(opened.orchestrator, { runId });
+    }
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('failed');
+    expect(attempts).toBe(3);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
+    const settled = await schedulerPass(opened.orchestrator, { runId });
+    expect(settled.run.state).toBe('failed');
+  }, 30_000);
+
   test('a run with a unit waiting for its retry has not finished: it settles only once that attempts ends', async () => {
     let attempts = 0;
     const registry = new StageRegistry().register(writingStage('snapshot', {

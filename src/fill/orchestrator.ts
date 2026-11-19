@@ -1710,8 +1710,8 @@ async function attemptUnitPhases(
     if (bound !== undefined) {
       const at=orchestrator.clock();
       const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
-      const failed=await operation.host.fail(bound.message,async(tx,writeContext)=>{
-        const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}},writeContext);
+      const failed=await operation.host.fail(bound.message,async(tx)=>{
+        const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}});
         if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1660: FAILURE_CONFLICT ${step.refusal.reason}`);
       });
       if (!failed) return await claimLapsed(orchestrator, unit, request.job, bound.message);
@@ -1747,8 +1747,8 @@ async function attemptUnitPhases(
       const immediate=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       const terminal={unitId:unit.unitId,generation:unit.generation};
       try {
-        await immediate.host.execute({key:'complete',request:terminal,completion:{output:terminal,enqueue:[],...(producerOutcome===undefined?{}:{outcome:producerOutcome})}},async (tx,writeContext)=>{
-          const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'complete',at:orchestrator.clock(),generation:unit.generation,fence}},writeContext);
+        await immediate.host.execute({key:'complete',request:terminal,completion:{output:terminal,enqueue:[],...(producerOutcome===undefined?{}:{outcome:producerOutcome})}},async (tx)=>{
+          const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'complete',at:orchestrator.clock(),generation:unit.generation,fence}});
           if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1850: TERMINAL_CONFLICT ${step.refusal.reason}`);
           return {completed:true};
         });
@@ -1790,8 +1790,8 @@ async function retryAttempt(
   const plan=await planOf(orchestrator,unit);
   const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
   if(unit.context.retriesLeft===0){
-    const failed=await operation.host.fail(request.reason,async (tx,writeContext)=>{
-      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}},writeContext);
+    const failed=await operation.host.fail(request.reason,async (tx)=>{
+      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}});
       if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1800: FAILURE_CONFLICT ${step.refusal.reason}`);
     });
     if (!failed) return await claimLapsed(orchestrator, unit, request.job, request.reason);
@@ -1800,8 +1800,8 @@ async function retryAttempt(
   }
 
   try {
-    await operation.host.execute({key:`retry:${unit.context.attempt}`,request:{cause:request.cause,reason:request.reason}},async(tx,writeContext)=>{
-      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'retry',at,generation:unit.generation,cause:request.cause,retryAt,fence:request.fence}},writeContext);
+    await operation.host.execute({key:`retry:${unit.context.attempt}`,request:{cause:request.cause,reason:request.reason}},async(tx)=>{
+      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'retry',at,generation:unit.generation,cause:request.cause,retryAt,fence:request.fence}});
       if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1750: RETRY_CONFLICT ${step.refusal.reason}`);
       await orchestrator.queue.complete(orchestrator.queueName,request.job,{reason:request.reason},tx);
       await orchestrator.queue.enqueue({queue:orchestrator.queueName,data:{unitId:unit.unitId,generation:unit.generation},singletonKey:unit.unitId,startAfter:new Date(retryAt),transaction:tx});
