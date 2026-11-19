@@ -229,7 +229,7 @@
     "test/starter-selection-roles.test.ts": 9400,
     "test/starter-value-sets.test.ts": 52300,
     "test/status-fill-memo.test.ts": 28500,
-    "test/status-run-publication.test.ts": 36407,
+    "test/status-run-publication.test.ts": 21600,
     "test/status-work.test.ts": 103881,
     "test/stop-databases.test.ts": 144100,
     "test/store-connect-only.test.ts": 6700,

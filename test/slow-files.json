@@ -536,16 +536,6 @@
       "exit": "Rewrite test/starter-value-sets.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/status-run-publication.test.ts",
-      "seconds": 36.4,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-x9a7",
-      "defect": "The single case passes but creates a draft, prepares its store and writes run and publication states before reading persisted runs, costing 31-36 s.",
-      "replacement": "Seed the run rows and publication state on one prepared store and assert the same status and run-view answers without opening the catalogue.",
-      "exit": "Rewrite test/status-run-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/status-work.test.ts",
       "seconds": 103.9,
       "reason": "green-slow",
