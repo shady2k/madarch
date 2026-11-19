@@ -72,6 +72,51 @@ test('ALX-132 repeat reads are exactly equal with 200 foreign product vertices',
   } finally { await owner.close(); }
 }, 60_000);
 
+
+test('publication refuses a relation to an undeclared kind with its declaration location', () => {
+  const folder = fixture();
+  writeFolderManifest(folder, `kinds:
+  term:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: missing:{name}
+`);
+  const read = validateProductManifests(folder);
+  expect(read.ok).toBe(false);
+  if (read.ok) throw new Error('undeclared relation endpoint was accepted');
+  expect(read.findings).toContainEqual({
+    file: join(folder, 'madarch/kinds/fixture/fixture/term.yaml'), line: 5,
+    message: 'relation mentions from term names undeclared kind missing',
+  });
+});
+
+test('changed catalogue checks assertion evidence in one batch, not once per property', async () => {
+  const validated = publicationFixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const changed = { ...validated, vertices: validated.vertices.map(draft => draft.kind === 'manifest.kind'
+      ? { ...draft, values: { declaration: '{"changed":true}' } } : draft) };
+    const evidenceQueries: string[] = [];
+    await owner.transaction('write', async tx => {
+      const query = tx.query;
+      tx.query = async (sql, values) => {
+        if (sql.startsWith('SELECT t.uid::text,e.discriminator') || sql.startsWith('SELECT a.uid::text AS assertion,t.uid::text,e.discriminator')) evidenceQueries.push(sql);
+        return await query.call(tx, sql, values) as never;
+      };
+      try {
+        const measured = { ...owner, transaction: async (_kind: unknown, work: (executor: typeof tx) => Promise<number>) => await work(tx) } as typeof owner;
+        await publishValidatedManifests(measured, changed);
+      } finally { tx.query = query; }
+    });
+    expect(evidenceQueries.length).toBeLessThanOrEqual(1);
+    const manifest = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    expect(manifest[0]!.values['declaration']).toBe('{"changed":true}');
+  } finally { await owner.close(); }
+}, 30_000);
+
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 

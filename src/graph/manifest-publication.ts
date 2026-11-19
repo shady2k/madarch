@@ -30,7 +30,7 @@ import { homeKind, pageTemplateKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
 
 // Raise this whenever publication logic changes, even when its input and contract stay the same.
-const PUBLICATION_REVISION = 2;
+const PUBLICATION_REVISION = 3;
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -114,6 +114,16 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       findings.push({ file: join(folder, KINDS_FILE), line: 1, message: error.message });
     }
   }
+  if (read.present && findings.length === 0) {
+    const installed = new Set(withAssertionContract(withManifestContract(graphContractOf(read.manifest))).vertex.map(kind => kind.name));
+    for (const [name, kind] of read.manifest.kinds) for (const relation of kind.relations ?? []) {
+      const target = relation.to.split(':')[0]!;
+      if (!read.manifest.kinds.has(target) && !read.manifest.catalog?.kinds.has(target) && !installed.has(target)) {
+        findings.push({ file: read.manifest.kindFiles?.get(name) ?? KINDS_FILE, line: relation.line,
+          message: `relation ${relation.type} from ${name} names undeclared kind ${target}` });
+      }
+    }
+  }
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
@@ -179,6 +189,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, path, field.line ?? kind.line);
     for (const [index, relation] of (kind.relations ?? []).entries()) {
       add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
+      ensureKindVertex(relation.to.split(':')[0]!, path, relation.line);
       addEdge(MANIFEST_RELATION_EDGE, name, relation.to.split(':')[0]!, { from: name, ...relation }, path, relation.line, relation.type);
     }
     for (const dependency of kind.derivesFrom ?? []) { ensureKindVertex(dependency, path, kind.line); addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line); }
@@ -348,6 +359,16 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
     const contract = publicationContractOf(validated.manifest, authored);
     const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
+    const resolvedRefs = new Map<string, ReturnType<typeof resolveEntityRef>>();
+    const resolveRef = (ref: import('./contract.js').EntityRefDraft): ReturnType<typeof resolveEntityRef> => {
+      const key = canonicalJson(ref);
+      let resolved = resolvedRefs.get(key);
+      if (resolved === undefined) {
+        resolved = resolveEntityRef(tx, publicationContract, ref);
+        resolvedRefs.set(key, resolved);
+      }
+      return resolved;
+    };
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
       const fields = new Map(kinds.map(kind => [kind, new Set<string>()]));
       for (const draft of drafts) {
@@ -389,29 +410,26 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
         const prior = held.get(identity(draft));
         if (prior !== undefined) record = rows.find(row => row.uid === prior.uid);
         else if (draft.keyEdges !== undefined) {
-          const resolved = await resolveEntityRef(tx, publicationContract, draft);
+          const resolved = await resolveRef(draft);
           record = rows.find(row => row.uid === resolved.uid);
         } else record = rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
       }
       else {
-        const from = await resolveEntityRef(tx, publicationContract, draft.from);
-        const to = await resolveEntityRef(tx, publicationContract, draft.to);
+        const from = await resolveRef(draft.from);
+        const to = await resolveRef(draft.to);
         record = rows.find(row => String(row.from) === String(from.id) && String(row.to) === String(to.id) && (row.discriminator ?? '') === (draft.discriminator ?? ''));
       }
       if (record === undefined || !record.activeSources.includes(binding.sourceUid)) return false;
       const expectedEvidence: string[] = [];
       for (const [index, evidence] of (draft.evidence ?? []).entries()) {
-        const target = await resolveEntityRef(tx, publicationContract, evidence.target);
+        const target = await resolveRef(evidence.target);
         expectedEvidence.push(JSON.stringify([target.uid, { index, relation: evidence.relation ?? 'supports', locator: evidence.locator ?? {} }]));
       }
       for (const [property, value] of Object.entries({ '$exists': true, ...draft.values })) {
         const selected = record.selectedAssertions.find(assertion => assertion.property === property && assertion.source === binding.sourceUid);
         if (selected === undefined || JSON.stringify(selected.value) !== JSON.stringify(value)) return false;
-        const evidence = await tx.query<{ uid: string; discriminator: string }>(`SELECT t.uid::text,e.discriminator FROM edge e JOIN node a ON a.id=e.from_node JOIN node t ON t.id=e.to_node JOIN entity k ON k.id=e.entity_id WHERE a.uid=$1::uuid AND k.name='system.assertion-evidence'`, [selected.id]);
-        const actual = evidence.rows.map(row => JSON.stringify([row.uid, JSON.parse(row.discriminator)]));
-        // Item 25 retains earlier passes' evidence on a reused assertion. This pass needs its own attachments present,
-        // not the historical attachments absent.
-        const attached = new Set(actual.map(value => canonicalJson(JSON.parse(value))));
+        // Reused assertions retain historical evidence; this pass only requires its own attachments.
+        const attached = new Set(selected.evidenceAttachments.map(evidence => canonicalJson([evidence.targetUid, JSON.parse(evidence.locator)])));
         if (expectedEvidence.some(value => !attached.has(canonicalJson(JSON.parse(value))))) return false;
       }
       return true;
