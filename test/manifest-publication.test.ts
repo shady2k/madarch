@@ -1,5 +1,6 @@
+import * as graphWriter from '../src/graph/write.js';
 import { createHash } from 'node:crypto';
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, test, spyOn } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -114,6 +115,70 @@ test('changed catalogue checks assertion evidence in one batch, not once per pro
     expect(evidenceQueries.length).toBeLessThanOrEqual(1);
     const manifest = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
     expect(manifest[0]!.values['declaration']).toBe('{"changed":true}');
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('changed fixed catalogue batches identity checks and held edge keys', async () => {
+  const folder = fixture();
+  writeFolderManifest(folder, 'kinds:\n' + Array.from({ length: 12 }, (_, i) => `  item${i}:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: item${i}:{name}
+`).join(''));
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const validated = read.value;
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, validated);
+    const changed = { ...validated, vertices: validated.vertices.map(draft => draft.kind === 'manifest.catalogue'
+      ? { ...draft, values: { declaration: '{"changed":true}' } } : draft) };
+    const calls: string[] = [];
+    const resolver = spyOn(graphWriter, 'resolveEntityRef');
+    try {
+      await owner.transaction('write', async tx => {
+        const query = tx.query;
+        tx.query = async (sql, values) => { calls.push(sql); return await query.call(tx, sql, values) as never; };
+        try {
+          const measured = { ...owner, transaction: async (_kind: unknown, work: (executor: typeof tx) => Promise<number>) => await work(tx) } as typeof owner;
+          await publishValidatedManifests(measured, changed);
+        } finally { tx.query = query; }
+      });
+      // A direct resolveEntityRef per use defeats both prefetch and transaction-local reuse.
+      expect(resolver.mock.calls.length).toBe(0);
+      const endpointChecks = calls.filter(sql => sql.includes('graph_vertex_active') && sql.includes('FOR UPDATE') || sql.startsWith('SELECT graph_vertex_active'));
+      const keyReads = calls.filter(sql => sql.includes('f.key AS from_key,t.key AS to_key'));
+      console.log('X2 fixed catalogue', JSON.stringify({ endpointChecks: endpointChecks.length, keyReads: keyReads.length }));
+      expect(endpointChecks.length).toBeLessThanOrEqual(4);
+      expect(keyReads.length).toBe(1);
+      expect((await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.relation-edge', ['relation'])))).toHaveLength(12);
+    } finally { resolver.mockRestore(); }
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('kind relation to a protected engine kind publishes its catalogue endpoint', async () => {
+  const folder = fixture();
+  writeFolderManifest(folder, `kinds:
+  term:
+    source: document
+    terms: ["docs/*.md"]
+    relations:
+      - type: mentions
+        to: system.product:{name}
+`);
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await publishValidatedManifests(owner, read.value);
+    const kinds = await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration']));
+    const target = kinds.find(row => row.key['name'] === 'system.product');
+    expect(JSON.parse(String(target?.values['declaration']))).toMatchObject({ protected: true, taken: false });
+    const edges = await owner.run(tx => readKindAssertions(tx, 'edge', 'manifest.relation-edge', ['relation']));
+    expect(edges).toHaveLength(1);
+    expect(String(edges[0]!.to)).toBe(String(target!.id));
   } finally { await owner.close(); }
 }, 30_000);
 

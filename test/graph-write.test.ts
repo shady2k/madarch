@@ -2,7 +2,7 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { assertionValueTableName, generatedTableName, type GraphContract, type VertexDraft } from '../src/graph/contract.js';
-import { ensureVertex, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { ensureVertex, publishGraphDrafts, writeAssertion, resolveEntityRef, resolveEntityRefs, bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';
 import { loadAssertions } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
@@ -370,3 +370,42 @@ test('bulk repeated edges keep shared endpoints, discriminators, typed values an
     expect((await owner.run(tx => loadAssertions(tx, 'edge', 'fixture.links', ['$exists', 'weight'], undefined, { validAt: now, recordedAt: now, contexts: [1] }))).filter(row => row.selected)).toHaveLength(6);
   });
 });
+
+ test('batched reference checks equal scalar checks, including duplicates, missing, inactive and scope refusals', async () => {
+  await fixture(async owner => {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, graph);
+      await publishGraphDrafts(tx, graph, { vertices: [term('a'), term('b')], removals: [] });
+      const refs = [ref('a'), ref('b'), ref('a')];
+      const scalar = await Promise.all(refs.map(one => resolveEntityRef(tx, graph, one)));
+      const query = tx.query; const calls: string[] = [];
+      tx.query = async (sql, values) => { calls.push(sql); return await query.call(tx, sql, values) as never; };
+      let batch;
+      try { batch = await resolveEntityRefs(tx, graph, refs); } finally { tx.query = query; }
+      expect(batch).toEqual(scalar);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain('FOR UPDATE');
+      const failure = async (many: boolean, one: typeof refs[number]) => {
+        try { if (many) await resolveEntityRefs(tx, graph, [one]); else await resolveEntityRef(tx, graph, one); }
+        catch (error) { return (error as Error).message; }
+        throw new Error('invalid endpoint accepted');
+      };
+      expect(await failure(true, ref('missing'))).toBe(await failure(false, ref('missing')));
+      await publishGraphDrafts(tx, graph, { vertices: [], removals: [{ ...ref('b'), producer: 'fixture' }] });
+      expect(await failure(true, ref('b'))).toBe(await failure(false, ref('b')));
+      const binding = requireWriteCapability(tx);
+      bindWriteCapability(tx, { ...binding, scope: otherSource });
+      expect(await failure(true, ref('a'))).toBe(await failure(false, ref('a')));
+      bindWriteCapability(tx, binding);
+      const wrongUid = { ...ref('a'), uid: '019a0000-0000-7000-8000-000000000099' };
+      expect(await failure(true, wrongUid)).toBe(await failure(false, wrongUid));
+      let firstFailure;
+      try { await resolveEntityRefs(tx, graph, [ref('missing'), wrongUid]); } catch (error) { firstFailure = (error as Error).message; }
+      expect(firstFailure).toBe(await failure(false, ref('missing')));
+      for (const uid of [TEST_SOURCE_UID.toUpperCase(), `{${TEST_SOURCE_UID}}`, TEST_SOURCE_UID.replaceAll('-', '')]) {
+        const sourceRef = { kind: 'plugin', key: {}, uid };
+        expect(await resolveEntityRefs(tx, graph, [sourceRef])).toEqual([await resolveEntityRef(tx, graph, sourceRef)]);
+      }
+    });
+  });
+}, 30_000);
