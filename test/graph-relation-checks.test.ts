@@ -20,9 +20,12 @@ test('relation checks compute each checked subject and instant active set only o
   try {
     await owner.transaction('write', async tx => {
       await publishGraphDrafts(tx, graph, { vertices, edges: [link('required-link'), link('other-link')], removals: [] });
-      for (const sort of ['vertex', 'edge']) {
-        const suffix=sort==='vertex'?'_batch':'';
-        const subjectType=sort==='vertex'?'bigint[]':'bigint';
+      const wrapped = [
+        { sort: 'vertex', suffix: '_batch', subjectType: 'bigint[]' },
+        { sort: 'edge', suffix: '_batch', subjectType: 'bigint[]' },
+        { sort: 'edge', suffix: '', subjectType: 'bigint' },
+      ] as const;
+      for (const { sort, suffix, subjectType } of wrapped) {
         await tx.query(`ALTER FUNCTION graph_${sort}_active_ids${suffix}(text,bigint,${subjectType},timestamptz,bigint) RENAME TO graph_${sort}_active_ids${suffix}_uncounted`);
         await tx.query(`CREATE FUNCTION graph_${sort}_active_ids${suffix}(kind text,ctx bigint,wanted_subject ${subjectType} DEFAULT NULL,instant timestamptz DEFAULT transaction_timestamp(),source_kind_id bigint DEFAULT NULL)
           RETURNS SETOF bigint LANGUAGE plpgsql AS $$ DECLARE calls jsonb; call_key text; BEGIN
