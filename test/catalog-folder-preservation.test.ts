@@ -53,6 +53,10 @@ test('a template selects folders as well as kinds and rejects unknown selectors'
     return file;
   });
   const written = starterFilesFor(template).filter((file) => file.path.startsWith('madarch/kinds/')).map((file) => file.path.slice('madarch/kinds/'.length));
+  // The comparison above holds `kindClosure` against itself, so a closure that stopped adding parents would shrink both
+  // sides alike. `code.repository` derives from `product-profile` (catalog/code/structure/code.repository.yaml:60-62),
+  // and its declaration is what the manifest needs: check the file stands independently of the closure.
+  expect(written).toContain('strategy/product/product-profile.yaml');
   expect(written.sort(byCodePoint)).toEqual(expectedFiles.sort(byCodePoint));
   expect(() => starterKindNames({...template, kinds: ['missing-folder']})).toThrow('unknown kind or folder');
 });
