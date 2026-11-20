@@ -110,6 +110,7 @@ export function preparePublicationContract(declared:GraphContract):PreparedContr
  validateValueContracts(contract);
  const prepared={contract,version:graphContractVersion(contract)};
  preparedContracts.set(declared,prepared);
+ preparedContracts.set(contract,prepared);
  return prepared;
 }
 export function canonicalJson(value:unknown):string{return canonicalAssertionValue(value);}

@@ -83,3 +83,15 @@ test('rolled-back borrowed installation leaves no identities or metadata cached'
     });
   } finally { await owner.close(); }
 });
+
+test('engine startups reuse one immutable prepared contract without caching installation state',async()=>{
+ const owner=await createTestDatabaseOwner();
+ try{
+  const first=await owner.transaction('write',tx=>startupBinding(tx,EMPTY_CONTRACT,'prepared-first'));
+  const second=await owner.transaction('write',tx=>startupBinding(tx,EMPTY_CONTRACT,'prepared-second'));
+  expect(second.contract).toBe(first.contract);
+  expect(Object.isFrozen(second.contract)).toBe(true);
+  expect(second.binding.sourceUid).not.toBe(first.binding.sourceUid);
+  expect(second.binding.operationUid).not.toBe(first.binding.operationUid);
+ }finally{await owner.close();}
+},30_000);

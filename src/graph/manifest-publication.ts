@@ -6,7 +6,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
-import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, writeAssertions, type WriteCapability } from '../graph/write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, preparePublicationContract, publishGraphDrafts, resolveEntityRefs, writeAssertion, writeAssertions, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
@@ -48,7 +48,8 @@ export type ManifestValidation = { readonly ok: true; readonly value: ValidatedM
 /** Trusted core startup installs the engine as an actual plugin, never a parallel principal kind. */
 export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   return await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => {
-    const contract = withAssertionContract(declared);
+    const prepared = preparePublicationContract(declared);
+    const { contract } = prepared;
     await acquireGraphWriteLock(tx);
     await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]);
     const identities = (await tx.query<{ id: string; uid: string; key: Record<string, unknown>; kind: string }>(
@@ -76,7 +77,7 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
     const made = missing.length === 0 ? [] : (await tx.query<{ id: string; uid: string }>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])', [missing.map(([, uid]) => uid)])).rows;
     const ids = new Map([...identities, ...made].map(row => [row.uid, row.id]));
     const hostPermissions = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
-    const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: graphContractVersion(contract), permissions: permissions ?? hostPermissions };
+    const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: prepared.version, permissions: permissions ?? hostPermissions };
     bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
     const assert = async (kind: string, uid: string, property: string, value: unknown): Promise<void> => {
       await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: ids.get(uid)!, property, operation: 'assert', value });
