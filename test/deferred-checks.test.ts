@@ -180,3 +180,40 @@ test('edge active-id calls depend on kinds, not edge count', async () => {
   }
   console.log('EDGE_KIND_CALLS',calls); expect(calls[0]).toBeGreaterThan(0); expect(calls[1]).toBe(calls[0]);
 },60_000);
+
+test('value validation does not open unrelated typed value tables',async()=>{
+ const declared:GraphContract={...contract,vertex:[...contract.vertex,{name:'unused',table:generatedTableName('unused','vertex'),key:[],fields:[{name:'note',type:'text'}],capability:'fixture'}]};
+ const owner=await createTestDatabaseOwner({graphContract:declared});
+ try{
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,declared);
+   await publishGraphDrafts(tx,declared,{vertices:[{kind:'keyed',key:{name:'one'},values:{amount:1},producer:'fixture',producerVersion:'1'}],removals:[]});
+   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+   const locks=await tx.query<{count:number}>(`SELECT count(*)::integer AS count FROM pg_locks WHERE pid=pg_backend_pid() AND relation=$1::regclass`,[assertionValueTableName('unused','vertex','note')]);
+   expect(locks.rows[0]!.count).toBe(0);
+  });
+ }finally{await owner.close();}
+},30_000);
+
+test('typed value dispatch checks wrong-table inserts across immediate checks and savepoint rollback',async()=>{
+ const declared:GraphContract={...contract,vertex:[...contract.vertex,{name:'unused',table:generatedTableName('unused','vertex'),key:[],fields:[{name:'note',type:'text'}],capability:'fixture'}]};
+ const owner=await createTestDatabaseOwner({graphContract:declared});
+ try{
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,declared);
+   await publishGraphDrafts(tx,declared,{vertices:[{kind:'keyed',key:{name:'one'},values:{amount:1},producer:'fixture',producerVersion:'1'}],removals:[]});
+  });
+  await owner.transaction('write',async tx=>{
+   const id=(await tx.query<{id:string}>(`SELECT assertion_id::text AS id FROM "${assertionValueTableName('keyed','vertex','amount')}" LIMIT 1`)).rows[0]!.id;
+   for(const immediate of [false,true]){
+    await tx.query('SAVEPOINT invalid_value');
+    if(immediate)await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    const insert=()=>tx.query(`INSERT INTO "${assertionValueTableName('unused','vertex','note')}"(assertion_id,value) VALUES($1,'wrong')`,[id]);
+    if(immediate)await expect(insert()).rejects.toThrow(':43: assertion value does not match declared subject/property');
+    else{await insert();await expect(tx.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(':43: assertion value does not match declared subject/property');}
+    await tx.query('ROLLBACK TO SAVEPOINT invalid_value');
+   }
+   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+  });
+ }finally{await owner.close();}
+},30_000);

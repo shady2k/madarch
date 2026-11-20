@@ -153,7 +153,8 @@ export function generateContractStatements(declared: GraphContract) {
           trigger(table, 'immutable', 'graph_immutable', 27, false,
         `CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_immutable()`);
           const literal = (value: string): string => "'" + value.split("'").join("''") + "'";
-          valueChecks.push(`SELECT id,code INTO candidate_id,candidate_code FROM (
+          valueChecks.push(`IF touched_value_tables ? ${literal(table)} OR required_values ? ${literal(table)} THEN
+            SELECT id,code INTO candidate_id,candidate_code FROM (
             SELECT v.assertion_id AS id,43 AS code FROM (SELECT * FROM "${table}" WHERE assertion_id>=node_lower OFFSET 0) v
               WHERE expected_values->>v.assertion_id::text IS DISTINCT FROM ${literal(table)}
             UNION ALL SELECT checked.id,60 FROM jsonb_array_elements_text(required_values->${literal(table)}) wanted(id)
@@ -162,7 +163,7 @@ export function generateContractStatements(declared: GraphContract) {
             ) failures ORDER BY id,code DESC LIMIT 1;
             IF candidate_id IS NOT NULL AND (bad_id IS NULL OR (candidate_id,-candidate_code)<(bad_id,-violation)) THEN
               bad_id:=candidate_id; violation:=candidate_code;
-            END IF;`);
+            END IF; END IF;`);
           if (sort === 'vertex' && 'key' in kind && kind.key.includes(field.name)) {
             const projected = field.type === 'json' ? `n.key->${literal(field.name)}` : `(n.key->>${literal(field.name)})::${sqlType(field)}`;
             keyChecks.push(`SELECT n.id,${literal(kind.name)}::text AS kind,${literal(field.name)}::text AS property
@@ -486,12 +487,16 @@ WITH vertex_groups AS MATERIALIZED (
           PERFORM set_config('madarch.graph_node_lower',least(NEW.assertion_id,
             coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,NEW.assertion_id))::text,true);
         END IF;
+        IF TG_TABLE_NAME NOT IN ('node','edge','context','assertion','assertion_vertex_subject','assertion_edge_subject') THEN
+          PERFORM set_config('madarch.graph_value_tables',(coalesce(nullif(current_setting('madarch.graph_value_tables',true),''),'{}')::jsonb || jsonb_build_object(TG_TABLE_NAME,true))::text,true);
+        END IF;
         PERFORM set_config('madarch.graph_revision',(coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')::bigint+1)::text,true);
         RETURN NEW;
       END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_checks_pass() RETURNS void LANGUAGE plpgsql SET jit=off AS $$
       DECLARE vertex_value_tables jsonb := ${literal(JSON.stringify(valueTables('vertex')))}::jsonb;
       edge_value_tables jsonb := ${literal(JSON.stringify(valueTables('edge')))}::jsonb;
+      touched_value_tables jsonb := coalesce(nullif(current_setting('madarch.graph_value_tables',true),''),'{}')::jsonb;
       revision text; violation integer; merge_present boolean; expected_values jsonb; required_values jsonb; bad_id bigint; candidate_id bigint; candidate_code integer; candidate_kind text; candidate_property text; changed_keys jsonb; bad_kind text; bad_property text;
         node_lower bigint := coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807);
         edge_lower bigint := coalesce(nullif(current_setting('madarch.graph_edge_lower',true),'')::bigint,9223372036854775807);
@@ -552,6 +557,7 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO vertex_kind_ids,vertex_kinds FROM unnest(vertex_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       SELECT array_agg(kind.id ORDER BY kind.name COLLATE "C"),array_agg(kind.name ORDER BY kind.name COLLATE "C") INTO edge_kind_ids,edge_kinds FROM unnest(edge_kinds) wanted(name) CROSS JOIN LATERAL (SELECT id,name FROM entity WHERE name=wanted.name OFFSET 0) kind;
       ${relationChecks.join('\n')}
+      PERFORM set_config('madarch.graph_value_tables','',true);
       PERFORM set_config('madarch.checked_graph_revision',revision,true);
       PERFORM set_config('madarch.graph_node_lower','',true);
       PERFORM set_config('madarch.graph_edge_lower','',true);
