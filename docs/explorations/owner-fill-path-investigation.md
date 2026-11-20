@@ -120,3 +120,71 @@ not alter the `/r` navigation contract or guess equivalence across origins.
 No time limit, performance behavior, lock file or owner-path expectation was
 changed. The full owner-path test was not rerun in this follow-up, as requested.
 The original connection failure remains unproven and unresolved.
+
+
+## Live daemon stop/restart check (madarch-64o5.74)
+
+`test/owner-daemon-stop.test.ts:16-104` now checks two real-process transitions:
+a live daemon (preparation launcher, API and fill role), successful GraphQL
+read, real `stop`, then either a new daemon or standalone `serve` on the same
+store, and its first GraphQL read. It uses a single person-origin note kind,
+not the full starter catalogue, and presses no fill. The fill-role queue worker
+still runs. The minimal query covers bootstrap/navigation, not allCatalogueEntity
+(which the one-note fixture does not declare). The first daemon's catalogue must be published before the initial
+read (`:48-59`); transient publication-pending 503 is not mistaken for the 500.
+Both reads must return 200 without GraphQL errors (`:61-66`). Stop must remove
+postmaster.pid and record a fast shutdown (`:87-90`); restart must use a new
+postmaster (`:93-94`). These are green hypothesis checks, not red regressions
+for a diagnosed defect. The new case's 120 s bound does not change any existing
+case or startup allowance (30 s). No product pool change is retained.
+
+Diagnostic-only instrumentation set Pool application_name to
+`madarch:<role>:<process.pid>` and PostgreSQL log_line_prefix to `%m [%p] %a `;
+connection/disconnection logging and pg_stat_activity supplied the backend
+mapping. The Pool edit was removed before final tests. Logs are retained:
+
+- `/work/reports/alx-fixOwner-live-daemon.log:16,202`: both GraphQL reads 200.
+  `:94-161` maps preparation PID 1032707, API 1032724 and fill 1032745 to
+  postmaster 1032791. Fast shutdown occurs at `:182`. The restarted server is
+  1033041, API 1032988, fill 1033009 (`:245-285`). No FATAL in this run.
+- `/work/reports/alx-fixOwner-live-to-serve.log:15,129`: both GraphQL reads
+  200. Old postmaster 1033528 shuts down at `:121`, standalone starts 1033743
+  (`:170`). The final cleanup has fast shutdown at `:266` and FATAL at `:268`:
+  backend **1033824 belongs to fill process 1033783**, not the new API and not
+  the test psql client. The new API 1033758 disconnects backend 1033798 normally
+  at `:263`, before that shutdown. This observed FATAL is after the successful
+  GraphQL response, not its cause; it cannot identify the original run's owner.
+- `/work/reports/alx-fixOwner-live-final2.log`: both transition cases pass
+  without the temporary Pool instrumentation: 2 pass, 0 fail, 18 assertions.
+
+Source review agrees with the measured separation: `src/product/daemon.ts:717-738`
+waits for the old daemon and runs the synchronous sweep before reporting stopped;
+`src/product/cli.ts:647-662` prepares standalone state before spawning a new API
+and keeps the preparation scope alive through child exit. Normal owner close
+ends the pool before releasing its cluster hold
+(`src/adapters/database-owner.ts:475-495,580-598`). Cross-process users locks
+protect a held store from sweeps (`src/adapters/postgres-cluster.ts:1234-1242`).
+The exact pg error is secondary: `node_modules/pg/lib/client.js:420` marks a
+client not queryable after its connection error, and `:767` returns the quoted
+message on a later query. It does not alone prove pool reuse across processes.
+The original 500 was not reproduced; no safe red/green pool fix is established.
+
+### Repository-input change relative to decision 0029
+
+The removal of `form === 'code'` in `src/plugin/repository-input.ts:38-40` and
+replacement of the exclusion expectation in `test/fill-snapshot.test.ts:523-542`
+**changes the previous interpretation of decision 0029** embodied in that filter
+and its test. Decision 0029
+(`docs/decisions/0029-knowledge-in-markdown-graph-as-index.md:61-70`) separates
+written Markdown from rebuildable code facts; the old test used that split to
+exclude the product tree altogether. We now include that tree as file and
+history input, without changing where authored knowledge lives. Justification:
+0039 (`docs/decisions/0039-core-graph-model.md:128-136,786-800`) assigns parent
+and repository identities without excluding product origins, and
+`docs/changes/madarch-64o5.28/repeat-fill-investigation.md:23-31` records complete
+disk/git snapshots changing on product commits. The unchanged two-tree acceptance
+expectation at `test/owner-fill-path.test.ts:165-180` makes that interpretation
+explicit. This is not a claim that 0039 itself explicitly orders removal of the
+filter. The manifest `/r` navigation contract at
+`docs/system/capabilities/product-wiki.md:293-301` is unchanged. No other existing
+test was modified in this follow-up.
