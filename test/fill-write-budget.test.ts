@@ -4,14 +4,14 @@ import { acquireGraphWriteLock } from '../src/graph/write.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createRun } from '../src/graph/fill-state.js';
 import { createUnit } from './fill-unit-fixture.js';
-import { recordUnitPlan } from '../src/graph/fill-orchestration.js';
+import { writeOrchestration, recordUnitPlanIn } from '../src/graph/fill-orchestration.js';
 
 test('an orchestration step takes one graph lock and at most thirty-five statements', async () => {
  const owner = await createTestDatabaseOwner();
  try {
   await createRun(owner, {runId:'budget', product:'budget', at:1});
   await createUnit(owner,{unitId:'unit',product:'budget',runId:'budget',stageId:'stage',scopeKey:'scope',inputsDigest:'digest',retries:0,at:1});
-  await recordUnitPlan(owner,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:2});
+  await writeOrchestration(owner,tx => recordUnitPlanIn(tx,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:2}));
   const statements:string[]=[];
   const locks:Client[]=[];
   const inTransaction=new Set<Client>();
@@ -32,7 +32,7 @@ test('an orchestration step takes one graph lock and at most thirty-five stateme
    return Reflect.apply(original,this,args).finally(()=>{databaseMs+=performance.now()-start;});
   } as typeof original);
   try {
-   await recordUnitPlan(owner,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:3,cacheVersions:{a:'1',b:'2',c:'3'}});
+   await writeOrchestration(owner,tx => recordUnitPlanIn(tx,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:3,cacheVersions:{a:'1',b:'2',c:'3'}}));
   } finally { spy.mockRestore(); }
   console.log('orchestration step trace',JSON.stringify({statements:statements.length,transactions:statements.filter(sql=>/^BEGIN/.test(sql)).length,databaseMs,locks:statements.filter(sql=>sql==='SELECT pg_advisory_xact_lock($1::bigint)').length,constraints:statements.filter(sql=>sql==='SET CONSTRAINTS ALL IMMEDIATE').length}));
   expect(stepClient).toBeDefined();

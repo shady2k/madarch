@@ -9,9 +9,9 @@ import {reconcileDisputes,resolveDispute} from '../src/graph/disputes.js';
 import {readDispute} from '../src/graph/dispute-read.js';
 import {bindGraphProducer,activateGraphProducer} from '../src/graph/producer-binding.js';
 import {registerSystemSource} from '../src/graph/system-installation.js';
-import {createRun,advanceUnit,readUnit} from '../src/graph/fill-state.js';
+import {createRun,advanceUnitIn,readUnit} from '../src/graph/fill-state.js';
 import { createUnit } from './fill-unit-fixture.js';
-import {recordRunConfiguration,appendProgress,readProgress,readRunConfiguration} from '../src/graph/fill-orchestration.js';
+import {writeOrchestration,recordRunConfigurationIn,appendProgress,readProgress,readRunConfiguration} from '../src/graph/fill-orchestration.js';
 import {setProductOperationRunState} from '../src/graph/operation-host.js';
 const contract:GraphContract=withAssertionContract(withManifestContract({vertex:[{name:'sample',table:generatedTableName('sample','vertex'),key:['name'],capability:'fixture',fields:[{name:'name',type:'text'},{name:'amount',type:'integer'}]}],edge:[],dictionary:[]}));
 test('standalone fill metadata writes retain canonical semantics after a durable resolution',async()=>{
@@ -37,12 +37,12 @@ test('standalone fill metadata writes retain canonical semantics after a durable
   await createRun(checkedDatabase,{runId:'resolved-fill',product:productScope,at:1});
   await createUnit(checkedDatabase,{unitId:'resolved-unit',runId:'resolved-fill',product:productScope,stageId:'probe',scopeKey:'scope',inputsDigest:'inputs',retries:0,at:2});
   const snapshot={repository:'repository',defaultBranch:'main',commit:'commit',registryHash:'registry'};
-  await recordRunConfiguration(checkedDatabase,{runId:'resolved-fill',digest:'configuration',snapshot,at:3});
+  await writeOrchestration(checkedDatabase,tx => recordRunConfigurationIn(tx,{runId:'resolved-fill',digest:'configuration',snapshot,at:3}));
   const progress=await appendProgress(checkedDatabase,{runId:'resolved-fill',at:4,stage:'probe',unitId:'resolved-unit',generation:1,kind:'unit-planned',summary:'planned'});
   expect(progress.seq).toBe(1);
   expect((await readRunConfiguration(owner,'resolved-fill'))?.snapshot).toEqual(snapshot);
   expect((await readProgress(owner,'resolved-fill')).map(event=>event.kind)).toEqual(['unit-planned']);
-  expect((await advanceUnit(checkedDatabase,{unitId:'resolved-unit',event:{type:'admit',at:5,generation:1}})).ok).toBe(true);
+  expect((await writeOrchestration(checkedDatabase,tx => advanceUnitIn(tx,{unitId:'resolved-unit',event:{type:'admit',at:5,generation:1}}))).ok).toBe(true);
   await setProductOperationRunState(owner,declared,'resolved-fill','paused');
   expect((await readUnit(owner,'resolved-unit'))?.state).toBe('ready');
  }catch(error){throw new Error(`standalone fill scenario ${stage}: ${error instanceof Error?error.message:String(error)}`,{cause:error});}finally{await owner.close();}

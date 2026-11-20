@@ -367,14 +367,12 @@ export async function recordRunConfigurationIn(tx:SqlExecutor,options:{readonly 
  for(const [role,names] of [['kind',s.targets?.kinds??[]],['requested',s.targets?.requested??[]]] as const)for(const [position,name] of names.entries())await child(tx,'system.run-target','system.run-target-run','system.run',uid,{role,name,position});
  return {runId:options.runId,digest:options.digest,snapshot:s,recordedAt:options.at};
 }
-export async function recordRunConfiguration(database:OrchestratorDatabase,options:{readonly runId:string;readonly digest:string;readonly snapshot:RunSnapshot;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunConfigurationRecord>{return transaction(database,'write',tx=>recordRunConfigurationIn(tx,options));}
 export async function readRunConfiguration(database:FillStateSnapshotDatabase,runId:string):Promise<RunConfigurationRecord|null>{return snapshotTransaction(database,tx=>configurationIn(tx,runId));}
 export async function recordRunStagePlannedIn(tx:SqlExecutor,options:{readonly runId:string;readonly stageId:string;readonly units:number;readonly publications:number;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunStageRecord>{
  await locked(tx);const uid=await requiredRun(tx,options.runId),rows=await related(tx,'system.run-stage','system.run-stage-run',uid);
  await child(tx,'system.run-stage','system.run-stage-run','system.run',uid,{stage_name:options.stageId,planned_at:options.at,units:options.units,publications:options.publications},rows.find(row=>row.values.stage_name===options.stageId)?.uid);
  return {runId:options.runId,stageId:options.stageId,plannedAt:options.at,units:options.units,publications:options.publications};
 }
-export async function recordRunStagePlanned(database:OrchestratorDatabase,options:{readonly runId:string;readonly stageId:string;readonly units:number;readonly publications:number;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunStageRecord>{return transaction(database,'write',tx=>recordRunStagePlannedIn(tx,options));}
 async function runStagePlansIn(tx:SqlExecutor,runId:string):Promise<readonly RunStageRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
@@ -434,7 +432,6 @@ export async function recordUnitPlanIn(tx:SqlExecutor,options:UnitPlanOptions):P
  await publishGraphDrafts(tx,contract,{vertices,edges,removals:versions.filter(row=>!(String(row.values.name) in (options.cacheVersions??{}))).map(row=>({kind:'system.unit-cache-version',uid:row.uid,key:{},producer:binding.sourceUid}))});
  return {...options,plannedAt:options.at};
 }
-export async function recordUnitPlan(database:OrchestratorDatabase,options:UnitPlanOptions):Promise<UnitPlanRecord>{return transaction(database,'write',tx=>recordUnitPlanIn(tx,options));}
 export async function readUnitPlan(database:FillStateSnapshotDatabase,unitId:string,generation:number):Promise<UnitPlanRecord|null>{return snapshotTransaction(database,tx=>unitPlanIn(tx,unitId,generation));}
 export async function readRunPlans(database:FillStateSnapshotDatabase,runId:string,options:{readonly history?:boolean}={}):Promise<readonly UnitPlanRecord[]>{return snapshotTransaction(database,tx=>readRunPlansIn(tx,runId,options));}
 export async function readRunPlansIn(tx:SqlExecutor,runId:string,options:{readonly history?:boolean}={},currentUnits?:readonly AssertionRecord[]):Promise<readonly UnitPlanRecord[]>{
@@ -517,7 +514,4 @@ export async function recordInheritedUnitIn(tx:SqlExecutor,options:{readonly run
   if((await read(tx,'system.unit',unitUid))?.values.state!=='published')raise(`cannot inherit unpublished unit ${options.unitId}/${options.generation}`);
   const {contract,binding}=await orchestrationBinding(tx);
   await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.run-inherited-unit',discriminator:unitUid,from:{kind:'system.run',uid:runUid,key:{}},to:{kind:'system.unit',uid:unitUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion}]});
-}
-export async function recordInheritedUnit(database:OrchestratorDatabase,options:{readonly runId:string;readonly unitId:string;readonly generation:number}):Promise<void>{
- return transaction(database,'write',tx=>recordInheritedUnitIn(tx,options));
 }

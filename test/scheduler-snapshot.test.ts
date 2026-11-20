@@ -3,8 +3,8 @@ import { Type } from 'typebox';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { fixtureOperations } from './fill-operation-fixture.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { createOrchestratorSchema } from '../src/graph/fill-orchestration.js';
-import { advanceUnit, createRun, fillEdge, putFillVertexIn, readRunGraphUidIn, readRunStateSnapshot, readRunUnits, readUnitGraphUidIn } from '../src/graph/fill-state.js';
+import { writeOrchestration, createOrchestratorSchema } from '../src/graph/fill-orchestration.js';
+import { advanceUnitIn, createRun, fillEdge, putFillVertexIn, readRunGraphUidIn, readRunStateSnapshot, readRunUnits, readUnitGraphUidIn } from '../src/graph/fill-state.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS } from '../src/fill/stage.js';
 import { createOrchestrator, planRun, runEvidence, schedulerPass, startRun, stopHeartbeat } from '../src/fill/orchestrator.js';
@@ -72,7 +72,7 @@ test('a worker write during a pass is visible at the next checkpoint', async () 
       const answer = await enqueue(request);
       if (!changed) {
         changed = true;
-        expect((await advanceUnit(opened.owner, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } })).ok).toBe(true);
+        expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } }))).ok).toBe(true);
       }
       return answer;
     };

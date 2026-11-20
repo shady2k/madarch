@@ -24,7 +24,7 @@ import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitReads, type RunSnapshot } from '../src/graph/fill-orchestration.js';
+import { writeOrchestration, createOrchestratorSchema, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitReads, type RunSnapshot } from '../src/graph/fill-orchestration.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { daemonFills } from '../src/product/daemon-fills.js';
@@ -33,7 +33,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { UnitBoundStop } from '../src/fill/unit-bound.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, readChain, readRun, readRunUnits, readUnit, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { advanceRun, advanceUnitIn, readChain, readRun, readRunUnits, readUnit, readUnitGraphUidIn, putFillVertexIn, replaceStaleGenerationIn } from '../src/graph/fill-state.js';
 import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
@@ -792,9 +792,9 @@ describe('cancellation, pause and stop', () => {
     await admitUnits(opened.orchestrator, { runId });
     const [job] = await opened.queue.claim({ queue: QUEUE });
     expect(job).toBeDefined();
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: job!.attempt, attempt: job!.attempt } })).ok).toBe(true);
+    expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: job!.attempt, attempt: job!.attempt } }))).ok).toBe(true);
     expect((await advanceRun(opened.owner, { runId, event: { type: 'cancel', at: NOW, cause: 'the person stopped the run' } })).ok).toBe(true);
-    const blocked = await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'block', at: NOW, generation: 1, fence: job!.attempt, reason: 'the attempt was cancelled' } });
+    const blocked = await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'snapshot/src', event: { type: 'block', at: NOW, generation: 1, fence: job!.attempt, reason: 'the attempt was cancelled' } }));
     expect(blocked.ok).toBe(false);
     expect(blocked.ok === false ? blocked.refusal.code : '').toBe('fill-unit/no-transition');
     expect(blocked.ok === false ? blocked.refusal.reason : '').toContain('cancelling');
@@ -1407,7 +1407,7 @@ describe('a job the queue no longer holds', () => {
     await admitUnits(opened.orchestrator, { runId });
     const [job] = await opened.queue.claim({ queue: QUEUE });
     expect(job).toBeDefined();
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: job!.attempt, attempt: job!.attempt } })).ok).toBe(true);
+    expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: job!.attempt, attempt: job!.attempt } }))).ok).toBe(true);
     const swept = await sweepUnits(opened.orchestrator, { runId });
     // Queue authority is active: the running unit is neither offered nor retried.
     expect(swept).toMatchObject({ swept: [], refused: [] });
@@ -1823,8 +1823,8 @@ describe('immediate operation transactions (decision 0039)', () => {
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
     expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(1);
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
-    await advanceUnit(opened.owner, { unitId: 'plugin-turns/producer', event: { type: 'invalidate', at: NOW + 1, replacement: 2, cause: 'producer now abstains' } });
-    expect((await replaceStaleGeneration(opened.owner, { unitId: 'plugin-turns/producer', runId, inputsDigest: 'abstained', retries: 0, at: NOW + 2 })).ok).toBe(true);
+    await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'plugin-turns/producer', event: { type: 'invalidate', at: NOW + 1, replacement: 2, cause: 'producer now abstains' } }));
+    expect((await writeOrchestration(opened.owner, tx => replaceStaleGenerationIn(tx, { unitId: 'plugin-turns/producer', runId, inputsDigest: 'abstained', retries: 0, at: NOW + 2 }))).ok).toBe(true);
     await opened.owner.transaction('write', async tx => {
       const uid = await readUnitGraphUidIn(tx, 'plugin-turns/producer', 2);
       if (uid === undefined) throw new Error('replacement fixture unit is absent');
@@ -2128,7 +2128,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     await admitUnits(opened.orchestrator, { runId });
     const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
     expect(claimed.data.unitId).toBe('snapshot/src');
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: claimed.attempt, attempt: claimed.attempt } })).ok).toBe(true);
+    expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: claimed.attempt, attempt: claimed.attempt } }))).ok).toBe(true);
     await opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = now() - interval '1 hour', expire_seconds = 1 WHERE id = $1`, [claimed.id]));
     await opened.queue.recover(QUEUE);
     await sweepUnits(opened.orchestrator, { runId });
@@ -2151,7 +2151,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
     await admitUnits(opened.orchestrator, { runId });
     cancel = async () => {
-      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'cancel', at: NOW + 1, cause: 'the run is stopping' } })).ok).toBe(true);
+      expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'snapshot/src', event: { type: 'cancel', at: NOW + 1, cause: 'the run is stopping' } }))).ok).toBe(true);
     };
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('refused');
     const rows = await opened.owner.run(async tx => (await tx.query<{ state: string }>(`SELECT state FROM ${QUEUE_SCHEMA}.job WHERE name = $1 AND state IN ('created', 'retry', 'active')`, [QUEUE])).rows);

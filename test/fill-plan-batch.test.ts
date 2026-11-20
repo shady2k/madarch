@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
-import { createRun, advanceUnit, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { createRun, advanceUnitIn, replaceStaleGenerationIn } from '../src/graph/fill-state.js';
 import { createUnit } from './fill-unit-fixture.js';
-import { recordUnitPlan, readRunPlans, readUnitPlan } from '../src/graph/fill-orchestration.js';
+import { writeOrchestration, recordUnitPlanIn, readRunPlans, readUnitPlan } from '../src/graph/fill-orchestration.js';
 
 test('run plans batch units and versions without per-unit query growth', async () => {
   const owner = await createTestDatabaseOwner();
@@ -13,7 +13,7 @@ test('run plans batch units and versions without per-unit query growth', async (
       for (const [position, name] of units.entries()) {
         const unitId = `source/${name}`;
         await createUnit(owner, { unitId, product: 'plan-product', runId, stageId: 'source', scopeKey: name, inputsDigest: 'digest', retries: 2, at: 2 });
-        await recordUnitPlan(owner, { unitId, generation: 1, runId, stageId: 'source', stageUnitId: name, scope: name, stagePosition: 2, planPosition: position, at: 3, cacheVersions: { source: '1', schema: name } });
+        await writeOrchestration(owner, tx => recordUnitPlanIn(tx, { unitId, generation: 1, runId, stageId: 'source', stageUnitId: name, scope: name, stagePosition: 2, planPosition: position, at: 3, cacheVersions: { source: '1', schema: name } }));
       }
     }
     let queries = 0;
@@ -40,10 +40,10 @@ test('run plans batch units and versions without per-unit query growth', async (
       { type: 'start' as const, at: 5, generation: 1, fence: 1 },
       { type: 'complete' as const, at: 6, generation: 1, fence: 1 },
       { type: 'invalidate' as const, at: 7, replacement: 2, cause: 'inputs changed' },
-    ]) expect((await advanceUnit(owner, { unitId, event })).ok).toBe(true);
+    ]) expect((await writeOrchestration(owner, tx => advanceUnitIn(tx, { unitId, event }))).ok).toBe(true);
     await createRun(owner, { runId: 'next', product: 'plan-product', at: 8 });
-    expect((await replaceStaleGeneration(owner, { unitId, runId: 'next', inputsDigest: 'next', retries: 2, at: 9 })).ok).toBe(true);
-    await recordUnitPlan(owner, { unitId, generation: 2, runId: 'next', stageId: 'source', stageUnitId: 'small', scope: 'changed', stagePosition: 0, planPosition: 0, at: 10 });
+    expect((await writeOrchestration(owner, tx => replaceStaleGenerationIn(tx, { unitId, runId: 'next', inputsDigest: 'next', retries: 2, at: 9 }))).ok).toBe(true);
+    await writeOrchestration(owner, tx => recordUnitPlanIn(tx, { unitId, generation: 2, runId: 'next', stageId: 'source', stageUnitId: 'small', scope: 'changed', stagePosition: 0, planPosition: 0, at: 10 }));
     expect(await readRunPlans(owner, 'small')).toEqual([]);
     expect(await readRunPlans(owner, 'small', { history: true })).toEqual([(await readUnitPlan(owner, unitId, 1))!]);
     expect(await readRunPlans(owner, 'next')).toEqual([(await readUnitPlan(owner, unitId, 2))!]);
