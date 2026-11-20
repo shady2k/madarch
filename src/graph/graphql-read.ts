@@ -1289,12 +1289,14 @@ export class ReadContext {
     const pattern = sql.param(`%${text}%`, '::text');
     const prefix = sql.param(`${text}%`, '::text');
     const parts: string[] = [];
+    const names: string[] = [];
     for (const kind of this.published.kinds) {
       if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(kindTypeNameOf(kind.name))) continue;
       // Immutable content is evidence, not a search index; the declaration names its content field.
       const contentField = this.manifest.kinds.get(kind.name)?.evidence?.contentField;
       const searched = kind.fields.filter((field) => field.type === 'text' && field.name !== contentField);
       if (searched.length === 0) continue;
+      names.push(kind.name);
       const kindParam = sql.param(kind.name, '::text');
       const title = this.manifest.kinds.get(kind.name)?.title;
       for (const field of searched) {
@@ -1303,14 +1305,21 @@ export class ReadContext {
         const rank = field.name === title ? `CASE WHEN (${expr}) ILIKE ${prefix} THEN 0 ELSE 1 END` : '3';
         parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, ${kindParam} AS kind,
             (${expr})::text AS value, ${rank} AS rank
-          FROM node n JOIN entity en ON en.id = n.entity_id
-          WHERE en.name = ${kindParam} AND ${this.active('vertex', 'n')} AND (${expr})::text ILIKE ${pattern}`);
+          FROM active_vertices n JOIN entity en ON en.id = n.entity_id
+          WHERE en.name = ${kindParam} AND (${expr})::text ILIKE ${pattern}`);
       }
     }
     if (parts.length === 0) return [];
+    const kindNames = sql.param(names, '::text[]');
     const bound = sql.param(limit, '::int');
     const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `WITH hits AS (${parts.join(' UNION ALL ')}),
+      const statementSql = `WITH hits AS (
+         WITH active_vertices AS MATERIALIZED (
+           SELECT n.* FROM node n JOIN entity en ON en.id = n.entity_id
+           WHERE en.name = ANY(${kindNames}) AND ${this.active('vertex', 'n')}
+         )
+         ${parts.join(' UNION ALL ')}
+       ),
        matched AS (
          SELECT hits.*, row_number() OVER (PARTITION BY node_id ORDER BY rank, length(value), value COLLATE "C") AS match_row
          FROM hits

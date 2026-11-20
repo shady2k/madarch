@@ -5,8 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensureDaemon } from '../src/product/daemon.js';
 import { createDraft } from '../src/product/draft.js';
-import { clusterPaths } from '../src/adapters/postgres-cluster.js';
-import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
@@ -25,10 +23,9 @@ for (const restart of ['daemon', 'serve'] as const) test(`live daemon stop then 
   writeFolderManifest(made.folder, 'kinds:\n  note: { source: graph, origin: person }\n');
   commitProduct(made.folder, 'declare a minimal catalogue');
   const env = { ...process.env, MADARCH_HOME: base, MADARCH_OWN_WIKI: 'off', MADARCH_APP: app, PGAPPNAME: 'owner-live-client' };
-  const cli = (args: string[]) => {
+  const cli = (args: string[], check = true) => {
     const result = Bun.spawnSync(['bun', CLI, ...args, '--home', home], { env, stdout: 'pipe', stderr: 'pipe' });
-    console.log(JSON.stringify({ args, code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() }));
-    expect(result.exitCode).toBe(0);
+    if (check) expect(result.exitCode).toBe(0);
   };
   let standalone: ReturnType<typeof Bun.spawn< 'ignore', 'pipe', 'pipe'>> | undefined;
   const start = async (mode: 'daemon' | 'serve' = 'daemon') => {
@@ -45,9 +42,8 @@ for (const restart of ['daemon', 'serve'] as const) test(`live daemon stop then 
       }
       throw new Error(`serve printed no address: ${output}`);
     }
-    const answer = await ensureDaemon({ home, port: 0, appFolder: app, env, print: console.log });
+    const answer = await ensureDaemon({ home, port: 0, appFolder: app, env, print: () => {} });
     if (!answer.ok) throw new Error(answer.message);
-    console.log('DAEMON', readFileSync(join(home, '.madarch-daemon.json'), 'utf8'));
     const url = `${answer.url}/products/shop`;
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
@@ -61,44 +57,25 @@ for (const restart of ['daemon', 'serve'] as const) test(`live daemon stop then 
   const read = async (url: string) => {
     const response = await fetch(`${url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: 'query { bootstrap { catalogueTemplate } navigation { kinds { kind count } } }' }) });
     const body = await response.text();
-    console.log('GRAPHQL', JSON.stringify({ status: response.status, body }));
     expect(response.status).toBe(200);
     expect(JSON.parse(body).errors).toBeUndefined();
-  };
-  let store = '';
-  const sql = (query: string) => {
-    const result = Bun.spawnSync([join(postgresInstallFolder(env), 'bin', postgresProgram('psql')), '-X', '-h', clusterPaths(store).socketDir, '-U', 'postgres', '-d', 'madarch', '-Atc', query], { env, stdout: 'pipe', stderr: 'pipe' });
-    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
-    console.log('SQL', query, result.stdout.toString());
-    return result.stdout.toString();
   };
   try {
     const first = await start();
     await read(first);
     const knowledge = join(home, '.madarch', 'knowledge');
     const id = readdirSync(knowledge).find(name => existsSync(join(knowledge, name, 'graph', 'pgdata')))!;
-    store = join(knowledge, id, 'graph');
-    sql("ALTER SYSTEM SET log_connections = 'on'");
-    sql("ALTER SYSTEM SET log_disconnections = 'on'");
-    sql("ALTER SYSTEM SET log_line_prefix = '%m [%p] %a '");
-    sql('SELECT pg_reload_conf()');
+    const store = join(knowledge, id, 'graph');
     const beforePid = readFileSync(join(store, 'pgdata', 'postmaster.pid'), 'utf8').split('\n')[0];
-    console.log('BEFORE_STOP', beforePid, sql('SELECT pid, application_name, state FROM pg_stat_activity WHERE datname = current_database()'));
     cli(['stop']);
     expect(existsSync(join(store, 'pgdata', 'postmaster.pid'))).toBe(false);
     expect(readFileSync(join(store, 'postgres.log'), 'utf8')).toContain('received fast shutdown request');
-    console.log('AFTER_STOP_JOURNAL', readFileSync(join(store, 'postgres.log'), 'utf8'));
     const second = await start(restart);
     await read(second);
     const afterPid = readFileSync(join(store, 'pgdata', 'postmaster.pid'), 'utf8').split('\n')[0];
     expect(afterPid).not.toBe(beforePid);
-    console.log('AFTER_RESTART', afterPid, sql('SELECT pid, application_name, state FROM pg_stat_activity WHERE datname = current_database()'));
   } finally {
-    if (standalone !== undefined) { standalone.kill('SIGTERM'); await standalone.exited; console.log('SERVE_STDERR', await new Response(standalone.stderr).text()); }
-    cli(['stop']);
-    if (store !== '') console.log('FINAL_JOURNAL', readFileSync(join(store, 'postgres.log'), 'utf8'));
-    for (const name of readdirSync(home).filter(name => name.includes('log'))) {
-      console.log('DAEMON_LOG', name, readFileSync(join(home, name), 'utf8'));
-    }
+    if (standalone !== undefined) { standalone.kill('SIGTERM'); await standalone.exited; }
+    cli(['stop'], false);
   }
 }, 120_000);

@@ -19,8 +19,14 @@ test('stop with no daemon preserves an API-held store; backend termination loses
   const api = Bun.spawn(['bun', join(import.meta.dir, 'owner-stop-driver.ts'), store], { env: { ...process.env, PGAPPNAME: 'api' }, stdout: 'pipe', stderr: 'pipe' });
   try {
     const reader = api.stdout.getReader();
-    const first = await reader.read();
-    const address = new TextDecoder().decode(first.value).trim();
+    const decoder = new TextDecoder();
+    let output = '';
+    while (!output.includes('\n')) {
+      const next = await reader.read();
+      if (next.done) throw new Error(`API exited before printing an address: ${output}`);
+      output += decoder.decode(next.value, { stream: true });
+    }
+    const address = output.slice(0, output.indexOf('\n')).trim();
     const before = await (await fetch(address)).json() as { pid: number; role: string };
     expect(before.role).toBe('api');
     // The API is now the only process holding this store; the test's hold cannot mask a broken stop.
@@ -30,8 +36,13 @@ test('stop with no daemon preserves an API-held store; backend termination loses
     expect(await (await fetch(address)).json()).toEqual(before);
     // Explicitly terminate one backend to reproduce the isolated FATAL without a server shutdown.
     await clusterQuery(cluster, 'postgres', 'SELECT pg_terminate_backend($1)', [before.pid]);
-    await Bun.sleep(100);
-    const after = await fetch(address);
+    const deadline = Date.now() + 5_000;
+    let after: Response;
+    for (;;) {
+      after = await fetch(address);
+      if (after.ok || Date.now() >= deadline) break;
+      await Bun.sleep(25);
+    }
     expect(after.status).toBe(200);
     const resumed = await after.json() as { pid: number; role: string };
     expect(resumed.pid).not.toBe(before.pid);
@@ -40,7 +51,6 @@ test('stop with no daemon preserves an API-held store; backend termination loses
     expect(log).toContain('terminating connection due to administrator command');
     expect(log).toContain('application_name=api');
     expect(log).not.toContain('received fast shutdown request');
-    console.log(JSON.stringify({ before, resumed, log }));
   } finally {
     api.kill('SIGTERM');
     await api.exited;
