@@ -1516,6 +1516,9 @@ async function attemptUnit(
   }, async (span) => {
     const outcome = await attemptUnitPhases(orchestrator, request);
     span.setAttribute('madarch.outcome', outcome.result ?? 'none');
+    span.setAttribute('madarch.retriesLeft', request.unit.context.retriesLeft);
+    if (outcome.summary !== undefined) span.setAttribute('madarch.reason', outcome.summary);
+    if (outcome.refusal !== undefined) span.setAttribute('madarch.refusal', outcome.refusal.reason);
     return outcome;
   });
 }
