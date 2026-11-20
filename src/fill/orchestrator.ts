@@ -58,7 +58,7 @@ import {
   openChain,
   readChain,
   readRun,
-  readRunStateSnapshot,
+  readRunStateSnapshot, readRunStatusSnapshot,
   type RunStateSnapshot,
   readRunUnits,
   readRunUnitsIn,
@@ -2119,7 +2119,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * that waits for a retry whose moment has come counts as runnable: the next
  * sweep makes it so, and a run is not finished while it waits.
  */
-export async function runEvidence(orchestrator: RunControlContext, runId: string, state?: RunStateReader): Promise<RunEvidence> {
+export async function runEvidence(orchestrator: RunControlContext, runId: string, state?: () => Promise<Pick<RunStateSnapshot, 'units' | 'producerOutcomes'>>): Promise<RunEvidence> {
   const snapshot = state === undefined ? undefined : await state();
   const units = snapshot === undefined ? await readRunUnits(orchestrator.database, runId) : snapshot.units;
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
@@ -2790,15 +2790,14 @@ export interface RunStatus {
 
 /** Answers one run's status without changing anything. */
 export async function runStatus(orchestrator: FillOrchestrator, runId: string): Promise<RunStatus | null> {
-  const run = await readRun(orchestrator.database, runId);
-  if (run === null) return null;
-  const units = await readRunUnits(orchestrator.database, runId);
-  const evidence = await runEvidence(orchestrator, runId);
+  const snapshot = await readRunStatusSnapshot(orchestrator.database, runId, orchestrator.product);
+  if (snapshot === null) return null;
+  const evidence = await runEvidence(orchestrator, runId, async () => snapshot);
   return {
-    run,
+    run: snapshot.run,
     evidence,
-    units: units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt, retryAt: unit.state === 'retry_wait' ? unit.context.retryAt : null })),
-    chain: await readChain(orchestrator.database, orchestrator.product),
+    units: snapshot.units.map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.context.attempt, retryAt: unit.state === 'retry_wait' ? unit.context.retryAt : null })),
+    chain: snapshot.chain,
   };
 }
 

@@ -418,6 +418,17 @@ export async function readRunUnitsIn(tx:SqlExecutor,runId:string,currentOnly=tru
   const run = await runNode(tx, runId); if (run === undefined) return [];
   return await recordsOfUnits(tx, (await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from), currentOnly);
 }
+/** A status response reads its run, evidence and chain from one committed snapshot. */
+export async function readRunStatusSnapshot(database:FillStateSnapshotDatabase,runId:string,product:string){
+ return await snapshotRun(here(),database,`readRunStatusSnapshot(${runId})`,async tx=>{
+  const node=await runNode(tx,runId);
+  if(node===undefined)return null;
+  const all=await readRecordsIn(tx,'vertex','system.unit',fields.unit,(await edgeRowsIn(tx,'system.unit-run','to',[node.id])).map(edge=>edge.from));
+  const replaced=new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from));
+  const units=(await unitRecords(tx,all.filter(row=>!replaced.has(row.id)))).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  return {run:await runRecord(tx,node),units,producerOutcomes:await readProducerOutcomesIn(tx,{runId},{runNodeId:node.id,units:all}),chain:(await readChainIn(tx,product))?.record??null};
+ });
+}
 export interface RunStateSnapshot { readonly runId:string; readonly stamp:string; readonly run:RunRecord|null; readonly units:readonly UnitRecord[]; readonly producerOutcomes:readonly ProducerRunOutcome[]; readonly plans:readonly UnitPlanRecord[]; }
 /** A pass reuses decoded state only while this committed graph snapshot is unchanged. */
 export async function readRunStateSnapshot(database:FillStateSnapshotDatabase,runId:string,previous?:RunStateSnapshot):Promise<RunStateSnapshot>{
