@@ -950,6 +950,23 @@ kinds:
 
 }, 30_000);
 
+test('startup binding gives its new operation exactly one author, its principal', async () => {
+  const contract = withManifestContract(EMPTY_CONTRACT);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await owner.transaction('write', async tx => {
+      const { binding } = await startupBinding(tx, contract, 'x');
+      const authors = await tx.query<{ uid: string }>(`
+        SELECT author.uid::text AS uid FROM edge e
+        JOIN entity k ON k.id=e.entity_id AND k.name='system.operation-author'
+        JOIN node operation ON operation.id=e.from_node
+        JOIN node author ON author.id=e.to_node
+        WHERE operation.uid=$1::uuid`, [binding.operationUid]);
+      expect(authors.rows).toEqual([{ uid: binding.principalUid }]);
+    });
+  } finally { await owner.close(); }
+});
+
 test('startup binding keeps product, source and principal identities and renews only the operation', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {

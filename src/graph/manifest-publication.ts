@@ -67,6 +67,10 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
   for (const [kind, uid] of [['system.product', productUid], ['plugin', sourceUid], ['system.operation', operationUid]] as const) {
     const subject = (await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [uid]))).rows[0]!;
     await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property: '$exists', operation: 'assert', value: true });
+    if (kind === 'system.operation') await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
+      kind: 'system.operation-author', from: { kind, uid: operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
+      producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
+    }] });
     if (kind === 'plugin') for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
       await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property, operation: 'assert', value });
     }
