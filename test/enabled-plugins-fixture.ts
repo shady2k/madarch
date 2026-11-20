@@ -124,16 +124,16 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
       manifest.setIn(['kinds', name, 'fields', index, 'producers'], ['person']);
     }
   }
-  // A kind another kept kind names in a field reference or in derives-from must be declared: a kind that left with its
+  // A kind another kept kind names in a field reference, relation or derives-from must be declared: a kind that left with its
   // producers comes back when a kept kind names it, with every field as a person's own writing, and the kinds it names
   // come back in turn. A manifest that names a kind it does not hold is refused, and the fixture keeps the kinds its
   // plugins fill.
   const originalKinds = (body.kinds ?? {}) as Record<string, { fields?: { name: string }[] }>;
   for (let changed = true; changed;) {
     changed = false;
-    for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }][]) {
+    for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { reference?: string }[]; relations?: { to: string }[]; 'derives-from'?: string[] }][]) {
       if (gone.has(name)) continue;
-      const named = [...(kind.fields ?? []).flatMap((field) => field.reference === undefined ? [] : [field.reference]), ...(kind['derives-from'] ?? [])];
+      const named = [...(kind.fields ?? []).flatMap((field) => field.reference === undefined ? [] : [field.reference]), ...(kind['derives-from'] ?? []), ...(kind.relations ?? []).map((relation) => relation.to.split(':')[0]!)];
       for (const other of named) {
         if (!gone.has(other)) continue;
         gone.delete(other);

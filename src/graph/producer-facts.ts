@@ -2,17 +2,10 @@
 import { SQL_TRANSACTION_KINDS, type SqlExecutor } from '../sql-driver.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract } from './contract.js';
-import type { PluginVertexResult, PluginEdgeResult, PluginEvidence, PluginEntityRef } from '../plugin/protocol.js';
+import type { PluginVertexResult, PluginEdgeResult, PluginEvidence } from '../plugin/protocol.js';
 import { withSpan } from '../obs/trace.js';
 import { loadAssertions, type StoredAssertion } from './assertion-read.js';
-import { referenceOf } from './plugin-turns.js';
-
-/** The SDK reference envelope carries natural keys and parent roles, not host uids. */
-export function sdkReference(reference: import('./contract.js').EntityRefDraft): PluginEntityRef {
-  return { kind: reference.kind, key: reference.key, ...(reference.keyEdges === undefined ? {} : {
-    keyEdges: Object.fromEntries(Object.entries(reference.keyEdges).map(([role, parent]) => [role, sdkReference(parent)])),
-  }) };
-}
+import { referenceOf, sdkReference } from './plugin-turns.js';
 
 async function evidenceOf(tx: SqlExecutor, contract: GraphContract, assertions: readonly StoredAssertion[]): Promise<PluginEvidence | undefined> {
   if (assertions.every(assertion => assertion.evidence.length === 0)) return undefined;
