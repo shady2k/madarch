@@ -713,38 +713,6 @@ type KindManifestFieldEdge {
   node: KindManifestField!
 }
 
-type KindManifestKind implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  details: [Detail!]!
-  trail: [Entity!]!
-  origin: String
-  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  name: String
-  nameAssertions: [Assertion!]!
-  declaration: String
-  declarationAssertions: [Assertion!]!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-}
-
-type KindManifestKindConnection {
-  edges: [KindManifestKindEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type KindManifestKindEdge {
-  cursor: String!
-  node: KindManifestKind!
-}
-
 type KindManifestRelation implements Entity {
   id: ID!
   kind: String!
@@ -2291,8 +2259,6 @@ type Query {
   allManifestDependencyAggregate(where: KindManifestDependencyWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allManifestField(where: KindManifestFieldWhere, orderBy: [KindManifestFieldOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestFieldConnection!
   allManifestFieldAggregate(where: KindManifestFieldWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allManifestKind(where: KindManifestKindWhere, orderBy: [KindManifestKindOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestKindConnection!
-  allManifestKindAggregate(where: KindManifestKindWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allManifestRelation(where: KindManifestRelationWhere, orderBy: [KindManifestRelationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestRelationConnection!
   allManifestRelationAggregate(where: KindManifestRelationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allManifestWorkflow(where: KindManifestWorkflowWhere, orderBy: [KindManifestWorkflowOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestWorkflowConnection!
@@ -3251,45 +3217,6 @@ input KindManifestFieldOrder {
 input KindManifestFieldWhere {
   name: KindManifestFieldNameFilter
   declaration: KindManifestFieldDeclarationFilter
-}
-
-input KindManifestKindDeclarationFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input KindManifestKindNameFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input KindManifestKindOrder {
-  field: KindManifestKindOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input KindManifestKindWhere {
-  name: KindManifestKindNameFilter
-  declaration: KindManifestKindDeclarationFilter
 }
 
 input KindManifestRelationDeclarationFilter {
@@ -5950,11 +5877,6 @@ enum KindManifestDependencyOrderField {
 }
 
 enum KindManifestFieldOrderField {
-  name
-  declaration
-}
-
-enum KindManifestKindOrderField {
   name
   declaration
 }

@@ -3,6 +3,9 @@
  * byte, graphql-js accepts it, a reserved name and a name collision are refused naming both declarations, and a
  * fixture manifest covering every scalar, a reference, a repeated edge with attributes and the edges' and the
  * reference's inverses reaches the schema as section 1 to 4 describe it.
+ *
+ * A change to the generator or to `graphql/fixture-manifest.yaml` moves the golden with
+ * `bun scripts/write-graphql-fixture.ts`, which derives it the way this file reads it; the SDL is never hand-edited.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildSchema, type GraphQLObjectType } from 'graphql';
@@ -85,6 +88,16 @@ describe('the schema of a published manifest', () => {
     const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
     const foundation = withAssertionContract(withManifestContract({ vertex: [], edge: [], dictionary: [] }));
     for (const kind of foundation.vertex) {
+      // `manifest.kind` is the one foundation kind the generator leaves to the single `CatalogueEntity` type
+      // (decision 0036, section 1; madarch-64o5.74): the catalogue's own fields stand in its place, and no
+      // `KindManifestKind` type or `allManifestKind` root is built for it.
+      if (kind.name === 'manifest.kind') {
+        const catalogue = schema.getType('CatalogueEntity') as GraphQLObjectType;
+        expect(catalogue.getFields()['name']).toBeDefined();
+        expect(schema.getType(kindTypeNameOf(kind.name))).toBeUndefined();
+        expect(schema.getQueryType()!.getFields()['allManifestKind']).toBeUndefined();
+        continue;
+      }
       const type = schema.getType(kindTypeNameOf(kind.name)) as GraphQLObjectType;
       expect(type).toBeDefined();
       for (const field of kind.fields) expect(type.getFields()[fieldNameOf(field.name)]).toBeDefined();
