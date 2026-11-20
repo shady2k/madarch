@@ -2196,14 +2196,23 @@ export class KnowledgeProduct {
     const owner: DatabaseOwner = await this.open();
     const kinds = graphKindsOf(manifest);
     const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
-    try {
-      const rows = await this.kindCountsCache.counts(seq, async () => await reader.kindCounts());
-      const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
-      return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
-    } catch {
-      // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
-      return names.map((kind) => ({ kind, count: 0 }));
-    }
+    return await withSpan('knowledge.kindCounts', { 'knowledge.seq': seq }, async span => {
+      let cached = true;
+      try {
+        const rows = await this.kindCountsCache.counts(seq, async () => {
+          cached = false;
+          return await reader.kindCounts();
+        });
+        const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
+        const result = names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+        span.setAttributes({ 'knowledge.cache.hit': cached, 'knowledge.kinds': JSON.stringify(result.map(row => row.kind)), 'knowledge.counts': JSON.stringify(result.map(row => row.count)) });
+        return result;
+      } catch (error) {
+        span.setAttributes({ 'knowledge.cache.hit': cached, 'error.type': error instanceof Error ? error.name : typeof error, 'error.message': error instanceof Error ? error.message : String(error), 'error.stack': error instanceof Error ? error.stack ?? '' : '' });
+        // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
+        return names.map((kind) => ({ kind, count: 0 }));
+      }
+    });
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */

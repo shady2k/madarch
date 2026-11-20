@@ -105,7 +105,7 @@ export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'ed
 
 /** One statement reads independent typed requests without merging their field or subject boundaries. */
 export async function loadAssertionsBatch(executor: SqlExecutor, requests: readonly AssertionReadRequest[], selector?: AssertionSqlSelector): Promise<StoredAssertion[][]> {
-  return await withSpan('graph.assertions.read', { 'madarch.requests': requests.length }, async () => {
+  return await withSpan('graph.assertions.read', { 'madarch.requests': requests.length, 'graph.kinds': JSON.stringify(requests.map(request => request.kind)), 'graph.subject.counts': JSON.stringify(requests.map(request => request.subjectIds?.length ?? -1)) }, async span => {
     const result: StoredAssertion[][] = requests.map(() => []);
     const parameters: unknown[] = [];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
@@ -178,7 +178,10 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         ORDER BY array_position(${propertiesParameter}::text[],a.property),a.recorded_sequence) assertion_rows`);
       }
     }
-    if (statements.length === 0) return result;
+    if (statements.length === 0) {
+      span.setAttributes({ 'graph.assertion.counts': JSON.stringify(result.map(rows => rows.length)), 'graph.existence.counts': JSON.stringify(result.map(() => 0)), 'graph.selected-existence.counts': JSON.stringify(result.map(() => 0)) });
+      return result;
+    }
     const { rows } = await executor.query<{
       request_index: number; selected?: boolean; active?: boolean;
         id: string; original_subject_id: number; original_subject_uid: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
@@ -201,6 +204,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         Object.defineProperty(assertion, 'toJSON', { value: assertionJSON });
         result[row.request_index]!.push(assertion);
       }
+    span.setAttributes({ 'graph.assertion.counts': JSON.stringify(result.map(rows => rows.length)), 'graph.existence.counts': JSON.stringify(result.map(rows => rows.filter(row => row.property === '$exists').length)), 'graph.selected-existence.counts': JSON.stringify(result.map(rows => rows.filter(row => row.selected && row.property === '$exists' && row.value === true).length)), 'graph.unselected-existence.counts': JSON.stringify(result.map(rows => rows.filter(row => row.property === '$exists' && !row.selected).length)), 'graph.inactive-existence.counts': JSON.stringify(result.map(rows => rows.filter(row => row.property === '$exists' && !row.active).length)) });
     return result;
   });
 }
