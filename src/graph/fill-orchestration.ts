@@ -160,11 +160,6 @@ export interface RunStageRecord {
   readonly publications: number;
 }
 
-export interface RunPublicationStage {
-  readonly stageId: string;
-  readonly publications: number;
-}
-
 export interface UnitPlanRecord {
   readonly unitId: string;
   readonly generation: number;
@@ -379,7 +374,6 @@ async function runStagePlansIn(tx:SqlExecutor,runId:string):Promise<readonly Run
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
 }
-export async function readRunStagePlans(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunStageRecord[]>{return snapshotTransaction(database,tx=>runStagePlansIn(tx,runId));}
 /** A run's units, from the run: its own `system.unit-run` edges name them. */
 async function runUnits(tx:SqlExecutor,runId:string):Promise<AssertionRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
@@ -401,10 +395,6 @@ async function publications(tx:SqlExecutor,runId:string):Promise<{record:Publica
  }
  return out;
 }
-export async function readRunPublicationStages(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunPublicationStage[]>{return snapshotTransaction(database,async tx=>{
- const groups=new Map<string,number>();for(const row of await publications(tx,runId))groups.set(row.stageId,(groups.get(row.stageId)??0)+1);
- return [...groups].sort(([a],[b])=>byCodePoint(a,b)).map(([stageId,publications])=>({stageId,publications}));
-});}
 export async function readRunPlanningSnapshot(database:FillStateSnapshotDatabase,runId:string){
  return snapshotTransaction(database,async tx=>{
   const attempts=await runStagePlansIn(tx,runId);

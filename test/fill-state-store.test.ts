@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, readUnitIn, createRun, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';

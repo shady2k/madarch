@@ -2,7 +2,8 @@ import { expect, test, spyOn } from 'bun:test';
 import { Client } from 'pg';
 import { acquireGraphWriteLock } from '../src/graph/write.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { createRun, createUnit } from '../src/graph/fill-state.js';
+import { createRun } from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
 import { recordUnitPlan } from '../src/graph/fill-orchestration.js';
 
 test('an orchestration step takes one graph lock and at most twenty statements', async () => {

@@ -394,7 +394,6 @@ export async function advanceRun(database:FillStateDatabase,options:{readonly ru
 }
 
 export interface UnitCreateOptions { readonly unitId:string;readonly product:string;readonly runId:string;readonly stageId:string;readonly scopeKey:string;readonly inputsDigest:string;readonly retries:number;readonly at:number; }
-export async function createUnit(database:FillStateDatabase,options:UnitCreateOptions):Promise<UnitRecord>{return await run(here(),database,`createUnit(${options.unitId})`,tx=>createUnitIn(tx,options),'write');}
 export async function createUnitIn(tx:SqlExecutor,options:UnitCreateOptions):Promise<UnitRecord>{
   await acquireGraphWriteLock(tx);
   const existing=(await rows(tx,'unit')).filter(r=>r.values['product_name']===options.product&&r.values['stage_name']===options.stageId&&r.values['scope']===options.scopeKey).sort((a,b)=>number(b.values['generation'])-number(a.values['generation']))[0];

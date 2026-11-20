@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
-import { createRun, createUnit, readRunUnits, readUnit } from '../src/graph/fill-state.js';
+import { createRun, readRunUnits, readUnit } from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
 
 test('reading a run batches unit owners without query growth per unit', async () => {
   const owner = await createTestDatabaseOwner();

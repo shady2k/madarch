@@ -246,7 +246,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
             const inputs = Object.entries(values).map(([property,value]) => ({sort:'vertex' as const,kind:'system.unit',subjectId,property,operation:'assert' as const,value}));
             const assertionUids = await writeAssertions(tx,options.contract,inputs,context);
             const scope = await selectedFields(tx,'system.unit',options.unitUid,['plan_scope','scope'],context);
-            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,assertionUids[inputs.findIndex(input => input.property === 'outcome')]!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
+            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]] )).outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
           }
           if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});

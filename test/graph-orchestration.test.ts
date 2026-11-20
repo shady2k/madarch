@@ -1,6 +1,7 @@
 import {test,expect} from 'bun:test';
 import {createTestDatabaseOwner} from './test-database.js';
-import {createRun,createUnit,readUnitGraphUidIn,putFillVertexIn} from '../src/graph/fill-state.js';
+import {createRun,readUnitGraphUidIn,putFillVertexIn} from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
 import {recordInheritedUnit,recordRunConfiguration,readRunConfiguration,recordUnitPlan,readRunPlans,appendProgresses,readProgress,askRunControl,readRunControl,writeFillEnd,readFillEnd,recordUnitReads,readUnitReads} from '../src/graph/fill-orchestration.js';
 
 test('orchestration records are typed graph facts with one run and unit identity',async()=>{

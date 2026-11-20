@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
-import { createRun, createUnit, advanceUnit, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { createRun, advanceUnit, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
 import { recordUnitPlan, readRunPlans, readUnitPlan } from '../src/graph/fill-orchestration.js';
 
 test('run plans batch units and versions without per-unit query growth', async () => {

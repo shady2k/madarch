@@ -21,7 +21,7 @@ import { newUid } from '../src/graph/uid.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import {
-  readRunConfiguration, readRunPlans, readRunPublicationCount, readRunPublicationStages, readSealedChildren, readSplitParents, readUnitPlan,
+  readRunConfiguration, readRunPlans, readRunPublicationCount, readRunPlanningSnapshot, readSealedChildren, readSplitParents, readUnitPlan,
 } from '../src/graph/fill-orchestration.js';
 import { hasSuccessfulFill, readLatestRun } from '../src/graph/fill-state.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
@@ -168,7 +168,7 @@ async function measure<T>(owner: TestDatabaseOwner, read: (database: TestDatabas
 /** The public reads, each by the name the plan lists it. */
 const READS: readonly { readonly name: string; readonly read: (database: TestDatabaseOwner) => Promise<unknown> }[] = [
   { name: 'readRunPublicationCount', read: async (database) => await readRunPublicationCount(database, 'P-run') },
-  { name: 'readRunPublicationStages', read: async (database) => await readRunPublicationStages(database, 'P-run') },
+  { name: 'readRunPlanningSnapshot', read: async (database) => await readRunPlanningSnapshot(database, 'P-run') },
   { name: 'readRunPlans', read: async (database) => await readRunPlans(database, 'P-run') },
   { name: 'readUnitPlan', read: async (database) => await readUnitPlan(database, 'P-u1', 1) },
   { name: 'readSealedChildren', read: async (database) => await readSealedChildren(database, 'P-u0', 1) },
