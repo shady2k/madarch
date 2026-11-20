@@ -1029,10 +1029,12 @@ describe('what the review found, kept as tests', () => {
     const sourceUid = installed.find(row => row.values.label === 'fill-state')!.uid;
     for (const kind of ['system.unit','system.run','system.fill-transition']) expect(sources.rows.some(row => row.kind === kind)).toBe(true);
     expect(sources.rows.filter(row => row.source !== sourceUid)).toEqual([]);
-    const operationPrincipal = (await opened.owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex','plugin',['label'])))
-      .find(row => row.values.label === 'scheduler-fixture')!.uid;
-    const operationAuthors = await opened.owner.run(tx => tx.query<{operation:string;author:string|null}>(`
-      SELECT op.uid::text AS operation,author.uid::text AS author
+    const operationPrincipal = installed.find(row => row.values.label === 'scheduler-fixture')!.uid;
+    const operationAuthors = await opened.owner.run(tx => tx.query<{operation:string;author:string|null;author_count:number;existence_author:string|null}>(`
+      SELECT DISTINCT op.uid::text AS operation,author.uid::text AS author,
+        (SELECT count(*)::int FROM edge e JOIN entity ek ON ek.id=e.entity_id
+          WHERE e.from_node=op.id AND ek.name='system.operation-author') AS author_count,
+        existence_author.uid::text AS existence_author
       FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id
       JOIN edge subject ON subject.id=av.subject_edge_id JOIN node n ON n.id=subject.to_node
       JOIN entity k ON k.id=n.entity_id
@@ -1041,17 +1043,22 @@ describe('what the review found, kept as tests', () => {
       JOIN node op ON op.id=lineage.to_node
       LEFT JOIN (edge authors JOIN entity ak ON ak.id=authors.entity_id AND ak.name='system.operation-author') ON authors.from_node=op.id
       LEFT JOIN node author ON author.id=authors.to_node
-      WHERE k.name IN ('system.chain','system.run','system.unit','system.fill-transition')
-      AND op.uid IN (
-        SELECT operation.uid FROM node operation
-        JOIN edge attachment ON attachment.to_node=operation.id
-        JOIN assertion_vertex_subject os ON os.subject_edge_id=attachment.id
-        JOIN edge source ON source.from_node=os.assertion_id
-        JOIN entity sk ON sk.id=source.entity_id AND sk.name='system.assertion-source'
-        JOIN node principal ON principal.id=source.to_node WHERE principal.uid=$1::uuid
-      )`, [operationPrincipal]));
+      LEFT JOIN (edge existence_subject JOIN assertion_vertex_subject ov ON ov.subject_edge_id=existence_subject.id
+        JOIN assertion existence ON existence.assertion_id=ov.assertion_id AND existence.property='$exists'
+        JOIN edge existence_lineage ON existence_lineage.from_node=existence.assertion_id
+        JOIN entity eak ON eak.id=existence_lineage.entity_id AND eak.name='system.assertion-author'
+        JOIN node existence_author ON existence_author.id=existence_lineage.to_node) ON existence_subject.to_node=op.id
+      WHERE k.name IN ('system.chain','system.run','system.unit','system.fill-transition')`));
     expect(operationAuthors.rows.length).toBeGreaterThan(0);
-    for (const row of operationAuthors.rows) expect(row.author).toBe(operationPrincipal);
+    for (const row of operationAuthors.rows) {
+      expect(row.author_count).toBe(1);
+      expect(row.author).not.toBeNull();
+      expect(row.existence_author).not.toBeNull();
+      expect(row.author).toBe(row.existence_author);
+    }
+    const authors = new Set(operationAuthors.rows.map(row => row.author));
+    expect(authors.has(sourceUid)).toBe(true);
+    expect(authors.has(operationPrincipal)).toBe(true);
     const disputes = await opened.owner.run(tx => tx.query(`
       SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id
       WHERE k.name='system.dispute-question'`));

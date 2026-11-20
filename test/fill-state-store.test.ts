@@ -145,6 +145,7 @@ describe('a unit generation', () => {
       const at = NOW + attempt * 10;
       const retried = await database.transaction('write', async tx => {
         const installed = await startupBinding(tx, database.graphContract, 'retry-operation-fixture');
+        // Without this warm-up the first bindFillStateIn opens an extra operation; ALX-616 removes it.
         await bindFillStateIn(tx, installed.contract);
         const unitUid = (await readUnitGraphUidIn(tx, unitId))!;
         const caller = { ...installed.binding, unitUid, permissions: [] };
