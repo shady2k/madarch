@@ -1,6 +1,6 @@
 /** Immediate checked writes and graph receipts, decision 0039 item 24. */
 import { assertOutcomeApplicability } from './applicability.js';
-import {readRunGraphUidIn,readUnitGraphUidIn} from './fill-state.js';
+import {bindFillStateIn,readRunGraphUidIn,readUnitGraphUidIn,type GraphWriteContext} from './fill-state.js';
 import {startupBinding} from './manifest-publication.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
@@ -39,12 +39,16 @@ export interface OperationHostOptions {
   readonly contract:GraphContract; readonly capability:WriteCapability;
   readonly runUid:string; readonly unitUid:string; readonly context?:number;
 }
-export interface OperationWriteContext { readonly contract:GraphContract;readonly binding:WriteCapability; }
+export interface OperationWriteContext extends GraphWriteContext { readonly binding:WriteCapability; }
 export interface OperationHost {
   fail(reason:string,apply?:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<void>):Promise<boolean>;
   execute<Result>(request:OperationRequest,apply:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<Result>):Promise<Result>;
 }
-const systemPermissions = ['system.run','system.unit','system.unit-run','system.operation','system.operation-unit','system.operation-author','system.operation-affected','system.unit-parent','system.fill-transition','system.fill-transition-subject','system.kind-applicability','system.applicability-kind','system.applicability-product'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true}));
+
+const systemPermissions = [
+  ...['system.run','system.unit'].map(kind=>({kind,properties:Object.keys({committed_operations:true,last_progress:true,reason:true,outcome:true,produced_kind:true,producer:true,produced:true,producer_version:true,plan_scope:true,$exists:true}),assert:true,retractOwn:true})),
+  ...['system.operation','system.operation-unit','system.operation-author','system.operation-affected','system.kind-applicability','system.applicability-kind','system.applicability-product'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true})),
+];
 function trusted(binding:WriteCapability,operationUid:string,unitUid:string):WriteCapability {
   return {...binding,operationUid,unitUid,permissions:[...binding.permissions,...systemPermissions]};
 }
@@ -72,10 +76,12 @@ export async function initializeOperationScope(tx:OuterTransaction,contract:Grap
     await acquireGraphWriteLock(tx);
     for(const [kind,uid] of [['system.operation',binding.operationUid],['system.run',runUid],['system.unit',unitUid]] as const) await bootstrapWriteIdentity(tx,kind,uid,binding.productUid,context);
     bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
+    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
     await set(tx,contract,'system.run',runUid,'$exists',true,context);
     await set(tx,contract,'system.unit',unitUid,'$exists',true,context);
     if(await selected(tx,'system.run',runUid,'state',context)===undefined)await set(tx,contract,'system.run',runUid,'state','running',context);
     await set(tx,contract,'system.unit',unitUid,'state','running',context);
+    bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
     await set(tx,contract,'system.unit',unitUid,'committed_operations',0,context);
     await set(tx,contract,'system.unit',unitUid,'last_progress','admitted',context);
   });
@@ -90,13 +96,14 @@ export async function resolveOperationScope(tx:OuterTransaction,contract:GraphCo
     const runUid=oldRun??newUid(),unitUid=oldUnit??newUid();
     if(!oldUnit){
       await initializeOperationScope(tx,contract,binding,runUid,unitUid,context);
+      await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
       await set(tx,contract,'system.run',runUid,'run_name',input.runId,context);
       await set(tx,contract,'system.unit',unitUid,'unit_name',input.unitId,context);
       await set(tx,contract,'system.unit',unitUid,'generation',input.generation,context);
       if(input.scope!==undefined)await set(tx,contract,'system.unit',unitUid,'scope',input.scope,context);
       await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.run',uid:runUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion??'system'}]},context);
     }
-    bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
+    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
     for(const parentUid of input.parentUids??[])await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-parent',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.unit',uid:parentUid,key:{}},discriminator:unitUid,producer:binding.sourceUid,producerVersion:binding.contractVersion}]},context);
     return {runUid,unitUid};
   });
@@ -106,7 +113,7 @@ export async function changeOperationRunState(tx:OuterTransaction,contract:Graph
   await withSpan('fill.operation.run-state',{},async()=>{
     await acquireGraphWriteLock(tx);
     await tx.query('SELECT id FROM node WHERE uid=$1::uuid FOR UPDATE',[runUid]);
-    bindWriteCapability(tx,trusted(binding,binding.operationUid,binding.unitUid!));
+    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid:binding.unitUid},context);
     await set(tx,contract,'system.run',runUid,'state',state,context);
   });
 }
@@ -133,6 +140,13 @@ export async function operationReceipt(tx:OuterTransaction,_contract:GraphContra
   });
 }
 
+async function publishAffected(tx:OuterTransaction,options:OperationHostOptions,operationUid:string,context:number):Promise<void>{
+  await withSpan('graph.operation.affected',{},async()=>{
+  const affected=(await tx.query<{uid:string}>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node WHERE op.uid=$1::uuid ORDER BY n.uid::text COLLATE "C"`,[operationUid])).rows;
+  if(affected.length)await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:affected.map(target=>({kind:'system.operation-affected',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.assertion',uid:target.uid,key:{}},discriminator:target.uid,producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}))},context);
+  });
+}
+
 export function createOperationHost(options:OperationHostOptions):OperationHost {
   const context=options.context??1;
   return {fail:async(reason,apply)=>await withSpan('fill.operation.failure',{'madarch.unit':options.unitUid},async()=>await options.owner.transaction('write',async tx=>{
@@ -146,8 +160,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
     if(!principal)throw new Error(`${WHERE}:120: TARGET_MISSING principal ${options.capability.principalUid}`);
     await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}]},context);
-    if(apply){await apply(tx,{contract:options.contract,binding:trusted(options.capability,operationUid,options.unitUid)});bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));}
-    else await set(tx,options.contract,'system.unit',options.unitUid,'state','failed',context);
+    if(apply){await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));}
+    else {
+      await bindFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},context);
+      await set(tx,options.contract,'system.unit',options.unitUid,'state','failed',context);
+      bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
+    }
     await set(tx,options.contract,'system.unit',options.unitUid,'reason',reason,context);
     const producedKind = await selected(tx,'system.unit',options.unitUid,'produced_kind',context);
     const producer = await selected(tx,'system.unit',options.unitUid,'producer',context);
@@ -157,6 +175,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     }
     await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',reason,context);
     await options.queue.fail(options.job.queue,options.job,reason,tx);
+    await publishAffected(tx,options,operationUid,context);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return true;
   })),execute:async<Result>(request:OperationRequest,apply:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<Result>):Promise<Result>=> {
@@ -190,20 +209,20 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
         const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
         if(!principal)throw new Error(`${WHERE}:116: TARGET_MISSING principal ${options.capability.principalUid}`);
-        const result=await apply(tx,{contract:options.contract,binding:trusted(options.capability,operationUid,options.unitUid)});
+        const result=await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
         const canonicalResult = result === undefined ? undefined : canonicalJson(result);
         await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
         await reconcileDisputes(tx,options.contract);
-        const affected=(await tx.query<{uid:string}>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node WHERE op.uid=$1::uuid ORDER BY n.uid::text COLLATE "C"`,[operationUid])).rows;
-        if(affected.length)await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:affected.map(target=>({kind:'system.operation-affected',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.assertion',uid:target.uid,key:{}},discriminator:target.uid,producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}))},context);
         const count=Number(await selected(tx,'system.unit',options.unitUid,'committed_operations',context)??0);
         await publishGraphDrafts(tx,options.contract,{vertices:[
           {kind:'system.operation',uid:operationUid,key:{},values:{key:request.key,canonical_request:canonical,digest,...(canonicalResult === undefined ? {} : {result:canonicalResult})},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
           {kind:'system.unit',uid:options.unitUid,key:{},values:{committed_operations:count+1,last_progress:request.key},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
         ],removals:[]},context);
         if(request.completion){
+          await bindFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},context);
           await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
+          bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
           if(request.completion.outcome) {
             const assertionUids: Record<string,string> = {};
             for(const [property,value] of Object.entries({produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})})) {
@@ -215,6 +234,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
           if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
         }
+        await publishAffected(tx,options,operationUid,context);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
         return result;
       });
