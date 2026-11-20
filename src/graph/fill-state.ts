@@ -1,5 +1,8 @@
 /** Fill state machines persisted as typed graph assertions (decision 0039). */
 import { withSpan } from '../obs/trace.js';
+import { readRunPlansIn, type UnitPlanRecord } from './fill-orchestration.js';
+import { readProducerOutcomesIn } from './producer-outcomes.js';
+import type { ProducerRunOutcome } from '../fill/producer-outcomes.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { EMPTY_CONTRACT, assertionValueTableName, type EdgeDraft, type EntityRefDraft, type GraphContract } from './contract.js';
@@ -415,13 +418,20 @@ export async function readRunUnitsIn(tx:SqlExecutor,runId:string,currentOnly=tru
   const run = await runNode(tx, runId); if (run === undefined) return [];
   return await recordsOfUnits(tx, (await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from), currentOnly);
 }
-export interface RunStateSnapshot { readonly stamp:string; readonly run:RunRecord|null; readonly units:readonly UnitRecord[]; }
+export interface RunStateSnapshot { readonly runId:string; readonly stamp:string; readonly run:RunRecord|null; readonly units:readonly UnitRecord[]; readonly producerOutcomes:readonly ProducerRunOutcome[]; readonly plans:readonly UnitPlanRecord[]; }
 /** A pass reuses decoded state only while this committed graph snapshot is unchanged. */
 export async function readRunStateSnapshot(database:FillStateSnapshotDatabase,runId:string,previous?:RunStateSnapshot):Promise<RunStateSnapshot>{
  return await snapshotRun(here(),database,`readRunStateSnapshot(${runId})`,async tx=>{
   const stamp=await storeStampIn(tx);
-  if(previous?.stamp===stamp)return previous;
-  return {stamp,run:await readRunIn(tx,runId),units:await readRunUnitsIn(tx,runId)};
+  if(previous?.runId===runId&&previous.stamp===stamp)return previous;
+  const node=await runNode(tx,runId);
+  if(node===undefined)return {runId,stamp,run:null,units:[],producerOutcomes:[],plans:[]};
+  // Keep all generations for producer completion; only unreplaced generations drive scheduling.
+  const all=await readRecordsIn(tx,'vertex','system.unit',[...fields.unit,'plan_stage_name','plan_stage_unit_name','plan_scope','plan_stage_position','plan_position','planned_at'],(await edgeRowsIn(tx,'system.unit-run','to',[node.id])).map(edge=>edge.from));
+  const replaced=new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from));
+  const current=all.filter(row=>!replaced.has(row.id));
+  const units=(await unitRecords(tx,current)).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  return {runId,stamp,run:await runRecord(tx,node),units,producerOutcomes:await readProducerOutcomesIn(tx,{runId},{runNodeId:node.id,units:all}),plans:await readRunPlansIn(tx,runId,{},current)};
  });
 }
 export async function readRunUnits(database:FillStateSnapshotDatabase,runId:string):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readRunUnits(${runId})`,tx=>readRunUnitsIn(tx,runId));}

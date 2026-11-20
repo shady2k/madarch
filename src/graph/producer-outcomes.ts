@@ -5,7 +5,12 @@ import { edgeRowsIn, readNodeIdIn, readRecordsIn, readRunGraphUidIn, readSubject
 import type { AssertionRecord } from './records.js';
 
 /** The units a request is about: the run's own, the named unit's, or — for no subject — every unit. */
-async function producerUnits(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<AssertionRecord[]> {
+async function producerUnits(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }, supplied?: { readonly runNodeId: number; readonly units: readonly AssertionRecord[] }): Promise<AssertionRecord[]> {
+  if (supplied !== undefined) {
+    const inherited = await edgeRowsIn(executor, 'system.run-inherited-unit', 'from', [supplied.runNodeId]);
+    const ownIds = new Set(supplied.units.map(unit => unit.id));
+    return [...supplied.units, ...await readUnitsIn(executor, [...new Set(inherited.map(edge => edge.to))].filter(id => !ownIds.has(id)))];
+  }
   if (options.runId !== undefined) {
     const uid = await readRunGraphUidIn(executor, options.runId);
     if (uid === undefined) return [];
@@ -26,8 +31,8 @@ async function producerUnits(executor: SqlExecutor, options: { readonly runId?: 
 }
 
 /** Producer completion is an ordinary unit assertion, never a private draft read. */
-export async function readProducerOutcomesIn(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
-  const units = (await producerUnits(executor, options)).filter((unit) => unit.values.outcome !== undefined);
+export async function readProducerOutcomesIn(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }, supplied?: { readonly runNodeId: number; readonly units: readonly AssertionRecord[] }): Promise<ProducerRunOutcome[]> {
+  const units = (await producerUnits(executor, options, supplied)).filter((unit) => unit.values.outcome !== undefined);
   if (units.length === 0) return [];
   // Each unit's run is its own edge, and the units it was inherited into are its own incoming edges.
   const links = await edgeRowsIn(executor, 'system.unit-run', 'from', units.map((unit) => unit.id));

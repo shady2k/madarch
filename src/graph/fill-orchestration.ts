@@ -441,9 +441,10 @@ export async function recordUnitPlanIn(tx:SqlExecutor,options:UnitPlanOptions):P
 }
 export async function recordUnitPlan(database:OrchestratorDatabase,options:UnitPlanOptions):Promise<UnitPlanRecord>{return transaction(database,'write',tx=>recordUnitPlanIn(tx,options));}
 export async function readUnitPlan(database:FillStateSnapshotDatabase,unitId:string,generation:number):Promise<UnitPlanRecord|null>{return snapshotTransaction(database,tx=>unitPlanIn(tx,unitId,generation));}
-export async function readRunPlans(database:FillStateSnapshotDatabase,runId:string,options:{readonly history?:boolean}={}):Promise<readonly UnitPlanRecord[]>{return snapshotTransaction(database,async tx=>{
-  const units=await runUnits(tx,runId);
-  const replaced=options.history||units.length===0?new Set<number>():new Set((await edgeRowsIn(tx,'system.unit-replacement','from',units.map(row=>row.id))).map(edge=>edge.from));
+export async function readRunPlans(database:FillStateSnapshotDatabase,runId:string,options:{readonly history?:boolean}={}):Promise<readonly UnitPlanRecord[]>{return snapshotTransaction(database,tx=>readRunPlansIn(tx,runId,options));}
+export async function readRunPlansIn(tx:SqlExecutor,runId:string,options:{readonly history?:boolean}={},currentUnits?:readonly AssertionRecord[]):Promise<readonly UnitPlanRecord[]>{
+  const units=currentUnits??await runUnits(tx,runId);
+  const replaced=currentUnits!==undefined||options.history||units.length===0?new Set<number>():new Set((await edgeRowsIn(tx,'system.unit-replacement','from',units.map(row=>row.id))).map(edge=>edge.from));
   const current=units.filter(row=>!replaced.has(row.id));
   if(!options.history){
    const names=new Set<string>();
@@ -461,7 +462,7 @@ export async function readRunPlans(database:FillStateSnapshotDatabase,runId:stri
    const v=row.values,cacheVersions=byUnit.get(row.id);
    return {unitId:String(v.unit_name),generation:Number(v.generation),runId,stageId:String(v.plan_stage_name),stageUnitId:String(v.plan_stage_unit_name),scope:String(v.plan_scope),stagePosition:Number(v.plan_stage_position),planPosition:Number(v.plan_position),plannedAt:Number(v.planned_at),...(cacheVersions?{cacheVersions}:{})};
   }).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
- });}
+ }
 export async function appendProgress(database:OrchestratorDatabase,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
  return (await appendProgresses(database,[event]))[0]!;
 }

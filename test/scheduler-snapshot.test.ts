@@ -4,17 +4,19 @@ import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database
 import { fixtureOperations } from './fill-operation-fixture.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createOrchestratorSchema } from '../src/graph/fill-orchestration.js';
-import { advanceUnit, readRunUnits } from '../src/graph/fill-state.js';
+import { advanceUnit, createRun, fillEdge, putFillVertexIn, readRunGraphUidIn, readRunStateSnapshot, readRunUnits, readUnitGraphUidIn } from '../src/graph/fill-state.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS } from '../src/fill/stage.js';
-import { createOrchestrator, planRun, schedulerPass, startRun, stopHeartbeat } from '../src/fill/orchestrator.js';
+import { createOrchestrator, planRun, runEvidence, schedulerPass, startRun, stopHeartbeat } from '../src/fill/orchestrator.js';
 
 async function fixture() {
   const owner = await createTestDatabaseOwner();
   let membershipReads = 0;
+  let snapshotTransactions = 0;
   const counting = Object.create(owner) as TestDatabaseOwner;
   counting.transaction = async (kind, work) => await owner.transaction(kind, async tx => {
     let runMembership = false;
+    if (kind === 'snapshot') snapshotTransactions += 1;
     return await work({
       query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
         if (values?.[0] === 'system.unit-run' && sql.includes('e.to_node=ANY')) runMembership = true;
@@ -44,7 +46,7 @@ async function fixture() {
   expect((await planRun(orchestrator, { runId: 'run' })).outcome).toBe('planned');
   await schedulerPass(orchestrator, { runId: 'run' });
   stopHeartbeat(orchestrator);
-  return { owner, orchestrator, queue, reads: () => membershipReads, reset: () => { membershipReads = 0; },
+  return { owner, orchestrator, queue, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { membershipReads = 0; snapshotTransactions = 0; },
     close: async () => { stopHeartbeat(orchestrator); await queue.stop(); await owner.close(); } };
 }
 
@@ -80,5 +82,45 @@ test('a worker write during a pass is visible at the next checkpoint', async () 
     expect(result.settlement.evidence.runnable).toBe(0);
     expect(result.run.state).toBe('failed');
     expect((await readRunUnits(opened.owner, 'run'))[0]?.state).toBe('cancelled');
+  } finally { await opened.close(); }
+}, 30_000);
+
+
+test('run snapshots bind producer outcomes to their run and invalidate after an external write', async () => {
+  const opened = await fixture();
+  try {
+    const first = await readRunStateSnapshot(opened.owner, 'run');
+    expect(first.producerOutcomes).toEqual([]);
+    expect(await readRunStateSnapshot(opened.owner, 'run', first)).toBe(first);
+    await opened.owner.transaction('write', async tx => {
+      const uid = await readUnitGraphUidIn(tx, 'source/one', 1);
+      if (uid === undefined) throw new Error('fixture unit is missing');
+      await putFillVertexIn(tx, 'system.unit', uid, { produced_kind: 'example', producer: 'external', outcome: 'failed', produced: 0 });
+    });
+    const changed = await readRunStateSnapshot(opened.owner, 'run', first);
+    expect(changed.stamp).not.toBe(first.stamp);
+    expect(changed.producerOutcomes).toEqual([{ runId: 'run', unitId: 'source/one', generation: 1, plugin: 'external', kind: 'example', outcome: 'failed', produced: 0 }]);
+    opened.reset();
+    const evidence = await runEvidence(opened.orchestrator, 'run', async () => changed);
+    expect(evidence.coverageMet).toBe(false);
+    expect(opened.snapshots()).toBe(0);
+    await createRun(opened.owner, { runId: 'other', product: 'snapshot-product', at: Date.now() });
+    const current = await readRunStateSnapshot(opened.owner, 'run', changed);
+    const other = await readRunStateSnapshot(opened.owner, 'other', current);
+    expect(other).not.toBe(current);
+    expect(other.run?.runId).toBe('other');
+    expect(other.units).toEqual([]);
+    expect(other.producerOutcomes).toEqual([]);
+    await opened.owner.transaction('write', async tx => {
+      const unitUid = await readUnitGraphUidIn(tx, 'source/one', 1);
+      const runUid = await readRunGraphUidIn(tx, 'other');
+      if (unitUid === undefined || runUid === undefined) throw new Error('fixture lineage is missing');
+      await putFillVertexIn(tx, 'system.unit', unitUid, { outcome: 'completed', produced: 1 }, [
+        fillEdge('system.run-inherited-unit', 'system.run', runUid, 'system.unit', unitUid),
+      ]);
+    });
+    const inherited = await readRunStateSnapshot(opened.owner, 'other', other);
+    expect(inherited.units).toEqual([]);
+    expect(inherited.producerOutcomes).toEqual([{ runId: 'other', unitId: 'source/one', generation: 1, plugin: 'external', kind: 'example', outcome: 'unchanged', produced: 1 }]);
   } finally { await opened.close(); }
 }, 30_000);

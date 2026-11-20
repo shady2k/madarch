@@ -24,8 +24,7 @@ import {
   readRunConfiguration,
   readRunPlans,
   readRunPublicationCount,
-  readRunPublicationStages,
-  readRunStagePlans,
+  readRunPlanningSnapshot,
   readSealedChildren,
   readSplitParents,
   readUnitPlan,
@@ -55,7 +54,6 @@ import {
   advanceUnit,
   advanceUnitIn,
   createRun,
-  createUnit,
   createUnitIn,
   openChain,
   readChain,
@@ -799,10 +797,17 @@ async function planStageUnitsSpanned(
     const unitId = unitIdFor(stageId, scope.id);
     const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
     const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
-    const before = await readUnit(database, unitId);
-    const answer = await createUnit(database, {
-      unitId, product: orchestrator.product, runId: run.runId, stageId,
-      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
+    const { before, answer } = await ownTransaction(here(), orchestrator, `planUnit(${unitId})`, ['node','edge','assertion'], async executor => {
+      const before = await readUnitIn(executor, unitId);
+      const answer = await createUnitIn(executor, {
+        unitId, product: orchestrator.product, runId: run.runId, stageId,
+        scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
+      });
+      if (answer.runId === run.runId) await recordUnitPlanIn(executor, {
+        unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
+        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+      });
+      return { before, answer };
     });
     if (answer.runId !== run.runId) {
         // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
@@ -866,10 +871,6 @@ async function planStageUnitsSpanned(
           },
         };
       }
-      await recordUnitPlan(database, {
-        unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
-      });
       const created = before === null;
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
       if (created) await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope})` });
@@ -947,9 +948,10 @@ async function replanAfterPublications(orchestrator: FillOrchestrator, options: 
   if (run.state !== 'planning' && run.state !== 'running') return { outcome: 'planned', planned: false, run, units: [], reused: [], foundNothing: [] };
   const graph = await currentGraph(orchestrator, run.runId);
   const at = orchestrator.clock();
-  const attempts = new Map((await readRunStagePlans(database, run.runId)).map((record) => [record.stageId, { publications: record.publications, units: record.units }]));
-  const publishedBy = new Map((await readRunPublicationStages(database, run.runId)).map((record) => [record.stageId, record.publications]));
-  const publications = await readRunPublicationCount(database, run.runId);
+  const planning = await readRunPlanningSnapshot(database, run.runId);
+  const attempts = new Map(planning.attempts.map((record) => [record.stageId, { publications: record.publications, units: record.units }]));
+  const publishedBy = new Map(planning.stages.map((record) => [record.stageId, record.publications]));
+  const publications = planning.publications;
   const due = stagesToReplan(graph, attempts, publishedBy, publications);
   if (due.length === 0) {
     if (run.state !== 'planning') return { outcome: 'planned', planned: false, run, units: [], reused: [], foundNothing: [] };
@@ -1039,13 +1041,14 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
   if (run === null) raise(`no run ${options.runId} is recorded: a run is created before it admits anything`);
   if (run.state !== 'running') return { run, admitted: [], waitingForSlot: [], refused: [], admittedNow: 0 };
   const graph = await currentGraph(orchestrator, run.runId);
-  const units = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
-  const plans = await runPlans(orchestrator, run.runId);
+  const snapshot = state === undefined ? undefined : await state();
+  const units = snapshot === undefined ? await readRunUnits(database, run.runId) : snapshot.units;
+  const plans = snapshot === undefined ? await runPlans(orchestrator, run.runId) : new Map(snapshot.plans.map(plan => [plan.unitId, plan]));
   const withoutPlan = units.filter((unit) => unit.state === 'planned' && !plans.has(unit.unitId));
   const candidates = units.filter((unit) => unit.state === 'planned' && plans.has(unit.unitId));
   const outcomeKey = (unitId: string, generation: number): string => JSON.stringify([unitId, generation]);
   // A sealed publication's completion record is immutable. Mutable state and generation are still read under the lock.
-  const publishedOutcomes = new Map((await readProducerOutcomes(database, { runId: run.runId }))
+  const publishedOutcomes = new Map((snapshot?.producerOutcomes ?? await readProducerOutcomes(database, { runId: run.runId }))
     .map((outcome) => [outcomeKey(outcome.unitId, outcome.generation), outcome]));
   for (const [key, outcome] of publishedOutcomes) if (!producerSucceeded(outcome.outcome)) publishedOutcomes.delete(key);
   const ordered = admissionOrder(
@@ -2117,7 +2120,8 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * sweep makes it so, and a run is not finished while it waits.
  */
 export async function runEvidence(orchestrator: RunControlContext, runId: string, state?: RunStateReader): Promise<RunEvidence> {
-  const units = (state === undefined ? await readRunUnits(orchestrator.database, runId) : (await state()).units);
+  const snapshot = state === undefined ? undefined : await state();
+  const units = snapshot === undefined ? await readRunUnits(orchestrator.database, runId) : snapshot.units;
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
   // units it may admit now (`planned`), the ones waiting for a worker (`ready`), and the ones waiting for
   // a retry whose moment the clock will bring (`retry_wait`, the moment passed or not) — a run that still
@@ -2131,7 +2135,7 @@ export async function runEvidence(orchestrator: RunControlContext, runId: string
   // the registry's own distinction between "no producer" and "producer found nothing".
   const lostStates: readonly UnitState[] = ['blocked', 'failed', 'cancelled', 'stale', 'skipped'];
   const lost = units.filter((unit) => lostStates.includes(unit.state));
-  const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
+  const outcomes = snapshot?.producerOutcomes ?? await readProducerOutcomes(orchestrator.database, { runId });
   return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)) };
 }
 
