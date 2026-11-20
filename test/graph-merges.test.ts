@@ -10,7 +10,7 @@ import {bindGraphProducer,activateGraphProducer,type ProducerBinding} from '../s
 import {registerSystemSource} from '../src/graph/system-installation.js';
 import {startupBinding} from '../src/graph/manifest-publication.js';
 import {duplicateCandidates,resolveDuplicate,unmerge} from '../src/graph/merges.js';
-import {readKindAssertions} from '../src/graph/records.js';
+import {readKindAssertions,readKindsAssertions} from '../src/graph/records.js';
 const productContract:GraphContract={vertex:['sample','other'].map(name=>({name,table:generatedTableName(name,'vertex'),key:['name'],capability:'fixture',fields:[{name:'name',type:'text' as const},{name:'synonyms',type:'json' as const,schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'array',items:{type:'string'}}},{name:'note',type:'text' as const,nullable:true}]})),edge:['related','shared'].map(name=>({name,from:['sample'],to:['other'],repeats:false,cardinality:{from:'many',to:name==='related'?'one':'many'},labels:{en:{out:'related',in:'related'},ru:{out:'related',in:'related'}},fields:[],capability:'fixture'})),dictionary:[]};
 const contract:GraphContract=withAssertionContract(productContract);
 async function fixture(declared:GraphContract=contract){
@@ -32,6 +32,30 @@ async function expectNoKeyAllocations(owner:import('../src/adapters/database-own
  const keys=await owner.transaction(SQL_TRANSACTION_KINDS.snapshot,tx=>tx.query(`SELECT a.assertion_id FROM edge allocation JOIN entity kind ON kind.id=allocation.entity_id AND kind.name='system.merge-allocation-assertion' JOIN assertion a ON a.assertion_id=allocation.to_node WHERE a.property='name'`));
  expect(keys.rows).toHaveLength(0);
 }
+test.each(['subjectIds','subjectUids'] as const)('readKindsAssertions resolves %s to the survivor with an existing system.merge',async filter=>{
+ const f=await fixture();try{
+ const [survivor,alias]=[...f.rows].sort((a,b)=>a.id-b.id);
+ const merge={kind:'system.merge',key:{},uid:crypto.randomUUID()};
+ await f.owner.transaction(SQL_TRANSACTION_KINDS.write,async tx=>{
+  await bindTestWriteCapability(tx,contract);
+  await publishGraphDrafts(tx,contract,{vertices:[{...merge,values:{state:'ACTIVE',reason:'Same entity checked'},evidence:f.input.evidence,producer:'fixture',producerVersion:'1'}],edges:[
+   ...[survivor!,alias!].map(row=>({kind:'system.merge-member',from:merge,to:{kind:'sample',key:{},uid:row.uid},discriminator:row.uid,producer:'fixture',producerVersion:'1'})),
+   {kind:'system.merge-survivor',from:merge,to:{kind:'sample',key:{},uid:survivor!.uid},discriminator:survivor!.uid,producer:'fixture',producerVersion:'1'},
+  ],removals:[]});
+ });
+ await f.owner.transaction(SQL_TRANSACTION_KINDS.snapshot,async tx=>{
+  const at=(await tx.query<{at:string}>('SELECT transaction_timestamp()::text AS at')).rows[0]!.at;
+  for(const times of [{},{validAt:at,recordedAt:at}]){
+   const batches=await readKindsAssertions(tx,[{sort:'vertex',kind:'sample',fields:['note'],...(filter==='subjectIds'?{subjectIds:[alias!.id]}:{subjectUids:[alias!.uid]})}],{contract,contexts:[1],...times});
+   expect(batches).toHaveLength(1);
+   expect(batches[0]).toHaveLength(1);
+   expect(batches[0]![0]!.id).toBe(survivor!.id);
+   expect(batches[0]![0]!.uid).toBe(survivor!.uid);
+   expect(batches[0]![0]!.assertions.filter(assertion=>assertion.property==='note').map(assertion=>assertion.value).sort()).toEqual(['one','two']);
+  }
+ });
+ }finally{await f.owner.close();}
+});
 test('0039.20/32 same-kind declared signals, authority, uncertainty and reversible memberships',async()=>{
  const f=await fixture();try{
  const candidates=await f.owner.transaction(SQL_TRANSACTION_KINDS.snapshot,tx=>duplicateCandidates(tx,contract,f.input.signals));expect(candidates).toHaveLength(1);expect(candidates[0]!.signals).toHaveLength(3);

@@ -51,8 +51,8 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       if (request.identities !== undefined || request.subjectIds?.length === 0 || request.subjectUids?.length === 0) return [];
       parameters.push(request.kind);
       const where = [`k.name=$${parameters.length}`];
-      if (request.subjectIds !== undefined) { parameters.push(request.subjectIds); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM unnest($${parameters.length}::bigint[]) requested(id))` : `n.id=ANY($${parameters.length}::bigint[])`); }
-      if (request.subjectUids !== undefined) { parameters.push(request.subjectUids); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM node requested WHERE requested.uid=ANY($${parameters.length}::uuid[]))` : `n.uid=ANY($${parameters.length}::uuid[])`); }
+      if (request.subjectIds !== undefined) { const subjects = param(request.subjectIds); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM unnest(${subjects}::bigint[]) requested(id))` : `n.id=ANY(${subjects}::bigint[])`); }
+      if (request.subjectUids !== undefined) { const subjects = param(request.subjectUids); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM node requested WHERE requested.uid=ANY(${subjects}::uuid[]))` : `n.uid=ANY(${subjects}::uuid[])`); }
       if (request.sort === 'vertex' && hasMerges) where.push(`${canonical('n.id')}=n.id`);
       return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : hasMerges ? `graph_effective_edges(${context()},${valid()},${recorded()})` : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
     });
