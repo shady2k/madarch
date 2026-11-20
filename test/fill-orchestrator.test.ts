@@ -761,6 +761,70 @@ describe('publication: exactly once per generation', () => {
 
   });
 
+describe('the words of what a stage raised', () => {
+  /** A stage that plans one unit and throws exactly the value the test gives it: a stage is code madarch runs but does not write, so its throw may be any value. */
+  function throwingStage(thrown: unknown): FillStage {
+    return fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => { throw thrown; },
+    });
+  }
+
+  /** The `unit-failed` summary the sink heard and the one the run's journal keeps, for a stage that threw `thrown`. */
+  async function failedSummaries(thrown: unknown): Promise<{ readonly event: string; readonly journal: string }> {
+    const heard: string[] = [];
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(throwingStage(thrown)),
+      limits: { retries: 0, retryDelayMs: 0 },
+      sink: (event) => { if (event.kind === 'unit-failed') heard.push(event.summary); },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('failed');
+    const journal = (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-failed');
+    expect(journal).toHaveLength(1);
+    expect(heard).toHaveLength(1);
+    return { event: heard[0]!, journal: journal[0]!.summary };
+  }
+
+  test('a thrown object is named by its code and its message, never by `[object Object]`', async () => {
+    const words = 'the plugin refused git:code.commit: its contract names no producer';
+    const { event, journal } = await failedSummaries({ code: 'plugin-refused', message: words });
+    for (const summary of [event, journal]) {
+      expect(summary).toContain('plugin-refused');
+      expect(summary).toContain(words);
+      expect(summary).not.toContain('[object Object]');
+    }
+  }, 30_000);
+
+  test('formatting failures preserve the original stage failure and journal unit-failed', async () => {
+    const thrown = Object.defineProperty({}, 'message', { enumerable: true, get() { throw new Error('getter failed'); } });
+    const result = await failedSummaries(thrown);
+    expect(result.event).toContain('message: [Getter]');
+    expect(result.journal).toContain('message: [Getter]');
+  }, 30_000);
+
+  test('a throwing Proxy still records unit-failed in the sink and journal', async () => {
+    const thrown = new Proxy({}, new Proxy({}, { get() { return () => { throw new Error('trap failed'); }; } }));
+    const result = await failedSummaries(thrown);
+    expect(result.event).toContain('Proxy [');
+    expect(result.journal).toContain('Proxy [');
+  }, 30_000);
+
+  test('an Error with a throwing message getter still records unit-failed', async () => {
+    const thrown = Object.defineProperty(new Error(), 'message', { get() { throw new Error('getter failed'); } });
+    await failedSummaries(thrown);
+  }, 30_000);
+
+  test('a thrown string stands as its own words, and the run never says the stage answered nothing', async () => {
+    const words = 'the plugin refused git:code.commit: its contract names no producer';
+    const { event, journal } = await failedSummaries(words);
+    for (const summary of [event, journal]) {
+      expect(summary).toContain(words);
+      expect(summary).not.toContain('it answered nothing');
+    }
+  }, 30_000);
+});
+
 describe('cancellation, pause and stop', () => {
   /** A stage that reports it is running and then waits for the attempt's own cancellation. */
   function waitingStage(): { stage: FillStage; reached: Promise<void> } {
@@ -2024,9 +2088,8 @@ describe('immediate operation transactions (decision 0039)', () => {
     expect(heartbeats).toBe(finished);
   }, 15_000);
 
-  test('heartbeat failure retains the stage error too', async () => {
+  test.each([new Error('stage failed while heartbeat failed'), 'stage failed while heartbeat failed'])('heartbeat failure retains the original stage throw: %s', async stageFailure => {
     const failure = new Error('heartbeat storage failure');
-    const stageFailure = new Error('stage failed while heartbeat failed');
     let calls = 0;
     const stage = fakeStage('snapshot', {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
@@ -2046,7 +2109,9 @@ describe('immediate operation transactions (decision 0039)', () => {
     let caught: unknown;
     try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(AggregateError);
-    expect((caught as AggregateError).errors).toEqual([stageFailure, failure]);
+    expect((caught as AggregateError).errors[0]).toBe(stageFailure);
+    expect((caught as AggregateError).message).toBe('the stage raised: stage failed while heartbeat failed; heartbeat failed');
+    expect((caught as AggregateError).errors[1]).toBe(failure);
   }, 15_000);
 
   test.each(['complete', 'bound', 'blocked', 'split'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {

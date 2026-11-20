@@ -143,6 +143,12 @@ plugins:
   const manifest = parseDocument(readFolderManifestText(product));
   const starter = parseDocument(starterManifestText()).toJS();
   for (const key of ['catalog', 'value-types', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
+  // The engine reads files and repositories through its semantic roles, and the roles name the starter's edges
+  // (madarch-64o5.74): without the bindings every file read fails at the manifest's first line.
+  const semanticRoles = ['file', 'repository'];
+  manifest.set('semantic-bindings', Object.fromEntries(semanticRoles.map((role) => [role, starter['semantic-bindings'][role]])));
+  const starterEdges = new Map((starter['edges'] as { name: string }[]).map((edge) => [edge.name, edge]));
+  manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, ...['code.file-repository', 'code.renamed-from', 'code.history'].map((name) => starterEdges.get(name))]);
   for (const name of ['code.repository', 'product-profile', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author', 'code.blob']) {
     manifest.setIn(['kinds', name], starter.kinds[name]);
   }
@@ -152,7 +158,9 @@ plugins:
   useRepositoryPlugins(product);
   const agentManifestFile = join(product, 'plugins/agent-fill/plugin.json');
   const agentManifest = JSON.parse(readFileSync(agentManifestFile, 'utf8'));
-  agentManifest.produces[0].reads = ['code.file'];
+  // The fake grounds its answer in the immutable content snapshot the test publishes, so the agent declares that read
+  // beside the files it reads (the host refuses an undeclared catalogue read, `src/plugin/fill-access.ts:29`).
+  agentManifest.produces[0].reads = ['code.file', 'system.content-snapshot'];
   writeFileSync(agentManifestFile, JSON.stringify(agentManifest));
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
@@ -214,9 +222,10 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       expect(links).toHaveLength(1);
       expect(links[0]!.from).toBe(sources.find((row) => row.key['id'] === 'probe.a')!.id);
       expect(links[0]!.to).toBe(targets.find((row) => row.key['id'] === 'probe.b')!.id);
-      // The agent fills the two fixture kinds and nothing of code.file: every field of a code kind has its producer,
-      // and the state machines are a kind of their own (madarch-64o5.114).
-      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
+      // The agent fills the two fixture kinds in dependency order and nothing of code.file: every field of a code kind
+      // has its producer, and the state machines are a kind of their own (madarch-64o5.114). The manifest's product kind
+      // carries agent-bound fields too, so its turn follows the fixture kinds.
+      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b', 'agent-fill:product']);
     } finally { await owner.close(); }
   }, 120_000);
 });

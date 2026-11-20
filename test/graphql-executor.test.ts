@@ -138,7 +138,9 @@ labels:
   if (read.manifest.findings.length > 0) throw new Error(read.manifest.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
   manifest = read.manifest as never;
   // Every declared edge kind has its table (owner's rule): the manifest's own declaration is the contract.
-  contract = withManifestContract(graphContractOf(read.manifest));
+  const schemaManifest = { ...read.manifest, kinds: new Map(read.manifest.kinds) };
+  schemaManifest.kinds.set('demo.empty', { ...read.manifest.kinds.get('demo.repository')!, name: 'demo.empty' });
+  contract = withManifestContract(graphContractOf(schemaManifest));
 
   owner = await createTestDatabaseOwner({ graphContract: contract });
   const repository = (name: string) => ({ kind: 'demo.repository', key: { name } });
@@ -1162,3 +1164,69 @@ test('0039.20/32 merged member ids resolve to the survivor in one metadata batch
     });
   } finally { await database.close(); }
 }, 60000);
+
+test('navigation counts use one aggregate over active vertices, not one graph selector per kind', async () => {
+  const held = manifest as KindsManifest;
+  const navigationManifest = { ...held, kinds: new Map(held.kinds) };
+  navigationManifest.kinds.set('demo.empty', { ...held.kinds.get('demo.repository')!, name: 'demo.empty' });
+  let aggregates = 0;
+  const counted: DatabaseOwner = {
+    ...owner,
+    transaction: (kind, work) => owner.transaction(kind, tx => work({
+      ...tx,
+      query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes('AS kind, count(*)::int AS n')) {
+          const plan = await tx.query<{ 'QUERY PLAN': { Plan: Record<string, unknown> }[] }>(`EXPLAIN (FORMAT JSON) ${sql}`, values);
+          const visit = (node: Record<string, unknown>): void => {
+            if (node['Node Type'] === 'Aggregate') aggregates += 1;
+            for (const child of (node['Plans'] ?? []) as Record<string, unknown>[]) visit(child);
+          };
+          visit(plan.rows[0]!['QUERY PLAN'][0]!.Plan);
+        }
+        return await tx.query<Row>(sql, values);
+      },
+    })),
+  };
+  const answer = await executeGraphql(counted, { manifest: navigationManifest, folder }, { query: `{
+    navigation { kinds { kind count } }
+    allDemoFile { totalCount }
+    allDemoRepository { totalCount }
+    allDemoSource { totalCount }
+  }` });
+  const body = answer.body as MessageBody;
+  expect(body.errors).toBeUndefined();
+  const data = body.data as Record<string, any>;
+  const counts = new Map(data['navigation'].kinds.map((kind: { kind: string; count: number }) => [kind.kind, kind.count]));
+  expect(counts.get('demo.file')).toBe(data['allDemoFile'].totalCount);
+  expect(counts.get('demo.repository')).toBe(data['allDemoRepository'].totalCount);
+  expect(counts.get('demo.source')).toBe(data['allDemoSource'].totalCount);
+  expect(counts.get('demo.empty')).toBe(0);
+  expect(aggregates).toBe(1);
+});
+
+test('search shares one active vertex selector across kinds and text fields', async () => {
+  const statements: string[] = [];
+  const counted: DatabaseOwner = {
+    ...owner,
+    transaction: (kind, work) => owner.transaction(kind, tx => work({
+      ...tx,
+      query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.startsWith('WITH hits AS')) {
+          statements.push(sql);
+          // The unfiltered catalogue case checks generation without executing every text selector.
+          if (statements.length === 3) return { rows: [] };
+        }
+        return await tx.query<Row>(sql, values);
+      },
+    })),
+  };
+  for (const kinds of ['kinds: ["demo.file"]', 'kinds: ["demo.file", "demo.repository", "demo.source"]', '']) {
+    const answer = await executeGraphql(counted, { manifest, folder }, { query: `{ search(text: "a", ${kinds}) { totalCount } }` });
+    expect(answer.body.errors).toBeUndefined();
+  }
+  expect(statements).toHaveLength(3);
+  // Field-value selectors also grow with the fields; count only the existence selector.
+  for (const sql of statements) {
+    expect(sql.match(/a\.property='\$exists'/g)).toHaveLength(1);
+  }
+});

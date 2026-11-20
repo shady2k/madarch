@@ -17,6 +17,7 @@
  * again when it ends.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { errorText } from '../model/error-text.js';
 import { appendFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { DEFAULT_RAW_DAYS, sweepRawTelemetry, type RawRetention } from './retention.js';
 import { join, resolve } from 'node:path';
@@ -356,7 +357,7 @@ export async function withSpan<T>(name: string, attributes: SpanAttributes, work
   try {
     return await spanStorage.run(span, () => work(span));
   } catch (error) {
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: errorText(error).slice(0, 200) });
     throw error;
   } finally {
     span.end();
@@ -386,7 +387,7 @@ export function withSpanSync<T>(name: string, attributes: SpanAttributes, work: 
   try {
     return spanStorage.run(span, () => work(span));
   } catch (error) {
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: errorText(error).slice(0, 200) });
     throw error;
   } finally {
     span.end();
