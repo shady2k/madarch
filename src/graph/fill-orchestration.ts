@@ -432,14 +432,26 @@ export async function recordUnitPlanIn(tx:SqlExecutor,options:UnitPlanOptions):P
 export async function recordUnitPlan(database:OrchestratorDatabase,options:UnitPlanOptions):Promise<UnitPlanRecord>{return transaction(database,'write',tx=>recordUnitPlanIn(tx,options));}
 export async function readUnitPlan(database:FillStateSnapshotDatabase,unitId:string,generation:number):Promise<UnitPlanRecord|null>{return snapshotTransaction(database,tx=>unitPlanIn(tx,unitId,generation));}
 export async function readRunPlans(database:FillStateSnapshotDatabase,runId:string,options:{readonly history?:boolean}={}):Promise<readonly UnitPlanRecord[]>{return snapshotTransaction(database,async tx=>{
- const out:UnitPlanRecord[]=[];
- for(const row of await runUnits(tx,runId)){
-  const id=String(row.values.unit_name),generation=Number(row.values.generation);
-  if(!options.history&&await readUnitGraphUidIn(tx,id)!==row.uid)continue;
-  const plan=await unitPlanIn(tx,id,generation);if(plan)out.push(plan);
- }
- return out.sort((a,b)=>byCodePoint(a.unitId,b.unitId));
-});}
+  const units=await runUnits(tx,runId);
+  const replaced=options.history||units.length===0?new Set<number>():new Set((await edgeRowsIn(tx,'system.unit-replacement','from',units.map(row=>row.id))).map(edge=>edge.from));
+  const current=units.filter(row=>!replaced.has(row.id));
+  if(!options.history){
+   const names=new Set<string>();
+   for(const row of current){const name=String(row.values.unit_name);if(names.has(name))raise(`graph system.unit: ambiguous generation of ${name}`);names.add(name);}
+  }
+  const planned=current.filter(row=>row.values.planned_at!==undefined);
+  if(planned.length===0)return [];
+  const links=await edgeRowsIn(tx,'system.unit-cache-version-unit','to',planned.map(row=>row.id));
+  const active=links.length===0?[]:await readKindAssertions(tx,'edge','system.unit-cache-version-unit',[],undefined,links.map(link=>link.id));
+  const versions=active.length===0?[]:await readKindAssertions(tx,'vertex','system.unit-cache-version',fields['system.unit-cache-version']!,undefined,[...new Set(active.map(link=>link.from!))]);
+  const byId=new Map(versions.map(row=>[row.id,row]));
+  const byUnit=new Map<number,Record<string,string>>();
+  for(const link of active){const version=byId.get(link.from!);if(version){let held=byUnit.get(link.to!);if(!held){held={};byUnit.set(link.to!,held);}held[String(version.values.name)]=String(version.values.version);}}
+  return planned.map(row=>{
+   const v=row.values,cacheVersions=byUnit.get(row.id);
+   return {unitId:String(v.unit_name),generation:Number(v.generation),runId,stageId:String(v.plan_stage_name),stageUnitId:String(v.plan_stage_unit_name),scope:String(v.plan_scope),stagePosition:Number(v.plan_stage_position),planPosition:Number(v.plan_position),plannedAt:Number(v.planned_at),...(cacheVersions?{cacheVersions}:{})};
+  }).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
+ });}
 export async function appendProgress(database:OrchestratorDatabase,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
  return (await appendProgresses(database,[event]))[0]!;
 }

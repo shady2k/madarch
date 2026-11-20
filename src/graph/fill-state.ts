@@ -283,9 +283,18 @@ async function unitRecords(tx: SqlExecutor, rows: readonly AssertionRecord[]): P
 async function unitRecord(tx: SqlExecutor, row: AssertionRecord): Promise<UnitRecord> {
   return (await unitRecords(tx, [row]))[0]!;
 }
-async function journal(tx: SqlExecutor, subjectKind: 'chain' | 'run' | 'unit', uid: string, step: string, from: string, to: string, event: string, at: number, fence: number | null = null, context?: GraphWriteContext): Promise<void> {
+async function putTransitionIn(tx: SqlExecutor, subjectKind: 'chain' | 'run' | 'unit', uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[], step: string, from: string, to: string, event: string, at: number, fence: number | null = null, context?: GraphWriteContext, edgeRemovals: readonly EdgeDraft[] = []): Promise<void> {
   const id = newUid();
-  await putFillVertexIn(tx, 'system.fill-transition', id, {step,from_state:from,to_state:to,event,at,fence}, [fillEdge('system.fill-transition-subject','system.fill-transition',id,`system.${subjectKind}`,uid)], context);
+  await withFillStateIn(tx, context?.contract ?? contract, context, async () => {
+    await publishGraphDrafts(tx, context?.contract ?? contract, {
+      vertices: [
+        {kind: `system.${subjectKind}`, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'},
+        {kind: 'system.fill-transition', key: {}, uid: id, values: {step,from_state:from,to_state:to,event,at,fence}, producer: 'fill-state', producerVersion: '1'},
+      ],
+      edges: [...edges, fillEdge('system.fill-transition-subject','system.fill-transition',id,`system.${subjectKind}`,uid)],
+      edgeRemovals: edgeRemovals.filter(removed => !edges.some(edge => edge.kind === removed.kind && edge.from.uid === removed.from.uid && edge.to.uid === removed.to.uid)), removals: [],
+    });
+  });
 }
 function changedValues(previous: Record<string,unknown>, next: Record<string,unknown>): Record<string,unknown> {
   return Object.fromEntries(Object.entries(next).filter(([name,value])=>!Object.is(previous[name],value)));
@@ -309,17 +318,15 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
   return await run(here(),database,`advanceChain(${options.product})`,async tx => {
     const current = await readChainIn(tx,options.product); if (!current) raise(`graph system.chain: no chain for ${options.product}`);
     const step=chainMachine.step(current.record,options.event); if(!step.ok)return {ok:false,record:current.record,refusal:step.refusal} as const;
-    await putFillVertexIn(tx,'system.chain',current.node.uid,{state:step.state,updated_at:options.event.at});
-    await withFillStateIn(tx,contract,undefined,async()=>{
+    const edges: EdgeDraft[] = [], edgeRemovals: EdgeDraft[] = [];
     // The chain's own edges: the run it followed, and the runs it has made.
     for(const held of await edgeRowsIn(tx,'system.chain-active-run','from',[current.node.id])){
       const target=(await readRecordsIn(tx,'vertex','system.run',['run_name'],[held.to]))[0];
       if(target===undefined)raise(`graph system.run: no run at the chain's active edge ${String(held.to)}`);
-      await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edgeRemovals:[{...fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)}]});
+      edgeRemovals.push(fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid));
     }
-    if(step.context.activeRunId!==null){const target=await runNode(tx,step.context.activeRunId);if(!target)raise(`graph system.run: no run ${step.context.activeRunId}`);await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)]});}
-    });
-    await journal(tx,'chain',current.node.uid,step.transition,current.record.state,step.state,options.event.type,options.event.at);
+    if(step.context.activeRunId!==null){const target=await runNode(tx,step.context.activeRunId);if(!target)raise(`graph system.run: no run ${step.context.activeRunId}`);edges.push(fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid));}
+    await putTransitionIn(tx,'chain',current.node.uid,{state:step.state,updated_at:options.event.at},edges,step.transition,current.record.state,step.state,options.event.type,options.event.at,null,undefined,edgeRemovals);
     return {ok:true,record:{...current.record,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
   },'write');
 }
@@ -378,7 +385,7 @@ export async function advanceRun(database:FillStateDatabase,options:{readonly ru
     const node=await runNode(tx,options.runId);if(!node)raise(`graph system.run: no run ${options.runId}`);const current=await runRecord(tx,node);
     if(options.expectedState!==undefined&&current.state!==options.expectedState)return {ok:false,record:current,refusal:{code:'fill-run/guard-refused',reason:`${at}: run ${current.runId} is ${current.state}, expected ${options.expectedState}`,state:current.state,event:options.event.type,guard:'expected-state',guards:['expected-state'],transitions:runMachine.from(current.state).filter(t=>t.event===options.event.type).map(t=>t.id)}} as const;
     const step=runMachine.step(current,options.event);if(!step.ok)return {ok:false,record:current,refusal:step.refusal} as const;
-    await putFillVertexIn(tx,'system.run',node.uid,changedValues(runValues(current.state,current.context,current.updatedAt),runValues(step.state,step.context,options.event.at)));await journal(tx,'run',node.uid,step.transition,current.state,step.state,options.event.type,options.event.at);
+    await putTransitionIn(tx,'run',node.uid,changedValues(runValues(current.state,current.context,current.updatedAt),runValues(step.state,step.context,options.event.at)),[],step.transition,current.state,step.state,options.event.type,options.event.at);
     return {ok:true,record:{...current,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
   },'write');
 }
@@ -391,8 +398,7 @@ export async function createUnitIn(tx:SqlExecutor,options:UnitCreateOptions):Pro
   if(existing)return await unitRecord(tx,existing);
   const owner=await runNode(tx,options.runId);if(!owner)raise(`graph system.run: no run ${options.runId}`);
   const record:UnitRecord={unitId:options.unitId,product:options.product,runId:options.runId,stageId:options.stageId,scopeKey:options.scopeKey,generation:1,state:'planned',inputsDigest:options.inputsDigest,context:newUnitContext({generation:1,retries:options.retries}),publishedAt:null,staleAt:null,updatedAt:options.at};
-  const uid=newUid();await putFillVertexIn(tx,'system.unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid)]);
-  await journal(tx,'unit',uid,FILL_STORE_STEPS.createUnit,'(none)','planned','create',options.at,0);return record;
+  const uid=newUid();await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid)],FILL_STORE_STEPS.createUnit,'(none)','planned','create',options.at,0);return record;
 }
 export async function readUnitIn(tx:SqlExecutor,unitId:string):Promise<UnitRecord|null>{const node=await unitNode(tx,unitId);return node?await unitRecord(tx,node):null;}
 export async function readUnitGenerationIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitRecord|null>{const node=await unitNode(tx,unitId,generation);return node?await unitRecord(tx,node):null;}
@@ -443,7 +449,7 @@ export async function advanceUnitIn(tx:SqlExecutor,options:{readonly unitId:stri
   }
   const step=unitMachine.step(current,event);if(!step.ok)return {ok:false,record:current,refusal:step.refusal};
   const record:UnitRecord={...current,state:step.state,context:step.context,publishedAt:step.state==='published'?event.at:current.publishedAt,staleAt:step.state==='stale'?event.at:current.staleAt,updatedAt:event.at};
-  await putFillVertexIn(tx,'system.unit',node.uid,changedValues(unitValues(current),unitValues(record)),[],context);await journal(tx,'unit',node.uid,step.transition,current.state,step.state,event.type,event.at,step.context.fence,context);
+  await putTransitionIn(tx,'unit',node.uid,changedValues(unitValues(current),unitValues(record)),[],step.transition,current.state,step.state,event.type,event.at,step.context.fence,context);
   return {ok:true,record,transition:step.transition,effects:step.effects};
 }
 export async function advanceUnit(database:FillStateDatabase,options:{readonly unitId:string;readonly event:UnitAdvanceEvent}):Promise<StoreStep<UnitRecord,UnitState>>{return await run(here(),database,`advanceUnit(${options.unitId}, ${options.event.type})`,tx=>advanceUnitIn(tx,options),'write');}
@@ -456,8 +462,7 @@ async function replace(database:FillStateDatabase,options:ReplacementOptions,ret
   const owner=await runNode(tx,options.runId);if(!owner)raise(`graph system.run: no run ${options.runId}`);
   const record:UnitRecord={...current,runId:options.runId,generation,state:'planned',inputsDigest:options.inputsDigest,context:newUnitContext({generation,retries:options.retries,fence:current.context.fence}),publishedAt:null,staleAt:null,updatedAt:options.at};
   const uid=newUid(),transition=retry?FILL_STORE_STEPS.retryGeneration:FILL_STORE_STEPS.openGeneration;
-  await putFillVertexIn(tx,'system.unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid),fillEdge('system.unit-replacement','system.unit',node.uid,'system.unit',uid)]);
-  await journal(tx,'unit',uid,transition,current.state,'planned',retry?'retry-generation':'open-generation',options.at,record.context.fence);
+  await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid),fillEdge('system.unit-replacement','system.unit',node.uid,'system.unit',uid)],transition,current.state,'planned',retry?'retry-generation':'open-generation',options.at,record.context.fence);
   return {ok:true,record,transition,effects:[]} as const;
  },'write');
 }
