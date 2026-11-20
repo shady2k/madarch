@@ -142,7 +142,7 @@ export async function setProductOperationRunState(owner:DatabaseOwner,contract:G
      const {binding}=await startupBinding(tx,contract,'engine-control',[]);
      await changeOperationRunState(tx,contract,binding,row.uid,state);
     }
-    await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    if (!transaction) await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
    };
    if(transaction)await apply(transaction);else await owner.transaction('write',apply);
   });

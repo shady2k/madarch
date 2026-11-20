@@ -372,7 +372,9 @@ async function advanceRunWithProgress(
   const step = await writeOrchestration(orchestrator.database, async tx => {
     await lockFillScope(tx, options.runId);
     const step = await advanceRunIn(tx, options);
-    if (step.ok) stored = await appendProgressIn(tx, event);
+    stored = await appendProgressIn(tx, step.ok ? event : {
+      ...event, kind: 'run-refused', summary: `the run's ${options.event.type} was refused: ${step.refusal.reason}`,
+    });
     return step;
   });
   if (stored !== undefined) await orchestrator.sink?.(stored);
@@ -2432,7 +2434,6 @@ export async function cancelRun(orchestrator: RunControlContext, options: { read
     const at = orchestrator.clock();
     const intent = await advanceRunIn(tx, { runId: run.runId, event: { type: 'cancel', at, cause: options.cause } });
     if (!intent.ok) raise(`run "${run.runId}" cannot be cancelled from ${run.state}: ${intent.refusal.reason}`);
-    await orchestrator.operations?.setRunState?.(run.runId, 'cancelled', tx);
     events.push(await appendProgressIn(tx, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-cancelling', summary: `the run is cancelling: ${options.cause}` }));
   });
   const cancelledUnits: string[] = [];

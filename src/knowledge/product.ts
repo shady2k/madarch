@@ -2508,7 +2508,7 @@ export class KnowledgeProduct {
     if (run.state === 'paused') {
       // A paused worker has ended and holds no live sessions; use the same durable cancellation as its host.
       const database = await this.fillDatabase(owner);
-      await cancelRun({ database, product: product.name, clock: Date.now, authority: new Map(), sink: undefined, operations: { setRunState: async (id, state) => await setProductOperationRunState(owner, database.graphContract, id, state) } }, { runId, cause: 'stopped from the fill run page' });
+      await cancelRun({ database, product: product.name, clock: Date.now, authority: new Map(), sink: undefined, operations: { setRunState: async (id, state, tx) => await setProductOperationRunState(owner, database.graphContract, id, state, tx) } }, { runId, cause: 'stopped from the fill run page' });
     } else {
       await askRunControl(await this.fillDatabase(owner), { runId, action, at: Date.now() });
     }
