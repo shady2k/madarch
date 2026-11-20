@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
 import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
-import { classOfPath, excludedPath, readRepositoryTree, type FileClassRule, type RepositoryAt } from './reader.js';
+import { classOfPath, readRepositoryTree, type FileClassRule, type RepositoryAt } from './reader.js';
+
+/**
+ * How long a pass over a repository's files may run before it hands the loop back: the host stops a plugin that stays
+ * silent past its heartbeat deadline, and a whole tree's facts are built one file at a time with no request in between
+ * (madarch-64o5.74). The work does not change; only where it yields.
+ */
+const LOOP_YIELD_MS = 20;
+async function yieldToLoop(): Promise<void> {
+  await new Promise<void>((done) => setTimeout(done, 0));
+}
 
 /** Reads pinned objects itself; the host supplies only read-only mounts and pin metadata. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
@@ -15,9 +25,17 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     // A partitioned key is the kind's own key: after 0039 the repository is the key edge, not a field of the key, so a
     // key that names no repository belongs to every pinned repository and the tree read decides which one holds it.
     const wanted = inputs.keys === undefined ? undefined : [...new Set(inputs.keys.filter(key => key.repository === undefined || key.repository === pin.repository).map(key => key.path))];
-    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file', ...(wanted === undefined ? {} : { paths: wanted }) });
+    // The declared knowledge narrows the read itself: a key, the fill's paths, and the product's own exclusions are
+    // settled before any file's bytes are fetched, so a whole tree costs what its published knowledge costs
+    // (madarch-64o5.74; the owner's exclusions, madarch-64o5.83).
+    const tree = await readRepositoryTree(pin, {
+      fileFacts: unit.kind === 'code.file',
+      ...(wanted === undefined ? {} : { paths: wanted }),
+      ...(inputs.paths === undefined ? {} : { scope: inputs.paths }),
+      ...(inputs.exclude === undefined ? {} : { exclude: inputs.exclude }),
+    });
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
-    const inventory = [...tree.files.map(file => [file.path, file.blob]), ...tree.gitlinks.map(link => [link.path, link.commit])].sort((left, right) => left[0]! < right[0]! ? -1 : left[0]! > right[0]! ? 1 : 0);
+    const inventory = tree.inventory;
     const treeSnapshot = tree.gaps.length === 0 && inputs.keys === undefined && inputs.paths === undefined ? createHash('sha256').update(JSON.stringify(inventory)).digest('hex') : undefined;
     const inventoryContent = JSON.stringify(inventory);
     const inventoryDigest = createHash('sha256').update(inventoryContent).digest('hex');
@@ -26,10 +44,11 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const evidence = { target: inventoryTarget, commit: pin.commit };
     vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null, ...(treeSnapshot === undefined ? {} : { tree_snapshot: treeSnapshot }) }, evidence });
     const folders = new Set<string>();
-    const within = (path: string): boolean => inputs.paths === undefined || inputs.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
-    // The product's own exclusions: a repository's node_modules or build output is not the product's knowledge unless the
-    // catalogue says it is (madarch-64o5.83).
-    for (const file of tree.files.filter(file => within(file.path) && !excludedPath(file.path, inputs.exclude ?? []))) {
+    // The reader narrowed the tree by the fill's paths and the product's own exclusions (madarch-64o5.83): every file it
+    // answered is one the product publishes, and the long pass over them hands the loop back as it goes.
+    let lastYield = Date.now();
+    for (const file of tree.files) {
+      if (Date.now() - lastYield >= LOOP_YIELD_MS) { await yieldToLoop(); lastYield = Date.now(); }
       const entity = { kind: 'code.file', key: { path: file.path }, keyEdges: { 'code.file-repository': repository } };
       const content = file.content;
       const fileDigest = content === null ? undefined : createHash('sha256').update(content).digest('hex');
@@ -44,7 +63,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       if (!file.path.includes('/')) folder = '';
       while (folder !== '') { folders.add(folder); const at = folder.lastIndexOf('/'); folder = at < 0 ? '' : folder.slice(0, at); }
     }
-    for (const link of tree.gitlinks.filter(link => within(link.path) && !excludedPath(link.path, inputs.exclude ?? []))) {
+    for (const link of tree.gitlinks) {
       const entity = { kind: 'code.gitlink', key: { path: link.path }, keyEdges: { 'code.gitlink-repository': repository } };
       vertices.push({ ...entity, values: { commit_hash: link.commit }, evidence: { ...evidence, path: link.path } });
       const target = inputs.repositories.find(candidate => candidate.url === link.otherRepository);

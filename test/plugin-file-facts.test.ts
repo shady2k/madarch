@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extract as diskExtract } from '../plugins/disk/main.js';
@@ -145,5 +145,73 @@ test('disk repository snapshots cover the complete pinned inventory including an
     expect(snapshot(await diskExtract(fullUnit, context()))).toBe(snapshot(full));
     const limited = await diskExtract({ ...fullUnit, inputs: { ...(fullUnit.inputs as Record<string,unknown>), paths: ['A.txt'] } }, context());
     expect(snapshot(limited)).toBeUndefined();
+  });
+}, 60_000);
+
+/**
+ * A git that writes every command it is given, and every batch `cat-file` is handed, so a test states which bytes the
+ * plugin asked git for — never a stopwatch (madarch-64o5.74).
+ */
+function recordingGit(work: string, real: string): { commands: () => string; batches: () => string; restore: () => void } {
+  const executable = join(work, 'git-recording.sh');
+  const commands = join(work, 'git-commands.log');
+  const batches = join(work, 'git-batches.log');
+  writeFileSync(commands, '');
+  writeFileSync(batches, '');
+  writeFileSync(executable, [
+    '#!/bin/sh',
+    'printf "%s\n" "$*" >> "$MADARCH_TEST_GIT_COMMANDS"',
+    'if [ "$1" = "cat-file" ]; then',
+    '  batch=$(cat)',
+    '  printf "%s\n" "$batch" >> "$MADARCH_TEST_GIT_BATCHES"',
+    '  printf "%s\n" "$batch" | "$MADARCH_TEST_GIT_REAL" "$@"',
+    '  exit $?',
+    'fi',
+    'exec "$MADARCH_TEST_GIT_REAL" "$@"',
+    '',
+  ].join('\n'));
+  chmodSync(executable, 0o755);
+  const previous = process.env['MADARCH_TOOL_GIT'];
+  process.env['MADARCH_TOOL_GIT'] = executable;
+  process.env['MADARCH_TEST_GIT_COMMANDS'] = commands;
+  process.env['MADARCH_TEST_GIT_BATCHES'] = batches;
+  process.env['MADARCH_TEST_GIT_REAL'] = real;
+  return {
+    commands: () => readFileSync(commands, 'utf8'),
+    batches: () => readFileSync(batches, 'utf8'),
+    restore: () => {
+      if (previous === undefined) delete process.env['MADARCH_TOOL_GIT'];
+      else process.env['MADARCH_TOOL_GIT'] = previous;
+      delete process.env['MADARCH_TEST_GIT_COMMANDS'];
+      delete process.env['MADARCH_TEST_GIT_BATCHES'];
+      delete process.env['MADARCH_TEST_GIT_REAL'];
+    },
+  };
+}
+
+test('disk never reads the bytes of a path the product excludes, and the tree snapshot still covers the whole inventory (madarch-64o5.74)', async () => {
+  await fixture(async ({ root, commit, git }) => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'node_modules/pkg'), { recursive: true });
+    writeFileSync(join(root, 'src/kept.ts'), 'export const kept = 1;\n');
+    writeFileSync(join(root, 'node_modules/pkg/index.js'), 'module.exports = 2;\n');
+    const pin = commit('files', '2026-01-01T00:00:00Z');
+    const recorder = recordingGit(root, process.env['MADARCH_TOOL_GIT']!);
+    try {
+      const excluded = ['**/node_modules/**'];
+      const base = unit(root, pin, diskContract.outputs);
+      const files = await diskExtract({ ...base, inputs: { ...(base.inputs as Record<string, unknown>), exclude: excluded } }, context());
+      // The product's own exclusion decides what is published: a dependency tree's bytes are never read to be dropped.
+      expect((files.vertices ?? []).filter(vertex => vertex.kind === 'code.file').map(vertex => vertex.key['path'])).toEqual(['src/kept.ts']);
+      expect(recorder.batches()).not.toContain(git('rev-parse', `${pin}:node_modules/pkg/index.js`));
+      // The snapshot states the whole pinned inventory, which the exclusion does not narrow (output unchanged).
+      const repositoryUnit = { ...unit(root, pin, diskContract.outputs), kind: 'code.repository' };
+      const snapshotOf = (result: Awaited<ReturnType<typeof diskExtract>>) => result.vertices?.find(vertex => vertex.kind === 'code.repository')?.values?.['tree_snapshot'];
+      const narrowed = await diskExtract({ ...repositoryUnit, inputs: { ...(repositoryUnit.inputs as Record<string, unknown>), exclude: excluded } }, context());
+      expect(snapshotOf(narrowed)).toBe(snapshotOf(await diskExtract(repositoryUnit, context())));
+      expect(snapshotOf(narrowed)).toBeDefined();
+    } finally {
+      recorder.restore();
+    }
   });
 }, 60_000);

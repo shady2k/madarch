@@ -35,8 +35,9 @@ export function sanitizeRepositoryUrl(remote: string): string {
 export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string, options: { readonly unconfined?: boolean } = {}) {
   const filesystemInputs: { name: string; folder: string }[] = [];
   const repositories: { repository: string; root: string; commit: string; url?: string; defaultBranch?: string }[] = [];
-  // The product's written knowledge also has file identities and commit evidence (0039). Keep every pinned tree;
-  // the selected kinds and their exclusions decide which facts the plugin publishes from it.
+  // The product repository is pinned like a code repository: its own files reach the graph through the files plugin, and
+  // the product's readers read them there and never the checkout (madarch-hsqs; src/plugin/product-source.ts). Keep every
+  // pinned tree; the selected kinds and their exclusions decide which facts the plugin publishes from it.
   for (const [index, pin] of pins.entries()) {
     const name = `repository-${index}`;
     const folder = join(workRoot, name);

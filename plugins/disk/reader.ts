@@ -296,16 +296,33 @@ export interface ReadGap {
   readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable';
 }
 
+/** One path's entry as the pinned tree holds it: its blob id, whatever this read fetched of it (the tree snapshot's rows). */
+export type TreeInventoryRow = readonly [path: string, blob: string];
+
 /** What the tree pass read, and what it could not read. The publisher takes the tree; the gaps stay the run's. */
 export interface RepositoryTreeRead {
  readonly repository: { name: string; url: string | null; defaultBranch?: string }; readonly commit: string; readonly files: readonly TreeFile[]; readonly gitlinks: readonly TreeGitlink[];
   readonly gaps: readonly ReadGap[];
+  /**
+   * The pinned tree's rows as the keys name it (`paths`), or every row it holds: the inventory the tree snapshot and the
+   * inventory blob state, before the scope and the exclusion narrow what is published — so a snapshot stays the same
+   * whatever the fill asks for.
+   */
+  readonly inventory: readonly TreeInventoryRow[];
 }
 
-export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
+/**
+ * Reads one repository's tree at one commit. The declared knowledge narrows the read before any byte of a file is
+ * fetched: `paths` is the exact keys the unit was asked for, `scope` the path prefixes the fill selected, and `exclude`
+ * the product's own patterns (`kinds[].exclude`). A path outside them is never read — its text, its attributes and its
+ * line counts are the bytes of a fact nothing publishes — while `inventory` still states the rows the keys name or the
+ * whole pinned tree, so a snapshot does not move with what a fill happened to ask for (madarch-64o5.74).
+ */
+export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[]; readonly scope?: readonly string[]; readonly exclude?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
-  const pathspec = options.paths === undefined ? [] : ['--', ...options.paths.map(path => `:(literal)${path}`)];
+  const narrow = options.paths ?? options.scope;
+  const pathspec = narrow === undefined ? [] : ['--', ...narrow.map(path => `:(literal)${path}`)];
   const treeSplit = byteSplit();
   const takeTree = (record: Buffer): void => {
     const held = treeRecordOf(record);
@@ -356,7 +373,10 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
     if (newPath !== undefined && newPath.length > 0) countsByKey.set(keyOf(newPath), { added: held.added, removed: held.removed });
     at += 2;
   }
-  const selectedEntries = options.paths === undefined ? entries : entries.filter(entry => options.paths!.includes(entry.path));
+  const inScope = (path: string): boolean => options.paths !== undefined
+    ? options.paths.includes(path)
+    : options.scope === undefined ? true : options.scope.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
+  const selectedEntries = entries.filter(entry => inScope(entry.path) && !excludedPath(entry.path, options.exclude ?? []));
   const blobs = selectedEntries.filter((entry) => entry.type === 'blob');
   const overrides = options.fileFacts === false ? new Map<string, string>() : await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];
@@ -396,7 +416,11 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a
   // repository a person connected declares a local path, and the pages link to the host the remote names. A remote
   // carrying a user and a password keeps neither: the graph is read by everyone, the credential is not stored.
-  return { repository: { name: pin.repository, url: pin.url ?? null, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };
+  const inventory: TreeInventoryRow[] = entries
+    .filter(entry => (entry.type === 'blob' || entry.type === 'commit') && (options.paths === undefined || options.paths.includes(entry.path)))
+    .map(entry => [entry.path, entry.blob] as const)
+    .sort((left, right) => byCodePoint(left[0], right[0]));
+  return { repository: { name: pin.repository, url: pin.url ?? null, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps, inventory };
 }
 
 function entryWithoutNewline(record: Buffer): Buffer {
