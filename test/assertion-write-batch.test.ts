@@ -43,3 +43,27 @@ test('multiple assertions use one admission and retain ordered assertion identit
     expect(costs).toEqual([1, 1]);
   } finally { await owner.close(); rmSync(store, { recursive: true, force: true }); }
 }, 30_000);
+
+import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
+
+test('a plugin nullable JSON assertion stores JSON null rather than SQL NULL', async () => {
+  const contract: GraphContract = { vertex: [{ name: 'nullable-json', table: generatedTableName('nullable-json','vertex'), key: ['name'], capability: 'fixture', fields: [
+    { name: 'name', type: 'text' }, { name: 'payload', type: 'json', nullable: true, schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: ['object','null'] } },
+  ] }], edge: [], dictionary: [] };
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  try {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, contract);
+      await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'nullable-json', key: { name: 'one' }, values: { payload: null }, producer: 'fixture', producerVersion: '1' }], removals: [] });
+    });
+    await owner.run(async tx => {
+      const assertions = await loadAssertions(tx, 'vertex', 'nullable-json', ['payload']);
+      expect(assertions.map(row => row.value)).toEqual([null]);
+      const stored = await tx.query<{ sql_null: boolean; distinct: boolean }>(`SELECT value IS NULL AS sql_null, value IS DISTINCT FROM 'null'::jsonb AS distinct FROM "${assertionValueTableName('nullable-json','vertex','payload')}"`);
+      expect(stored.rows).toEqual([{ sql_null: false, distinct: false }]);
+    });
+  } finally { await owner.close(); }
+},30_000);

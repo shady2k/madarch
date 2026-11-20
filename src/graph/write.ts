@@ -616,7 +616,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  for(const [table,slot] of tables){const values=slot.inputs.filter(input=>!input.repeat&&input.operation==='assert');if(values.length===0)continue;const field=slot.inputs[0]!.field;
   const type=field.type==='timestamp'?'timestamptz':field.type==='json'?'jsonb':field.type==='integer'?'integer':field.type==='bigint'?'bigint':field.type==='boolean'?'boolean':'text';
   valueParameters.push(JSON.stringify(values.map(input=>({id:input.id,value:input.value}))));
-  valueStatements.push(`v${valueStatements.length} AS (INSERT INTO "${table}"(assertion_id,value) SELECT input.id,input.value FROM jsonb_to_recordset($${valueParameters.length}::jsonb) input(id bigint,value ${type}))`);
+  valueStatements.push(`v${valueStatements.length} AS (INSERT INTO "${table}"(assertion_id,value) SELECT input.id,${field.type==='json'?"coalesce(input.value,'null'::jsonb)":'input.value'} FROM jsonb_to_recordset($${valueParameters.length}::jsonb) input(id bigint,value ${type}))`);
  }
  if(valueStatements.length)await executor.query(`WITH ${valueStatements.join(',')} SELECT 1`,valueParameters);
  const repeatEdges:{uid:string;kind:string;from:string;to:string}[]=[];
