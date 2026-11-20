@@ -147,7 +147,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
       const branches = projected ? [{ subject: 'subject.id', guard: `NOT ${mergeExists}` }, { subject: mapped, guard: mergeExists }] : [{ subject: mapped, guard: 'TRUE' }];
       for (const { subject, guard } of branches) {
-        const indexedSubjects = projected && subject === 'subject.id' && subjectIds !== undefined;
+        const indexedSubjects = sort === 'vertex' && subject === 'subject.id' && subjectIds !== undefined;
         // Keep a subject lookup from becoming a scan of every assertion of the kind.
         const assertionFrom = indexedSubjects
           ? `node subject JOIN entity subject_kind ON subject_kind.id=subject.entity_id

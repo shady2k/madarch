@@ -75,7 +75,7 @@ test('assertion property batch preserves native typed values and subject filteri
 },30000);
 
 
-test('projected subject reads skip incoming lineage before probing assertion attachments',async()=>{
+test.each([true,false])('bounded subject reads (merge projection %s) skip unrelated incoming lineage',async(projectMergedSubjects)=>{
  const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
  try {
   await owner.transaction('write',async tx=>{
@@ -90,7 +90,7 @@ test('projected subject reads skip incoming lineage before probing assertion att
     FROM node n CROSS JOIN generate_series(1,100) i WHERE n.id=$1`,[id]);
    let sql='';let parameters:readonly unknown[]|undefined;
    const executor={query:((...args:Parameters<typeof tx.query>)=>{[sql,parameters]=args;return tx.query(...args);}) as typeof tx.query};
-   const rows=await loadAssertions(executor,'vertex','typed',['amount'],[id],{projectMergedSubjects:true});
+   const rows=await loadAssertions(executor,'vertex','typed',['amount'],[id],{projectMergedSubjects});
    expect(rows.filter(row=>row.selected).map(row=>row.value)).toEqual([1]);
    const explained=await tx.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`,parameters);
    interface Plan {'Relation Name'?:string;'Actual Loops':number;Plans?:Plan[]}
