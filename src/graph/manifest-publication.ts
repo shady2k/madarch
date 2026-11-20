@@ -6,7 +6,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
-import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, type WriteCapability } from '../graph/write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, writeAssertions, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
@@ -84,15 +84,14 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
     if ((records[0]![0]?.activeSources.length ?? 0) === 0) await assert('system.product', productUid, '$exists', true);
     if (!plugin?.activeSources.includes(sourceUid)) await assert('plugin', sourceUid, '$exists', true);
     if (ownsOperation) {
-      await assert('system.operation', operationUid, '$exists', true);
-      await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
+      await publishGraphDrafts(tx, contract, { vertices: [{kind:'system.operation',uid:operationUid,key:{},values:{},producer:sourceUid,producerVersion:binding.contractVersion ?? 'system'}], removals: [], edges: [{
         kind: 'system.operation-author', from: { kind: 'system.operation', uid: operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
         producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
       }] });
     }
-    for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
-      if (!plugin?.selectedAssertions.some(assertion => assertion.property === property && assertion.source === sourceUid && assertion.value === value)) await assert('plugin', sourceUid, property, value);
-    }
+    const changedMetadata = Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })
+      .filter(([property, value]) => !plugin?.selectedAssertions.some(assertion => assertion.property === property && assertion.source === sourceUid && assertion.value === value));
+    if (changedMetadata.length) await writeAssertions(tx, contract, changedMetadata.map(([property, value]) => ({sort:'vertex',kind:'plugin',subjectId:ids.get(sourceUid)!,property,operation:'assert',value})));
     bindWriteCapability(tx, binding);
     return { contract, binding };
   });
