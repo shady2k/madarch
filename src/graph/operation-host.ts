@@ -10,7 +10,7 @@ import { withSpan } from '../obs/trace.js';
 import { assertionValueTableName, type GraphContract } from './contract.js';
 import { loadAssertions } from './assertion-read.js';
 import { selectAssertions } from './assertion-selection.js';
-import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, writeAssertion, type WriteCapability } from './write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, writeAssertion, writeAssertions, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 import { reconcileDisputes } from './disputes.js';
 import type { ClaimedJob, EnqueueRequest, QueueService } from '../fill/queue.js';
@@ -79,14 +79,21 @@ export async function initializeOperationScope(tx:OuterTransaction,contract:Grap
     await acquireGraphWriteLock(tx);
     for(const [kind,uid] of [['system.operation',binding.operationUid],['system.run',runUid],['system.unit',unitUid]] as const) await bootstrapWriteIdentity(tx,kind,uid,binding.productUid,context);
     bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
+    const identities=(await tx.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])',[[runUid,unitUid]])).rows;
+    const ids=new Map(identities.map(row=>[row.uid,row.id]));
     await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},async()=>{
-      await set(tx,contract,'system.run',runUid,'$exists',true,context);
-      await set(tx,contract,'system.unit',unitUid,'$exists',true,context);
-      if(await selected(tx,'system.run',runUid,'state',context)===undefined)await set(tx,contract,'system.run',runUid,'state','running',context);
-      await set(tx,contract,'system.unit',unitUid,'state','running',context);
+      const runState=await selected(tx,'system.run',runUid,'state',context);
+      await writeAssertions(tx,contract,[
+        {sort:'vertex',kind:'system.run',subjectId:ids.get(runUid)!,property:'$exists',operation:'assert',value:true},
+        {sort:'vertex',kind:'system.unit',subjectId:ids.get(unitUid)!,property:'$exists',operation:'assert',value:true},
+        ...(runState===undefined?[{sort:'vertex' as const,kind:'system.run',subjectId:ids.get(runUid)!,property:'state',operation:'assert' as const,value:'running'}]:[]),
+        {sort:'vertex',kind:'system.unit',subjectId:ids.get(unitUid)!,property:'state',operation:'assert',value:'running'},
+      ],context);
     },context);
-    await set(tx,contract,'system.unit',unitUid,'committed_operations',0,context);
-    await set(tx,contract,'system.unit',unitUid,'last_progress','admitted',context);
+    await writeAssertions(tx,contract,[
+      {sort:'vertex',kind:'system.unit',subjectId:ids.get(unitUid)!,property:'committed_operations',operation:'assert',value:0},
+      {sort:'vertex',kind:'system.unit',subjectId:ids.get(unitUid)!,property:'last_progress',operation:'assert',value:'admitted'},
+    ],context);
   });
 }
 /** Resolve persisted UUIDv7 run/unit graph identities. The legacy scheduler names are lookup properties, never identity keys. */
@@ -100,10 +107,12 @@ export async function resolveOperationScope(tx:OuterTransaction,contract:GraphCo
     if(!oldUnit){
       await initializeOperationScope(tx,contract,binding,runUid,unitUid,context);
       await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},async()=>{
-        await set(tx,contract,'system.run',runUid,'run_name',input.runId,context);
-        await set(tx,contract,'system.unit',unitUid,'unit_name',input.unitId,context);
-        await set(tx,contract,'system.unit',unitUid,'generation',input.generation,context);
-        if(input.scope!==undefined)await set(tx,contract,'system.unit',unitUid,'scope',input.scope,context);
+        const identities=(await tx.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])',[[runUid,unitUid]])).rows;
+        const ids=new Map(identities.map(row=>[row.uid,row.id]));
+        await writeAssertions(tx,contract,[
+          {sort:'vertex',kind:'system.run',subjectId:ids.get(runUid)!,property:'run_name',operation:'assert',value:input.runId},
+          ...Object.entries({unit_name:input.unitId,generation:input.generation,...(input.scope===undefined?{}:{scope:input.scope})}).map(([property,value])=>({sort:'vertex' as const,kind:'system.unit',subjectId:ids.get(unitUid)!,property,operation:'assert' as const,value})),
+        ],context);
         await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.run',uid:runUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion??'system'}]},context);
         },context);
     }
@@ -232,13 +241,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
             await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
           },context);
           if(request.completion.outcome) {
-            const assertionUids: Record<string,string> = {};
-            for(const [property,value] of Object.entries({produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})})) {
-              const uid = await writeAssertion(tx,options.contract,{sort:'vertex',kind:'system.unit',subjectId:await node(tx,options.unitUid),property,operation:'assert',value},context);
-              assertionUids[property] = uid;
-            }
+            const values = {produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})};
+            const subjectId = await node(tx,options.unitUid);
+            const inputs = Object.entries(values).map(([property,value]) => ({sort:'vertex' as const,kind:'system.unit',subjectId,property,operation:'assert' as const,value}));
+            const assertionUids = await writeAssertions(tx,options.contract,inputs,context);
             const scope = await selectedFields(tx,'system.unit',options.unitUid,['plan_scope','scope'],context);
-            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,assertionUids.outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
+            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,assertionUids[inputs.findIndex(input => input.property === 'outcome')]!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
           }
           if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
