@@ -69,6 +69,8 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
       EXISTS(SELECT 1 FROM context_path p WHERE p.id=raw.context_id) AS diagnostic_context,
       raw.recorded_at<=${recorded} AS diagnostic_recorded,
       raw.valid_from<=${valid} AND (raw.valid_to IS NULL OR raw.valid_to>${valid}) AS diagnostic_valid,
+      raw.valid_from>${valid} AS diagnostic_valid_before,
+      raw.valid_to IS NOT NULL AND raw.valid_to<=${valid} AS diagnostic_valid_after,
       EXISTS(SELECT 1 FROM eligible e WHERE e.request_index=raw.request_index AND e.id=raw.id) AS diagnostic_eligible,
       EXISTS(SELECT 1 FROM streams s WHERE s.request_index=raw.request_index AND s.id=raw.id) AS diagnostic_stream` : ''}
     FROM raw
@@ -189,7 +191,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       return result;
     }
     const { rows } = await executor.query<{
-      request_index: number; selected?: boolean; active?: boolean; diagnostic_context?: boolean; diagnostic_recorded?: boolean; diagnostic_valid?: boolean; diagnostic_eligible?: boolean; diagnostic_stream?: boolean;
+      request_index: number; selected?: boolean; active?: boolean; diagnostic_context?: boolean; diagnostic_recorded?: boolean; diagnostic_valid?: boolean; diagnostic_valid_before?: boolean; diagnostic_valid_after?: boolean; diagnostic_eligible?: boolean; diagnostic_stream?: boolean;
         id: string; original_subject_id: number; original_subject_uid: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
         unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; repository_targets: StoredAssertion['repositoryTargets']; value: unknown; value_type:string|null;
@@ -202,6 +204,8 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         'graph.existence.context-excluded.counts': count(row => row.diagnostic_context === false),
         'graph.existence.recorded-excluded.counts': count(row => row.diagnostic_recorded === false),
         'graph.existence.valid-excluded.counts': count(row => row.diagnostic_valid === false),
+        'graph.existence.valid-before.counts': count(row => row.diagnostic_valid_before === true),
+        'graph.existence.valid-after.counts': count(row => row.diagnostic_valid_after === true),
         'graph.existence.ineligible.counts': count(row => row.diagnostic_eligible === false),
         'graph.existence.outside-stream.counts': count(row => row.diagnostic_stream === false),
         'graph.existence.retract.counts': count(row => row.operation === 'retract'),

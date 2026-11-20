@@ -11,15 +11,19 @@ test('assertion selection diagnostics distinguish context, recorded time and val
         1 AS context_id,'2025-01-01'::timestamptz AS valid_from,NULL::timestamptz AS valid_to,
         '2025-01-01'::timestamptz AS recorded_at,1::bigint AS recorded_sequence`;
       const select = async (validAt: string, recordedAt: string, contexts = [1]) => (await tx.query<{
-        selected: boolean; diagnostic_context: boolean; diagnostic_recorded: boolean; diagnostic_valid: boolean; diagnostic_eligible: boolean; diagnostic_stream: boolean;
+        selected: boolean; diagnostic_context: boolean; diagnostic_recorded: boolean; diagnostic_valid: boolean; diagnostic_valid_before: boolean; diagnostic_valid_after: boolean; diagnostic_eligible: boolean; diagnostic_stream: boolean;
       }>(assertionSelectionSql(raw, { validAt, recordedAt, contexts, diagnostics: true }))).rows[0]!;
       const current = await select('2026-01-01', '2026-01-01');
       expect(current.selected).toBe(true);
       expect(current.diagnostic_eligible).toBe(true);
       expect(current.diagnostic_stream).toBe(true);
+      expect(current.diagnostic_valid_before).toBe(false);
+      expect(current.diagnostic_valid_after).toBe(false);
       const beforeValid = await select('2024-01-01', '2026-01-01');
       expect(beforeValid.selected).toBe(false);
       expect(beforeValid.diagnostic_valid).toBe(false);
+      expect(beforeValid.diagnostic_valid_before).toBe(true);
+      expect(beforeValid.diagnostic_valid_after).toBe(false);
       expect(beforeValid.diagnostic_recorded).toBe(true);
       expect(beforeValid.diagnostic_eligible).toBe(true);
       const beforeRecorded = await select('2026-01-01', '2024-01-01');
