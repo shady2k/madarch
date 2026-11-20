@@ -434,27 +434,36 @@ ${text === '' ? '(empty)' : text}` };
   }
 
   private async answerOperation(id: string | number, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
-    return await withSpan('plugin.operation.apply', {}, async () => {
+    return await withSpan('plugin.operation.apply', {}, async (span) => {
       if (!Value.Check(PluginFactsApplyRequest, params)) {
         this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:437: facts.apply requires unitId, nonempty key and operation`));
+        span.setAttribute('madarch.operation.outcome', 'refused');
         return { outcome: 'refused', size: 0, cause: 'malformed-operation' };
       }
       const request = params as PluginFactsApplyRequest;
+      span.setAttribute('madarch.unit', request.unitId);
+      // Names only: diagnose missing fields at admission without recording graph values or keys.
+      span.setAttribute('madarch.operation.vertex_fields', JSON.stringify((request.operation.vertices ?? []).map(vertex => ({ kind: vertex.kind, fields: Object.keys(vertex.values ?? {}).sort(byCodePoint) }))));
+      span.setAttribute('madarch.operation.edge_fields', JSON.stringify((request.operation.edges ?? []).map(edge => ({ kind: edge.kind, fields: Object.keys(edge.values ?? {}).sort(byCodePoint) }))));
       if (this.inFlight.get(request.unitId)?.acceptsOperations !== true || this.options.operations === undefined) {
         this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:441: facts.apply requires an active unit and a trusted operation host`));
+        span.setAttribute('madarch.operation.outcome', 'refused');
         return { outcome: 'refused', size: 0, cause: 'operation-not-bound' };
       }
       if (this.closureManifest?.readOnly === true) {
         this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:1: read-only plugin cannot apply graph operations`));
+        span.setAttribute('madarch.operation.outcome', 'refused');
         return { outcome: 'refused', size: 0, cause: 'writer-denied' };
       }
       try {
         const answer = await this.options.operations.apply(request.unitId, request.key, request.operation, request.preconditions, request.contractVersion);
         const size = Buffer.byteLength(JSON.stringify(answer));
         this.write(successText(id, answer));
+        span.setAttribute('madarch.operation.outcome', 'answered');
         return { outcome: 'answered', size };
       } catch (error) {
         this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:451: operation refused: ${error instanceof Error ? error.message : String(error)}`));
+        span.setAttribute('madarch.operation.outcome', 'failed');
         return { outcome: 'failed', size: 0, cause: 'operation-failed' };
       }
     });

@@ -25,6 +25,8 @@ import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { bwrapForUse } from '../src/plugin/bwrap-install.js';
 import type { FactsOperation } from '../src/plugin-sdk.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
+import { closeTrace, openTrace, runInTrace } from '../src/obs/trace.js';
+import { readTraceSpans } from '../src/obs/trace-report.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 
@@ -211,6 +213,18 @@ describe('the handshake', () => {
 });
 
 describe('the bounds of one message and one unit', () => {
+  hostTest('operation traces record field names and outcome without graph values', async () => {
+    const trace = openTrace({ store: scratch(), runId: 'operation-fields' });
+    let answer: Awaited<ReturnType<typeof behaviour>>;
+    try { answer = await runInTrace(trace, async () => await behaviour('normal')); } finally { closeTrace(trace); }
+    expect(answer.outcome.state).toBe('extracted');
+    const operationSpan = readTraceSpans(trace.file).find(span => span.name === 'plugin.operation.apply')!;
+    expect(operationSpan.attributes['madarch.unit']).toBe('normal');
+    expect(operationSpan.attributes['madarch.operation.vertex_fields']).toBe(JSON.stringify([{ kind: 'probe', fields: ['language', 'size'] }]));
+    expect(operationSpan.attributes['madarch.operation.outcome']).toBe('answered');
+  }, 60_000);
+
+
   hostTest('a plugin that floods its output fails the unit on one message', async () => {
     const { outcome } = await behaviour('flood');
     expect(outcome.state).toBe('not-extracted');
