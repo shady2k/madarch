@@ -148,8 +148,8 @@ beforeAll(async () => {
   const started=performance.now();
   try { await fillInProcess(folder, home); } finally { spy.mockRestore(); }
   console.log('source fixture fill',JSON.stringify({statements,transactions,databaseMs,elapsedMs:performance.now()-started}));
-  expect(statements).toBeLessThanOrEqual(15_000);
-  expect(transactions).toBeLessThanOrEqual(530);
+  expect(statements).toBeLessThanOrEqual(14_733);
+  expect(transactions).toBeLessThanOrEqual(522);
   await activateTestProduct(folder, home);
   // The api role waits on the store's read queue: the fill role answers it, and this test serves that side itself.
   const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
