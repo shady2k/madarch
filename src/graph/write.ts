@@ -411,12 +411,12 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   const prior=birthByUid.get(uid);if(prior&&(prior.kind!==kind.name||!sameValue(prior.key,key)||prior.scope!==scope))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${uid}`);
   if(!prior){const birth={uid,kind:kind.name,key,scope};births.push(birth);birthByUid.set(uid,birth);}
  }
- await executor.query<{id:string;uid:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
+ if(births.length)await executor.query<{id:string;uid:string}>(`INSERT INTO node(entity_id,uid,key,identity_scope,context_id)
  SELECT k.id,input.uid,input.key,input.scope,$5::bigint FROM unnest($1::uuid[],$2::text[],$3::jsonb[],$4::uuid[]) WITH ORDINALITY input(uid,kind,key,scope,ord)
  JOIN entity k ON k.name=input.kind AND k.sort='node' ORDER BY input.ord ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[births.map(b=>b.uid),births.map(b=>b.kind),births.map(b=>JSON.stringify(b.key)),births.map(b=>b.scope),context]);
 
  const unknownBirths=births.filter(birth=>!nodes.has(birth.uid));
- const locked=(await executor.query<BatchNode>(unknownBirths.length?`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`:`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[unknownBirths.length?births.map(b=>b.uid):births.map(b=>nodes.get(b.uid)!.id)])).rows;
+ const locked=births.length?(await executor.query<BatchNode>(unknownBirths.length?`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) ORDER BY n.id FOR UPDATE OF n`:`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[unknownBirths.length?births.map(b=>b.uid):births.map(b=>nodes.get(b.uid)!.id)])).rows:[];
  if(locked.length!==births.length||locked.some(node=>!birthByUid.has(node.uid)||(!unknownBirths.length&&nodes.get(node.uid)?.id!==node.id))||new Set(locked.map(node=>node.uid)).size!==births.length)throw new Error(`${WHERE}:366: UID_IDENTITY_CONFLICT locked batch identities`);
  for(const node of locked)nodes.set(node.uid,{...node,parents:nodes.get(node.uid)?.parents??[]});
  for(const birth of births){const held=nodes.get(birth.uid);if(!held||held.kind!==birth.kind||held.scope!==birth.scope||!sameValue(held.key,birth.key))throw new Error(`${WHERE}:42: UID_IDENTITY_CONFLICT ${birth.uid}`);}
@@ -450,10 +450,10 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   for(const mention of scanMentions(plan.value,`/values/${plan.property.split('~').join('~0').split('/').join('~1')}`)){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);if(!(activeBirths.has(node.uid)))needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:`TARGET_MISSING ${mention.path}`});}
   for(const evidence of plan.evidence??[]){try{validateEvidenceLocator(evidence.locator??{});if(!kinds.get(evidence.target.kind)?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);await getEndpoint(evidence.target);}catch(error){throw new Error(`${String(error)}; subject ${plan.kind} ${[...nodes.values()].find(node=>node.id===plan.subjectId)?.uid??plan.subjectId}`);}}
  }
- const edgeRows=(await executor.query<{id:string;uid:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
- SELECT DISTINCT input.uid,k.id,input.f,input.t,input.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) input(uid uuid,kind text,f bigint,t bigint,discriminator text) JOIN entity k ON k.name=input.kind AND k.sort='edge' ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[JSON.stringify(edgeInputs.map(edge=>({...edge,f:edge.from,t:edge.to}))),context])).rows;
+ const edgeRows=edgeInputs.length?(await executor.query<{id:string;uid:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+ SELECT DISTINCT input.uid,k.id,input.f,input.t,input.discriminator,$2::bigint FROM jsonb_to_recordset($1::jsonb) input(uid uuid,kind text,f bigint,t bigint,discriminator text) JOIN entity k ON k.name=input.kind AND k.sort='edge' ON CONFLICT DO NOTHING RETURNING id::text,uid::text`,[JSON.stringify(edgeInputs.map(edge=>({...edge,f:edge.from,t:edge.to}))),context])).rows:[];
  const edges=new Map(edgeRows.map(edge=>[edge.uid,edge.id]));
- for(const row of (await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[edgeInputs.map(edge=>edge.uid)])).rows)edges.set(row.uid,row.id);
+ if(edgeInputs.length)for(const row of (await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[edgeInputs.map(edge=>edge.uid)])).rows)edges.set(row.uid,row.id);
  for(const plan of plans)if(plan.edgeUid)plan.subjectId=edges.get(plan.edgeUid)!;
  await checkBatchActivity(executor,needActive,context,nodes);
  const subjectNodes=plans.flatMap(plan=>plan.sort==='vertex'?[plan.subjectId]:edgeInputs.filter(edge=>edges.get(edge.uid)===plan.subjectId).flatMap(edge=>[edge.from,edge.to]));
@@ -597,7 +597,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
   for(const [relation,uid] of [['source',binding.sourceUid],['author',binding.principalUid],['operation',binding.operationUid],...(binding.unitUid?[['unit',binding.unitUid]]:[])])add('system.assertion-'+relation,lineageNode(uid!));
  }
  const data=fresh.map((input,ord)=>({uid:input.uid,property:input.property,language:input.language??null,valid_from:input.validFrom??new Date(instant).toISOString(),valid_to:input.validTo??null,operation:input.operation,subject:input.subjectId,sort:input.sort,subject_edge:subjectUids.get(input.uid)??null,ord}));
- const made=(await executor.query<{id:string;uid:string}>(`WITH input AS MATERIALIZED (SELECT * FROM jsonb_to_recordset($1::jsonb) x(uid uuid,property text,language text,valid_from timestamptz,valid_to timestamptz,operation text,subject bigint,sort text,subject_edge uuid,ord int)), identities AS (
+ const made=fresh.length?(await executor.query<{id:string;uid:string}>(`WITH input AS MATERIALIZED (SELECT * FROM jsonb_to_recordset($1::jsonb) x(uid uuid,property text,language text,valid_from timestamptz,valid_to timestamptz,operation text,subject bigint,sort text,subject_edge uuid,ord int)), identities AS (
  INSERT INTO node(entity_id,uid,key,identity_scope,context_id) SELECT $3::bigint,uid,'{}'::jsonb,$4::uuid,$5::bigint FROM input ORDER BY ord RETURNING id,uid
  ), headers AS (
  INSERT INTO assertion(assertion_id,property,language,context_id,valid_from,valid_to,operation)
@@ -609,7 +609,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  INSERT INTO assertion_vertex_subject(assertion_id,subject_edge_id) SELECT n.id,s.id FROM input i JOIN identities n USING(uid) JOIN structural s ON s.uid=i.subject_edge WHERE i.sort='vertex' RETURNING assertion_id
  ), edge_subjects AS (
  INSERT INTO assertion_edge_subject(assertion_id,edge_id) SELECT n.id,i.subject FROM input i JOIN identities n USING(uid) JOIN headers h ON h.assertion_id=n.id WHERE i.sort='edge' RETURNING assertion_id
- ) SELECT id::text,uid::text FROM identities`,[JSON.stringify(data),JSON.stringify(structural),entities.get('node:system.assertion'),binding.productUid,context])).rows;
+ ) SELECT id::text,uid::text FROM identities`,[JSON.stringify(data),JSON.stringify(structural),entities.get('node:system.assertion'),binding.productUid,context])).rows:[];
  const ids=new Map(made.map(row=>[row.uid,row.id]));
  for(const input of assertions)input.id=ids.get(input.uid)??input.id;
  const valueStatements:string[]=[],valueParameters:unknown[]=[];
