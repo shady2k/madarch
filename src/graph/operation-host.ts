@@ -132,9 +132,9 @@ export async function changeOperationRunState(tx:OuterTransaction,contract:Graph
     },context);
   });
 }
-export async function setProductOperationRunState(owner:DatabaseOwner,contract:GraphContract,runId:string,state:'running'|'paused'|'cancelled'):Promise<void>{
+export async function setProductOperationRunState(owner:DatabaseOwner,contract:GraphContract,runId:string,state:'running'|'paused'|'cancelled',transaction?:OuterTransaction):Promise<void>{
   return await withSpan('graph.operation.run-state.product', {}, async () => {
-   await owner.transaction('write',async tx=>{
+   const apply=async(tx:OuterTransaction)=>{
     await acquireGraphWriteLock(tx);
     const rows=(await tx.query<{id:string;uid:string}>(`SELECT n.id::text,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.run' ORDER BY n.uid`)).rows;
     for(const row of rows){
@@ -143,7 +143,8 @@ export async function setProductOperationRunState(owner:DatabaseOwner,contract:G
      await changeOperationRunState(tx,contract,binding,row.uid,state);
     }
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
-   });
+   };
+   if(transaction)await apply(transaction);else await owner.transaction('write',apply);
   });
 }
 

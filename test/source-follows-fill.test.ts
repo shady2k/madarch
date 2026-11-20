@@ -165,8 +165,8 @@ afterAll(async () => {
 });
 
 test('the fixture fill stays within its measured query budget', () => {
-  expect(fillBudget.statements).toBeLessThanOrEqual(14_714);
-  expect(fillBudget.transactions).toBeLessThanOrEqual(522);
+  expect(fillBudget.statements).toBeLessThanOrEqual(14_458);
+  expect(fillBudget.transactions).toBeLessThanOrEqual(453);
 });
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {

@@ -237,7 +237,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const wiring: ProductFillWiring = {
     ...(minutes.length === 0 ? {} : { pluginMaxMinutes: Math.max(...minutes) }),
     graphContract: contract,
-    operations:{setRunState:(runId,state)=>setProductOperationRunState(options.database,withAssertionContract(withManifestContract(contract)),runId,state),open:async({unit,plan,job,queue})=>{
+    operations:{setRunState:(runId,state,tx)=>setProductOperationRunState(options.database,withAssertionContract(withManifestContract(contract)),runId,state,tx),open:async({unit,plan,job,queue})=>{
       if(!pluginWiring)throw new Error(`${folder}/madarch/catalog.yaml:1: plugin operation requires declared product wiring`);
       const authority=pluginTurnAuthority(pluginWiring,plan.stageUnitId);
       const fullContract=withAssertionContract(withManifestContract(contract));

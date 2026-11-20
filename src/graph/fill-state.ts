@@ -309,16 +309,17 @@ function unitValues(record: UnitRecord): Record<string,unknown> {
   const c = record.context;
   return {unit_name:record.unitId,product_name:record.product,stage_name:record.stageId,scope:record.scopeKey,generation:record.generation,state:record.state,inputs_digest:record.inputsDigest,fence:c.fence,attempt:c.attempt,retries_left:c.retriesLeft,retry_at:c.retryAt,replacement_generation:c.replacedBy,skipped_because:c.skippedBecause??null,published_at:record.publishedAt,stale_at:record.staleAt,updated_at:record.updatedAt};
 }
-export async function openChain(database: FillStateDatabase, options: {readonly product:string;readonly at:number}): Promise<ChainRecord> {
-  return await run(here(),database,`openChain(${options.product})`,async tx => {
+export async function openChainIn(tx: SqlExecutor, options: {readonly product:string;readonly at:number}):Promise<ChainRecord> {
     const old = await readChainIn(tx,options.product); if (old) return old.record;
     await putFillVertexIn(tx,'system.chain',newUid(),{product_name:options.product,state:'idle',updated_at:options.at});
     return {product:options.product,state:'idle',context:newChainContext(),updatedAt:options.at};
-  },'write');
 }
+export async function openChain(database: FillStateDatabase, options: {readonly product:string;readonly at:number}): Promise<ChainRecord> {
+  return await run(here(),database,`openChain(${options.product})`,tx => openChainIn(tx,options),'write');
+}
+export async function readChainRecordIn(tx: SqlExecutor, product: string): Promise<ChainRecord | null> { return (await readChainIn(tx, product))?.record ?? null; }
 export async function readChain(database: FillStateSnapshotDatabase, product: string): Promise<ChainRecord|null> {return await snapshotRun(here(),database,`readChain(${product})`,async tx => (await readChainIn(tx,product))?.record??null);}
-export async function advanceChain(database: FillStateDatabase, options:{readonly product:string;readonly event:ChainEvent}):Promise<StoreStep<ChainRecord,ChainState>> {
-  return await run(here(),database,`advanceChain(${options.product})`,async tx => {
+export async function advanceChainIn(tx: SqlExecutor, options:{readonly product:string;readonly event:ChainEvent}):Promise<StoreStep<ChainRecord,ChainState>> {
     const current = await readChainIn(tx,options.product); if (!current) raise(`graph system.chain: no chain for ${options.product}`);
     const step=chainMachine.step(current.record,options.event); if(!step.ok)return {ok:false,record:current.record,refusal:step.refusal} as const;
     const edges: EdgeDraft[] = [], edgeRemovals: EdgeDraft[] = [];
@@ -331,10 +332,11 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
     if(step.context.activeRunId!==null){const target=await runNode(tx,step.context.activeRunId);if(!target)raise(`graph system.run: no run ${step.context.activeRunId}`);edges.push(fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid));}
     await putTransitionIn(tx,'chain',current.node.uid,{state:step.state,updated_at:options.event.at},edges,step.transition,current.record.state,step.state,options.event.type,options.event.at,null,undefined,edgeRemovals);
     return {ok:true,record:{...current.record,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
-  },'write');
 }
-export async function createRun(database:FillStateDatabase,options:{readonly runId:string;readonly product:string;readonly at:number;readonly selection?:RunSelection}):Promise<RunRecord> {
-  return await run(here(),database,`createRun(${options.runId})`,async tx=>{
+export async function advanceChain(database: FillStateDatabase, options:{readonly product:string;readonly event:ChainEvent}):Promise<StoreStep<ChainRecord,ChainState>> {
+  return await run(here(),database,`advanceChain(${options.product})`,tx => advanceChainIn(tx,options),'write');
+}
+export async function createRunIn(tx: SqlExecutor, options:{readonly runId:string;readonly product:string;readonly at:number;readonly selection?:RunSelection}):Promise<RunRecord> {
     if(await runNode(tx,options.runId))raise(`graph system.run: duplicate run ${options.runId}`);
     const uid=newUid(),context={...newRunContext(null),...(options.selection===undefined?{}:{selection:options.selection})};
     let chain=await readChainIn(tx,options.product);
@@ -346,7 +348,9 @@ export async function createRun(database:FillStateDatabase,options:{readonly run
       await putFillVertexIn(tx,'system.run-selection',id,{role,position,name:typeof entry==='string'?entry:entry.kind,group_name:group?.group??null,plugin_name:group?.plugin??null,stage_unit_name:group?.stageUnitId??null},[fillEdge('system.run-selection-run','system.run-selection',id,'system.run',uid)]);
     }}
     return {runId:options.runId,product:options.product,state:'created',context,createdAt:options.at,updatedAt:options.at};
-  },'write');
+}
+export async function createRun(database:FillStateDatabase,options:{readonly runId:string;readonly product:string;readonly at:number;readonly selection?:RunSelection}):Promise<RunRecord> {
+  return await run(here(),database,`createRun(${options.runId})`,tx => createRunIn(tx,options),'write');
 }
 export async function readRunIn(tx:SqlExecutor,runId:string):Promise<RunRecord|null>{const row=await runNode(tx,runId);return row?await runRecord(tx,row):null;}
 export async function readRun(database:FillStateSnapshotDatabase,runId:string):Promise<RunRecord|null>{return await snapshotRun(here(),database,`readRun(${runId})`,tx=>readRunIn(tx,runId));}
@@ -383,14 +387,15 @@ async function storeStampIn(tx: SqlExecutor): Promise<string> {
   });
 }
 export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await snapshotRun(here(),database,'readStoreStamp',storeStampIn);}
-export async function advanceRun(database:FillStateDatabase,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState}):Promise<StoreStep<RunRecord,RunState>>{
-  const at=here();return await run(at,database,`advanceRun(${options.runId})`,async tx=>{
+export async function advanceRunIn(tx:SqlExecutor,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState},at=here()):Promise<StoreStep<RunRecord,RunState>>{
     const node=await runNode(tx,options.runId);if(!node)raise(`graph system.run: no run ${options.runId}`);const current=await runRecord(tx,node);
     if(options.expectedState!==undefined&&current.state!==options.expectedState)return {ok:false,record:current,refusal:{code:'fill-run/guard-refused',reason:`${at}: run ${current.runId} is ${current.state}, expected ${options.expectedState}`,state:current.state,event:options.event.type,guard:'expected-state',guards:['expected-state'],transitions:runMachine.from(current.state).filter(t=>t.event===options.event.type).map(t=>t.id)}} as const;
     const step=runMachine.step(current,options.event);if(!step.ok)return {ok:false,record:current,refusal:step.refusal} as const;
     await putTransitionIn(tx,'run',node.uid,changedValues(runValues(current.state,current.context,current.updatedAt),runValues(step.state,step.context,options.event.at)),[],step.transition,current.state,step.state,options.event.type,options.event.at);
     return {ok:true,record:{...current,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
-  },'write');
+}
+export async function advanceRun(database:FillStateDatabase,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState}):Promise<StoreStep<RunRecord,RunState>>{
+  const at=here();return await run(at,database,`advanceRun(${options.runId})`,tx=>advanceRunIn(tx,options,at),'write');
 }
 
 export interface UnitCreateOptions { readonly unitId:string;readonly product:string;readonly runId:string;readonly stageId:string;readonly scopeKey:string;readonly inputsDigest:string;readonly retries:number;readonly at:number; }
@@ -474,8 +479,8 @@ export async function advanceUnitIn(tx:SqlExecutor,options:{readonly unitId:stri
 }
 export async function advanceUnit(database:FillStateDatabase,options:{readonly unitId:string;readonly event:UnitAdvanceEvent}):Promise<StoreStep<UnitRecord,UnitState>>{return await run(here(),database,`advanceUnit(${options.unitId}, ${options.event.type})`,tx=>advanceUnitIn(tx,options),'write');}
 interface ReplacementOptions {readonly unitId:string;readonly runId:string;readonly inputsDigest:string;readonly retries:number;readonly at:number;}
-async function replace(database:FillStateDatabase,options:ReplacementOptions,retry:boolean):Promise<StoreStep<UnitRecord,UnitState>>{
- return await run(here(),database,`${retry?'retryGeneration':'replaceStaleGeneration'}(${options.unitId})`,async tx=>{
+async function replaceIn(tx:SqlExecutor,options:ReplacementOptions,retry:boolean):Promise<StoreStep<UnitRecord,UnitState>>{
+  await acquireGraphWriteLock(tx);
   const node=await unitNode(tx,options.unitId);if(!node)raise(`graph system.unit: no unit ${options.unitId}`);const current=await unitRecord(tx,node);
   if(retry?!RETRYABLE_UNIT_STATES.includes(current.state):current.state!=='stale')return {ok:false,record:current,refusal:{code:retry?'fill-store/unit-not-retryable':'fill-store/unit-not-replaceable',reason:retry?`fill-unit: unit "${current.unitId}" stands ${current.state}; a generation is retried only from ${RETRYABLE_UNIT_STATES.join(', ')}, and a ${current.state} one stays as its record`:`fill-unit: unit "${current.unitId}" is ${current.state}; only a stale generation is replaced, and a ${current.state} one stays as its record`,state:current.state,event:retry?'retry-generation':'open-generation',guard:null,guards:[],transitions:[]}} as const;
   const generation=current.generation+1;if(!retry&&current.context.replacedBy!==null&&current.context.replacedBy!==generation)raise(`graph system.unit, vertex ${node.uid}: invalid replacement generation ${current.context.replacedBy}`);
@@ -484,7 +489,11 @@ async function replace(database:FillStateDatabase,options:ReplacementOptions,ret
   const uid=newUid(),transition=retry?FILL_STORE_STEPS.retryGeneration:FILL_STORE_STEPS.openGeneration;
   await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid),fillEdge('system.unit-replacement','system.unit',node.uid,'system.unit',uid)],transition,current.state,'planned',retry?'retry-generation':'open-generation',options.at,record.context.fence);
   return {ok:true,record,transition,effects:[]} as const;
- },'write');
 }
+async function replace(database:FillStateDatabase,options:ReplacementOptions,retry:boolean):Promise<StoreStep<UnitRecord,UnitState>>{
+ return await run(here(),database,`${retry?'retryGeneration':'replaceStaleGeneration'}(${options.unitId})`,tx=>replaceIn(tx,options,retry),'write');
+}
+export async function replaceStaleGenerationIn(tx:SqlExecutor,options:ReplacementOptions):Promise<StoreStep<UnitRecord,UnitState>>{return await replaceIn(tx,options,false);}
+export async function retryGenerationIn(tx:SqlExecutor,options:ReplacementOptions):Promise<StoreStep<UnitRecord,UnitState>>{return await replaceIn(tx,options,true);}
 export async function replaceStaleGeneration(database:FillStateDatabase,options:ReplacementOptions):Promise<StoreStep<UnitRecord,UnitState>>{return await replace(database,options,false);}
 export async function retryGeneration(database:FillStateDatabase,options:ReplacementOptions):Promise<StoreStep<UnitRecord,UnitState>>{return await replace(database,options,true);}

@@ -15,6 +15,8 @@ import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
+import { assertionSelectionSql } from './assertion-read.js';
+import { assertionValueTableName } from './contract.js';
 const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
 const transactionBindings=new WeakMap<SqlExecutor,{contract:GraphContract;binding:WriteCapability}>();
 async function orchestrationBinding(tx:SqlExecutor):Promise<{contract:GraphContract;binding:WriteCapability}>{
@@ -273,7 +275,7 @@ async function child(tx:SqlExecutor,kind:string,relation:string,targetKind:strin
 }
 async function locked(tx:SqlExecutor):Promise<void>{await acquireGraphWriteLock(tx);}
 
-async function recordUnitReadBatchIn(tx:SqlExecutor,reads:readonly Parameters<typeof recordUnitReadIn>[1][]):Promise<readonly TrackedRead[]>{
+export async function recordUnitReadBatchIn(tx:SqlExecutor,reads:readonly Parameters<typeof recordUnitReadIn>[1][]):Promise<readonly TrackedRead[]>{
  if(!reads.length)return [];
  await locked(tx);
  const first=reads[0]!,uid=await requiredUnit(tx,first.unitId,first.generation);
@@ -320,6 +322,7 @@ async function splits(tx:SqlExecutor,unitId:string,generation:number,parents:boo
  const other=new Map((await readRecordsIn(tx,'vertex','system.unit',['unit_name','generation'],reached.map(edge=>parents?edge.to:edge.from))).map(unit=>[unit.id,unit]));
  return reached.map(edge=>{const unit=other.get(parents?edge.to:edge.from);if(!unit)throw new Error(`${import.meta.path}: split endpoint missing`);return {unitId:String(unit.values['unit_name']),generation:Number(unit.values['generation']),sealedAt:Number(sealed.get(edge.id))};}).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
 }
+export async function readSealedChildrenIn(tx:SqlExecutor,id:string,generation:number):Promise<readonly SealedChild[]>{return splits(tx,id,generation,false);}
 export async function readSealedChildren(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,false));}
 export async function readSplitParents(database:FillStateSnapshotDatabase,id:string,generation:number):Promise<readonly SealedChild[]>{return snapshotTransaction(database,tx=>splits(tx,id,generation,true));}
 export async function writeFillEnd(database:OrchestratorDatabase,end:FillEnd):Promise<void>{await transaction(database,'write',async tx=>{
@@ -357,19 +360,21 @@ async function configurationIn(tx:SqlExecutor,runId:string):Promise<RunConfigura
  const names=(role:string)=>targets.filter(row=>row.values.role===role).sort((a,b)=>Number(a.values.position)-Number(b.values.position)).map(row=>String(row.values.name));
  return {runId,digest:String(v.configuration_digest),recordedAt:Number(v.configuration_recorded_at),snapshot:{repository:String(v.repository),defaultBranch:String(v.default_branch),commit:String(v.commit),registryHash:String(v.registry_hash),...(v.targets_present?{targets:{kinds:names('kind'),...(v.target_vertex?{vertex:String(v.target_vertex)}:{}),...(targets.some(row=>row.values.role==='requested')?{requested:names('requested')}:{}),...(v.target_plugins_only===undefined?{}:{pluginsOnly:Boolean(v.target_plugins_only)})}}:{})}};
 }
-export async function recordRunConfiguration(database:OrchestratorDatabase,options:{readonly runId:string;readonly digest:string;readonly snapshot:RunSnapshot;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunConfigurationRecord>{return transaction(database,'write',async tx=>{
+export async function recordRunConfigurationIn(tx:SqlExecutor,options:{readonly runId:string;readonly digest:string;readonly snapshot:RunSnapshot;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunConfigurationRecord>{
  await locked(tx);const existing=await configurationIn(tx,options.runId);if(existing)return existing;
  const uid=await requiredRun(tx,options.runId),s=options.snapshot;
  await write(tx,'system.run',uid,{configuration_digest:options.digest,configuration_recorded_at:options.at,repository:s.repository,default_branch:s.defaultBranch,commit:s.commit,registry_hash:s.registryHash,targets_present:s.targets!==undefined,...(s.targets?{target_vertex:s.targets.vertex??'',...(s.targets.pluginsOnly===undefined?{}:{target_plugins_only:s.targets.pluginsOnly})}:{})});
  for(const [role,names] of [['kind',s.targets?.kinds??[]],['requested',s.targets?.requested??[]]] as const)for(const [position,name] of names.entries())await child(tx,'system.run-target','system.run-target-run','system.run',uid,{role,name,position});
  return {runId:options.runId,digest:options.digest,snapshot:s,recordedAt:options.at};
-});}
+}
+export async function recordRunConfiguration(database:OrchestratorDatabase,options:{readonly runId:string;readonly digest:string;readonly snapshot:RunSnapshot;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunConfigurationRecord>{return transaction(database,'write',tx=>recordRunConfigurationIn(tx,options));}
 export async function readRunConfiguration(database:FillStateSnapshotDatabase,runId:string):Promise<RunConfigurationRecord|null>{return snapshotTransaction(database,tx=>configurationIn(tx,runId));}
-export async function recordRunStagePlanned(database:OrchestratorDatabase,options:{readonly runId:string;readonly stageId:string;readonly units:number;readonly publications:number;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunStageRecord>{return transaction(database,'write',async tx=>{
+export async function recordRunStagePlannedIn(tx:SqlExecutor,options:{readonly runId:string;readonly stageId:string;readonly units:number;readonly publications:number;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunStageRecord>{
  await locked(tx);const uid=await requiredRun(tx,options.runId),rows=await related(tx,'system.run-stage','system.run-stage-run',uid);
  await child(tx,'system.run-stage','system.run-stage-run','system.run',uid,{stage_name:options.stageId,planned_at:options.at,units:options.units,publications:options.publications},rows.find(row=>row.values.stage_name===options.stageId)?.uid);
  return {runId:options.runId,stageId:options.stageId,plannedAt:options.at,units:options.units,publications:options.publications};
-});}
+}
+export async function recordRunStagePlanned(database:OrchestratorDatabase,options:{readonly runId:string;readonly stageId:string;readonly units:number;readonly publications:number;readonly at:number;readonly ownerToken?:string;readonly ownerAt?:number}):Promise<RunStageRecord>{return transaction(database,'write',tx=>recordRunStagePlannedIn(tx,options));}
 async function runStagePlansIn(tx:SqlExecutor,runId:string):Promise<readonly RunStageRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
@@ -406,7 +411,7 @@ export async function readRunPlanningSnapshot(database:FillStateSnapshotDatabase
 }
 export async function readRunPublicationCount(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).length);}
 export async function readRunPublicationFacts(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).reduce((sum,row)=>sum+row.record.facts,0));}
-async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitPlanRecord|null>{
+export async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitPlanRecord|null>{
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return null;
  const unit=await read(tx,'system.unit',uid),v=unit?.values;if(!v||v.planned_at===undefined)return null;
  const versions=await related(tx,'system.unit-cache-version','system.unit-cache-version-unit',uid);
@@ -453,13 +458,29 @@ export async function readRunPlansIn(tx:SqlExecutor,runId:string,options:{readon
    return {unitId:String(v.unit_name),generation:Number(v.generation),runId,stageId:String(v.plan_stage_name),stageUnitId:String(v.plan_stage_unit_name),scope:String(v.plan_scope),stagePosition:Number(v.plan_stage_position),planPosition:Number(v.plan_position),plannedAt:Number(v.planned_at),...(cacheVersions?{cacheVersions}:{})};
   }).sort((a,b)=>byCodePoint(a.unitId,b.unitId));
  }
+export async function appendProgressIn(tx:SqlExecutor,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
+ return (await appendProgressBatchIn(tx,[event]))[0]!;
+}
 export async function appendProgress(database:OrchestratorDatabase,event:Omit<FillProgressEvent,'seq'>):Promise<FillProgressEvent>{
  return (await appendProgresses(database,[event]))[0]!;
 }
-async function appendProgressBatchIn(tx:SqlExecutor,events:readonly Omit<FillProgressEvent,'seq'>[]):Promise<readonly FillProgressEvent[]>{
+export async function appendProgressBatchIn(tx:SqlExecutor,events:readonly Omit<FillProgressEvent,'seq'>[]):Promise<readonly FillProgressEvent[]>{
  await locked(tx);
- const first=events[0]!,uid=await requiredRun(tx,first.runId),existing=await related(tx,'system.progress','system.progress-run',uid,['seq']);
- let seq=Math.max(0,...existing.map(row=>Number(row.values.seq)));
+ if(!events.length)return [];
+ if(events.some(event=>event.runId!==events[0]!.runId))throw new Error(`${import.meta.path}: appendProgressBatchIn requires one run`);
+ const first=events[0]!,uid=await requiredRun(tx,first.runId);
+ const parameters:unknown[]=[uid];
+ const parameter=(value:unknown):string=>{parameters.push(value);return `$${parameters.length}`;};
+ const selected=assertionSelectionSql(`SELECT 0 AS request_index,p.id AS subject_id,p.id AS original_subject_id,
+   an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
+   (SELECT lineage.to_node::text FROM edge lineage JOIN entity lk ON lk.id=lineage.entity_id WHERE lineage.from_node=a.assertion_id AND lk.name='system.assertion-source') AS source
+   FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node r ON r.id=e.to_node JOIN node p ON p.id=e.from_node
+   JOIN assertion_vertex_subject attachment ON attachment.subject_edge_id IN (SELECT id FROM edge WHERE to_node=p.id)
+   JOIN assertion a ON a.assertion_id=attachment.assertion_id JOIN node an ON an.id=a.assertion_id
+   JOIN "${assertionValueTableName('system.progress','vertex','seq')}" v ON v.assertion_id=a.assertion_id
+   WHERE k.name='system.progress-run' AND r.uid=$1::uuid AND a.property='seq'`,{currentStatement:true},parameter);
+ const last=await withSpan('graph.progress.sequence', {}, async () => await tx.query<{seq:number}>(`SELECT value AS seq FROM (${selected}) selected WHERE selected ORDER BY value DESC LIMIT 1`,parameters));
+ let seq=Number(last.rows[0]?.seq??0);
  const {contract,binding}=await orchestrationBinding(tx);
  const vertices:import('./contract.js').VertexDraft[]=[],edges:import('./contract.js').EdgeDraft[]=[];
  const unitUids=new Map<string,string>(),out:FillProgressEvent[]=[];
@@ -489,12 +510,14 @@ export async function readProgress(database:FillStateSnapshotDatabase,runId:stri
  return options.limit===undefined?events:events.slice(Math.max(0,events.length-options.limit));
 });}
 
-export async function recordInheritedUnit(database:OrchestratorDatabase,options:{readonly runId:string;readonly unitId:string;readonly generation:number}):Promise<void>{
- await transaction(database,'write',async tx=>{
+export async function recordInheritedUnitIn(tx:SqlExecutor,options:{readonly runId:string;readonly unitId:string;readonly generation:number}):Promise<void>{
+
   await locked(tx);
   const runUid=await requiredRun(tx,options.runId),unitUid=await requiredUnit(tx,options.unitId,options.generation);
   if((await read(tx,'system.unit',unitUid))?.values.state!=='published')raise(`cannot inherit unpublished unit ${options.unitId}/${options.generation}`);
   const {contract,binding}=await orchestrationBinding(tx);
   await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.run-inherited-unit',discriminator:unitUid,from:{kind:'system.run',uid:runUid,key:{}},to:{kind:'system.unit',uid:unitUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion}]});
- });
+}
+export async function recordInheritedUnit(database:OrchestratorDatabase,options:{readonly runId:string;readonly unitId:string;readonly generation:number}):Promise<void>{
+ return transaction(database,'write',tx=>recordInheritedUnitIn(tx,options));
 }

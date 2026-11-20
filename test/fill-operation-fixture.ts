@@ -22,9 +22,12 @@ export function fixtureOperations(owner: DatabaseOwner): UnitOperations {
       scopes.set(unit.runId, opened);
       return { sourceUid: opened.binding.sourceUid, unitUid: opened.unitUid, host: createOperationHost({ owner, queue, job, contract: opened.contract, capability: opened.binding, runUid: opened.runUid, unitUid: opened.unitUid }) };
     },
-    setRunState: async (runId, state) => {
+    setRunState: async (runId, state, tx) => {
       const scope = scopes.get(runId);
-      if (scope !== undefined) await owner.transaction('write', async (tx) => await changeOperationRunState(tx, scope.contract, scope.binding, scope.runUid, state));
+      if (scope !== undefined) {
+        if (tx) await changeOperationRunState(tx, scope.contract, scope.binding, scope.runUid, state);
+        else await owner.transaction('write', async (tx) => await changeOperationRunState(tx, scope.contract, scope.binding, scope.runUid, state));
+      }
     },
   };
 }
