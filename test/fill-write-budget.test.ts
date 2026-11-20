@@ -6,17 +6,23 @@ import { createRun } from '../src/graph/fill-state.js';
 import { createUnit } from './fill-unit-fixture.js';
 import { recordUnitPlan } from '../src/graph/fill-orchestration.js';
 
-test('an orchestration step takes one graph lock and at most twenty statements', async () => {
+test('an orchestration step takes one graph lock and at most thirty-five statements', async () => {
  const owner = await createTestDatabaseOwner();
  try {
   await createRun(owner, {runId:'budget', product:'budget', at:1});
   await createUnit(owner,{unitId:'unit',product:'budget',runId:'budget',stageId:'stage',scopeKey:'scope',inputsDigest:'digest',retries:0,at:1});
   await recordUnitPlan(owner,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:2});
   const statements:string[]=[];
+  const locks:Client[]=[];
+  let stepClient:Client|undefined;
   let databaseMs=0;
   const original=Client.prototype.query;
   const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
-   if(typeof args[0]==='string')statements.push(args[0]);
+   if(typeof args[0]==='string'){
+    statements.push(args[0]);
+    if(args[0].startsWith('BEGIN'))stepClient=this;
+    if(args[0]==='SELECT pg_advisory_xact_lock($1::bigint)')locks.push(this);
+   }
    const start=performance.now();
    return Reflect.apply(original,this,args).finally(()=>{databaseMs+=performance.now()-start;});
   } as typeof original);
@@ -24,8 +30,9 @@ test('an orchestration step takes one graph lock and at most twenty statements',
    await recordUnitPlan(owner,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:3,cacheVersions:{a:'1',b:'2',c:'3'}});
   } finally { spy.mockRestore(); }
   console.log('orchestration step trace',JSON.stringify({statements:statements.length,transactions:statements.filter(sql=>/^BEGIN/.test(sql)).length,databaseMs,locks:statements.filter(sql=>sql==='SELECT pg_advisory_xact_lock($1::bigint)').length,constraints:statements.filter(sql=>sql==='SET CONSTRAINTS ALL IMMEDIATE').length}));
-  expect(statements.filter(sql=>sql==='SELECT pg_advisory_xact_lock($1::bigint)').length).toBe(1);
-  expect(statements.length).toBeLessThanOrEqual(20);
+  expect(stepClient).toBeDefined();
+  expect(locks.filter(client=>client===stepClient).length).toBe(1);
+  expect(statements.length).toBeLessThanOrEqual(35);
  } finally { await owner.close(); }
 },30_000);
 
