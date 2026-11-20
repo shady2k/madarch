@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, bindFillStateIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';
@@ -145,43 +145,61 @@ describe('a unit generation', () => {
       const at = NOW + attempt * 10;
       const retried = await database.transaction('write', async tx => {
         const installed = await startupBinding(tx, database.graphContract, 'retry-operation-fixture');
+        await bindFillStateIn(tx, installed.contract);
         const unitUid = (await readUnitGraphUidIn(tx, unitId))!;
-        const binding = { ...installed.binding, unitUid, permissions: installed.binding.permissions.filter(permission =>
-          ['system.unit', 'system.fill-transition', 'system.fill-transition-subject'].includes(permission.kind)) };
-        bindWriteCapability(tx, binding);
-        const scheduler = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], {
+        const caller = { ...installed.binding, unitUid, permissions: [] };
+        bindWriteCapability(tx, caller);
+        const fillStateSource = (await readKindAssertions(tx, 'vertex', 'plugin', ['label'], {
           validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
-        })).find(record => record.values['installation'] === JSON.stringify(['system-engine', 'fill-state']) && record.values['scope'] === binding.productUid)!;
-        expect(scheduler).toBeDefined();
+        })).find(record => record.values['label'] === 'fill-state')!.uid;
         const operationCount = async () => (await tx.query<{ count: string }>(
           "SELECT count(*)::text AS count FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.operation'",
         )).rows[0]!.count;
         const operationsBefore = await operationCount();
         const step = await advanceUnitIn(tx, { unitId, event: { type: 'retry', at, generation: 1,
-          cause: 'transient-failure', retryAt: at + 1, fence: attempt } }, { contract: installed.contract, binding });
-        expect(await operationCount()).toBe(operationsBefore);
+          cause: 'transient-failure', retryAt: at + 1, fence: attempt } }, { contract: installed.contract, operationUid: installed.binding.operationUid, unitUid });
         expect(step.ok).toBe(true);
         if (!step.ok) throw new Error(JSON.stringify(step));
         // The returned FSM record must be the graph record, even on the second retry.
         expect(await readUnitIn(tx, unitId)).toEqual(step.record);
         expect(step.record.state).toBe('retry_wait');
         expect(step.record.context).toMatchObject({ attempt, retriesLeft: 2 - attempt, retryAt: at + 1 });
-        expect(requireWriteCapability(tx)).toEqual(binding);
+        expect(requireWriteCapability(tx)).toEqual(caller);
+        expect(await operationCount()).toBe(operationsBefore);
         if (attempt === 2) {
           const records = await readKindAssertions(tx, 'vertex', 'system.unit', ['state'], {
             subjectUids: [unitUid], validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
           });
           const selected = records[0]!.selectedAssertions.find(assertion => assertion.property === 'state')!;
-          expect(selected.source).toBe(scheduler.uid);
+          expect(selected.source).toBe(fillStateSource);
           const lineage = await tx.query<{relation:string;uid:string}>(`SELECT k.name AS relation,n.uid::text AS uid
             FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node n ON n.id=e.to_node
             WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid)
             AND k.name IN ('system.assertion-operation','system.assertion-unit','system.assertion-author')`, [selected.id]);
           expect(lineage.rows).toEqual(expect.arrayContaining([
-            { relation: 'system.assertion-operation', uid: binding.operationUid },
+            { relation: 'system.assertion-operation', uid: installed.binding.operationUid },
             { relation: 'system.assertion-unit', uid: unitUid },
-            { relation: 'system.assertion-author', uid: binding.principalUid },
+            { relation: 'system.assertion-author', uid: fillStateSource },
           ]));
+        }
+        const transitions = await tx.query<{uid:string}>(`SELECT n.uid::text AS uid
+          FROM node n JOIN entity k ON k.id=n.entity_id
+          JOIN edge subject ON subject.from_node=n.id JOIN entity sk ON sk.id=subject.entity_id
+          JOIN node unit ON unit.id=subject.to_node
+          WHERE k.name='system.fill-transition' AND sk.name='system.fill-transition-subject' AND unit.uid=$1::uuid`, [unitUid]);
+        const journal = await readKindAssertions(tx, 'vertex', 'system.fill-transition', ['to_state', 'at'], {
+          subjectUids: transitions.rows.map(row => row.uid),
+          validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+        });
+        const transition = journal.find(row => row.values['to_state'] === 'retry_wait' && Number(row.values['at']) === at)!;
+        expect(transition).toBeDefined();
+        expect(transition.selectedAssertions.length).toBeGreaterThan(0);
+        for (const assertion of transition.selectedAssertions) {
+          expect(assertion.source).toBe(fillStateSource);
+          const lineage = await tx.query<{uid:string}>(`SELECT op.uid::text AS uid
+            FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node op ON op.id=e.to_node
+            WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid) AND k.name='system.assertion-operation'`, [assertion.id]);
+          expect(lineage.rows).toEqual([{ uid: installed.binding.operationUid }]);
         }
         return step.record;
       });

@@ -1029,6 +1029,29 @@ describe('what the review found, kept as tests', () => {
     const sourceUid = installed.find(row => row.values.label === 'fill-state')!.uid;
     for (const kind of ['system.unit','system.run','system.fill-transition']) expect(sources.rows.some(row => row.kind === kind)).toBe(true);
     expect(sources.rows.filter(row => row.source !== sourceUid)).toEqual([]);
+    const operationPrincipal = (await opened.owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex','plugin',['label'])))
+      .find(row => row.values.label === 'scheduler-fixture')!.uid;
+    const operationAuthors = await opened.owner.run(tx => tx.query<{operation:string;author:string|null}>(`
+      SELECT op.uid::text AS operation,author.uid::text AS author
+      FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id
+      JOIN edge subject ON subject.id=av.subject_edge_id JOIN node n ON n.id=subject.to_node
+      JOIN entity k ON k.id=n.entity_id
+      JOIN edge lineage ON lineage.from_node=a.assertion_id
+      JOIN entity lk ON lk.id=lineage.entity_id AND lk.name='system.assertion-operation'
+      JOIN node op ON op.id=lineage.to_node
+      LEFT JOIN (edge authors JOIN entity ak ON ak.id=authors.entity_id AND ak.name='system.operation-author') ON authors.from_node=op.id
+      LEFT JOIN node author ON author.id=authors.to_node
+      WHERE k.name IN ('system.chain','system.run','system.unit','system.fill-transition')
+      AND op.uid IN (
+        SELECT operation.uid FROM node operation
+        JOIN edge attachment ON attachment.to_node=operation.id
+        JOIN assertion_vertex_subject os ON os.subject_edge_id=attachment.id
+        JOIN edge source ON source.from_node=os.assertion_id
+        JOIN entity sk ON sk.id=source.entity_id AND sk.name='system.assertion-source'
+        JOIN node principal ON principal.id=source.to_node WHERE principal.uid=$1::uuid
+      )`, [operationPrincipal]));
+    expect(operationAuthors.rows.length).toBeGreaterThan(0);
+    for (const row of operationAuthors.rows) expect(row.author).toBe(operationPrincipal);
     const disputes = await opened.owner.run(tx => tx.query(`
       SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id
       WHERE k.name='system.dispute-question'`));

@@ -1,6 +1,6 @@
 /** Immediate checked writes and graph receipts, decision 0039 item 24. */
 import { assertOutcomeApplicability } from './applicability.js';
-import {bindFillStateIn,readRunGraphUidIn,readUnitGraphUidIn,type GraphWriteContext} from './fill-state.js';
+import {withFillStateIn,readRunGraphUidIn,readUnitGraphUidIn,type GraphWriteContext} from './fill-state.js';
 import {startupBinding} from './manifest-publication.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
@@ -76,12 +76,12 @@ export async function initializeOperationScope(tx:OuterTransaction,contract:Grap
     await acquireGraphWriteLock(tx);
     for(const [kind,uid] of [['system.operation',binding.operationUid],['system.run',runUid],['system.unit',unitUid]] as const) await bootstrapWriteIdentity(tx,kind,uid,binding.productUid,context);
     bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
-    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
-    await set(tx,contract,'system.run',runUid,'$exists',true,context);
-    await set(tx,contract,'system.unit',unitUid,'$exists',true,context);
-    if(await selected(tx,'system.run',runUid,'state',context)===undefined)await set(tx,contract,'system.run',runUid,'state','running',context);
-    await set(tx,contract,'system.unit',unitUid,'state','running',context);
-    bindWriteCapability(tx,trusted(binding,binding.operationUid,unitUid));
+    await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},async()=>{
+      await set(tx,contract,'system.run',runUid,'$exists',true,context);
+      await set(tx,contract,'system.unit',unitUid,'$exists',true,context);
+      if(await selected(tx,'system.run',runUid,'state',context)===undefined)await set(tx,contract,'system.run',runUid,'state','running',context);
+      await set(tx,contract,'system.unit',unitUid,'state','running',context);
+    },context);
     await set(tx,contract,'system.unit',unitUid,'committed_operations',0,context);
     await set(tx,contract,'system.unit',unitUid,'last_progress','admitted',context);
   });
@@ -96,15 +96,17 @@ export async function resolveOperationScope(tx:OuterTransaction,contract:GraphCo
     const runUid=oldRun??newUid(),unitUid=oldUnit??newUid();
     if(!oldUnit){
       await initializeOperationScope(tx,contract,binding,runUid,unitUid,context);
-      await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
-      await set(tx,contract,'system.run',runUid,'run_name',input.runId,context);
-      await set(tx,contract,'system.unit',unitUid,'unit_name',input.unitId,context);
-      await set(tx,contract,'system.unit',unitUid,'generation',input.generation,context);
-      if(input.scope!==undefined)await set(tx,contract,'system.unit',unitUid,'scope',input.scope,context);
-      await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.run',uid:runUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion??'system'}]},context);
+      await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},async()=>{
+        await set(tx,contract,'system.run',runUid,'run_name',input.runId,context);
+        await set(tx,contract,'system.unit',unitUid,'unit_name',input.unitId,context);
+        await set(tx,contract,'system.unit',unitUid,'generation',input.generation,context);
+        if(input.scope!==undefined)await set(tx,contract,'system.unit',unitUid,'scope',input.scope,context);
+        await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.run',uid:runUid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion??'system'}]},context);
+        },context);
     }
-    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},context);
-    for(const parentUid of input.parentUids??[])await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-parent',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.unit',uid:parentUid,key:{}},discriminator:unitUid,producer:binding.sourceUid,producerVersion:binding.contractVersion}]},context);
+    await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid},async()=>{
+      for(const parentUid of input.parentUids??[])await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[{kind:'system.unit-parent',from:{kind:'system.unit',uid:unitUid,key:{}},to:{kind:'system.unit',uid:parentUid,key:{}},discriminator:unitUid,producer:binding.sourceUid,producerVersion:binding.contractVersion}]},context);
+    },context);
     return {runUid,unitUid};
   });
 }
@@ -113,8 +115,9 @@ export async function changeOperationRunState(tx:OuterTransaction,contract:Graph
   await withSpan('fill.operation.run-state',{},async()=>{
     await acquireGraphWriteLock(tx);
     await tx.query('SELECT id FROM node WHERE uid=$1::uuid FOR UPDATE',[runUid]);
-    await bindFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid:binding.unitUid},context);
-    await set(tx,contract,'system.run',runUid,'state',state,context);
+    await withFillStateIn(tx,contract,{operationUid:binding.operationUid,unitUid:binding.unitUid},async()=>{
+      await set(tx,contract,'system.run',runUid,'state',state,context);
+    },context);
   });
 }
 export async function setProductOperationRunState(owner:DatabaseOwner,contract:GraphContract,runId:string,state:'running'|'paused'|'cancelled'):Promise<void>{
@@ -162,9 +165,9 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}]},context);
     if(apply){await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));}
     else {
-      await bindFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},context);
-      await set(tx,options.contract,'system.unit',options.unitUid,'state','failed',context);
-      bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
+      await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
+        await set(tx,options.contract,'system.unit',options.unitUid,'state','failed',context);
+      },context);
     }
     await set(tx,options.contract,'system.unit',options.unitUid,'reason',reason,context);
     const producedKind = await selected(tx,'system.unit',options.unitUid,'produced_kind',context);
@@ -220,9 +223,9 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
           {kind:'system.unit',uid:options.unitUid,key:{},values:{committed_operations:count+1,last_progress:request.key},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
         ],removals:[]},context);
         if(request.completion){
-          await bindFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},context);
-          await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
-          bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
+          await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
+            await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
+          },context);
           if(request.completion.outcome) {
             const assertionUids: Record<string,string> = {};
             for(const [property,value] of Object.entries({produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})})) {

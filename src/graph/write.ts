@@ -78,8 +78,9 @@ export function bindWriteCapability(executor:SqlExecutor,binding:WriteCapability
  if(!Number.isSafeInteger(binding.context)||binding.context<1||!binding.scope||!binding.contractVersion)throw new Error(`${WHERE}:22: SOURCE_FORBIDDEN incomplete authenticated capability`);
  bindings.set(executor,Object.freeze({...binding,permissions:binding.permissions.map(permission=>Object.freeze({...permission,properties:Object.freeze([...permission.properties])}))}));
 }
+export function boundWriteCapability(executor:SqlExecutor):WriteCapability | undefined { return bindings.get(executor); }
 export function requireWriteCapability(executor:SqlExecutor):WriteCapability {
-  const binding=bindings.get(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
+  const binding=boundWriteCapability(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
 }
 function checkBinding(binding:WriteCapability,contract:GraphContract,context:number):string{
  validateValueContracts(contract);

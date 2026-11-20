@@ -6,7 +6,7 @@ import { EMPTY_CONTRACT, assertionValueTableName, type EdgeDraft, type EntityRef
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { startupBinding } from './manifest-publication.js';
-import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, type WriteCapability } from './write.js';
+import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 import { readKindAssertions as readAssertions, type AssertionRecord } from './records.js';
 import { byCodePoint } from '../model/order.js';
@@ -190,9 +190,20 @@ export async function bindFillStateIn(tx: SqlExecutor, declared: GraphContract =
  bindWriteCapability(tx,held);
  return held;
 }
+/** Restore the caller's authority even when a machine write fails. */
+export async function withFillStateIn<R>(tx: SqlExecutor, declared: GraphContract, lineage: Pick<GraphWriteContext, 'operationUid'> & { readonly unitUid?: string } | undefined, work: () => Promise<R>, assertionContext = 1): Promise<R> {
+  const previous = boundWriteCapability(tx);
+  try {
+    await bindFillStateIn(tx, declared, lineage, assertionContext);
+    return await work();
+  } finally {
+    if (previous !== undefined) bindWriteCapability(tx, previous);
+  }
+}
 export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[] = [], context?: GraphWriteContext): Promise<void> {
-  await bindFillStateIn(tx,context?.contract ?? contract,context);
-  await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
+  await withFillStateIn(tx, context?.contract ?? contract, context, async () => {
+    await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
+  });
 }
 async function rows(tx: SqlExecutor, kind: keyof typeof fields, subjectUids?: readonly string[]): Promise<AssertionRecord[]> { return await readGraphRecords(tx, 'vertex', `system.${kind}`, fields[kind],subjectUids); }
 /** The run a name states: value → assertions → subject, then the subject's current record (0039.25). */
