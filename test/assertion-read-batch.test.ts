@@ -52,6 +52,32 @@ test('assertion property batch preserves native typed values and subject filteri
 },30000);
 
 
+test('projected subject reads skip incoming lineage before probing assertion attachments',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
+ try {
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,graph);
+   await publishGraphDrafts(tx,graph,{vertices:[{kind:'typed',key:{name:'one'},values:{amount:1},producer:'fixture',producerVersion:'1'}],removals:[]});
+  });
+  await owner.run(async tx=>{
+   const id=Number((await tx.query<{id:number}>("SELECT id FROM node WHERE key->>'name'='one'")).rows[0]!.id);
+   // Unrelated incoming edges must not turn a lookup into one attachment probe per edge.
+   await tx.query(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
+    SELECT gen_random_uuid(),(SELECT id FROM entity WHERE name='system.assertion-evidence'),n.id,$1,'noise-'||i,1
+    FROM node n CROSS JOIN generate_series(1,100) i WHERE n.id=$1`,[id]);
+   let sql='';let parameters:readonly unknown[]|undefined;
+   const executor={query:((...args:Parameters<typeof tx.query>)=>{[sql,parameters]=args;return tx.query(...args);}) as typeof tx.query};
+   const rows=await loadAssertions(executor,'vertex','typed',['amount'],[id],{projectMergedSubjects:true});
+   expect(rows.filter(row=>row.selected).map(row=>row.value)).toEqual([1]);
+   const explained=await tx.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`,parameters);
+   interface Plan {'Relation Name'?:string;'Actual Loops':number;Plans?:Plan[]}
+   const probes=(p:Plan):number=>(p['Relation Name']==='assertion_vertex_subject'?p['Actual Loops']:0)+(p.Plans??[]).reduce((sum,c)=>sum+probes(c),0);
+   const plan=explained.rows[0]!['QUERY PLAN'] as {Plan:Plan}[];
+   expect(probes(plan[0]!.Plan)).toBeLessThanOrEqual(3);
+  });
+ }finally{await owner.close();}
+},30000);
+
 test('SQL item 25 selects backdated corrections by recorded sequence and pins branch bases',async()=>{
  const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
  try {

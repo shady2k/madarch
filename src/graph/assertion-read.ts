@@ -146,7 +146,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         // Keep a subject lookup from becoming a scan of every assertion of the kind.
         const assertionFrom = indexedSubjects
           ? `node subject JOIN entity subject_kind ON subject_kind.id=subject.entity_id
-             CROSS JOIN LATERAL (SELECT e.id FROM edge e WHERE e.to_node=subject.id OFFSET 0) subject_edge
+             CROSS JOIN LATERAL (SELECT e.id FROM edge e WHERE e.to_node=subject.id AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0) subject_edge
              CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment
              JOIN assertion a ON a.assertion_id=attachment.assertion_id`
           : `assertion a ${subjectJoin}`;
