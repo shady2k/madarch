@@ -281,8 +281,12 @@ export async function requireAssertionScope(executor:SqlExecutor,contract:GraphC
  }
  });
 }
+export async function writeAssertions(executor:SqlExecutor,declared:GraphContract,inputs:readonly AssertionInput[],context=1):Promise<string[]>{
+ if(inputs.length===0)return [];
+ return await admitAssertionInputs(executor,declared,[...inputs],context);
+}
 export async function writeAssertion(executor:SqlExecutor,declared:GraphContract,input:AssertionInput,context=1):Promise<string>{
- return (await admitAssertionInputs(executor,declared,[input],context))[0]!;
+ return (await writeAssertions(executor,declared,[input],context))[0]!;
 }
 async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,inputs:AssertionInput[],context:number):Promise<string[]>{
  return await withSpan('graph.write.admitAssertionInputs',{},async()=>{
