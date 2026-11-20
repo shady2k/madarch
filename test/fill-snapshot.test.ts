@@ -521,10 +521,9 @@ describe('batched snapshot text', () => {
 });
 
 describe('ordinary plugin repository metadata', () => {
-  test('a plugin input holds the code repositories, never the product repository itself', async () => {
-    // The product repository holds the product's knowledge — documents, manifests and templates — and the files producer
-    // reads it; code facts come from the code repositories the product connects (0029). Handing the product's own pin to
-    // a repository plugin made the plugin index the product's declarations as source files.
+  test('a plugin input preserves both the product tree and connected code trees', async () => {
+    // Markdown and manifests have file identities and history too: selecting code kinds does not discard the product
+    // repository pin (owner-fill-path; decision 0039, items 2 and 14).
     const f = await fixture();
     const work = await mkdtemp(join(tmpdir(), 'madarch-repository-input-'));
     try {
@@ -532,8 +531,11 @@ describe('ordinary plugin repository metadata', () => {
         { ...pinOf(f, f.first), id: 'shop', form: 'product' },
         pinOf(f, f.first, 'orders-api'),
       ], work);
-      expect(prepared.repositories.map((repository) => repository.repository)).toEqual(['orders-api']);
-      expect(prepared.filesystemInputs).toHaveLength(1);
+      expect(prepared.repositories.map((repository) => repository.repository)).toEqual(['shop', 'orders-api']);
+      expect(prepared.filesystemInputs).toHaveLength(2);
+      for (const input of prepared.filesystemInputs) {
+        expect(execFileSync('git', ['--git-dir', input.folder, 'show', 'HEAD:README.md'], { encoding: 'utf8' })).toBe('# fixture\n');
+      }
     } finally {
       await rm(work, { recursive: true, force: true });
       await f.dispose();

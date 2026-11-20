@@ -35,10 +35,9 @@ export function sanitizeRepositoryUrl(remote: string): string {
 export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string, options: { readonly unconfined?: boolean } = {}) {
   const filesystemInputs: { name: string; folder: string }[] = [];
   const repositories: { repository: string; root: string; commit: string; url?: string; defaultBranch?: string }[] = [];
-  // Only the product's code repositories are a plugin's input (0029): the product repository holds its knowledge —
-  // documents, manifests and templates — and the files producer reads that; a plugin that indexed it would read the
-  // product's own declarations as code.
-  for (const [index, pin] of pins.filter((one) => one.form === 'code').entries()) {
+  // The product's written knowledge also has file identities and commit evidence (0039). Keep every pinned tree;
+  // the selected kinds and their exclusions decide which facts the plugin publishes from it.
+  for (const [index, pin] of pins.entries()) {
     const name = `repository-${index}`;
     const folder = join(workRoot, name);
     const commit = await git(['-C', pin.root, 'rev-parse', '--verify', `${pin.commit}^{commit}`]);
