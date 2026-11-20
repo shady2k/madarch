@@ -12,18 +12,21 @@ import { canonicalJson } from './canonical.js';
 
 /** The words `thrown` carries, for a place that must name what a stage or a plugin raised. */
 export function errorText(thrown: unknown): string {
-  if (thrown instanceof Error) return thrown.message;
-  if (typeof thrown === 'string') return thrown;
-  if (thrown !== null && typeof thrown === 'object') {
-    const held = thrown as { readonly code?: unknown; readonly message?: unknown };
-    if (typeof held.message === 'string') return typeof held.code === 'string' && held.code !== '' ? `${held.code}: ${held.message}` : held.message;
-    try {
-      return canonicalJson(thrown);
-    } catch {
-      // A value JSON cannot hold — a cycle, a class instance with no own fields — is
-      // still named by its own shape, and never by `[object Object]`.
-      return inspect(thrown, { depth: 2, breakLength: Infinity, sorted: true });
+  try {
+    if (thrown instanceof Error) return thrown.message;
+    if (typeof thrown === 'string') return thrown;
+    if (thrown !== null && typeof thrown === 'object') {
+      const held = thrown as { readonly code?: unknown; readonly message?: unknown };
+      if (typeof held.message === 'string') return typeof held.code === 'string' && held.code !== '' ? `${held.code}: ${held.message}` : held.message;
+      try {
+        return canonicalJson(thrown);
+      } catch {
+        return inspect(thrown, { depth: 2, breakLength: Infinity, sorted: true, customInspect: false });
+      }
     }
+    return typeof thrown === 'bigint' ? `${thrown}n` : String(thrown);
+  } catch {
+    try { return thrown !== null && typeof thrown === 'object' ? Object.getPrototypeOf(thrown)?.constructor?.name ?? 'object' : typeof thrown; }
+    catch { return 'unprintable thrown value'; }
   }
-  return String(thrown);
 }

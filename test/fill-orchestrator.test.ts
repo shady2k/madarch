@@ -796,6 +796,13 @@ describe('the words of what a stage raised', () => {
     }
   }, 30_000);
 
+  test('formatting failures preserve the original stage failure and journal unit-failed', async () => {
+    const thrown = Object.defineProperty({}, 'message', { get() { throw new Error('getter failed'); } });
+    const result = await failedSummaries(thrown);
+    expect(result.event).toContain('Object');
+    expect(result.journal).toContain('Object');
+  }, 30_000);
+
   test('a thrown string stands as its own words, and the run never says the stage answered nothing', async () => {
     const words = 'the plugin refused git:code.commit: its contract names no producer';
     const { event, journal } = await failedSummaries(words);
@@ -2062,6 +2069,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(AggregateError);
     expect((caught as AggregateError).errors).toEqual([stageFailure, failure]);
+    expect(((caught as AggregateError).errors[0] as Error).cause).toBeUndefined();
   }, 15_000);
 
   test.each(['complete', 'bound', 'blocked', 'split'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {

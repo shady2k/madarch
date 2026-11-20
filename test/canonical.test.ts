@@ -62,6 +62,21 @@ describe('canonicalJsonDigest', () => {
     expect(() => canonicalJsonDigest(undefined)).toThrow('the value itself');
   });
 
+  test('non-JSON containers, sparse arrays, bigints and cycles are refused', () => {
+    for (const value of [new Map([['x', 1]]), new Set([1]), [,], 1n, { nested: 1n }]) {
+      expect(() => canonicalJsonDigest(value)).toThrow();
+    }
+    const cycle: { self?: unknown } = {}; cycle.self = cycle;
+    expect(() => canonicalJsonDigest(cycle)).toThrow('/self');
+  });
+
+  test('null, undefined, empty and null-prototype values keep JSON distinctions', () => {
+    expect(canonicalJsonDigest(null)).not.toBe(canonicalJsonDigest({}));
+    expect(() => canonicalJsonDigest(undefined)).toThrow();
+    expect(canonicalJsonDigest(Object.create(null))).toBe(canonicalJsonDigest({}));
+    expect(() => canonicalJsonDigest(Symbol('x'))).toThrow();
+  });
+
   test('a number JSON cannot hold is refused, never silently written as null', () => {
     expect(() => canonicalJsonDigest({ a: Number.NaN })).toThrow('/a');
     expect(() => canonicalJsonDigest({ a: Number.POSITIVE_INFINITY })).toThrow('/a');

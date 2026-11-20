@@ -1691,7 +1691,7 @@ async function attemptUnitPhases(
         result = { outcome: 'blocked', reason: error.message };
       } else if (error instanceof UnitBoundStop) {
         bound = error;
-      } else raised = error instanceof Error ? error : new Error(errorText(error));
+      } else raised = error instanceof Error ? error : new Error(errorText(error), { cause: error });
     } finally {
       await executionReader.close();
       tools?.close();
