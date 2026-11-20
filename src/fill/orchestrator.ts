@@ -3,6 +3,7 @@ import { RUN_JOB_HEARTBEAT_SECONDS, UNIT_JOB_ATTEMPT_SECONDS } from './queue-lim
 /** Queue-driven fill scheduling. Accepted graph operations commit immediately; terminal receipts settle claims. */
 import type {StageContext,StageExecutionResult,StageGraphReader,StageUnitTools,ResolvedStageConfiguration} from './stage.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
+import { errorText } from '../model/error-text.js';
 import { producerSucceeded } from './producer-outcomes.js';
 import { ClosureRefusal } from '../plugin/closure-refusal.js';
 import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
@@ -1513,6 +1514,33 @@ async function attemptUnit(
   });
 }
 
+type StageThrow =
+  | { readonly kind: 'blocked'; readonly reason: string }
+  | { readonly kind: 'bound'; readonly bound: string; readonly message: string }
+  | { readonly kind: 'stale'; readonly message: string }
+  | { readonly kind: 'raised'; readonly thrown: unknown; readonly text: string };
+
+/** Only this boundary reads a stage's thrown value; its callers use the classified strings. */
+function classifyStageThrow(thrown: unknown): StageThrow {
+  try {
+    if (thrown instanceof ClosureRefusal) {
+      const code: unknown = thrown.code;
+      const message: unknown = thrown.message;
+      if (code === 'plugin-tool' && typeof message === 'string') return { kind: 'blocked', reason: message };
+    } else if (thrown instanceof UnitBoundStop) {
+      const bound: unknown = thrown.bound;
+      const message: unknown = thrown.message;
+      if (typeof bound === 'string' && typeof message === 'string') return { kind: 'bound', bound, message };
+    } else if (thrown instanceof AttemptStaleError) {
+      const message: unknown = thrown.message;
+      if (typeof message === 'string') return { kind: 'stale', message };
+    }
+  } catch {
+    // A hostile prototype or getter is an ordinary stage failure, not a replacement error.
+  }
+  return { kind: 'raised', thrown, text: errorText(thrown) };
+}
+
 /** One attempt's phases, each its own span, under the unit's span. */
 async function attemptUnitPhases(
   orchestrator: FillOrchestrator,
@@ -1649,8 +1677,7 @@ async function attemptUnitPhases(
     let tools: StageUnitTools | undefined;
     let context: StageContext | undefined;
     let result: StageExecutionResult | undefined;
-    let raised: Error | undefined;
-    let bound: UnitBoundStop | undefined;
+    let failure: StageThrow | undefined;
     try {
       const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
       orchestrator.authority.set(authorityKey(unit.unitId, unit.generation), controller);
@@ -1686,11 +1713,8 @@ async function attemptUnitPhases(
         return answered;
       });
     } catch (error) {
-      if (error instanceof ClosureRefusal && error.code === 'plugin-tool') {
-        result = { outcome: 'blocked', reason: error.message };
-      } else if (error instanceof UnitBoundStop) {
-        bound = error;
-      } else raised = error as Error;
+      failure = classifyStageThrow(error);
+      if (failure.kind === 'blocked') result = { outcome: 'blocked', reason: failure.reason };
     } finally {
       await executionReader.close();
       tools?.close();
@@ -1702,12 +1726,13 @@ async function attemptUnitPhases(
       }
     }
     if (heartbeatFailure !== undefined) {
-      if (raised !== undefined) throw new AggregateError([raised, heartbeatFailure.error], `the stage raised: ${raised.message}; heartbeat failed`);
+      if (failure?.kind === 'raised') throw new AggregateError([failure.thrown, heartbeatFailure.error], `the stage raised: ${failure.text}; heartbeat failed`);
       throw heartbeatFailure.error;
     }
     // A unit a bound of its own run stopped fails here, with that reason: another attempt meets the same bound, and a retry
     // loop that only waits out the wall is no work at all (owner's decision, 2026-11-15).
-    if (bound !== undefined) {
+    if (failure?.kind === 'bound') {
+      const bound = failure;
       const at=orchestrator.clock();
       const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       const failed=await operation.host.fail(bound.message,async(tx,writeContext)=>{
@@ -1719,9 +1744,10 @@ async function attemptUnitPhases(
       await emit(orchestrator,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
       return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'failed',summary:bound.message,job:'failed'};
     }
-    if (raised instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, raised.message);
-    if (raised !== undefined || result === undefined) {
-      const retried = await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${raised?.message ?? 'it answered nothing'}`, summary: `${unit.unitId} raised: ${raised?.message ?? 'it answered nothing'}` });
+    if (failure?.kind === 'stale') return await claimLapsed(orchestrator, unit, request.job, failure.message);
+    if (failure?.kind === 'raised' || result === undefined) {
+      const text = failure?.kind === 'raised' ? failure.text : 'it answered nothing';
+      const retried = await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${text}`, summary: `${unit.unitId} raised: ${text}` });
       terminalWritten = retried.job !== 'none';
       return retried;
     }
