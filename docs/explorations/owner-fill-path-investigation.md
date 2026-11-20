@@ -231,3 +231,91 @@ final check was 2.30 / 2.46 / 2.65. The full file's original 500 is now confirme
 at lower start load, but no minimal red regression isolates its cause, no pool
 fix is justified, and the owner path remains unaccepted. The repository-input
 repair and previously passing live-daemon hypothesis tests remain intact.
+
+
+## External observation: API count backend killed by earlyoom
+
+A further owner-authorized run used only an external observer: no product/test
+edits, no strace, no changed expectations or deadlines. The observer sampled
+`pg_stat_activity` and Unix sockets every 0.5 seconds (with a busy guard), read
+process command lines, and copied the PostgreSQL log every 2 seconds. Actual
+samples can be further apart while commands run. The start-load log records
+**0.93 / 1.88 / 2.41**, below the requested 2.5 threshold for the one-minute
+load. The retained log, rather than an earlier in-flight summary, is the source
+for these numbers and this run's result.
+
+`/work/reports/alx-fixOwner-owner-observed.log` again records the exact step-2
+500 at `test/owner-fill-path.test.ts:112-114`: “Client has encountered a
+connection error and is not queryable”. The unchanged 300000 ms case bound
+expired at **300001.44 ms**; total file run **311.64 s**, **0 pass, 1 fail,
+1 unhandled error**. Later fill requests failed and then the API refused
+connections. No second full validation was run because no fix was made.
+
+### Correlated backend and signal evidence
+
+All times below are 2026-11-20 CET; observer JSON timestamps use UTC, one hour
+earlier. Postmaster **1042064** was ready at **01:37:37.570** following the
+initial daemon stop and standalone serve transition.
+
+- Backend **1042547** started at **01:38:30.763189**. The final activity samples
+  before its death show it active on `SELECT $1::text AS kind, count(*)::int AS n
+  FROM node n JOIN entity en ON en.id = n.entity_id WHERE ((n.`. PostgreSQL's
+  failed-statement detail includes the active-assertion predicate. This prefix
+  matches `vertexCounts()` at `src/graph/graphql-read.ts:1504-1521`, specifically
+  the per-kind SELECT at lines 1510-1512 and UNION ALL execution at 1515-1517.
+  The activity observer retained only the first 120 query characters; the
+  journal also truncates the long statement. Neither is a complete query plan.
+- Unix socket endpoints **4703770 / 4705445** pair backend **1042547** with Bun
+  PID **1042170**, whose command line is `scripts/madarch.ts --role api serve`
+  for this fixture. Thus the killed backend belongs to the API, not the fill
+  child or the external observer. `application_name` was empty; ownership
+  comes from the paired socket endpoints and process command line.
+- `/work/reports/alx-fixOwner-earlyoom.log` records earlyoom sending SIGTERM to
+  **1042547** at **01:38:51**, with **2493 MiB VmRSS**, available memory
+  **1163 / 11954 MiB (9.73%)** and no swap. At **01:38:55** it escalated to
+  SIGKILL after 3.8 seconds and reported exit after 4.5 seconds.
+- The PostgreSQL journal records that same backend killed by signal 9 at
+  **01:38:55.974**; at **01:38:55.978** it terminates the other active server
+  processes, and at **01:38:55.989** it begins reinitializing. Recovery/not-yet-
+  accepting-connections FATAL messages follow. This is direct evidence for
+  the API connection loss in this reproduction, not an inference from a later
+  cleanup FATAL. Zero cgroup oom/oom_kill counters do not exclude a userspace
+  earlyoom kill.
+- A separate **01:41:32.772** fast shutdown produces the administrator-command
+  FATAL for backend **1043880** at **01:41:32.786**. Its socket endpoints
+  **4802252 / 4803369** map to fill child **1042231** (`--role fill`). This is
+  later cleanup, not the backend killed during the step-2 API read.
+
+Evidence retained outside the checkout:
+`/work/reports/alx-fixOwner-observed-load.log`,
+`/work/reports/alx-fixOwner-owner-observed.log`,
+`/work/reports/alx-fixOwner-pg-activity.log`,
+`/work/reports/alx-fixOwner-postgres-616.log`,
+`/work/reports/alx-fixOwner-earlyoom.log`, and the observer source
+`/work/reports/alx-fixOwner-observer.ts`. Earlier numbered journal snapshots
+remain alongside the final snapshot.
+
+### Disposition and limits
+
+This supersedes the earlier lack of backend attribution **for this observed
+reproduction**. It does not retroactively prove the cause of every historical
+500. Low initial CPU load did not prevent memory pressure during the run.
+The API count query was using substantial memory when earlyoom selected its
+backend. The evidence does not yet explain why that query grows to this size,
+which plan PostgreSQL used, or how much competing work contributed to the
+machine's low available memory. No EXPLAIN or isolated memory regression was
+collected. A speculative pool retry/reset is not supported by these facts.
+
+No product fix follows from this observation alone. The remaining work is to
+isolate the catalogue count query's memory growth with a minimal red regression,
+then fix and validate it without weakening the owner-path expectations. This
+is not fill-speed work (ALX-616). The original owner-path case remains red and
+unaccepted; the validated repository-input repair and passing live-daemon
+hypothesis tests remain intact. No constants, deadlines, locks or source/test
+files changed in this follow-up. Only this evidence is committed.
+
+The observer and full test handles are both finished. A `/proc` command-line
+scan found no live process matching this run's scratch root
+`madarch-test-run-UIu06N`, fixture `madarch-owner-fill-wuCfI5`, or observer
+script. No own diagnostic/test command remains running. Documentation-only
+follow-up: no new test/check run; earlier validation results remain above.
