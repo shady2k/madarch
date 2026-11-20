@@ -36,7 +36,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const suppliedIdentities = requests.every(request => request.identities !== undefined);
     const hasMerges = suppliedIdentities || (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
     const context = Number(selector.contexts?.[0] ?? 1);
-    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : "'" + new Date(value).toISOString() + "'::timestamptz";
+    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : "'" + value.replaceAll("'", "''") + "'::timestamptz";
     const valid = instant(selector.validAt);
     const recorded = instant(selector.recordedAt);
     const canonical = (id: string): string => hasMerges ? `graph_merge_target(${id},${context},${valid},${recorded})` : id;
@@ -61,11 +61,11 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const suppliedIdentityExecutor: SqlExecutor = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
       const result = await tx.query<Row & { now: string | Date; anchored: boolean; id: string | null }>(`
         WITH page_snapshot AS MATERIALIZED (
-          SELECT transaction_timestamp() AS now,
+          SELECT ${selector.recordedAt === undefined ? 'transaction_timestamp()' : `$${(parameters?.length ?? 0) + 1}::timestamptz`} AS now,
             EXISTS(SELECT 1 FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.dispute-anchor') AS anchored
         ) SELECT assertions.*,page_snapshot.now,page_snapshot.anchored
           FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE
-          ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+          ORDER BY request_index,property_rank,recorded_sequence::bigint`, selector.recordedAt === undefined ? parameters : [...parameters ?? [], selector.recordedAt]);
       snapshot = result.rows[0];
       return { rows: result.rows.filter(row => row.id !== null) };
     } };

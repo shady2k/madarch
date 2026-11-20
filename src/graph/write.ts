@@ -86,6 +86,7 @@ export function bindWriteCapability(executor:SqlExecutor,binding:WriteCapability
  if(!Number.isSafeInteger(binding.context)||binding.context<1||!binding.scope||!binding.contractVersion)throw new Error(`${WHERE}:22: SOURCE_FORBIDDEN incomplete authenticated capability`);
  bindings.set(executor,Object.freeze({...binding,permissions:binding.permissions.map(permission=>Object.freeze({...permission,properties:Object.freeze([...permission.properties])}))}));
 }
+export function unbindWriteCapability(executor:SqlExecutor):void { bindings.delete(executor); }
 export function boundWriteCapability(executor:SqlExecutor):WriteCapability | undefined { return bindings.get(executor); }
 export function requireWriteCapability(executor:SqlExecutor):WriteCapability {
   const binding=boundWriteCapability(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
@@ -249,14 +250,6 @@ async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContrac
  });
 }
 /** A trusted host births its lineage trio only after all three identities can be named. */
-export async function activateBoundIdentities(executor:SqlExecutor,declared:GraphContract):Promise<void>{
- const binding=requireWriteCapability(executor);const contract=withAssertionContract(declared);checkBinding(binding,contract,binding.context);
- for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid]){
-  const held=(await withSpan('graph.write.activateBoundIdentities', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;active:boolean}>(`SELECT n.id::text,k.name AS kind,graph_vertex_active(n.id,k.name,$2::bigint) AS active FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[uid,binding.context]))).rows[0];
-  if(!held)throw new Error(`${WHERE}:57: TARGET_MISSING authenticated lineage ${uid}`);
-  if(!held.active)await writeAssertion(executor,contract,{sort:'vertex',kind:held.kind,subjectId:held.id,property:'$exists',operation:'assert',value:true},binding.context);
- }
-}
 function edgeUid(kind:string,fromUid:string,toUid:string,discriminator:string):string{return keyUid(keyUid('madarch.catalogue.kind',[kind]),[fromUid,toUid,discriminator]);}
 async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,discriminator:string,context:number):Promise<string>{
  return await withSpan('graph.write.putEdge',{},async()=>{

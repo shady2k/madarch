@@ -6,7 +6,7 @@ import { EMPTY_CONTRACT, assertionValueTableName, type EdgeDraft, type EntityRef
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { startupBinding } from './manifest-publication.js';
-import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, type WriteCapability } from './write.js';
+import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, unbindWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 import { readKindAssertions as readAssertions, type AssertionRecord } from './records.js';
 import { byCodePoint } from '../model/order.js';
@@ -182,7 +182,7 @@ export async function bindFillStateIn(tx: SqlExecutor, declared: GraphContract =
  let bindings=transactionBindings.get(tx);
  if(!bindings){bindings=new Map();transactionBindings.set(tx,bindings);}
  let binding=bindings.get(declared);
- if(!binding){binding=(await startupBinding(tx,declared,'fill-state')).binding;bindings.set(declared,binding);}
+ if(!binding){binding=(await startupBinding(tx,declared,'fill-state',undefined,context?.operationUid)).binding;bindings.set(declared,binding);}
  const held={...binding,context:assertionContext,...(context?{operationUid:context.operationUid,unitUid:context.unitUid}:{})};
  bindWriteCapability(tx,held);
  return held;
@@ -195,6 +195,7 @@ export async function withFillStateIn<R>(tx: SqlExecutor, declared: GraphContrac
     return await work();
   } finally {
     if (previous !== undefined) bindWriteCapability(tx, previous);
+    else unbindWriteCapability(tx);
   }
 }
 export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[] = [], context?: GraphWriteContext): Promise<void> {
@@ -309,7 +310,7 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
     const current = await readChainIn(tx,options.product); if (!current) raise(`graph system.chain: no chain for ${options.product}`);
     const step=chainMachine.step(current.record,options.event); if(!step.ok)return {ok:false,record:current.record,refusal:step.refusal} as const;
     await putFillVertexIn(tx,'system.chain',current.node.uid,{state:step.state,updated_at:options.event.at});
-    await bindFillStateIn(tx);
+    await withFillStateIn(tx,contract,undefined,async()=>{
     // The chain's own edges: the run it followed, and the runs it has made.
     for(const held of await edgeRowsIn(tx,'system.chain-active-run','from',[current.node.id])){
       const target=(await readRecordsIn(tx,'vertex','system.run',['run_name'],[held.to]))[0];
@@ -317,6 +318,7 @@ export async function advanceChain(database: FillStateDatabase, options:{readonl
       await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edgeRemovals:[{...fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)}]});
     }
     if(step.context.activeRunId!==null){const target=await runNode(tx,step.context.activeRunId);if(!target)raise(`graph system.run: no run ${step.context.activeRunId}`);await publishGraphDrafts(tx,contract,{vertices:[],removals:[],edges:[fillEdge('system.chain-active-run','system.chain',current.node.uid,'system.run',target.uid)]});}
+    });
     await journal(tx,'chain',current.node.uid,step.transition,current.record.state,step.state,options.event.type,options.event.at);
     return {ok:true,record:{...current.record,state:step.state,context:step.context,updatedAt:options.event.at},transition:step.transition,effects:step.effects} as const;
   },'write');

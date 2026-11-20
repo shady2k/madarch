@@ -462,8 +462,8 @@ for (const boundary of [2, 3]) {
       const interrupted: typeof owner = { ...owner, transaction: (kind, body, options) => owner.transaction(kind, async tx => {
         const query = tx.query;
         tx.query = async (sql, values) => {
-          // Each startup binding first looks up the installation's single product.
-          if (sql.includes("WHERE k.name='system.product' ORDER BY n.uid") && ++bindings === boundary) {
+          // Each startup binding reads product and plugin identities together.
+          if (sql.includes("WHERE k.name IN ('system.product','plugin')") && ++bindings === boundary) {
             controller.abort(new Error('injected boundary abort'));
             controller.signal.throwIfAborted();
           }

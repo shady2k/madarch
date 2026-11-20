@@ -6,7 +6,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
-import { acquireGraphWriteLock, activateBoundIdentities, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, type WriteCapability } from '../graph/write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRefs, writeAssertion, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
@@ -46,37 +46,56 @@ export interface ValidatedManifests {
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
 
 /** Trusted core startup installs the engine as an actual plugin, never a parallel principal kind. */
-export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions']): Promise<{ contract: GraphContract; binding: WriteCapability }> {
-  const contract = withAssertionContract(declared);
-  await acquireGraphWriteLock(tx);
-  await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]));
-  const products = await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ uid: string }>("SELECT n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.product' ORDER BY n.uid"));
-  if (products.rows.length > 1) throw new Error(`${import.meta.path}:49: installation has more than one product identity`);
-  const productUid = products.rows[0]?.uid ?? newUid();
-  await bootstrapWriteIdentity(tx, 'system.product', productUid, productUid);
-  const installation = JSON.stringify(['system-engine', producer]);
-  const plugins = (await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'scope'], await publicationReadSelector(tx, contract))).filter(record => record.values['installation'] === installation && record.values['scope'] === productUid);
-  if (plugins.length > 1) throw new Error(`${import.meta.path}:56: ambiguous installed engine plugin ${producer}`);
-  const sourceUid = plugins[0]?.uid ?? newUid();
-  const operationUid = newUid();
-  for (const [kind, uid] of [['plugin', sourceUid], ['system.operation', operationUid]] as const) await bootstrapWriteIdentity(tx, kind, uid, productUid);
-  const hostPermissions = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
-  const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: graphContractVersion(contract), permissions: permissions ?? hostPermissions };
-  bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
-  await activateBoundIdentities(tx, contract);
-  for (const [kind, uid] of [['system.product', productUid], ['plugin', sourceUid], ['system.operation', operationUid]] as const) {
-    const subject = (await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1::uuid', [uid]))).rows[0]!;
-    await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property: '$exists', operation: 'assert', value: true });
-    if (kind === 'system.operation') await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
-      kind: 'system.operation-author', from: { kind, uid: operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
-      producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
-    }] });
-    if (kind === 'plugin') for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
-      await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: subject.id, property, operation: 'assert', value });
+export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
+  return await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => {
+    const contract = withAssertionContract(declared);
+    await acquireGraphWriteLock(tx);
+    await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]);
+    const identities = (await tx.query<{ id: string; uid: string; key: Record<string, unknown>; kind: string }>(
+      "SELECT n.id::text,n.uid::text,n.key,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name IN ('system.product','plugin') ORDER BY n.uid")).rows;
+    const products = identities.filter(row => row.kind === 'system.product');
+    if (products.length > 1) throw new Error(`${import.meta.path}:54: installation has more than one product identity`);
+    const productUid = products[0]?.uid ?? newUid();
+    const installation = JSON.stringify(['system-engine', producer]);
+    const records = await readKindsAssertions(tx, [
+      { sort: 'vertex', kind: 'system.product', fields: [], identities: products.map(row => ({ ...row, id: Number(row.id) })) },
+      { sort: 'vertex', kind: 'plugin', fields: ['installation', 'scope', 'version', 'label'], identities: identities.filter(row => row.kind === 'plugin').map(row => ({ ...row, id: Number(row.id) })) },
+    ], await publicationReadSelector(tx, contract));
+    const plugins = records[1]!.filter(record => record.values['installation'] === installation && record.values['scope'] === productUid);
+    if (plugins.length > 1) throw new Error(`${import.meta.path}:62: ambiguous installed engine plugin ${producer}`);
+    const plugin = plugins[0];
+    const sourceUid = plugin?.uid ?? newUid();
+    const ownsOperation = operationUid === undefined;
+    operationUid ??= newUid();
+    const missing = [
+      ...(products.length === 0 ? [['system.product', productUid] as const] : []),
+      ...(plugin === undefined ? [['plugin', sourceUid] as const] : []),
+      ...(ownsOperation ? [['system.operation', operationUid] as const] : []),
+    ];
+    for (const [kind, uid] of missing) await bootstrapWriteIdentity(tx, kind, uid, productUid);
+    const made = missing.length === 0 ? [] : (await tx.query<{ id: string; uid: string }>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])', [missing.map(([, uid]) => uid)])).rows;
+    const ids = new Map([...identities, ...made].map(row => [row.uid, row.id]));
+    const hostPermissions = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
+    const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: graphContractVersion(contract), permissions: permissions ?? hostPermissions };
+    bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
+    const assert = async (kind: string, uid: string, property: string, value: unknown): Promise<void> => {
+      await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: ids.get(uid)!, property, operation: 'assert', value });
+    };
+    if ((records[0]![0]?.activeSources.length ?? 0) === 0) await assert('system.product', productUid, '$exists', true);
+    if (!plugin?.activeSources.includes(sourceUid)) await assert('plugin', sourceUid, '$exists', true);
+    if (ownsOperation) {
+      await assert('system.operation', operationUid, '$exists', true);
+      await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
+        kind: 'system.operation-author', from: { kind: 'system.operation', uid: operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
+        producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
+      }] });
     }
-  }
-  bindWriteCapability(tx, binding);
-  return { contract, binding };
+    for (const [property, value] of Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })) {
+      if (!plugin?.selectedAssertions.some(assertion => assertion.property === property && assertion.source === sourceUid && assertion.value === value)) await assert('plugin', sourceUid, property, value);
+    }
+    bindWriteCapability(tx, binding);
+    return { contract, binding };
+  });
 }
 
 /** Only trusted manifest/start code receives broad host permissions. */

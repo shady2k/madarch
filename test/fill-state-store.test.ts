@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, bindFillStateIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, advanceUnitIn, readUnitIn, createRun, createUnit, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGeneration } from '../src/graph/fill-state.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';
@@ -145,8 +145,6 @@ describe('a unit generation', () => {
       const at = NOW + attempt * 10;
       const retried = await database.transaction('write', async tx => {
         const installed = await startupBinding(tx, database.graphContract, 'retry-operation-fixture');
-        // Without this warm-up the first bindFillStateIn opens an extra operation; ALX-616 removes it.
-        await bindFillStateIn(tx, installed.contract);
         const unitUid = (await readUnitGraphUidIn(tx, unitId))!;
         const caller = { ...installed.binding, unitUid, permissions: [] };
         bindWriteCapability(tx, caller);
