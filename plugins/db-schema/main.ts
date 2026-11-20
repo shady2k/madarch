@@ -952,6 +952,7 @@ const CONTRACT = {
       to: COLUMN_KIND,
       fields: [
         field('constraint', 'text', 'The name the SQL gives the foreign key, when it names one.', 'edge_kind_id_fkey', false),
+        field('target_column', 'text', 'The referenced column name.', 'id', true),
       ],
     },
     { cardinality:{from:'many',to:'many'},labels:{en:{out:'declared in',in:'declares'},ru:{out:'объявлена в',in:'объявляет'}}, kind: DECLARED_IN, from: TABLE_KIND, to: 'code.file' },

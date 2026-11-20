@@ -371,6 +371,13 @@
             "meaning": "The name the SQL gives the foreign key, when it names one.",
             "example": "edge_kind_id_fkey",
             "required": false
+          },
+          {
+            "name": "target_column",
+            "type": "text",
+            "meaning": "The referenced column name.",
+            "example": "id",
+            "required": true
           }
         ]
       },
