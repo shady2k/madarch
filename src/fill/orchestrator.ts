@@ -3,6 +3,7 @@ import { RUN_JOB_HEARTBEAT_SECONDS, UNIT_JOB_ATTEMPT_SECONDS } from './queue-lim
 /** Queue-driven fill scheduling. Accepted graph operations commit immediately; terminal receipts settle claims. */
 import type {StageContext,StageExecutionResult,StageGraphReader,StageUnitTools,ResolvedStageConfiguration} from './stage.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
+import { errorText } from '../model/error-text.js';
 import { producerSucceeded } from './producer-outcomes.js';
 import { ClosureRefusal } from '../plugin/closure-refusal.js';
 import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
@@ -1690,7 +1691,7 @@ async function attemptUnitPhases(
         result = { outcome: 'blocked', reason: error.message };
       } else if (error instanceof UnitBoundStop) {
         bound = error;
-      } else raised = error as Error;
+      } else raised = error instanceof Error ? error : new Error(errorText(error));
     } finally {
       await executionReader.close();
       tools?.close();

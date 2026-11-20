@@ -761,6 +761,51 @@ describe('publication: exactly once per generation', () => {
 
   });
 
+describe('the words of what a stage raised', () => {
+  /** A stage that plans one unit and throws exactly the value the test gives it: a stage is code madarch runs but does not write, so its throw may be any value. */
+  function throwingStage(thrown: unknown): FillStage {
+    return fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: () => { throw thrown; },
+    });
+  }
+
+  /** The `unit-failed` summary the sink heard and the one the run's journal keeps, for a stage that threw `thrown`. */
+  async function failedSummaries(thrown: unknown): Promise<{ readonly event: string; readonly journal: string }> {
+    const heard: string[] = [];
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(throwingStage(thrown)),
+      limits: { retries: 0, retryDelayMs: 0 },
+      sink: (event) => { if (event.kind === 'unit-failed') heard.push(event.summary); },
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('failed');
+    const journal = (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-failed');
+    expect(journal).toHaveLength(1);
+    expect(heard).toHaveLength(1);
+    return { event: heard[0]!, journal: journal[0]!.summary };
+  }
+
+  test('a thrown object is named by its code and its message, never by `[object Object]`', async () => {
+    const words = 'the plugin refused git:code.commit: its contract names no producer';
+    const { event, journal } = await failedSummaries({ code: 'plugin-refused', message: words });
+    for (const summary of [event, journal]) {
+      expect(summary).toContain('plugin-refused');
+      expect(summary).toContain(words);
+      expect(summary).not.toContain('[object Object]');
+    }
+  }, 30_000);
+
+  test('a thrown string stands as its own words, and the run never says the stage answered nothing', async () => {
+    const words = 'the plugin refused git:code.commit: its contract names no producer';
+    const { event, journal } = await failedSummaries(words);
+    for (const summary of [event, journal]) {
+      expect(summary).toContain(words);
+      expect(summary).not.toContain('it answered nothing');
+    }
+  }, 30_000);
+});
+
 describe('cancellation, pause and stop', () => {
   /** A stage that reports it is running and then waits for the attempt's own cancellation. */
   function waitingStage(): { stage: FillStage; reached: Promise<void> } {
