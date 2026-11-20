@@ -375,10 +375,11 @@ export async function recordRunStagePlanned(database:OrchestratorDatabase,option
  await child(tx,'system.run-stage','system.run-stage-run','system.run',uid,{stage_name:options.stageId,planned_at:options.at,units:options.units,publications:options.publications},rows.find(row=>row.values.stage_name===options.stageId)?.uid);
  return {runId:options.runId,stageId:options.stageId,plannedAt:options.at,units:options.units,publications:options.publications};
 });}
-export async function readRunStagePlans(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunStageRecord[]>{return snapshotTransaction(database,async tx=>{
+async function runStagePlansIn(tx:SqlExecutor,runId:string):Promise<readonly RunStageRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
-});}
+}
+export async function readRunStagePlans(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunStageRecord[]>{return snapshotTransaction(database,tx=>runStagePlansIn(tx,runId));}
 /** A run's units, from the run: its own `system.unit-run` edges name them. */
 async function runUnits(tx:SqlExecutor,runId:string):Promise<AssertionRecord[]>{
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
@@ -404,6 +405,15 @@ export async function readRunPublicationStages(database:FillStateSnapshotDatabas
  const groups=new Map<string,number>();for(const row of await publications(tx,runId))groups.set(row.stageId,(groups.get(row.stageId)??0)+1);
  return [...groups].sort(([a],[b])=>byCodePoint(a,b)).map(([stageId,publications])=>({stageId,publications}));
 });}
+export async function readRunPlanningSnapshot(database:FillStateSnapshotDatabase,runId:string){
+ return snapshotTransaction(database,async tx=>{
+  const attempts=await runStagePlansIn(tx,runId);
+  const published=await publications(tx,runId);
+  const groups=new Map<string,number>();
+  for(const row of published)groups.set(row.stageId,(groups.get(row.stageId)??0)+1);
+  return {attempts,stages:[...groups].sort(([a],[b])=>byCodePoint(a,b)).map(([stageId,publications])=>({stageId,publications})),publications:published.length};
+ });
+}
 export async function readRunPublicationCount(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).length);}
 export async function readRunPublicationFacts(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).reduce((sum,row)=>sum+row.record.facts,0));}
 async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitPlanRecord|null>{
