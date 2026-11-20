@@ -16,10 +16,6 @@ export function canonicalJsonDigest(value: unknown): string {
 
 /** The value's canonical JSON text, or the refusal naming where the value is not JSON. */
 export function canonicalJson(value: unknown, path = ''): string {
-  return canonicalJsonAt(value, path, new Set());
-}
-
-function canonicalJsonAt(value: unknown, path: string, ancestors: Set<object>): string {
   if (value === null) return 'null';
   switch (typeof value) {
     case 'string':
@@ -33,20 +29,12 @@ function canonicalJsonAt(value: unknown, path: string, ancestors: Set<object>): 
     case 'boolean':
       return value ? 'true' : 'false';
     case 'object':
-      if (ancestors.has(value)) throw new Error(notJson(path, 'a cycle'));
-      ancestors.add(value);
-      try {
-        if (Array.isArray(value)) {
-          const entries: string[] = [];
-          for (let index = 0; index < value.length; index += 1) {
-            if (!Object.hasOwn(value, index)) throw new Error(notJson(`${path}/${index}`, 'a missing array element'));
-            entries.push(canonicalJsonAt(value[index], `${path}/${index}`, ancestors));
-          }
-          return `[${entries.join(',')}]`;
-        }
-        if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error(notJson(path, 'a non-plain object'));
-        return `{${Object.keys(value).sort(byCodePoint).map((key) => `${JSON.stringify(key)}:${canonicalJsonAt((value as Record<string, unknown>)[key], `${path}/${key}`, ancestors)}`).join(',')}}`;
-      } finally { ancestors.delete(value); }
+      return Array.isArray(value)
+        ? `[${value.map((each, index) => canonicalJson(each, `${path}/${index}`)).join(',')}]`
+        : `{${Object.keys(value)
+            .sort(byCodePoint)
+            .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key], `${path}/${key}`)}`)
+            .join(',')}}`;
     default:
       throw new Error(notJson(path, typeof value));
   }

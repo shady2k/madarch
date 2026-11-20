@@ -1,32 +1,29 @@
-/**
- * The words a thrown value carries (ALX-649). A stage, a plugin or an agent is code
- * madarch runs but does not write, so a throw from it may be any value, not an `Error`:
- * an `Error` answers its message as before, a string stands as itself, a value that
- * names a `code` and a `message` — the shape the plugin host throws — answers
- * `code: message`, and every other value is written as canonical JSON — or, where
- * JSON cannot hold it, as its inspected shape. A journal or a report that asks this
- * helper never says `[object Object]`.
- */
-import { inspect } from 'node:util';
-import { canonicalJson } from './canonical.js';
+import { inspect, types } from 'node:util';
 
-/** The words `thrown` carries, for a place that must name what a stage or a plugin raised. */
+/** The words a stage or a plugin raised, without letting its formatting raise again. */
 export function errorText(thrown: unknown): string {
+  if (typeof thrown === 'string') return thrown;
   try {
-    if (thrown instanceof Error) return thrown.message;
-    if (typeof thrown === 'string') return thrown;
-    if (thrown !== null && typeof thrown === 'object') {
-      const held = thrown as { readonly code?: unknown; readonly message?: unknown };
-      if (typeof held.message === 'string') return typeof held.code === 'string' && held.code !== '' ? `${held.code}: ${held.message}` : held.message;
-      try {
-        return canonicalJson(thrown);
-      } catch {
-        return inspect(thrown, { depth: 2, breakLength: Infinity, sorted: true, customInspect: false });
+    // Inspect proxies directly: even checking their message can invoke a trap.
+    if (!types.isProxy(thrown)) {
+      if (Error.isError(thrown)) {
+        const message: unknown = thrown.message;
+        if (typeof message === 'string') return message;
+      } else if (thrown !== null && typeof thrown === 'object') {
+        const held = thrown as { readonly code?: unknown; readonly message?: unknown };
+        const message = held.message;
+        if (typeof message === 'string') {
+          const code = held.code;
+          return typeof code === 'string' && code !== '' ? `${code}: ${message}` : message;
+        }
       }
     }
-    return typeof thrown === 'bigint' ? `${thrown}n` : String(thrown);
   } catch {
-    try { return thrown !== null && typeof thrown === 'object' ? Object.getPrototypeOf(thrown)?.constructor?.name ?? 'object' : typeof thrown; }
-    catch { return 'unprintable thrown value'; }
+    // A getter that refuses to answer is still visible in the inspected shape.
+  }
+  try {
+    return inspect(thrown, { customInspect: false, getters: false, showProxy: true, depth: 4, breakLength: Infinity, sorted: true });
+  } catch {
+    return `an unprintable thrown ${typeof thrown}`;
   }
 }

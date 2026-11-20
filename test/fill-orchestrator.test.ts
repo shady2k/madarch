@@ -797,10 +797,22 @@ describe('the words of what a stage raised', () => {
   }, 30_000);
 
   test('formatting failures preserve the original stage failure and journal unit-failed', async () => {
-    const thrown = Object.defineProperty({}, 'message', { get() { throw new Error('getter failed'); } });
+    const thrown = Object.defineProperty({}, 'message', { enumerable: true, get() { throw new Error('getter failed'); } });
     const result = await failedSummaries(thrown);
-    expect(result.event).toContain('Object');
-    expect(result.journal).toContain('Object');
+    expect(result.event).toContain('message: [Getter]');
+    expect(result.journal).toContain('message: [Getter]');
+  }, 30_000);
+
+  test('a throwing Proxy still records unit-failed in the sink and journal', async () => {
+    const thrown = new Proxy({}, new Proxy({}, { get() { return () => { throw new Error('trap failed'); }; } }));
+    const result = await failedSummaries(thrown);
+    expect(result.event).toContain('Proxy [');
+    expect(result.journal).toContain('Proxy [');
+  }, 30_000);
+
+  test('an Error with a throwing message getter still records unit-failed', async () => {
+    const thrown = Object.defineProperty(new Error(), 'message', { get() { throw new Error('getter failed'); } });
+    await failedSummaries(thrown);
   }, 30_000);
 
   test('a thrown string stands as its own words, and the run never says the stage answered nothing', async () => {
@@ -2046,9 +2058,8 @@ describe('immediate operation transactions (decision 0039)', () => {
     expect(heartbeats).toBe(finished);
   }, 15_000);
 
-  test('heartbeat failure retains the stage error too', async () => {
+  test.each([new Error('stage failed while heartbeat failed'), 'stage failed while heartbeat failed'])('heartbeat failure retains the original stage throw: %s', async stageFailure => {
     const failure = new Error('heartbeat storage failure');
-    const stageFailure = 'stage failed while heartbeat failed';
     let calls = 0;
     const stage = fakeStage('snapshot', {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
@@ -2068,9 +2079,8 @@ describe('immediate operation transactions (decision 0039)', () => {
     let caught: unknown;
     try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(AggregateError);
-    const wrapped = (caught as AggregateError).errors[0] as Error;
-    expect(wrapped).toBeInstanceOf(Error);
-    expect(wrapped.cause).toBe(stageFailure);
+    expect((caught as AggregateError).errors[0]).toBe(stageFailure);
+    expect((caught as AggregateError).message).toBe('the stage raised: stage failed while heartbeat failed; heartbeat failed');
     expect((caught as AggregateError).errors[1]).toBe(failure);
   }, 15_000);
 
