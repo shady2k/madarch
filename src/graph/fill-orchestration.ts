@@ -258,13 +258,13 @@ async function write(tx:SqlExecutor,kind:string,uid:string,values:Record<string,
  const {contract,binding}=await orchestrationBinding(tx);
  await publishGraphDrafts(tx,contract,{vertices:[{kind,uid,key:{},values,producer:binding.sourceUid,producerVersion:binding.contractVersion}],removals:[]});
 }
-async function related(tx:SqlExecutor,kind:string,relation:string,target:string):Promise<AssertionRecord[]>{
+async function related(tx:SqlExecutor,kind:string,relation:string,target:string,properties:readonly string[]=fields[kind]??[]):Promise<AssertionRecord[]>{
   return await withSpan('graph.orchestration.related', {}, async () => {
    const candidates=(await tx.query<{id:number}>(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node WHERE k.name=$1 AND target.uid=$2::uuid ORDER BY e.id`,[relation,target])).rows.map(row=>Number(row.id));
    if(candidates.length===0)return [];
    const edges=await readKindAssertions(tx,'edge',relation,[],undefined,candidates);
    const subjects=[...new Set(edges.map(edge=>edge.from!))];
-   return readKindAssertions(tx,'vertex',kind,fields[kind]??[],undefined,subjects);
+   return readKindAssertions(tx,'vertex',kind,properties,undefined,subjects);
   });
 }
 async function child(tx:SqlExecutor,kind:string,relation:string,targetKind:string,target:string,values:Record<string,unknown>,uid=newUid()):Promise<string>{
@@ -458,7 +458,7 @@ export async function appendProgress(database:OrchestratorDatabase,event:Omit<Fi
 }
 async function appendProgressBatchIn(tx:SqlExecutor,events:readonly Omit<FillProgressEvent,'seq'>[]):Promise<readonly FillProgressEvent[]>{
  await locked(tx);
- const first=events[0]!,uid=await requiredRun(tx,first.runId),existing=await related(tx,'system.progress','system.progress-run',uid);
+ const first=events[0]!,uid=await requiredRun(tx,first.runId),existing=await related(tx,'system.progress','system.progress-run',uid,['seq']);
  let seq=Math.max(0,...existing.map(row=>Number(row.values.seq)));
  const {contract,binding}=await orchestrationBinding(tx);
  const vertices:import('./contract.js').VertexDraft[]=[],edges:import('./contract.js').EdgeDraft[]=[];

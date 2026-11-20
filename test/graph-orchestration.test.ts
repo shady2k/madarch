@@ -38,3 +38,22 @@ test('orchestration records are typed graph facts with one run and unit identity
   expect(tables.rows).toEqual([]);
  }finally{await owner.close();}
 },60000);
+
+test('allocating progress sequences reads only the existing sequence field',async()=>{
+ const owner=await createTestDatabaseOwner();
+ try{
+  await createRun(owner,{runId:'sequence-run',product:'sequence-product',at:1});
+  const event={runId:'sequence-run',at:2,stage:'',unitId:'',generation:null,kind:'run-started' as const,summary:'started'};
+  await appendProgresses(owner,[event]);
+  const progressProperties:string[][]=[];
+  const measured={graphContract:owner.graphContract,transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: (tx: import('../src/history-types.js').OuterTransaction)=>Promise<T>):Promise<T> => owner.transaction(kind,async tx=>work({...tx,query:async <Row extends object>(sql:string,parameters?:readonly unknown[])=>{
+   if(parameters?.includes('system.progress'))for(const value of parameters)if(Array.isArray(value)&&value.includes('seq'))progressProperties.push(value as string[]);
+   return tx.query<Row>(sql,parameters);
+  }}))};
+  const appended=await appendProgresses(measured,[{...event,at:3,summary:'next'}]);
+  expect(appended.map(row=>row.seq)).toEqual([2]);
+  expect(progressProperties.length).toBeGreaterThan(0);
+  expect(progressProperties.every(properties=>properties.every(property=>property==='$exists'||property==='seq'))).toBe(true);
+  expect((await readProgress(owner,'sequence-run')).map(row=>row.summary)).toEqual(['started','next']);
+ }finally{await owner.close();}
+},30_000);
