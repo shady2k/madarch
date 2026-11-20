@@ -4,6 +4,23 @@ import type { GraphContract } from '../../graph/contract.js';
 import { endpointKindNames, assertionValueTableName, type FieldContract } from '../../graph/contract.js';
 import { withAssertionContract } from '../../graph/system-contract.js';
 
+export const GRAPH_CHECK_STATS = `SELECT coalesce(jsonb_object_agg(funcname, counters), '{}'::jsonb) AS stats FROM (
+  SELECT funcname, jsonb_build_object('calls', sum(calls), 'total_ms', sum(total_time), 'self_ms', sum(self_time)) AS counters
+  FROM pg_stat_xact_user_functions WHERE funcname IN ('graph_relations_check', 'graph_checks_pass') GROUP BY funcname
+) functions`;
+
+/** Session-local measurement objects; never part of the prepared product graph or its stamp. */
+export const GRAPH_CHECK_DIAGNOSTIC_SCHEMA = `CREATE TEMP TABLE madarch_graph_check_trace (stats jsonb) ON COMMIT PRESERVE ROWS;
+    CREATE FUNCTION pg_temp.madarch_graph_check_trace() RETURNS trigger LANGUAGE plpgsql AS $trace$
+    DECLARE measured jsonb;
+    BEGIN
+      SELECT stats INTO measured FROM (${GRAPH_CHECK_STATS}) measured_stats;
+      UPDATE pg_temp.madarch_graph_check_trace SET stats = measured;
+      RETURN NULL;
+    END $trace$;
+    CREATE CONSTRAINT TRIGGER madarch_graph_check_trace AFTER INSERT ON madarch_graph_check_trace
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.madarch_graph_check_trace()`;
+
 export const SCHEMA_REVISION = 10;
 export const METADATA_SCHEMA = [
   'CREATE SCHEMA IF NOT EXISTS madarch_meta',

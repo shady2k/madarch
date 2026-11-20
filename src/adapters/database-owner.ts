@@ -33,7 +33,9 @@ import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, types } from 'pg';
+import { loadModule, scanSync } from 'libpg-query';
 import { withSpan, withSpanSync } from '../obs/trace.js';
+import { GRAPH_CHECK_STATS, GRAPH_CHECK_DIAGNOSTIC_SCHEMA } from './schemas/graph-definition.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
 import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
@@ -105,10 +107,6 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
 }
 
 /** Opt-in diagnostics: capture deferred function counters before COMMIT resets transaction statistics. */
-const GRAPH_CHECK_STATS = `SELECT coalesce(jsonb_object_agg(funcname, counters), '{}'::jsonb) AS stats FROM (
-  SELECT funcname, jsonb_build_object('calls', sum(calls), 'total_ms', sum(total_time), 'self_ms', sum(self_time)) AS counters
-  FROM pg_stat_xact_user_functions WHERE funcname IN ('graph_relations_check', 'graph_checks_pass') GROUP BY funcname
-) functions`;
 const graphDiagnosticClients = new WeakSet<Client>();
 type GraphCheckStats = Record<string, { calls: number; total_ms: number; self_ms: number }>;
 
@@ -116,17 +114,19 @@ async function prepareGraphDiagnostics(client: Client): Promise<void> {
   if (graphDiagnosticClients.has(client)) return;
   // Session-local objects, created outside the business transaction. The last queued row samples the graph's
   // completed deferred triggers while their transaction counters still exist; no graph constraint is fired early.
-  await client.query(`CREATE TEMP TABLE madarch_graph_check_trace (stats jsonb) ON COMMIT PRESERVE ROWS;
-    CREATE FUNCTION pg_temp.madarch_graph_check_trace() RETURNS trigger LANGUAGE plpgsql AS $trace$
-    DECLARE measured jsonb;
-    BEGIN
-      SELECT stats INTO measured FROM (${GRAPH_CHECK_STATS}) measured_stats;
-      UPDATE pg_temp.madarch_graph_check_trace SET stats = measured;
-      RETURN NULL;
-    END $trace$;
-    CREATE CONSTRAINT TRIGGER madarch_graph_check_trace AFTER INSERT ON madarch_graph_check_trace
-      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.madarch_graph_check_trace()`);
+  await withSpan('db.diagnostic.setup', { 'db.system': 'postgres', 'db.diagnostic.statements': 3 }, async () => {
+    await loadModule();
+    await client.query(GRAPH_CHECK_DIAGNOSTIC_SCHEMA);
+  });
   graphDiagnosticClients.add(client);
+}
+
+/** PostgreSQL's lexer recognizes comments and whitespace without a second SQL grammar. */
+function setsConstraints(sql: string): boolean {
+  try {
+    const tokens = (scanSync(sql).tokens ?? []).filter(token => token.tokenName !== 'C_COMMENT' && token.tokenName !== 'SQL_COMMENT');
+    return tokens[0]?.text.toUpperCase() === 'SET' && tokens[1]?.text.toUpperCase() === 'CONSTRAINTS';
+  } catch { return false; } // Let PostgreSQL report malformed SQL through the normal statement path.
 }
 
 function graphCheckAttributes(before: GraphCheckStats, after: GraphCheckStats): Record<string, number> {
@@ -371,11 +371,7 @@ class PostgresOwner implements DatabaseOwner {
         signal.throwIfAborted();
       }
       const graphDiagnostics = kind === 'write' && process.env['MADARCH_TRACE_GRAPH_CHECKS'] === '1';
-      if (graphDiagnostics && !graphDiagnosticClients.has(client)) {
-        await withSpan('db.diagnostic.setup', { 'db.system': 'postgres', 'db.diagnostic.statements': 3 }, async () => {
-          await this.named(async () => await prepareGraphDiagnostics(client));
-        });
-      }
+      if (graphDiagnostics) await this.named(async () => await prepareGraphDiagnostics(client));
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
@@ -411,7 +407,7 @@ class PostgresOwner implements DatabaseOwner {
             const answer = tail.then(async () => {
               signal?.throwIfAborted();
               statements += 1;
-              const result = graphDiagnostics && /^\s*SET\s+CONSTRAINTS\b/iu.test(sql)
+              const result = graphDiagnostics && setsConstraints(sql)
                 ? await withSpan('db.constraints', { 'db.system': 'postgres' }, async (constraintSpan) => {
                   const before = await readGraphStats();
                   try { return await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts); }
