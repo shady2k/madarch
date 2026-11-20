@@ -19,11 +19,14 @@ test('an orchestration step takes one graph lock and at most thirty-five stateme
   let databaseMs=0;
   const original=Client.prototype.query;
   const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
-   if(typeof args[0]==='string'){
-    statements.push(args[0]);
-    if(args[0].startsWith('BEGIN')){stepClient=this;inTransaction.add(this);}
-    if(args[0]==='SELECT pg_advisory_xact_lock($1::bigint)'&&inTransaction.has(this)&&(args[1] as readonly unknown[]|undefined)?.[0]===739251902)locks.push(this);
-    if(/^(COMMIT|ROLLBACK)/.test(args[0]))inTransaction.delete(this);
+   const config=args[0] as string|{text:string;values?:readonly unknown[]};
+   const sql=typeof config==='string'?config:config.text;
+   const values=typeof config==='string'?args[1]:config.values;
+   if(typeof sql==='string'){
+    statements.push(sql);
+    if(sql.startsWith('BEGIN')){stepClient=this;inTransaction.add(this);}
+    if(sql==='SELECT pg_advisory_xact_lock($1::bigint)'&&inTransaction.has(this)&&(values as readonly unknown[]|undefined)?.[0]===739251902)locks.push(this);
+    if(/^(COMMIT|ROLLBACK)/.test(sql))inTransaction.delete(this);
    }
    const start=performance.now();
    return Reflect.apply(original,this,args).finally(()=>{databaseMs+=performance.now()-start;});

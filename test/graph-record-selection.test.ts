@@ -35,8 +35,19 @@ async function executor(values: readonly { property: string; value: unknown; ope
       const raw = `SELECT * FROM jsonb_to_recordset($1::jsonb) AS fixture(request_index integer, property_rank integer, id text, subject_id bigint, original_subject_id bigint, subject_uid text, edge_from text, edge_to text, property text, context_id bigint, language text, source text, author text, unit text, operation_uid text, evidence jsonb, value jsonb, operation text, valid_from timestamptz, valid_to timestamptz, recorded_at timestamptz, recorded_sequence text)`;
       const start = sql.indexOf('raw AS MATERIALIZED (') + 'raw AS MATERIALIZED ('.length;
       const end = sql.indexOf('), eligible AS (', start);
-      const selectedSql = sql.slice(0, start) + raw + sql.slice(end);
-      return await owner.run(tx => tx.query<Row>(selectedSql.replaceAll('transaction_timestamp()', `'${now}'::timestamptz`), [JSON.stringify(rows)]));
+      const selectedSql = sql.slice(0, start) + raw.replace('$1::jsonb', `$${(parameters?.length ?? 0)+1}::jsonb`) + sql.slice(end);
+      const values: unknown[] = [];
+      const positions = new Map<string, string>();
+      const boundSql = selectedSql.replace(/\$(\d+)/g, (_match, index: string) => {
+        let position = positions.get(index);
+        if (position === undefined) {
+          values.push(Number(index) === (parameters?.length ?? 0)+1 ? JSON.stringify(rows) : parameters![Number(index)-1]);
+          position = `$${values.length}`;
+          positions.set(index, position);
+        }
+        return position;
+      });
+      return await owner.run(tx => tx.query<Row>(boundSql.replaceAll('transaction_timestamp()', `'${now}'::timestamptz`), values));
     }
     return { rows: rows as Row[] };
   } };

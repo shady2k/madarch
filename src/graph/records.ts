@@ -35,14 +35,18 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
   return await withSpan('graph.records.batch', {}, async () => {
     const suppliedIdentities = requests.every(request => request.identities !== undefined);
     const hasMerges = suppliedIdentities || (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
-    const context = Number(selector.contexts?.[0] ?? 1);
-    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : "'" + value.replaceAll("'", "''") + "'::timestamptz";
-    const valid = instant(selector.validAt);
-    const recorded = instant(selector.recordedAt);
-    const canonical = (id: string): string => hasMerges ? `graph_merge_target(${id},${context},${valid},${recorded})` : id;
+    const parameters: unknown[] = [];
+    const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
+    let contextParameter: string | undefined;
+    const context = (): string => contextParameter ??= param(selector.contexts?.[0] ?? 1) + '::bigint';
+    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : param(value) + '::timestamptz';
+    let validParameter: string | undefined;
+    let recordedParameter: string | undefined;
+    const valid = (): string => validParameter ??= instant(selector.validAt);
+    const recorded = (): string => recordedParameter ??= instant(selector.recordedAt);
+    const canonical = (id: string): string => hasMerges ? `graph_merge_target(${id},${context()},${valid()},${recorded()})` : id;
     type Identity = { id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string };
     const identities: Identity[][] = requests.map(request => [...request.identities ?? []]);
-    const parameters: unknown[] = [];
     const statements = requests.flatMap((request,index) => {
       if (request.identities !== undefined || request.subjectIds?.length === 0 || request.subjectUids?.length === 0) return [];
       parameters.push(request.kind);
@@ -50,7 +54,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       if (request.subjectIds !== undefined) { parameters.push(request.subjectIds); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM unnest($${parameters.length}::bigint[]) requested(id))` : `n.id=ANY($${parameters.length}::bigint[])`); }
       if (request.subjectUids !== undefined) { parameters.push(request.subjectUids); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM node requested WHERE requested.uid=ANY($${parameters.length}::uuid[]))` : `n.uid=ANY($${parameters.length}::uuid[])`); }
       if (request.sort === 'vertex' && hasMerges) where.push(`${canonical('n.id')}=n.id`);
-      return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : hasMerges ? `graph_effective_edges(${context},${valid},${recorded})` : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
+      return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : hasMerges ? `graph_effective_edges(${context()},${valid()},${recorded()})` : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
     });
     if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
     const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));

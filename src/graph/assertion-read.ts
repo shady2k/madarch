@@ -30,26 +30,31 @@ export interface AssertionSqlSelector {
 }
 
 /** Item 25: pin the base, choose the nearest source layer, then recorded and valid-time order. */
-export function assertionSelectionSql(raw: string, selector: AssertionSqlSelector = {}): string {
+export function assertionSelectionSql(raw: string, selector: AssertionSqlSelector = {}, parameter?: (value: unknown) => string): string {
   const quote = (value: string): string => "'" + value.replaceAll("'", "''") + "'";
   for (const at of [selector.validAt, selector.recordedAt]) if (at !== undefined && !Number.isFinite(Date.parse(at))) throw new Error(`${import.meta.path}:37: invalid temporal selector ${JSON.stringify(at)}`);
   const contexts = selector.contexts ?? [1];
   if (contexts.length === 0 || contexts.some(id => !Number.isSafeInteger(id))) throw new Error(`${import.meta.path}:39: invalid context selector`);
+  const bind = parameter ?? ((value: unknown) => typeof value === 'number' ? String(value) : quote(String(value)));
+  const array = (values: readonly unknown[], type: string): string => parameter ? `${parameter(values)}::${type}[]` : `ARRAY[${values.map(value => quote(String(value))).join(',')}]::${type}[]`;
   const currentTime = selector.currentStatement === true ? 'statement_timestamp()' : 'transaction_timestamp()';
-  const valid = selector.validAt === undefined ? currentTime : `${quote(selector.validAt)}::timestamptz`;
-  const recorded = selector.recordedAt === undefined ? currentTime : `${quote(selector.recordedAt)}::timestamptz`;
-  const fences = Object.entries(selector.contextRecordedThrough ?? {}).filter(([,seq]) => seq !== null).map(([id,seq]) => {
+  const valid = selector.validAt === undefined ? currentTime : `${bind(selector.validAt)}::timestamptz`;
+  const recorded = selector.recordedAt === undefined ? currentTime : `${bind(selector.recordedAt)}::timestamptz`;
+  const cutoffs = Object.entries(selector.contextRecordedThrough ?? {}).filter(([,seq]) => seq !== null).map(([id,seq]) => {
     if (!Number.isSafeInteger(Number(id)) || BigInt(seq!) < 0n) throw new Error(`${import.meta.path}:44: invalid context recorded cutoff`);
-    return `(r.context_id<>${Number(id)} OR r.recorded_sequence::bigint<=${BigInt(seq!)})`;
-  }).join(' AND ') || 'TRUE';
+    return { context: Number(id), sequence: BigInt(seq!).toString() };
+  });
+  const fences = parameter
+    ? `NOT EXISTS(SELECT 1 FROM jsonb_to_recordset(${parameter(JSON.stringify(cutoffs))}::jsonb) fence(context bigint,sequence bigint) WHERE fence.context=r.context_id AND r.recorded_sequence::bigint>fence.sequence)`
+    : cutoffs.map(fence => `(r.context_id<>${fence.context} OR r.recorded_sequence::bigint<=${fence.sequence})`).join(' AND ') || 'TRUE';
   return `WITH RECURSIVE context_path AS (
-    SELECT id,parent,parent_recorded_seq,0 AS layer,NULL::bigint AS cutoff FROM context WHERE id=${contexts[0]}
+    SELECT id,parent,parent_recorded_seq,0 AS layer,NULL::bigint AS cutoff FROM context WHERE id=${bind(contexts[0])}
     UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,p.layer+1,least(p.cutoff,p.parent_recorded_seq)
     FROM context c JOIN context_path p ON c.id=p.parent
   ), raw AS MATERIALIZED (${raw}), eligible AS (
     SELECT r.request_index,r.subject_id,${selector.projectMergedSubjects ? 'r.original_subject_id' : 'r.subject_id'} AS original_subject_id,r.property,r.language,r.source,r.id,r.operation,r.valid_from,r.valid_to,r.recorded_sequence,p.layer
     FROM raw r JOIN context_path p ON p.id=r.context_id
-    WHERE ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(ARRAY[${selector.unitUids.map(quote).join(',')}]::uuid[]))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(ARRAY[${selector.sourceUids.map(quote).join(',')}]::text[])`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences}
+    WHERE ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(${array(selector.unitUids,'uuid')}))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(${array(selector.sourceUids,'text')})`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences}
   ), layers AS (
     SELECT eligible.*,min(layer) OVER (PARTITION BY request_index,original_subject_id,property,language,source) AS nearest FROM eligible
   ), streams AS (
@@ -58,7 +63,7 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
     ORDER BY request_index,original_subject_id,property,language,source,recorded_sequence::bigint DESC,id COLLATE "C" DESC
   ), selected AS (
     SELECT DISTINCT ON (request_index,subject_id,property,language) * FROM streams WHERE operation='assert'
-    ORDER BY request_index,subject_id,property,language,(id=ANY(ARRAY[${(selector.resolvedAssertionIds ?? []).map(quote).join(',')}]::text[])) DESC,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
+    ORDER BY request_index,subject_id,property,language,(id=ANY(${array(selector.resolvedAssertionIds ?? [],'text')})) DESC,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
   ) SELECT raw.*,active_stream.id IS NOT NULL AS active,selected_stream.id IS NOT NULL AS selected
     FROM raw
     LEFT JOIN streams active_stream ON active_stream.request_index=raw.request_index AND active_stream.id=raw.id AND active_stream.operation='assert'
@@ -125,7 +130,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const mergeExists = `EXISTS(SELECT 1 FROM node merge_node JOIN entity merge_kind ON merge_kind.id=merge_node.entity_id WHERE merge_kind.name='system.merge')`;
       const projected = sort === 'vertex' && selector?.projectMergedSubjects;
       const mapped = projected
-        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${Number(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
+        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${param(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
       const repositoryStatements = repositoryKinds.map(edgeKind => {
         const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
         return `SELECT 0 AS request_index,e.id AS subject_id,e.id AS original_subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
@@ -136,7 +141,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
           JOIN node an ON an.id=a.assertion_id LEFT JOIN "${assertionValueTableName(edgeKind, 'edge', '$exists')}" v ON v.assertion_id=a.assertion_id
           WHERE e.from_node=subject.id AND ek.name=${literal} AND tk.name='code.repository' AND a.property='$exists'`;
       });
-      const repositories = repositoryStatements.length === 0 ? "'[]'::jsonb" : `(SELECT coalesce(jsonb_agg(jsonb_build_object('uid',r.target_uid,'key',r.target_key) ORDER BY r.subject_id),'[]'::jsonb) FROM (${assertionSelectionSql(repositoryStatements.join(' UNION ALL '), selector)}) r WHERE r.selected AND r.value=TRUE)`;
+      const repositories = repositoryStatements.length === 0 ? "'[]'::jsonb" : `(SELECT coalesce(jsonb_agg(jsonb_build_object('uid',r.target_uid,'key',r.target_key) ORDER BY r.subject_id),'[]'::jsonb) FROM (${assertionSelectionSql(repositoryStatements.join(' UNION ALL '), selector, param)}) r WHERE r.selected AND r.value=TRUE)`;
       const kindParameter = param(kind);
       const propertiesParameter = param(properties);
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
@@ -181,7 +186,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; repository_targets: StoredAssertion['repositoryTargets']; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
-    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector, param)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
       for (const row of rows) {
         const request = requests[row.request_index]!;

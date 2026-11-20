@@ -6,6 +6,29 @@ import {pinContext} from '../src/graph/context.js';
 import {assertionSelectionSql,loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
 const graph:GraphContract={vertex:[{name:'typed',table:generatedTableName('typed','vertex'),key:['name'],fields:[{name:'name',type:'text'},{name:'amount',type:'bigint'},{name:'when',type:'timestamp'},{name:'enabled',type:'boolean'},{name:'details',type:'json',schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false}}],capability:'fixture'}],edge:[],dictionary:[]};
+test('assertion SQL keeps its text when temporal, context, unit and resolution values change',async()=>{
+ const { assertionReadSql }=await import('../src/graph/assertion-read.js');
+ const request=[{sort:'vertex' as const,kind:'typed',properties:['amount'],subjectIds:[1]}];
+ const first=await assertionReadSql(request,{contexts:[1],validAt:'2025-01-01T00:00:00Z',recordedAt:'2025-02-01T00:00:00Z',unitUids:['019a0000-0000-7000-8000-000000000011'],sourceUids:['first'],resolvedAssertionIds:['first'],contextRecordedThrough:{1:'10'}});
+ const second=await assertionReadSql(request,{contexts:[2],validAt:'2026-01-01T00:00:00Z',recordedAt:'2026-02-01T00:00:00Z',unitUids:['019a0000-0000-7000-8000-000000000012'],sourceUids:['second'],resolvedAssertionIds:['second'],contextRecordedThrough:{2:'20'}});
+ expect(first.sql).toBe(second.sql);
+ expect(first.parameters).not.toEqual(second.parameters);
+});
+
+test('repeated assertion reads reuse a server prepared statement',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
+ try {
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,graph);
+   await publishGraphDrafts(tx,graph,{vertices:[{kind:'typed',key:{name:'prepared'},values:{amount:7},producer:'fixture',producerVersion:'1'}],removals:[]});
+   const id=Number((await tx.query<{id:number}>("SELECT id FROM node WHERE key->>'name'='prepared'")).rows[0]!.id);
+   for(let i=0;i<8;i++)expect((await loadAssertions(tx,'vertex','typed',['amount'],[id],{validAt:'2026-12-01T00:00:00Z',currentStatement:true})).filter(row=>row.selected).map(row=>row.value)).toEqual([7]);
+   const prepared=await tx.query<{uses:string}>('SELECT (generic_plans+custom_plans)::text AS uses FROM pg_prepared_statements WHERE statement LIKE $1',["%raw AS MATERIALIZED%"]);
+   expect(prepared.rows.some(row=>Number(row.uses)>=8)).toBe(true);
+  });
+ }finally{await owner.close();}
+},30_000);
+
 test('assertion property batch preserves native typed values and subject filtering',async()=>{
  const owner=await createTestDatabaseOwner({graphContract:graph,authenticated:false});
  try{

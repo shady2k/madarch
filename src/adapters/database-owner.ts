@@ -27,6 +27,7 @@
  * the server read it through the statement's own cast, which is what the store's
  * SQL is written for.
  */
+import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -311,7 +312,7 @@ class PostgresOwner implements DatabaseOwner {
     const query = async <Row extends object = Record<string, unknown>>(sql: string, parameters?: unknown[]): Promise<{ rows: Row[] }> => {
       signal?.throwIfAborted();
       activeStatement = true;
-      try { return await this.named(async () => await client.query<Row>(sql, parameters)); }
+      try { return await this.named(async () => await client.query<Row>(parameters?.length ? queryConfig(client, sql, parameters) : sql)); }
       finally { activeStatement = false; }
     };
     try {
@@ -426,7 +427,11 @@ class PostgresOwner implements DatabaseOwner {
     await this.ready;
     const executor: OuterTransaction = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        const result = await spannedStatement(sql, async () => await this.named(async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values])));
+        const result = await spannedStatement(sql, async () => await this.named(async () => {
+          const client = await this.pool.connect();
+          try { return await client.query(values?.length ? queryConfig(client, sql, values) : sql); }
+          finally { client.release(); }
+        }));
         return { rows: result.rows as Row[] };
       },
     };
@@ -494,6 +499,22 @@ class PostgresOwner implements DatabaseOwner {
     this.closePromise = work;
     return work;
   }
+}
+
+/** Bound prepared statement storage per connection; PostgreSQL chooses custom or generic plans. */
+const preparedQueries = new WeakMap<Client, Map<string, string>>();
+const MAX_PREPARED_QUERIES = 512;
+function queryConfig(client: Client, text: string, values?: readonly unknown[]): { text: string; values?: unknown[]; name?: string } {
+  const config = { text, ...(values === undefined ? {} : { values: [...values] }) };
+  if (!values?.length) return config;
+  let known = preparedQueries.get(client);
+  if (known === undefined) { known = new Map(); preparedQueries.set(client, known); }
+  let name = known.get(text);
+  if (name === undefined && known.size < MAX_PREPARED_QUERIES) {
+    name = 'madarch_' + createHash('sha256').update(text).digest('hex').slice(0, 40);
+    known.set(text, name);
+  }
+  return { ...config, ...(name === undefined ? {} : { name }) };
 }
 
 /** Opens the process's PostgreSQL pool once; every adapter lent it shares this pool. */
