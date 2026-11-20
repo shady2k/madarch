@@ -840,7 +840,7 @@ function answerOf(model: Model): UnitResult {
           model.problems.push({ repository: reference.place.repository, path: reference.place.path, line: reference.place.lineStart, message: `foreign key names missing column ${reference.targetTable}.${reference.target_column}` });
           continue;
         }
-        edges.push({ kind: FOREIGN_KEY, from: columnRef(database, table.name, reference.column), to: columnRef(database, target.name, reference.target_column), discriminator: reference.column, values: { constraint: reference.constraint }, evidence: evidenceOf(reference.place) });
+        edges.push({ kind: FOREIGN_KEY, from: columnRef(database, table.name, reference.column), to: columnRef(database, target.name, reference.target_column), discriminator: reference.column, values: { constraint: reference.constraint, target_column: reference.target_column }, evidence: evidenceOf(reference.place) });
       }
     }
   }

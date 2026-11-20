@@ -113,7 +113,14 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
     const closure = closureOf(folder);
     const operations: FactsOperation[] = [];
     const host = new PluginHost({
-      operations: {async apply(_unitId,_key,operation){operations.push(operation as FactsOperation);return {accepted:true};}},
+      operations: { async apply(_unitId, _key, operation) {
+        const facts = operation as FactsOperation;
+        for (const edge of facts.edges ?? []) if (edge.kind === 'code.foreign-key') {
+          expect(edge.values).toMatchObject({ target_column: 'id' });
+        }
+        operations.push(facts);
+        return { accepted: true };
+      } },
       pluginFolder: folder,
       closure,
       repository: work,
