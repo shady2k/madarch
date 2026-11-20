@@ -67,3 +67,20 @@ test('a plugin nullable JSON assertion stores JSON null rather than SQL NULL', a
     });
   } finally { await owner.close(); }
 },30_000);
+
+test('direct assertion admission reuses the prepared immutable contract',async()=>{
+ const owner=await createTestDatabaseOwner();
+ try{
+  await owner.transaction('write',async tx=>{
+   const installed=await startupBinding(tx,owner.graphContract,'direct-preparation');
+   let reads=0;
+   const declared=new Proxy(installed.contract,{get(target,key,receiver){if(key==='vertex')reads++;return Reflect.get(target,key,receiver);}});
+   const {preparePublicationContract}=await import('../src/graph/write.js');
+   preparePublicationContract(declared);
+   reads=0;
+   const subject=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[installed.binding.sourceUid])).rows[0]!.id;
+   await writeAssertions(tx,declared,[{sort:'vertex',kind:'plugin',subjectId:subject,property:'label',operation:'assert',value:'updated'}]);
+   expect(reads).toBe(0);
+  });
+ }finally{await owner.close();}
+},30_000);

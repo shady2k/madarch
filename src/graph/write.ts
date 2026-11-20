@@ -91,10 +91,6 @@ export function boundWriteCapability(executor:SqlExecutor):WriteCapability | und
 export function requireWriteCapability(executor:SqlExecutor):WriteCapability {
   const binding=boundWriteCapability(executor);if(binding===undefined) throw new Error(`${WHERE}:24: AUTH_REQUIRED: host-authenticated source capability required`);return binding;
 }
-function checkBinding(binding:WriteCapability,contract:GraphContract,context:number):string{
- validateValueContracts(contract);
- const version=graphContractVersion(contract);checkBindingRevision(binding,version,context);return version;
-}
 function checkBindingRevision(binding:WriteCapability,version:string,context:number):void{
  if(binding.context!==context)throw new Error(`${WHERE}:30: SOURCE_FORBIDDEN context differs from capability`);
  if(binding.contractVersion!==version)throw new Error(`${WHERE}:31: CONTRACT_CONFLICT authenticated contract revision is stale`);
@@ -233,8 +229,8 @@ export async function resolveEntityRefs(executor:SqlExecutor,declared:GraphContr
  });
 }
 export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context=1):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
- const contract=withAssertionContract(declared);const version=checkBinding(requireWriteCapability(executor),contract,context);
- return await ensureCheckedVertex(executor,{contract,version},draft,context);
+ const prepared=preparePublicationContract(declared);
+ return await ensureCheckedVertex(executor,prepared,draft,context);
 }
 async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  return await withSpan('graph.vertex.ensure',{'graph.kind':draft.kind},async()=>{
@@ -291,7 +287,7 @@ export async function writeAssertion(executor:SqlExecutor,declared:GraphContract
 }
 async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,inputs:AssertionInput[],context:number):Promise<string[]>{
  return await withSpan('graph.write.admitAssertionInputs',{},async()=>{
- const contract=withAssertionContract(declared),binding=requireWriteCapability(executor);const version=checkBinding(binding,contract,context);
+ const prepared=preparePublicationContract(declared);const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
  await acquireGraphWriteLock(executor);
  const {entities,instant}=await immutableCatalogue(executor,contract);
  const references=new Map<EvidenceDraft,string>();
