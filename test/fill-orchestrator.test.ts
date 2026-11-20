@@ -2048,7 +2048,7 @@ describe('immediate operation transactions (decision 0039)', () => {
 
   test('heartbeat failure retains the stage error too', async () => {
     const failure = new Error('heartbeat storage failure');
-    const stageFailure = new Error('stage failed while heartbeat failed');
+    const stageFailure = 'stage failed while heartbeat failed';
     let calls = 0;
     const stage = fakeStage('snapshot', {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
@@ -2068,8 +2068,10 @@ describe('immediate operation transactions (decision 0039)', () => {
     let caught: unknown;
     try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(AggregateError);
-    expect((caught as AggregateError).errors).toEqual([stageFailure, failure]);
-    expect(((caught as AggregateError).errors[0] as Error).cause).toBeUndefined();
+    const wrapped = (caught as AggregateError).errors[0] as Error;
+    expect(wrapped).toBeInstanceOf(Error);
+    expect(wrapped.cause).toBe(stageFailure);
+    expect((caught as AggregateError).errors[1]).toBe(failure);
   }, 15_000);
 
   test.each(['complete', 'bound', 'blocked', 'split'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {
