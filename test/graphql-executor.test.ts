@@ -1162,3 +1162,38 @@ test('0039.20/32 merged member ids resolve to the survivor in one metadata batch
     });
   } finally { await database.close(); }
 }, 60000);
+
+test('navigation counts use one aggregate over active vertices, not one graph selector per kind', async () => {
+  let aggregates = 0;
+  const counted: DatabaseOwner = {
+    ...owner,
+    transaction: (kind, work) => owner.transaction(kind, tx => work({
+      ...tx,
+      query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes('AS kind, count(*)::int AS n')) {
+          const plan = await tx.query<{ 'QUERY PLAN': { Plan: Record<string, unknown> }[] }>(`EXPLAIN (FORMAT JSON) ${sql}`, values);
+          const visit = (node: Record<string, unknown>): void => {
+            if (node['Node Type'] === 'Aggregate') aggregates += 1;
+            for (const child of (node['Plans'] ?? []) as Record<string, unknown>[]) visit(child);
+          };
+          visit(plan.rows[0]!['QUERY PLAN'][0]!.Plan);
+        }
+        return await tx.query<Row>(sql, values);
+      },
+    })),
+  };
+  const answer = await executeGraphql(counted, { manifest, folder }, { query: `{
+    navigation { kinds { kind count } }
+    allDemoFile { totalCount }
+    allDemoRepository { totalCount }
+    allDemoSource { totalCount }
+  }` });
+  const body = answer.body as MessageBody;
+  expect(body.errors).toBeUndefined();
+  const data = body.data as Record<string, any>;
+  const counts = new Map(data['navigation'].kinds.map((kind: { kind: string; count: number }) => [kind.kind, kind.count]));
+  expect(counts.get('demo.file')).toBe(data['allDemoFile'].totalCount);
+  expect(counts.get('demo.repository')).toBe(data['allDemoRepository'].totalCount);
+  expect(counts.get('demo.source')).toBe(data['allDemoSource'].totalCount);
+  expect(aggregates).toBe(1);
+});

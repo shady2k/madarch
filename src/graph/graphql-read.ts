@@ -1502,17 +1502,15 @@ export class ReadContext {
    * file, and the sidebar and the pages say the same number.
    */
   private async vertexCounts(): Promise<Map<string, number>> {
-    const names = [...this.manifest.kinds.keys()];
+    const names = this.published.kinds.map((kind) => kind.name);
     if (names.length === 0) return new Map();
     const sql = new Sql();
-    const parts = this.published.kinds.map((kind) => {
-      const kindParam = sql.param(kind.name, '::text');
-      return `SELECT ${kindParam} AS kind, count(*)::int AS n
-        FROM node n JOIN entity en ON en.id = n.entity_id
-        WHERE ${this.active('vertex', 'n')} AND en.name = ${kindParam}`;
-    });
+    const kinds = sql.param(names, '::text[]');
     const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = parts.join(' UNION ALL ');
+      const statementSql = `SELECT en.name AS kind, count(*)::int AS n
+        FROM node n JOIN entity en ON en.id = n.entity_id
+        WHERE ${this.active('vertex', 'n')} AND en.name = ANY(${kinds})
+        GROUP BY en.name`;
       span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
       const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
       span.setAttribute('db.rows', answer.rows.length);

@@ -319,3 +319,175 @@ scan found no live process matching this run's scratch root
 `madarch-test-run-UIu06N`, fixture `madarch-owner-fill-wuCfI5`, or observer
 script. No own diagnostic/test command remains running. Documentation-only
 follow-up: no new test/check run; earlier validation results remain above.
+
+
+## Count-query repair after the earlyoom attribution
+
+Task: madarch-64o5.74. The count query, not the pool or fill throughput, is
+changed. `src/graph/graphql-read.ts:1504-1519` now counts active vertices in one
+`GROUP BY en.name`, filtered by the published kind names. It retains the exact
+`active('vertex', 'n')` selector, including temporal/context/source resolution
+and merge canonicalization. Missing groups still answer zero through the
+existing navigation fallback at line 1488. No schema/index migration is needed.
+No deadlines, constants, lock files or existing expectations changed.
+
+### Plan evidence and limits
+
+The real-store plan investigation used a separate copy of the previously saved
+owner-path store under `/work/reports/alx-fixOwner-count-plan/pgdata`, not a
+committed fixture or a dependency on another checkout. That store has 78 nodes
+and 402 entity declarations. The captured query uses its product manifest and
+current default selector time, not the exact historical failed transaction's
+timestamp/context fences. Thus it exercises the same query generator and store,
+but is not a byte-identical replay of the lost request.
+
+Before repair the SQL was 3,330,769 bytes and contained 34,595 `UNION ALL`
+operators: 186 count branches, each repeating all existence-value tables and
+the full assertion selector. This is query/plan expansion even on a tiny graph,
+not evidence of 2.5 GiB of graph row data. Full `EXPLAIN (ANALYZE, BUFFERS,
+SUMMARY)` with `statement_timeout='5s'` gave exactly:
+
+```text
+SET
+psql:/work/reports/alx-fixOwner-count-plan/explain-before.sql:2047: ERROR:  canceling statement due to statement timeout
+```
+
+Plain EXPLAIN with a 10-second statement bound also canceled without a plan.
+We do not claim a measured allocation breakdown of the killed backend: no full
+old plan was returned. One extracted original count branch was explainable:
+
+```text
+Aggregate  (cost=31943.08..31943.09 rows=1 width=36) (actual time=13.002..13.050 rows=1.00 loops=1)
+Planning Time: 251.428 ms
+Execution Time: 46.879 ms
+```
+
+After repair the SQL is 20,361 bytes with 185 `UNION ALL` operators inside the
+single unchanged existence selector. Full `EXPLAIN (ANALYZE, BUFFERS, SUMMARY)`
+on the same copied store completed under the same 5-second statement bound.
+Selected exact plan lines (the complete output is retained, not abbreviated on
+disk):
+
+```text
+GroupAggregate  (cost=8.56..124587.56 rows=20 width=21) (actual time=81.620..87.547 rows=4.00 loops=1)
+  Group Key: en.name
+  Buffers: shared hit=9479 read=16 dirtied=1
+Seq Scan on node n  (cost=0.00..124427.37 rows=44 width=8) (actual time=10.645..54.065 rows=78.00 loops=1)
+Planning Time: 143.148 ms
+Execution Time: 110.624 ms
+```
+
+The observed new plan scans the node table once; physical scan choices remain
+PostgreSQL's. The query does not avoid examining
+vertices required to determine active existence, nor replace assertion semantics
+with physical row counts. It removes the per-kind replication of the whole
+selector and aggregate. No claim of constant work, no zero-sequential-scan
+promise, and no peak-RSS assertion is made. Reported selector sort memory is
+25 kB and a reported materialization is 19 kB; these are plan-node figures,
+not total backend RSS.
+
+Exact input/output artifacts:
+`/work/reports/alx-fixOwner-count-plan/query-before.sql`, `query-after.sql`,
+`explain-before.sql`, `explain-before.log`, `plan-before.log`,
+`explain-before-branch.sql`, `explain-before-branch.log`, `explain-after.sql`,
+`explain-after.log`, and `capture.ts` in that folder. The scratch PostgreSQL
+server was stopped with `pg_ctl -m fast -w stop` after the plans completed.
+
+### Regression before product change
+
+`test/graphql-executor.test.ts:1166-1199` queries navigation plus the corresponding
+three kind lists on the existing real database fixture. The fixture includes
+multiple kinds and repeated existence assertions from different sources. It
+checks identical counts and traverses PostgreSQL's JSON EXPLAIN tree to bound
+the number of aggregate plan nodes at one, without depending on scan/join
+choices or flaky memory thresholds. This is a bounded plan-shape regression,
+not a large-data RSS regression and not a claim that no vertices are read.
+
+Before the product edit: 0 pass, 1 fail (50 aggregate nodes, expected 1),
+5 assertions, 32.02 s total; the count equality checks passed. After the product
+edit: 1 pass, 0 fail, 5 assertions, 27.32 s total. Logs:
+`/work/reports/alx-fixOwner-count-red.log` and
+`/work/reports/alx-fixOwner-count-green.log`. The existing case deadlines were
+not raised. No mutation testing was performed, as instructed.
+
+
+### Owner-path validation of the count repair
+
+Exactly one full `test/owner-fill-path.test.ts` run was attempted after the fix,
+through `MADARCH_SANDBOX_UID=1000 HOME=/home/box.guest
+scripts/plugin-sandbox-cgroup.sh bun test test/owner-fill-path.test.ts`.
+It failed at **step 2, madarch serve answers**, before the home/catalogue GraphQL
+requests: empty stdout, no serve address within the unchanged 30000 ms wait at
+`test/owner-fill-path.test.ts:93-102`. Case 102515.03 ms; file 119.23 s,
+0 pass / 1 fail. It did not reach the 300000 ms overall case limit, original
+500, fill, or two-tree count acceptance. Log:
+`/work/reports/alx-fixOwner-count-owner.log`. No owner-path rerun was made.
+This run cannot establish end-to-end acceptance of the count repair.
+
+A read-only independent review found no blocker: the unchanged active predicate
+preserves temporal/context/source/dispute/merge semantics; missing count groups
+remain zero; physical scan choices are planner-dependent. The new regression
+checks a bounded aggregate plan, not independent semantic coverage for all
+selectors. The query does not materialize graph vertices in application memory.
+
+
+### Static checks after the count repair
+
+`bun run check` passed TypeScript, architecture (499 existing entries, no gained
+debt), UI, catalogue and workflows, then failed only at `check:slow-tests`
+(existing single-file timing evidence inventory). Full log:
+`/work/reports/alx-fixOwner-count-check.log`. Separately,
+`bun run check:quarantine` and `bun run check:tests` passed; logs
+`/work/reports/alx-fixOwner-count-quarantine.log` and
+`/work/reports/alx-fixOwner-count-test-check.log`. No timing inventory was edited.
+The independent read-only review found no blocker in product or regression.
+
+
+### Complete executor file after repair
+
+`test/graphql-executor.test.ts` completed with 53 pass / 9 fail, 657 assertions,
+118.99 s. The new regression passed (1715.63 ms). Failures were in existing
+cases at `test/graphql-executor.test.ts:322,348,435,450,625,730,918,1068`, plus
+the existing opinions case at line 628 (10000 ms deadline). They concern edge
+values, detail field selection, statement counts, key/reference labels,
+existence dispute selection and cochange totals. They were not relaxed or fixed
+in this task. Full log: `/work/reports/alx-fixOwner-count-executor-full.log`.
+A controlled comparison with the original product source is recorded below
+rather than assuming these failures are unrelated.
+
+
+### Completed baseline comparison and final disposition
+
+The same complete executor file was then run with `src/graph/graphql-read.ts`
+restored exactly to HEAD's original implementation, keeping the new regression
+in the test file. Baseline: **52 pass / 10 fail**, 657 assertions, **107.03 s**.
+After repair: **53 pass / 9 fail**, 657 assertions, **118.99 s**. The failing
+case-name sets were compared: all nine existing failures are identical; the
+only additional baseline failure is the new navigation aggregate regression
+(50 Aggregate plan nodes, expected 1, at `test/graphql-executor.test.ts:1198`).
+Thus the existing 61 cases are **52 pass / 9 fail in both runs**. It would be
+incorrect to report baseline 53/9: the new regression is deliberately red there.
+Log: `/work/reports/alx-fixOwner-count-executor-baseline.log`. The repaired
+source was restored exactly after that comparison. No additional red case was
+introduced by this repair in these complete-file runs.
+
+Strict TDD order is recorded: minimal new test red before product edit, then
+minimal green after edit; full-file comparison also reproduces that red/green
+difference. No expectations were weakened. No mutation testing, deadline
+increases, lock changes, or ALX-616 fill-speed work. The validated earlier
+repository-input repair remains intact.
+
+Final status: **STUCK**, not owner-path accepted. The count-query expansion is
+repaired and reviewed, but the one allowed owner-path run stopped at the
+serve-address deadline before exercising GraphQL. Full executor still has the
+nine baseline failures above. No further owner-path or large run was started.
+No separate neighboring test file was in flight when the final stop request
+arrived, so none was launched afterward. Earlier green neighbor results are
+historical, not post-fix validation. The complete executor file, targeted
+regression and static checks are the post-fix validation performed here.
+
+The scratch plan PostgreSQL server, baseline and fixed executor runs, owner-path
+run and all check commands have finished. Final cleanup checks found no live
+product/API/fill process for this checkout, no backend/server using the plan
+scratch cluster, and no running command launched in this follow-up. Only source,
+the regression and this investigation are retained in the commit.
