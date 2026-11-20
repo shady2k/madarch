@@ -104,6 +104,41 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
   return answer;
 }
 
+/** Opt-in diagnostics: capture deferred function counters before COMMIT resets transaction statistics. */
+const GRAPH_CHECK_STATS = `SELECT coalesce(jsonb_object_agg(funcname, counters), '{}'::jsonb) AS stats FROM (
+  SELECT funcname, jsonb_build_object('calls', sum(calls), 'total_ms', sum(total_time), 'self_ms', sum(self_time)) AS counters
+  FROM pg_stat_xact_user_functions WHERE funcname IN ('graph_relations_check', 'graph_checks_pass') GROUP BY funcname
+) functions`;
+const graphDiagnosticClients = new WeakSet<Client>();
+type GraphCheckStats = Record<string, { calls: number; total_ms: number; self_ms: number }>;
+
+async function prepareGraphDiagnostics(client: Client): Promise<void> {
+  if (graphDiagnosticClients.has(client)) return;
+  // Session-local objects, created outside the business transaction. The last queued row samples the graph's
+  // completed deferred triggers while their transaction counters still exist; no graph constraint is fired early.
+  await client.query(`CREATE TEMP TABLE madarch_graph_check_trace (stats jsonb) ON COMMIT PRESERVE ROWS;
+    CREATE FUNCTION pg_temp.madarch_graph_check_trace() RETURNS trigger LANGUAGE plpgsql AS $trace$
+    DECLARE measured jsonb;
+    BEGIN
+      SELECT stats INTO measured FROM (${GRAPH_CHECK_STATS}) measured_stats;
+      UPDATE pg_temp.madarch_graph_check_trace SET stats = measured;
+      RETURN NULL;
+    END $trace$;
+    CREATE CONSTRAINT TRIGGER madarch_graph_check_trace AFTER INSERT ON madarch_graph_check_trace
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.madarch_graph_check_trace()`);
+  graphDiagnosticClients.add(client);
+}
+
+function graphCheckAttributes(before: GraphCheckStats, after: GraphCheckStats): Record<string, number> {
+  const attributes: Record<string, number> = {};
+  for (const name of ['graph_relations_check', 'graph_checks_pass']) {
+    for (const field of ['calls', 'total_ms', 'self_ms'] as const) {
+      attributes[`db.${name}.${field}`] = (after[name]?.[field] ?? 0) - (before[name]?.[field] ?? 0);
+    }
+  }
+  return attributes;
+}
+
 /**
  * The database one process owns, opened once and lent to every adapter that
  * keeps data in it.
@@ -335,6 +370,12 @@ class PostgresOwner implements DatabaseOwner {
         signal.addEventListener('abort', cancel, { once: true });
         signal.throwIfAborted();
       }
+      const graphDiagnostics = kind === 'write' && process.env['MADARCH_TRACE_GRAPH_CHECKS'] === '1';
+      if (graphDiagnostics && !graphDiagnosticClients.has(client)) {
+        await withSpan('db.diagnostic.setup', { 'db.system': 'postgres', 'db.diagnostic.statements': 3 }, async () => {
+          await this.named(async () => await prepareGraphDiagnostics(client));
+        });
+      }
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
@@ -344,6 +385,17 @@ class PostgresOwner implements DatabaseOwner {
         return answer;
       });
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
+        let diagnosticStatements = 0;
+        const readGraphStats = async (): Promise<GraphCheckStats> => {
+          diagnosticStatements += 1;
+          return (await query<{ stats: GraphCheckStats }>(GRAPH_CHECK_STATS)).rows[0]!.stats;
+        };
+        if (graphDiagnostics) {
+          diagnosticStatements += 1;
+          await query("SET LOCAL track_functions = 'pl'");
+          diagnosticStatements += 1;
+          await query('DELETE FROM pg_temp.madarch_graph_check_trace');
+        }
         let statements = 0;
         let rows = 0;
         const counts: StatementCounts = { select: 0, insert: 0, update: 0, delete: 0, other: 0, rows: 0 };
@@ -359,7 +411,18 @@ class PostgresOwner implements DatabaseOwner {
             const answer = tail.then(async () => {
               signal?.throwIfAborted();
               statements += 1;
-              const result = await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts);
+              const result = graphDiagnostics && /^\s*SET\s+CONSTRAINTS\b/iu.test(sql)
+                ? await withSpan('db.constraints', { 'db.system': 'postgres' }, async (constraintSpan) => {
+                  const before = await readGraphStats();
+                  try { return await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts); }
+                  finally {
+                    // A refused constraint aborts the transaction; its counters cannot then be queried.
+                    // Keep the original failure rather than replacing it with the diagnostic query's failure.
+                    try { constraintSpan.setAttributes(graphCheckAttributes(before, await readGraphStats())); }
+                    catch (error) { constraintSpan.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
+                  }
+                })
+                : await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts);
               rows += result.rows.length;
               return result;
             });
@@ -380,11 +443,28 @@ class PostgresOwner implements DatabaseOwner {
         signal?.throwIfAborted();
         // COMMIT dispatch is the boundary: after it the server may already have kept the write.
         if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
-        await this.named(async () => await client.query('COMMIT'));
+        await withSpan('db.commit', { 'db.system': 'postgres' }, async (commitSpan) => {
+          if (!graphDiagnostics) { await this.named(async () => await client.query('COMMIT')); return; }
+          const before = await readGraphStats();
+          // Last INSERT means the diagnostic trigger follows all graph events already queued by the work.
+          diagnosticStatements += 1;
+          await query('INSERT INTO pg_temp.madarch_graph_check_trace VALUES (NULL)');
+          await this.named(async () => await client.query('COMMIT'));
+          diagnosticStatements += 1;
+          try {
+            const measured = (await client.query<{ stats: GraphCheckStats }>('SELECT stats FROM pg_temp.madarch_graph_check_trace')).rows[0]?.stats;
+            if (measured === undefined || measured === null) throw new Error('PostgreSQL did not report deferred graph check diagnostics');
+            commitSpan.setAttributes(graphCheckAttributes(before, measured));
+          } catch (error) {
+            // COMMIT already kept the work: missing evidence must not suppress publication callbacks or report rollback.
+            commitSpan.recordException(error instanceof Error ? error : new Error(errorMessage(error)));
+          }
+        });
         for (const publish of committed) {
           try { publish(); } catch (error) { span.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
         }
         span.setAttribute('db.statements', statements);
+        if (graphDiagnostics) span.setAttribute('db.diagnostic.statements', diagnosticStatements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);
         span.setAttribute('db.inserts', counts.insert);
