@@ -165,7 +165,7 @@ afterAll(async () => {
 });
 
 test('the fixture fill stays within its measured query budget', () => {
-  expect(fillBudget.statements).toBeLessThanOrEqual(14_733);
+  expect(fillBudget.statements).toBeLessThanOrEqual(14_714);
   expect(fillBudget.transactions).toBeLessThanOrEqual(522);
 });
 
