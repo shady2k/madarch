@@ -188,3 +188,46 @@ explicit. This is not a claim that 0039 itself explicitly orders removal of the
 filter. The manifest `/r` navigation contract at
 `docs/system/capabilities/product-wiki.md:293-301` is unchanged. No other existing
 test was modified in this follow-up.
+
+
+## Final full owner-path run: original 500 reproduced
+
+This supersedes any earlier suggestion that symptom #1 was only resource load.
+One clean run of the complete `test/owner-fill-path.test.ts`, with no strace,
+no temporary code edits and unchanged deadlines, reproduced the exact step-2
+GraphQL 500. Start load averages were **1.78 / 2.66 / 2.80**, available memory
+4.5 GiB, free disk 9.4 GiB (`/work/reports/alx-fixOwner-final-load.log`).
+`/work/reports/alx-fixOwner-owner-final.log` records:
+
+- `test/owner-fill-path.test.ts:112-114`: GraphQL error “Client has encountered
+  a connection error and is not queryable”, status 500.
+- Fill plan and fill-selected then also return 500. Later requests cannot
+  connect; these are secondary failures, not evidence of the repository count.
+- The case expires at **300005.43 ms** against its unchanged **300000 ms** bound
+  (`test/owner-fill-path.test.ts:195`); total file run **313.45 s**, 0 pass,
+  1 fail, 1 unhandled error. Bun reports one dangling process killed.
+
+A follow-up diagnostic attempt temporarily labelled database-owner pools with
+role and process PID, enabled server-side PostgreSQL connection/disconnection
+logs, and copied fixture files before cleanup. It failed earlier, at the
+unchanged serve-address wait (`test/owner-fill-path.test.ts:93-100`): no address
+within **30000 ms**; case **85353.46 ms**, file **99.62 s**. Per the owner's
+stop condition, no more runs or deadline changes were attempted. Evidence:
+`/work/reports/alx-fixOwner-owner-diagnostic.log`,
+`/work/reports/alx-fixOwner-latest-serve.log` (empty), and
+`/work/reports/alx-fixOwner-latest-evidence/` (copied fixture).
+Its PostgreSQL journal maps preparation process **1040385** to backends
+**1040481,1040491,1040492** on postmaster **1040469**. All disconnect normally;
+fast shutdown at 01:33:33.519 completes at 01:33:33.746. There is no API backend
+or FATAL in this attempt. It does not attribute the earlier clean run's FATAL.
+An initial diagnostic invocation using PGOPTIONS for server-only settings was
+refused before fixture work; that invocation was corrected to server-side
+logging. Its error is not a product regression.
+
+All diagnostic source/test edits were restored exactly; only this evidence
+addition is retained. `/proc` was checked for both fixture names/run roots after
+completion: no matching live process. No commands remain running. Load at the
+final check was 2.30 / 2.46 / 2.65. The full file's original 500 is now confirmed
+at lower start load, but no minimal red regression isolates its cause, no pool
+fix is justified, and the owner path remains unaccepted. The repository-input
+repair and previously passing live-daemon hypothesis tests remain intact.
