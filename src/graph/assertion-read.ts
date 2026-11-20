@@ -18,6 +18,7 @@ export interface AssertionRow {
 }
 
 export interface AssertionSqlSelector {
+  readonly diagnostics?: boolean;
   readonly unitUids?: readonly string[];
   readonly sourceUids?: readonly string[];
   readonly currentStatement?: boolean;
@@ -64,7 +65,12 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
   ), selected AS (
     SELECT DISTINCT ON (request_index,subject_id,property,language) * FROM streams WHERE operation='assert'
     ORDER BY request_index,subject_id,property,language,(id=ANY(${array(selector.resolvedAssertionIds ?? [],'text')})) DESC,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
-  ) SELECT raw.*,active_stream.id IS NOT NULL AS active,selected_stream.id IS NOT NULL AS selected
+  ) SELECT raw.*,active_stream.id IS NOT NULL AS active,selected_stream.id IS NOT NULL AS selected${selector.diagnostics ? `,
+      EXISTS(SELECT 1 FROM context_path p WHERE p.id=raw.context_id) AS diagnostic_context,
+      raw.recorded_at<=${recorded} AS diagnostic_recorded,
+      raw.valid_from<=${valid} AND (raw.valid_to IS NULL OR raw.valid_to>${valid}) AS diagnostic_valid,
+      EXISTS(SELECT 1 FROM eligible e WHERE e.request_index=raw.request_index AND e.id=raw.id) AS diagnostic_eligible,
+      EXISTS(SELECT 1 FROM streams s WHERE s.request_index=raw.request_index AND s.id=raw.id) AS diagnostic_stream` : ''}
     FROM raw
     LEFT JOIN streams active_stream ON active_stream.request_index=raw.request_index AND active_stream.id=raw.id AND active_stream.operation='assert'
     LEFT JOIN selected selected_stream ON selected_stream.request_index=raw.request_index AND selected_stream.id=raw.id`;
@@ -183,13 +189,24 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       return result;
     }
     const { rows } = await executor.query<{
-      request_index: number; selected?: boolean; active?: boolean;
+      request_index: number; selected?: boolean; active?: boolean; diagnostic_context?: boolean; diagnostic_recorded?: boolean; diagnostic_valid?: boolean; diagnostic_eligible?: boolean; diagnostic_stream?: boolean;
         id: string; original_subject_id: number; original_subject_uid: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
         unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; repository_targets: StoredAssertion['repositoryTargets']; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
-    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), selector, param)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), { ...selector, diagnostics: selector.diagnostics ?? process.env['MADARCH_TRACE_SELECTION'] === '1' }, param)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+    if (selector !== undefined && (selector.diagnostics ?? process.env['MADARCH_TRACE_SELECTION'] === '1')) {
+      const count = (predicate: (row: typeof rows[number]) => boolean) => JSON.stringify(requests.map((_, index) => rows.filter(row => row.request_index === index && row.property === '$exists' && predicate(row)).length));
+      span.setAttributes({
+        'graph.existence.context-excluded.counts': count(row => row.diagnostic_context === false),
+        'graph.existence.recorded-excluded.counts': count(row => row.diagnostic_recorded === false),
+        'graph.existence.valid-excluded.counts': count(row => row.diagnostic_valid === false),
+        'graph.existence.ineligible.counts': count(row => row.diagnostic_eligible === false),
+        'graph.existence.outside-stream.counts': count(row => row.diagnostic_stream === false),
+        'graph.existence.retract.counts': count(row => row.operation === 'retract'),
+      });
+    }
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
       for (const row of rows) {
         const request = requests[row.request_index]!;
