@@ -14,14 +14,16 @@ test('an orchestration step takes one graph lock and at most thirty-five stateme
   await recordUnitPlan(owner,{unitId:'unit',generation:1,runId:'budget',stageId:'stage',stageUnitId:'unit',scope:'scope',stagePosition:0,planPosition:0,at:2});
   const statements:string[]=[];
   const locks:Client[]=[];
+  const inTransaction=new Set<Client>();
   let stepClient:Client|undefined;
   let databaseMs=0;
   const original=Client.prototype.query;
   const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
    if(typeof args[0]==='string'){
     statements.push(args[0]);
-    if(args[0].startsWith('BEGIN'))stepClient=this;
-    if(args[0]==='SELECT pg_advisory_xact_lock($1::bigint)')locks.push(this);
+    if(args[0].startsWith('BEGIN')){stepClient=this;inTransaction.add(this);}
+    if(args[0]==='SELECT pg_advisory_xact_lock($1::bigint)'&&inTransaction.has(this)&&(args[1] as readonly unknown[]|undefined)?.[0]===739251902)locks.push(this);
+    if(/^(COMMIT|ROLLBACK)/.test(args[0]))inTransaction.delete(this);
    }
    const start=performance.now();
    return Reflect.apply(original,this,args).finally(()=>{databaseMs+=performance.now()-start;});
