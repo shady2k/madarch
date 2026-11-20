@@ -31,9 +31,6 @@ async function transaction<R>(database:OrchestratorDatabase,kind:'write',work:(t
    await acquireGraphWriteLock(tx);
   }
   const result=await work(tx);
-  if(kind==='write'){
-   await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
-  }
   return result;
  })));
 }
@@ -269,6 +266,7 @@ async function write(tx:SqlExecutor,kind:string,uid:string,values:Record<string,
 async function related(tx:SqlExecutor,kind:string,relation:string,target:string):Promise<AssertionRecord[]>{
   return await withSpan('graph.orchestration.related', {}, async () => {
    const candidates=(await tx.query<{id:number}>(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node WHERE k.name=$1 AND target.uid=$2::uuid ORDER BY e.id`,[relation,target])).rows.map(row=>Number(row.id));
+   if(candidates.length===0)return [];
    const edges=await readKindAssertions(tx,'edge',relation,[],undefined,candidates);
    const subjects=[...new Set(edges.map(edge=>edge.from!))];
    return readKindAssertions(tx,'vertex',kind,fields[kind]??[],undefined,subjects);
@@ -419,11 +417,16 @@ async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promis
 }
 export async function recordUnitPlanIn(tx:SqlExecutor,options:UnitPlanOptions):Promise<UnitPlanRecord>{
  await locked(tx);const uid=await requiredUnit(tx,options.unitId,options.generation);
- await write(tx,'system.unit',uid,{plan_stage_name:options.stageId,plan_stage_unit_name:options.stageUnitId,plan_scope:options.scope,plan_stage_position:options.stagePosition,plan_position:options.planPosition,planned_at:options.at});
+ const vertices:import('./contract.js').VertexDraft[]=[{kind:'system.unit',uid,key:{},values:{plan_stage_name:options.stageId,plan_stage_unit_name:options.stageUnitId,plan_scope:options.scope,plan_stage_position:options.stagePosition,plan_position:options.planPosition,planned_at:options.at},producer:'fill-orchestration',producerVersion:'1'}];
  const versions=await related(tx,'system.unit-cache-version','system.unit-cache-version-unit',uid);
  const {contract,binding}=await orchestrationBinding(tx);
- await publishGraphDrafts(tx,contract,{vertices:[],removals:versions.filter(row=>!(String(row.values.name) in (options.cacheVersions??{}))).map(row=>({kind:'system.unit-cache-version',uid:row.uid,key:{},producer:binding.sourceUid}))});
- for(const [name,version] of Object.entries(options.cacheVersions??{}))await child(tx,'system.unit-cache-version','system.unit-cache-version-unit','system.unit',uid,{name,version},versions.find(row=>row.values.name===name)?.uid);
+ const edges:import('./contract.js').EdgeDraft[]=[];
+ for(const [name,version] of Object.entries(options.cacheVersions??{})){
+  const childUid=versions.find(row=>row.values.name===name)?.uid??newUid();
+  vertices.push({kind:'system.unit-cache-version',uid:childUid,key:{},values:{name,version},producer:binding.sourceUid,producerVersion:binding.contractVersion});
+  edges.push({kind:'system.unit-cache-version-unit',from:{kind:'system.unit-cache-version',uid:childUid,key:{}},to:{kind:'system.unit',uid,key:{}},producer:binding.sourceUid,producerVersion:binding.contractVersion});
+ }
+ await publishGraphDrafts(tx,contract,{vertices,edges,removals:versions.filter(row=>!(String(row.values.name) in (options.cacheVersions??{}))).map(row=>({kind:'system.unit-cache-version',uid:row.uid,key:{},producer:binding.sourceUid}))});
  return {...options,plannedAt:options.at};
 }
 export async function recordUnitPlan(database:OrchestratorDatabase,options:UnitPlanOptions):Promise<UnitPlanRecord>{return transaction(database,'write',tx=>recordUnitPlanIn(tx,options));}

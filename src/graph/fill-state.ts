@@ -164,9 +164,6 @@ async function run<R>(site: string, database: FillStateDatabase, operation: stri
         await acquireGraphWriteLock(tx);
       }
       const result = await work(tx);
-      if (kind === 'write') {
-        await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
-      }
       return result;
     })));
 }
@@ -266,15 +263,24 @@ async function runRecord(tx: SqlExecutor, row: AssertionRecord): Promise<RunReco
   const context: RunContext = {planningEpoch: number(v['planning_epoch']), planningClosed: v['planning_closed'] === true, ...(selected === undefined ? {} : {selection:selected})};
   return {runId: text(v['run_name']), product: text(v['product_name']), state: requireState(RUN_STATES,v['state'],'system.run',row.uid), context, createdAt:number(v.created_at),updatedAt:number(v['updated_at'])};
 }
-async function unitRecord(tx: SqlExecutor, row: AssertionRecord): Promise<UnitRecord> {
-  const link = (await edgeRowsIn(tx, 'system.unit-run', 'from', [row.id]))[0];
-  const run = link === undefined ? undefined : (await readRecordsIn(tx, 'vertex', 'system.run', ['run_name'], [link.to]))[0];
+function decodeUnitRecord(row: AssertionRecord, run: AssertionRecord | undefined): UnitRecord {
   if (!run) raise(`graph system.unit, vertex ${row.uid}: no owning run`);
   const v = row.values, generation = number(v['generation']);
   return {unitId:text(v['unit_name']),product:text(v['product_name']),runId:text(run.values['run_name']),stageId:text(v['stage_name']),scopeKey:text(v.scope),generation,
     state:requireState(UNIT_STATES,v['state'],'system.unit',row.uid),inputsDigest:text(v['inputs_digest']),
     context:{generation,fence:number(v['fence']),attempt:number(v['attempt']),retriesLeft:number(v['retries_left']),retryAt:optionalNumber(v['retry_at']),replacedBy:optionalNumber(v['replacement_generation']),skippedBecause:v['skipped_because']==null?null:text(v['skipped_because'])},
     publishedAt:optionalNumber(v['published_at']),staleAt:optionalNumber(v['stale_at']),updatedAt:number(v['updated_at'])};
+}
+async function unitRecords(tx: SqlExecutor, rows: readonly AssertionRecord[]): Promise<UnitRecord[]> {
+  if (rows.length === 0) return [];
+  const links = await edgeRowsIn(tx, 'system.unit-run', 'from', rows.map(row => row.id));
+  const ownerIds = new Map<number, number>();
+  for (const link of links) if (!ownerIds.has(link.from)) ownerIds.set(link.from, link.to);
+  const runs = new Map((await readRecordsIn(tx, 'vertex', 'system.run', ['run_name'], [...new Set(ownerIds.values())])).map(run => [run.id, run]));
+  return rows.map(row => decodeUnitRecord(row, runs.get(ownerIds.get(row.id)!)));
+}
+async function unitRecord(tx: SqlExecutor, row: AssertionRecord): Promise<UnitRecord> {
+  return (await unitRecords(tx, [row]))[0]!;
 }
 async function journal(tx: SqlExecutor, subjectKind: 'chain' | 'run' | 'unit', uid: string, step: string, from: string, to: string, event: string, at: number, fence: number | null = null, context?: GraphWriteContext): Promise<void> {
   const id = newUid();
@@ -394,12 +400,21 @@ async function recordsOfUnits(tx:SqlExecutor,ids:readonly number[],currentOnly:b
   const all=await readRecordsIn(tx,'vertex','system.unit',fields.unit,ids);
   // A replacement closes a generation: the link is written once and never withdrawn (`system.unit-replacement`).
   const replaced = currentOnly && all.length > 0 ? new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from)) : new Set<number>();
-  return (await Promise.all(all.filter(row=>!replaced.has(row.id)).map(row=>unitRecord(tx,row)))).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  return (await unitRecords(tx, all.filter(row=>!replaced.has(row.id)))).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
 }
 /** A run's units, from the run: its own `system.unit-run` edges name them. */
 export async function readRunUnitsIn(tx:SqlExecutor,runId:string,currentOnly=true):Promise<readonly UnitRecord[]>{
   const run = await runNode(tx, runId); if (run === undefined) return [];
   return await recordsOfUnits(tx, (await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from), currentOnly);
+}
+export interface RunStateSnapshot { readonly stamp:string; readonly run:RunRecord|null; readonly units:readonly UnitRecord[]; }
+/** A pass reuses decoded state only while this committed graph snapshot is unchanged. */
+export async function readRunStateSnapshot(database:FillStateSnapshotDatabase,runId:string,previous?:RunStateSnapshot):Promise<RunStateSnapshot>{
+ return await snapshotRun(here(),database,`readRunStateSnapshot(${runId})`,async tx=>{
+  const stamp=await storeStampIn(tx);
+  if(previous?.stamp===stamp)return previous;
+  return {stamp,run:await readRunIn(tx,runId),units:await readRunUnitsIn(tx,runId)};
+ });
 }
 export async function readRunUnits(database:FillStateSnapshotDatabase,runId:string):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readRunUnits(${runId})`,tx=>readRunUnitsIn(tx,runId));}
 export async function readRunUnitHistory(database:FillStateSnapshotDatabase,runId:string):Promise<readonly UnitRecord[]>{return await snapshotRun(here(),database,`readRunUnitHistory(${runId})`,tx=>readRunUnitsIn(tx,runId,false));}

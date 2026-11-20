@@ -5,7 +5,8 @@
  */
 import { parse, stringify } from 'yaml';
 import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test, spyOn } from 'bun:test';
+import { Client } from 'pg';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -134,7 +135,20 @@ beforeAll(async () => {
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', 'the product and its one repository');
   closeOwner = await retainTestStorePreparationOwner();
-  await fillInProcess(folder, home);
+  let statements=0,transactions=0,databaseMs=0;
+  const query=Client.prototype.query;
+  const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
+    statements++;
+    if(typeof args[0]==='string'&&args[0].startsWith('BEGIN'))transactions++;
+    const started=performance.now();
+    const answer=Reflect.apply(query,this,args);
+    if(answer&&typeof answer.then==='function')void answer.then(()=>{databaseMs+=performance.now()-started;},()=>{databaseMs+=performance.now()-started;});
+    return answer;
+  } as typeof query);
+  const started=performance.now();
+  try { await fillInProcess(folder, home); } finally { spy.mockRestore(); }
+  console.log('source fixture fill',JSON.stringify({statements,transactions,databaseMs,elapsedMs:performance.now()-started}));
+  expect(statements).toBeLessThanOrEqual(1000);
   await activateTestProduct(folder, home);
   // The api role waits on the store's read queue: the fill role answers it, and this test serves that side itself.
   const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });

@@ -60,6 +60,8 @@ import {
   openChain,
   readChain,
   readRun,
+  readRunStateSnapshot,
+  type RunStateSnapshot,
   readRunUnits,
   readRunUnitsIn,
   lockFillScope,
@@ -579,6 +581,8 @@ async function planOf(orchestrator: FillOrchestrator, unit: UnitRecord): Promise
   return plan;
 }
 
+type RunStateReader = () => Promise<RunStateSnapshot>;
+
 /** How many of a run's units stand in one of the states named. */
 const countIn = (units: readonly UnitRecord[], states: readonly UnitState[]): number =>
   units.filter((unit) => states.includes(unit.state)).length;
@@ -936,9 +940,9 @@ type ReplanOutcome =
  * planning, or one a pause resumed — closes its epoch with whatever it plans
  * here, so the resume lands on the same result.
  */
-async function replanAfterPublications(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<ReplanOutcome> {
+async function replanAfterPublications(orchestrator: FillOrchestrator, options: { readonly runId: string }, state?: RunStateReader): Promise<ReplanOutcome> {
   const database = orchestrator.database;
-  const run = await readRun(database, options.runId);
+  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
   if (run === null) raise(`no run ${options.runId} is recorded: a run is created before it plans`);
   if (run.state !== 'planning' && run.state !== 'running') return { outcome: 'planned', planned: false, run, units: [], reused: [], foundNothing: [] };
   const graph = await currentGraph(orchestrator, run.runId);
@@ -1028,14 +1032,14 @@ interface AdmissionOutcome {
  * and the enqueue are one transaction of the database owner, so a slot is taken
  * under the run's own row lock and two admissions can never overfill it.
  */
-export async function admitUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<AdmissionOutcome> {
+export async function admitUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }, state?: RunStateReader): Promise<AdmissionOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
-  const run = await readRun(database, options.runId);
+  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
   if (run === null) raise(`no run ${options.runId} is recorded: a run is created before it admits anything`);
   if (run.state !== 'running') return { run, admitted: [], waitingForSlot: [], refused: [], admittedNow: 0 };
   const graph = await currentGraph(orchestrator, run.runId);
-  const units = await readRunUnits(database, run.runId);
+  const units = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
   const plans = await runPlans(orchestrator, run.runId);
   const withoutPlan = units.filter((unit) => unit.state === 'planned' && !plans.has(unit.unitId));
   const candidates = units.filter((unit) => unit.state === 'planned' && plans.has(unit.unitId));
@@ -1213,15 +1217,15 @@ function wakingCause(_unit: UnitRecord): UnitRetryCause {
  * enqueued. Nothing here sleeps and nothing reads a clock of its own: every
  * moment comes from `orchestrator.clock()`.
  */
-export async function sweepUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<SweepOutcome> {
+export async function sweepUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }, state?: RunStateReader): Promise<SweepOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const swept: SweptUnit[] = [];
   const refused: UnitRefusal[] = [];
-  const run = await readRun(database, options.runId);
+  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (run.state !== 'running' && run.state !== 'pausing') return { swept, refused };
-  const units = await readRunUnits(database, run.runId);
+  const units = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
 
   for (const unit of units) {
     if (unit.state === 'retry_wait' && unit.context.retryAt !== null && unit.context.retryAt <= at) {
@@ -2112,8 +2116,8 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * that waits for a retry whose moment has come counts as runnable: the next
  * sweep makes it so, and a run is not finished while it waits.
  */
-export async function runEvidence(orchestrator: RunControlContext, runId: string): Promise<RunEvidence> {
-  const units = await readRunUnits(orchestrator.database, runId);
+export async function runEvidence(orchestrator: RunControlContext, runId: string, state?: RunStateReader): Promise<RunEvidence> {
+  const units = (state === undefined ? await readRunUnits(orchestrator.database, runId) : (await state()).units);
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
   // units it may admit now (`planned`), the ones waiting for a worker (`ready`), and the ones waiting for
   // a retry whose moment the clock will bring (`retry_wait`, the moment passed or not) — a run that still
@@ -2152,9 +2156,9 @@ export interface RunSettleOutcome {
  * finish becomes skipped, with the failed unit it waited on in its reason; the
  * publication of every unit that did finish stays done.
  */
-async function skipOutstandingUnits(orchestrator: RunControlContext, run: RunRecord, reason: string): Promise<readonly string[]> {
+async function skipOutstandingUnits(orchestrator: RunControlContext, run: RunRecord, reason: string, state?: RunStateReader): Promise<readonly string[]> {
   const database = orchestrator.database;
-  const units = await readRunUnits(database, run.runId);
+  const units = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
   const failed = units.filter((unit) => unit.state === 'failed').map((unit) => unit.unitId);
   const cause = failed.length > 0 ? `unit ${failed[0]} failed` : reason;
   const skipped: string[] = [];
@@ -2171,22 +2175,22 @@ async function skipOutstandingUnits(orchestrator: RunControlContext, run: RunRec
   return skipped;
 }
 
-async function settleRun(orchestrator: RunControlContext, options: { readonly runId: string }): Promise<RunSettleOutcome> {
+async function settleRun(orchestrator: RunControlContext, options: { readonly runId: string }, state?: RunStateReader): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
-  const run = await readRun(database, options.runId);
+  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (isFinalRunState(run.state)) {
     stopHeartbeat(orchestrator);
-    await skipOutstandingUnits(orchestrator, run, `the run ended ${runPhaseOf(run.state)}`);
-    return { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) };
+    await skipOutstandingUnits(orchestrator, run, `the run ended ${runPhaseOf(run.state)}`, state);
+    return { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId, state) };
   }
-  const evidence = await runEvidence(orchestrator, run.runId);
+  const evidence = await runEvidence(orchestrator, run.runId, state);
   const nothingOutstanding = evidence.runnable === 0 && evidence.inFlight === 0 && evidence.waiting === 0;
   if (run.state === 'running') {
     if (!nothingOutstanding) return { run, outcome: 'waiting', evidence };
-    await skipOutstandingUnits(orchestrator, run, evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
-    const published = (await readRunUnits(database, run.runId)).filter((unit) => unit.state === 'published').length;
+    await skipOutstandingUnits(orchestrator, run, evidence.coverageMet ? 'the run succeeded' : 'the run ended partially', state);
+    const published = ((state === undefined ? await readRunUnits(database, run.runId) : (await state()).units)).filter((unit) => unit.state === 'published').length;
     const noPublished = !evidence.coverageMet && published === 0;
     const step = evidence.coverageMet
       ? await advanceRun(database, { runId: run.runId, event: { type: 'complete', at, evidence } })
@@ -2362,10 +2366,10 @@ interface StaleSweep {
   readonly refused: readonly UnitRefusal[];
 }
 
-export async function invalidateStaleUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<StaleSweep> {
+export async function invalidateStaleUnits(orchestrator: FillOrchestrator, options: { readonly runId: string }, state?: RunStateReader): Promise<StaleSweep> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
-  const run = await readRun(database, options.runId);
+  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   const plans = await runPlans(orchestrator, run.runId);
   const stale: StaleUnit[] = [];
@@ -2388,7 +2392,7 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
     stale.push({ unitId: unit.unitId, generation: unit.generation, replacement: replaced.record.generation, cause });
   };
 
-  const own = await readRunUnits(database, run.runId);
+  const own = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
   for (const unit of own) {
     if (!LIVE_STATES.includes(unit.state) && unit.state !== 'published') continue;
     const plan = plans.get(unit.unitId);
@@ -2479,12 +2483,12 @@ interface StageGuardOutcome {
  * generations go stale and the run waits for that person's review rather than
  * publishing over them.
  */
-async function guardStage(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly stageId: string }): Promise<StageGuardOutcome> {
+async function guardStage(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly stageId: string }, state?: RunStateReader): Promise<StageGuardOutcome> {
   const guard = orchestrator.guard;
   if (guard === undefined) return { outcome: 'nothing-to-guard', refused: [] };
   const database = orchestrator.database;
   const at = orchestrator.clock();
-  const units = (await readRunUnits(database, options.runId)).filter((unit) => unit.stageId === options.stageId && unit.state === 'published');
+  const units = ((state === undefined ? await readRunUnits(database, options.runId) : (await state()).units)).filter((unit) => unit.stageId === options.stageId && unit.state === 'published');
   if (units.length === 0) return { outcome: 'nothing-to-guard', refused: [] };
   if ((await guard.check({ stageId: options.stageId, units, at })) === 'clean') return { outcome: 'clean', refused: [] };
   const refused: UnitRefusal[] = [];
@@ -2563,12 +2567,18 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   const phases: Record<SchedulerPhase, number> = { read: 0, sweep: 0, evidence: 0, replan: 0, admit: 0, guard: 0, stale: 0, settle: 0 };
   const tick = (phase: SchedulerPhase): void => { const now = performance.now(); phases[phase] += now - marked; marked = now; };
   const elapsed = (): number => performance.now() - startedAt;
-  let run = await readRun(database, options.runId);
+  // Reuse decoded records only while the committed graph stamp still stands.
+  let cached: RunStateSnapshot | undefined;
+  const state: RunStateReader = async () => {
+    cached = await readRunStateSnapshot(database, options.runId, cached);
+    return cached;
+  };
+  let run = (await state()).run;
   if (run === null) raise(`no run ${options.runId} is recorded`);
 
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     stopHeartbeat(orchestrator);
-    const settlement = await settleRun(orchestrator, { runId: run.runId });
+    const settlement = await settleRun(orchestrator, { runId: run.runId }, state);
     tick('settle');
     return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
@@ -2585,11 +2595,10 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   }
   // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
   // that costs what the run holds. The ordinary graph supplies the run-unit membership.
-  const passRunId = run.runId;
-  const unitsInRun=(await readRunUnits(database,passRunId)).length;
+  const unitsInRun = (await state()).units.length;
   tick('read');
 
-  const swept = await sweepUnits(orchestrator, { runId: run.runId });
+  const swept = await sweepUnits(orchestrator, { runId: run.runId }, state);
   tick('sweep');
   // A stage that planned no unit and whose producers have published since plans
   // here (madarch-tzte.26.3), before the pass admits anything: the units the
@@ -2600,13 +2609,13 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // holds, for its epoch is the one a crash between the re-planning step and
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
-  const quiet = (await runEvidence(orchestrator, run.runId));
+  const quiet = (await runEvidence(orchestrator, run.runId, state));
   tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
-    ? await replanAfterPublications(orchestrator, { runId: run.runId })
+    ? await replanAfterPublications(orchestrator, { runId: run.runId }, state)
     : { outcome: 'planned' as const, planned: false, run, units: [], reused: [], foundNothing: [] };
   tick('replan');
-  const admission = await admitUnits(orchestrator, { runId: run.runId });
+  const admission = await admitUnits(orchestrator, { runId: run.runId }, state);
   tick('admit');
   const refused: UnitRefusal[] = [
     ...swept.refused,
@@ -2621,7 +2630,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   const guarded: string[] = [];
   if (orchestrator.guard !== undefined) {
     const graph = await currentGraph(orchestrator, run.runId);
-    const units = await readRunUnits(database, run.runId);
+    const units = (await state()).units;
     for (const stageId of graph.order) {
       const stageUnits = units.filter((unit) => unit.stageId === stageId);
       if (stageUnits.length === 0 || !stageUnits.every((unit) => unit.state === 'published')) continue;
@@ -2630,7 +2639,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
       guardedOutputs.set(orchestrator, seen);
       if (seen.has(key)) continue;
       seen.add(key);
-      const verdict = await guardStage(orchestrator, { runId: run.runId, stageId });
+      const verdict = await guardStage(orchestrator, { runId: run.runId, stageId }, state);
       refused.push(...verdict.refused);
       if (verdict.outcome === 'conflict') {
         guarded.push(stageId);
@@ -2645,15 +2654,15 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
-  const beforeStale = await runEvidence(orchestrator, run.runId);
+  const beforeStale = await runEvidence(orchestrator, run.runId, state);
   tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
-    stale = await invalidateStaleUnits(orchestrator, { runId: run.runId });
+    stale = await invalidateStaleUnits(orchestrator, { runId: run.runId }, state);
     refused.push(...stale.refused);
   }
   tick('stale');
-  const settlement = await settleRun(orchestrator, { runId: run.runId });
+  const settlement = await settleRun(orchestrator, { runId: run.runId }, state);
   tick('settle');
   return {
     run: settlement.run,
