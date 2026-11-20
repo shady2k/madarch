@@ -79,6 +79,7 @@ let repository = '';
 let closeOwner: (() => Promise<void>) | undefined;
 let files: Awaited<ReturnType<typeof startFileTextServer>> | undefined;
 let readOwner: DatabaseOwner | undefined;
+let fillBudget: { statements: number; transactions: number };
 
 /** The commit a repository stands at now. */
 const headOf = (): string => git(repository, 'rev-parse', 'HEAD');
@@ -148,8 +149,7 @@ beforeAll(async () => {
   const started=performance.now();
   try { await fillInProcess(folder, home); } finally { spy.mockRestore(); }
   console.log('source fixture fill',JSON.stringify({statements,transactions,databaseMs,elapsedMs:performance.now()-started}));
-  expect(statements).toBeLessThanOrEqual(14_733);
-  expect(transactions).toBeLessThanOrEqual(522);
+  fillBudget = { statements, transactions };
   await activateTestProduct(folder, home);
   // The api role waits on the store's read queue: the fill role answers it, and this test serves that side itself.
   const reader = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
@@ -162,6 +162,11 @@ afterAll(async () => {
   await readOwner?.close();
   await closeOwner?.();
   if (work !== '') rmSync(work, { recursive: true, force: true });
+});
+
+test('the fixture fill stays within its measured query budget', () => {
+  expect(fillBudget.statements).toBeLessThanOrEqual(14_733);
+  expect(fillBudget.transactions).toBeLessThanOrEqual(522);
 });
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
