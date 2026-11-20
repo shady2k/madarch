@@ -9,6 +9,7 @@
     "test/deadline.ts",
     "test/questions-once-browser-check.ts",
     "test/postgres-cluster-owner-driver.ts",
+    "test/owner-stop-driver.ts",
     "test/queue-binary-driver.ts",
     "test/ci-template-fixture.ts",
     "test/run-scratch.ts",
