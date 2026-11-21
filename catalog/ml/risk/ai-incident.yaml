@@ -24,3 +24,7 @@ labels:
 description:
   en: 'An AI incident records a case where an AI system harmed someone or almost did: a wrong decision, a biased output, a leak or a model that was misused. It is kept with what happened, what was done and what should change.'
   ru: 'Инцидент ИИ фиксирует случай, когда система ИИ навредила человеку или едва не навредила: неверное решение, предвзятый ответ, утечку или неправильное использование модели. В нём записано, что произошло, что сделали и что стоит изменить.'
+derives-from:
+- ai-system
+- incident
+- product-profile

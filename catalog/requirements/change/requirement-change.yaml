@@ -25,3 +25,6 @@ labels:
 description:
   en: A requirement change replaces one requirement with another, or alters part of it, and says why the old form no longer serves. It keeps the history of what was asked for, so an old decision can be understood later.
   ru: Изменение требования заменяет одно требование другим или меняет его часть и говорит, почему прежняя формулировка больше не годится. Оно сохраняет историю того, что требовалось, чтобы позднее понять старое решение.
+derives-from:
+- impact-analysis
+- requirement-baseline

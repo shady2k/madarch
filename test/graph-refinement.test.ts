@@ -7,8 +7,11 @@ import { declaredKindReads, manifestContractOf } from '../src/fill/stages/plugin
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { sha256Hex } from '../src/graph/digest.js';
+import { readKindAssertions } from '../src/graph/records.js';
 
-test('fields resolve explicit refinement rather than reverse arrival while retaining every source fact', async () => {
+test('newest assertions replace producer refinement order while retaining every source fact', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-refinement-'));
   try {
     mkdirSync(join(folder, 'madarch'));
@@ -32,20 +35,28 @@ test('fields resolve explicit refinement rather than reverse arrival while retai
     const manifest = parseKinds(text, join(folder, 'madarch', 'kinds.yaml'), folder);
     expect(manifest.findings).toEqual([]);
     const contract = manifestContractOf(manifest);
+    const sources = names.map((_, index) => `019a0000-0000-7000-8000-00000000001${index}`);
     const owner = await createTestDatabaseOwner({ graphContract: contract });
     try {
-      // Final refinement arrives first; each producer's evidence and opinion must survive.
+      // Decision 0039.16 removes producer seniority: later valid-time values win.
       for (const producer of [...names].reverse()) {
-        await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-          vertices: [{ kind: 'note', key: { name: 'one' }, values: { body: producer, ...(producer === 'parser-last' ? {} : { detail: producer }) }, producer, producerVersion: '1.0.0', evidence: [{ type: 'file', repository: 'fixture', commit_or_digest: producer, path: `${producer}.md`, line_start: 1, line_end: 2 }] }], removals: [],
-        }, 1));
+        const content = `${producer}\nsource\n`;
+        const digest = sha256Hex(Buffer.from(content));
+        await owner.transaction('write', async tx => {
+          await bindTestWriteCapability(tx, contract, sources[names.indexOf(producer)]);
+          await publishGraphDrafts(tx, contract, { vertices: [
+            { kind: 'system.content-snapshot', key: { digest }, values: { content }, producer, producerVersion: '1.0.0' },
+            { kind: 'note', key: { name: 'one' }, values: { body: producer, ...(producer === 'parser-last' ? {} : { detail: producer }) }, validFrom: `2020-01-0${names.indexOf(producer) + 1}T00:00:00Z`, producer, producerVersion: '1.0.0', evidence: [{ target: { kind: 'system.content-snapshot', key: { digest } }, locator: { path: `${producer}.md`, digest, lineStart: 1, lineEnd: 2 } }] },
+          ], removals: [] });
+        });
       }
       for (const producer of names.slice(0, 2).reverse()) {
-        await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-          vertices: [{ kind: 'note', key: { name: 'two' }, values: { body: producer }, producer, producerVersion: '1.0.0' }], removals: [],
-        }, 1));
+        await owner.transaction('write', async tx => {
+          await bindTestWriteCapability(tx, contract, sources[names.indexOf(producer)]);
+          await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'note', key: { name: 'two' }, values: { body: producer }, validFrom: `2020-01-0${names.indexOf(producer) + 1}T00:00:00Z`, producer, producerVersion: '1.0.0' }], removals: [] });
+        });
       }
-      const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, declaredKindReads(manifest));
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, declaredKindReads(manifest), undefined, owner.graphContract);
       const result = await reader.byPrefix('note', 'note:', 10);
       const entity = result.rows.find((one) => one.key === 'note:one')!;
       expect(result.rows.find((one) => one.key === 'note:two')?.properties['body']).toBe('middle');
@@ -54,8 +65,10 @@ test('fields resolve explicit refinement rather than reverse arrival while retai
       // Prefix rows are value-only; the canonical detail read retains every source opinion and its evidence.
       const [detail] = await reader.find(entity.key);
       expect(detail).toBeDefined();
-      expect(detail!.opinions?.filter((one) => one.field === 'body').map((one) => one.producer).sort()).toEqual(names.map((name) => `${name}@1.0.0`).sort());
+      expect(detail!.opinions?.filter((one) => one.field === 'body').map((one) => one.producer).sort()).toEqual(sources.toSorted());
       expect(new Set(detail!.evidence?.map((one) => one.path))).toEqual(new Set(names.map((name) => `${name}.md`)));
+      const records = await owner.run(tx => readKindAssertions(tx, 'vertex', 'note', ['body', 'detail'], { contract: owner.graphContract }));
+      expect(records.find(row => row.key['name'] === 'one')?.assertions.filter(a => a.property === 'body').every(a => a.evidence.length === 1)).toBe(true);
     } finally { await owner.close(); }
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }, 30_000);

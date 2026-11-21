@@ -6,90 +6,40 @@ sources:
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
   - hasPart
+  - work.depends-on
+  - stage.contains
   in:
   - partOf
-template-policy: none
+  - work.depends-on
+  - stage.contains
+template-policy: page
+source: graph
 fields:
-- name: legacy_id
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the part, such as Catalogue rewrite; it is the
+      stage's key.
+- name: acceptance_criterion
   type: text
   nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: What a person checks to accept the stage.
 - name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
+  type: value-set-value
   nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: Where the stage stands, as the work kinds keep it.
+key:
+- name
 labels:
   en:
     one: Stage
@@ -100,3 +50,5 @@ labels:
 description:
   en: A stage is a part of a feature cut small enough for one responsible person or agent to finish. It holds the tasks and bugs that make up that piece of work.
   ru: Этап — часть возможности, очерченная так, чтобы один ответственный человек или агент мог довести её до конца. В этап входят задачи и ошибки, из которых состоит эта часть работы.
+derives-from:
+- feature

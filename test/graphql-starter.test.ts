@@ -1,8 +1,8 @@
 /**
  * The starter SDL the frontend builds against (decision 0036, section 9): src/graphql/starter.graphql is what the
  * starter catalogue derives now, graphql-js accepts it, and every catalogue kind is in it — a kind's types carry the
- * `Kind` prefix that keeps them apart from the engine's own names (src/graphql/names.ts), so no kind is left out for a
- * name.
+ * `Kind` prefix that keeps them apart from the engine's own names (src/graphql/names.ts). The system kind
+ * `manifest.kind` uses the engine's single `CatalogueEntity` type instead of a duplicate product type.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildSchema } from 'graphql';
@@ -24,13 +24,18 @@ describe('the starter catalogue schema', () => {
     expect(schema.getType('KindTemplate')).toBeUndefined();
   });
 
-  test('holds every starter kind, and names each one in the family the engine leaves to products', () => {
+  test('holds every starter kind, with manifest.kind represented by CatalogueEntity', () => {
     const starter = starterSchema();
     const schema = buildSchema(starter.sdl);
     for (const kind of starter.kinds) {
-      const type = `Kind${kind.split(/[._-]/u).filter((part) => part !== '').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`;
+      const type = kind === 'manifest.kind'
+        ? 'CatalogueEntity'
+        : `Kind${kind.split(/[._-]/u).filter((part) => part !== '').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`;
       expect(schema.getType(type), kind).toBeDefined();
     }
+    expect(starter.kinds).toContain('manifest.kind');
+    expect(schema.getType('KindManifestKind')).toBeUndefined();
+    expect(schema.getQueryType()!.getFields()['allManifestKind']).toBeUndefined();
     // The page-template kind the decision of 2026-11-15 names sits beside the engine's own `PageTemplate`.
     expect(schema.getType('KindPageTemplate')).toBeDefined();
     expect(schema.getType('PageTemplate')).toBeDefined();

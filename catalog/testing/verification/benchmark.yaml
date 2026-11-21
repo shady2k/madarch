@@ -24,3 +24,5 @@ labels:
 description:
   en: A benchmark runs a fixed task on a fixed set of inputs and measures time, memory or cost, under conditions written down with it. Comparing a new measurement with the stored one shows whether a change helped or hurt.
   ru: Замер выполняет одну и ту же работу на одном и том же наборе входных данных и измеряет время, память или стоимость в записанных условиях. Сравнив новый замер с сохранённым, видно, помогло изменение или навредило.
+derives-from:
+- performance-test

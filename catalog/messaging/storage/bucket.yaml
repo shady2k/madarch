@@ -24,3 +24,6 @@ labels:
 description:
   en: A bucket groups objects under one name inside an object store and carries the rules for who may read, write or delete them. Its name is unique within the store's namespace, and its objects are reached by key.
   ru: Бакет объединяет объекты под одним именем в объектном хранилище и несёт правила о том, кому можно их читать, записывать и удалять. Его имя уникально в пространстве имён хранилища, а к объектам обращаются по ключу.
+derives-from:
+- object-store
+- product-profile

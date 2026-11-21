@@ -59,7 +59,6 @@ sections:
     component: fact
     on: root
     title: { en: By language, ru: По языку }
-    roles: { show: [developer, architect] }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
         count
@@ -69,34 +68,18 @@ sections:
       kind: code.file
       display: bar
       by: language
-  - id: filesByFolder
-    component: fact
-    on: root
-    title: { en: By folder, ru: По папке }
-    roles: { show: [developer, architect] }
-    query: |
-      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        count
-        groupBy(field: "directory", limit: 20) { key count }
-      }
-    params:
-      kind: code.file
-      display: treemap
-      by: directory
   - id: filesByRepository
-    component: fact
+    component: bars
     on: root
     title: { en: Files by repository, ru: Файлы по репозиторию }
-    roles: { show: [developer, architect] }
     query: |
-      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        count
-        groupBy(field: "repository", limit: 20) { key count }
+      allCodeRepository(first: 20) {
+        edges { node { label codeFileRepositoryOf { totalCount } } }
       }
     params:
-      kind: code.file
-      display: bar
-      by: repository
+      path: edges
+      labelPath: node.label
+      valuePath: node.codeFileRepositoryOf.totalCount
   - id: filesByAge
     component: fact
     on: root

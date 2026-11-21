@@ -24,3 +24,6 @@ labels:
 description:
   en: A WebSocket endpoint is an address a client connects to once, after which both sides send messages to each other until one closes. It suits live data, where asking again for every change would be wasteful.
   ru: Конечная точка WebSocket — адрес, к которому клиент подключается один раз, после чего обе стороны шлют друг другу сообщения, пока одна не закроет соединение. Она подходит для живых данных, когда спрашивать заново о каждом изменении расточительно.
+derives-from:
+- code.operation
+- code.service

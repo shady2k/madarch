@@ -58,7 +58,7 @@ export function ProblemsPage({ base }: { readonly base: string }): ReactElement 
           <BulletList>{findings.map((finding, index) => (
             <ListItem key={index}>
               <Paragraph>{finding.message}</Paragraph>
-              <Metadata>{finding.file}:{finding.line} — {finding.path}</Metadata>
+              <Metadata>{finding.file}{t('common.labelSeparator').trimEnd()}{finding.line} {t('common.emptyValue')} {finding.path}</Metadata>
             </ListItem>
           ))}</BulletList>
         )}

@@ -24,3 +24,11 @@ labels:
 description:
   en: A node pool is a set of nodes in a cluster that share their machine type, their size and often their purpose, such as general work or memory-heavy work. The pool is scaled as one, so the cluster adds or removes nodes of that shape together.
   ru: 'Пул узлов — набор узлов кластера с общим типом машины, размером и обычно назначением: общая работа или работа с большим объёмом памяти. Пул масштабируют целиком, поэтому кластер добавляет или убирает узлы этой формы вместе.'
+derives-from:
+- kubernetes-cluster
+- product-profile
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []
+source: graph

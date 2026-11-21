@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An attestation wraps a statement about an artifact in a signature that a verifier can check: who made the claim, about which artifact and what it says. It lets another party trust the artifact without trusting the person who handed it over.'
   ru: 'Аттестация оборачивает утверждение об артефакте в подпись, которую может проверить проверяющий: кто сделал заявление, о каком артефакте и что именно сказано. Она позволяет другой стороне доверять артефакту, не доверяя тому, кто его передал.'
+derives-from:
+- in-toto-statement

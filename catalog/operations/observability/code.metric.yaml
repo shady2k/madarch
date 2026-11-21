@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - measures
+  - partOf
   in:
   - measures
 template-policy: page
@@ -20,7 +21,42 @@ details:
 - labels
 - library
 - definitionFormat
-- service
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: metric_type
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: help
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: labels
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  producers:
+  - operations
+- name: library
+  type: text
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.file
+- code.service
 labels:
   en:
     one: Metric
@@ -31,3 +67,8 @@ labels:
 description:
   en: 'A metric is one measured number a service publishes over time: a counter of requests, a gauge of queue length, a histogram of durations. Its name, its labels and the code that updates it define what can be watched and alerted on.'
   ru: 'Метрика — одно измеряемое число, которое сервис публикует во времени: счётчик запросов, шкала длины очереди, гистограмма длительностей. Её имя, метки и код, который её меняет, задают, за чем можно следить и о чём оповещать.'
+
+key-edges:
+- role: code.metric-service
+  edge: code.metric-service
+  side: from

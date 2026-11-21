@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An outcome describes the change a person would notice once a goal is reached: a faster checkout, fewer errors, a new market served. It is stated from outside the work, so the team can check that the goal mattered.'
   ru: 'Результат описывает перемену, которую заметит человек, когда цель достигнута: быстрее оформление, меньше ошибок, новый рынок. Он сформулирован снаружи работы, чтобы команда могла проверить, что цель была важна.'
+derives-from:
+- goal

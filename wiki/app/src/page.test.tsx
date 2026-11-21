@@ -414,9 +414,9 @@ test('a section the template does not open for the reader\'s role stands on the 
 test('the details block states every field, marks a disputed one and names the place its value rests on', async () => {
   const page = await renderPage([section('details', 'details', { path: 'details' })], {
     details: { details: [
-      { name: 'lines', type: 'integer', key: false, value: 12, contested: false, opinions: [{ producer: 'code-index', statedAt: '2026-01-01T00:00:00Z', evidence: [{ type: 'file', repository: 'r1', path: 'src/a.ts', lineStart: 4 }] }] },
-      { name: 'url', type: 'text', key: false, value: null, contested: true, opinions: [{ producer: 'one', statedAt: '2026-01-01T00:00:00Z', evidence: [] }] },
-      { name: 'path', type: 'text', key: true, value: 'src/a.ts', contested: false, opinions: [] },
+      { name: 'lines', type: 'integer', key: false, value: 12, contested: false, assertions: [{ source: { label: 'code-index' }, selected: true, recordedAt: '2026-01-01T00:00:00Z', evidence: [{ target: { label: 'r1/src/a.ts' }, locator: { lineStart: 4 } }] }] },
+      { name: 'url', type: 'text', key: false, value: null, contested: true, assertions: [{ source: { label: 'one' }, selected: true, recordedAt: '2026-01-01T00:00:00Z', evidence: [] }] },
+      { name: 'path', type: 'text', key: true, value: 'src/a.ts', contested: false, assertions: [] },
     ] },
   });
   try {

@@ -24,3 +24,6 @@ labels:
 description:
   en: A data service lets other systems read or write datasets through a defined interface, such as an API, a query endpoint or a feed. It hides where the data is stored and states how it can be asked for.
   ru: 'Сервис данных даёт другим системам читать или записывать наборы через определённый интерфейс: API, точку запросов или поток. Он скрывает, где хранятся данные, и говорит, как их можно запросить.'
+derives-from:
+- dataset
+- product-profile

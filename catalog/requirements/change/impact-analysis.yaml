@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An impact analysis examines a proposed change before it is accepted: which parts of the product it reaches, which teams and systems must move, what it costs in time and money, and which risks it brings. It gives the people who decide the facts to decide on.'
   ru: 'Анализ влияния рассматривает предложенное изменение до принятия: каких частей продукта оно касается, какие команды и системы должны меняться, сколько это стоит времени и денег и какие несёт риски. Он даёт решающим людям факты для решения.'
+derives-from:
+- change-request
+- software-system

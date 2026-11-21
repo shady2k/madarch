@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An infrastructure node is a piece of infrastructure that a deployment relies on but that runs none of the product''s own code: a load balancer, a DNS zone, a firewall. If it fails, the software may keep running but become unreachable.'
   ru: 'Инфраструктурный узел — часть инфраструктуры, на которую опирается развёртывание, но которая не исполняет собственный код продукта: балансировщик, зона DNS, межсетевой экран. При его отказе программа может работать, но стать недоступной.'
+derives-from:
+- deployment-environment

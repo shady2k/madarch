@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A response record captures the actions taken while an incident is running: who checked what, which change was tried, what the result was. Written during the event, it becomes the raw material of the timeline and the postmortem.'
   ru: 'Запись о реагировании фиксирует действия во время инцидента: кто что проверил, какое изменение попробовали, что получилось. Сделанная по ходу, она становится основой хронологии и разбора.'
+derives-from:
+- incident
+- person

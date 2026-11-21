@@ -1,4 +1,4 @@
-/** Observable producer results, recorded on the unit generation that answered them (decision 0039, item 11). */
+/** Observable producer results, published as ordinary system.unit assertions. */
 
 export type ProducerOutcome = 'completed' | 'unchanged' | 'empty' | 'abstained' | 'failed';
 export interface ProducerOutcomeDraft {

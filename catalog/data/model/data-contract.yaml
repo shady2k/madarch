@@ -24,3 +24,6 @@ labels:
 description:
   en: A data contract states what a dataset contains, what each field means, how fresh and how complete it must be, and who to ask when it breaks. The team that writes the data and the teams that read it agree on it before either side depends on it.
   ru: Контракт данных говорит, что содержит набор, что означает каждое поле, насколько свежими и полными должны быть данные и к кому идти при поломке. Команда, которая пишет данные, и команды, которые их читают, договариваются о нём до того, как кто-то на него положится.
+derives-from:
+- dataset
+- product-profile

@@ -25,3 +25,5 @@ labels:
 description:
   en: An assurance case gathers a claim, the argument that supports it and the evidence behind every step, so someone outside the team can judge whether the claim holds. Safety and security cases are the common kinds.
   ru: Обоснование обеспечения собирает утверждение, рассуждение в его поддержку и доказательства за каждым шагом, чтобы человек вне команды мог судить, держится ли утверждение. Обоснования безопасности и защищённости — самые частые.
+derives-from:
+- doc.requirement

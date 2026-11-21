@@ -326,7 +326,7 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'en
     entries.push({
       id: `${run ?? ''}:${basename(file)}:${String(index)}`,
       at: Number.isFinite(time) ? time : null,
-      level: levelOf(record['level']),
+      level: levelOf(record.level),
       source,
       run,
       unit: typeof record['unitId'] === 'string' ? record['unitId'] : null,

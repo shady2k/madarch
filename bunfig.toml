@@ -4,7 +4,7 @@
 # folder the run starts in, so the isolation covers `bun test`, `bun run test`
 # and CI's `bun test test/` — runs started from inside `test/` do not get it.
 [test]
-preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
+preload = ["./test/run-scratch.ts", "./test/deadline.ts", "./test/plugin-sandbox-guard.ts"]
 # A test that names no bound of its own has ten seconds instead of Bun's five
 # (madarch-tzte.36): several take 5.0-6.0 s on GitHub's runners, and each one
 # that times out costs a shard rerun. The default is `setDefaultTimeout` in

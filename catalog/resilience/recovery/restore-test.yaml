@@ -24,3 +24,6 @@ labels:
 description:
   en: A restore test takes a backup and restores it into a separate place to see whether the copy is complete and how long recovery takes. Without such a test, nobody knows whether the backups would work when they are needed.
   ru: Проверка восстановления берёт резервную копию и восстанавливает её в отдельное место, чтобы увидеть, полна ли копия и сколько занимает восстановление. Без такой проверки никто не знает, сработают ли копии, когда понадобятся.
+derives-from:
+- backup
+- recovery-plan

@@ -174,4 +174,3 @@ test('a control press on a sidebar row opens the page in a tab of its own', asyn
     container.remove();
   }
 });
-

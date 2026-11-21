@@ -10,7 +10,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { readRunUnits } from '../src/fill/state-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { readRunUnits } from '../src/graph/fill-state.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
@@ -75,7 +77,7 @@ async function runUnits(stdout: string): Promise<string[]> {
   const named = /^Fill (\S+):/mu.exec(stdout);
   if (named === null) throw new Error(`the command printed no run: ${stdout}`);
   const storeRoot = join(home, '.madarch', 'knowledge');
-  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), btreeGist: true });
+  const owner = Object.assign(await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), btreeGist: true }), { graphContract: withAssertionContract(await readPinnedGraphContract(folder)) });
   try {
     return (await readRunUnits(owner, named[1]!)).map((unit) => unit.unitId).sort();
   } finally {

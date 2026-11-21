@@ -51,9 +51,6 @@ export function documentAddress(repo: string | null, path: string, anchor?: stri
   return `/doc?${query.toString()}${anchor === undefined || anchor === null || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
 }
 
-/** Where a question of the loop stands. */
-export const questionAddress = (slug: string): string => `/questions/${encodeURIComponent(slug)}`;
-
 /** The app's two address families (decision 0036, section 7): an entity's page, and a template bound to no entity. */
 export const ENTITY_ADDRESS_BASE = '/e/';
 export const TEMPLATE_ADDRESS_BASE = '/p/';

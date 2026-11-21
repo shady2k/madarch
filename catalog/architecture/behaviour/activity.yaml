@@ -1,0 +1,48 @@
+id: uml.activity
+purpose: structure
+audience: [architect, developer, analyst]
+definition: An activity is the picture of one piece of behaviour as actions, decisions and the paths between them, as UML draws it.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - hasPart
+  - documents
+  - realises
+  in:
+  - documents
+  - defines
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the behaviour is known by, such as Place an order; it is the activity's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the activity does, in one or two sentences, from the actions it holds
+      in the graph.
+key:
+- name
+derives-from:
+- doc.use-case
+labels:
+  en:
+    one: Activity
+    many: Activities
+  ru:
+    one: Активность
+    many: Активности
+description:
+  en: 'An activity shows one behaviour as a flow of actions: what happens first, where the flow decides, where paths split and meet again, and where it ends. It is drawn for a use case, an operation or a process step, and its nodes are entities of their own.'
+  ru: 'Активность показывает одно поведение как поток действий: что происходит сначала, где поток решает, где пути расходятся и сходятся и где он заканчивается. Её рисуют для сценария, операции или шага процесса, а её узлы — отдельные сущности.'

@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A consumer contract states what one client needs from an interface: which calls it makes, with which inputs, and what it expects back. The provider can then check that it still gives those answers.'
   ru: 'Контракт потребителя говорит, что нужно одному клиенту от интерфейса: какие вызовы он делает, с какими данными и что ждёт в ответ. Поставщик может проверить, что по-прежнему даёт эти ответы.'
+derives-from:
+- code.contract
+- code.service

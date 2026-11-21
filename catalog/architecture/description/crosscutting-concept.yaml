@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A crosscutting concept describes one concern that many parts of the system share and must handle the same way: logging, error handling, security, persistence, internationalisation. arc42 collects them so the same problem is not solved differently in each part.'
   ru: 'Сквозное понятие описывает заботу, которую делят многие части системы и должны решать одинаково: журналирование, обработку ошибок, безопасность, хранение, переводы. arc42 собирает их, чтобы одну задачу не решали по-разному в каждой части.'
+derives-from:
+- solution-strategy

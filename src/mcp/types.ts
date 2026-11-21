@@ -13,6 +13,11 @@ export interface McpToolDefinition {
 export interface UnitToolAnswer {
   readonly answer: unknown;
   readonly isError: boolean;
+  /**
+   * Words the agent reads beside the answer, as a second text block (owner's decision, 2026-11-15): the fill's own
+   * notice when a token bound is four fifths spent, delivered with the next tool answer the agent reads.
+   */
+  readonly note?: string;
 }
 
 export interface UnitToolCall {

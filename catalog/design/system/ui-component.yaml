@@ -25,3 +25,7 @@ labels:
 description:
   en: A UI component is a named, reusable part of the interface, such as a button, a table or a date picker, that other parts place with properties. It owns its look and behaviour, so the same interaction works the same way everywhere.
   ru: 'Компонент интерфейса — именованная многоразовая часть интерфейса: кнопка, таблица или выбор даты, — которую другие части вставляют со своими свойствами. Он сам отвечает за вид и поведение, поэтому одно и то же действие всюду работает одинаково.'
+derives-from:
+- design-system
+- design-token
+- product-profile

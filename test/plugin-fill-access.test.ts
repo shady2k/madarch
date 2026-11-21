@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test';
+import { Value } from 'typebox/value';
+import { PluginEntityRef } from '../src/plugin/protocol.js';
 import { pluginInvocationAccess } from '../src/plugin/fill-access.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { publishGraphDrafts, bindWriteCapability } from '../src/graph/write.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { trackedPluginAnswerer, pluginGraphAnswerer } from '../src/fill/plugin-turns.js';
 
 function setup(output: string, reads: string[], fields = ['text']) {
@@ -8,7 +15,6 @@ function setup(output: string, reads: string[], fields = ['text']) {
   const access = pluginInvocationAccess({
     files: async () => { calls.push('files'); return []; },
     value: async (kind) => { calls.push(kind); return kind; },
-    unresolved: async () => { calls.push('unresolved'); return { references: [] }; },
   }, { location: '/product/plugin.json:7', plugin: 'multi', output, reads, fields, fileKind: 'File', edges: [] });
   return { access, calls };
 }
@@ -34,19 +40,29 @@ test('selected output field and edge boundaries are enforced', () => {
   expect(() => setup('A', []).access.assertWrites({ vertices: [], edges: [{ kind: 'hidden', from: { kind: 'A', key: {} }, to: { kind: 'A', key: {} } }], removals: [] })).toThrow('unselected edge');
 });
 
+test('a selected support closure admits only its fields and never removes support identities', () => {
+  const scoped = () => pluginInvocationAccess({ files: async () => [], value: async () => null }, {
+    location: '/product/plugin.json:7', plugin: 'multi', output: 'A', reads: [], fields: ['text'], fileKind: 'File',
+    edges: ['support-about'], supportOutputs: new Map([['Support', ['content']]]),
+  });
+  expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' }, values: { content: 'source' } }], edges: [{ kind: 'support-about', from: { kind: 'Support', key: { digest: 'sha' } }, to: { kind: 'File', key: { path: 'source.ts' } } }] })).not.toThrow();
+  expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' } }] })).not.toThrow();
+  expect(() => scoped().assertWrites({ vertices: [{ kind: 'OtherSupport', key: {}, values: {} }] })).toThrow('unselected output');
+  expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' }, values: { private: 'hidden' } }] })).toThrow('Support.private');
+  expect(() => scoped().assertWrites({ removals: [{ kind: 'Support', key: { digest: 'sha' } }] })).toThrow('cannot be removed');
+});
+
 test('consistency record reads preserve bounded pages without requiring catalogue content inputs', async () => {
   const calls: unknown[] = [];
   const query = { after: 'cursor', limit: 1 };
   const access = pluginInvocationAccess({
     files: async () => [], value: async () => null,
-    unresolved: async (page) => { calls.push(['unresolved', page]); return { references: [], next: 'references-next' }; },
     removedEnds: async (page) => { calls.push(['removedEnds', page]); return { edges: [], next: 'edges-next' }; },
-    unevidenced: async (page) => { calls.push(['unevidenced', page]); return { opinions: [], next: 'opinions-next' }; },
+    unevidenced: async (page) => { calls.push(['unevidenced', page]); return { assertions: [], next: 'assertions-next' }; },
   }, { location: '/product/plugin.json:7', plugin: 'consistency', output: 'Finding', reads: [], fields: [], fileKind: 'File', edges: [] });
-  expect(await access.graph.unresolved!(query)).toEqual({ references: [], next: 'references-next' });
   expect(await access.graph.removedEnds!(query)).toEqual({ edges: [], next: 'edges-next' });
-  expect(await access.graph.unevidenced!(query)).toEqual({ opinions: [], next: 'opinions-next' });
-  expect(calls).toEqual([['unresolved', query], ['removedEnds', query], ['unevidenced', query]]);
+  expect(await access.graph.unevidenced!(query)).toEqual({ assertions: [], next: 'assertions-next' });
+  expect(calls).toEqual([['removedEnds', query], ['unevidenced', query]]);
   expect(() => access.assertAllowed()).not.toThrow();
 });
 
@@ -69,8 +85,8 @@ test('explicit earlier read freezes producer generation and never reads later re
     return (vertex?.values as Readonly<Record<string, unknown>> | undefined)?.[field] ?? null;
   };
   let seen: unknown;
-  const snapshot = { runId: 'run', unitId: 'plugin-turns/base:Source', generation: 1 };
-  const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field, token) => {
+  const snapshot = { unitUid: 'source-unit', validAt: '2026-01-01T00:00:00Z', recordedAt: '2026-01-01T00:00:00Z' };
+  const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field, _keyEdges, token) => {
     seen = token;
     return savedValue(kind, key, field);
   } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], snapshots: new Map([['Source', snapshot]]), fileKind: 'File', edges: [] });
@@ -81,7 +97,7 @@ test('explicit earlier read freezes producer generation and never reads later re
 });
 
 test('earlier file enumeration forwards the exact named snapshot and refuses missing snapshots', async () => {
-  const snapshot = { runId: 'original', unitId: 'plugin-turns/base:File', generation: 2 };
+  const snapshot = { unitUid: 'file-unit', validAt: '2026-01-01T00:00:00Z', recordedAt: '2026-01-01T00:00:00Z' };
   const calls: unknown[] = [];
   const graph = { files: async (pattern: string, token?: typeof snapshot) => { calls.push([pattern, token]); return [{ kind: 'File', key: { path: 'saved.ts' } }]; }, value: async () => null };
   const scope = { location: '/product/plugin.json:7', plugin: 'refiner', output: 'File', fields: [], reads: [{ kind: 'File', version: 'earlier' as const, producer: 'base' }], fileKind: 'File', edges: [] };
@@ -97,7 +113,7 @@ test('tracked optional graph arguments remain absent rather than becoming JSON n
   const graph = trackedPluginAnswerer({ query: async (text) => { requests.push(JSON.parse(text)); return [[]]; } });
   await graph.files('**', undefined);
   await graph.value('File', { path: 'a' }, 'text', undefined);
-  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:File', generation: 1 };
+  const snapshot = { unitUid: 'saved-unit', validAt: '2026-01-01T00:00:00Z', recordedAt: '2026-01-01T00:00:00Z' };
   await graph.files('**', snapshot);
   expect(requests.map(({ method, args }) => ({ method, args }))).toEqual([
     { method: 'files', args: ['**'] },
@@ -106,50 +122,131 @@ test('tracked optional graph arguments remain absent rather than becoming JSON n
   ]);
 });
 
-test('one reader indexes immutable snapshot files and fields once without sharing with another reader', async () => {
-  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:code.file', generation: 1 };
-  let loads = 0;
-  // The generation's published answer is the journal row that served it (decision 0039, item 11): the reader
-  // rebuilds the vertices of a kind from what the unit declared and the opinions it opened.
-  const change = {
-    vertices: [{ entity: 'code.file', uid: 'uid-a', node: '1', key: { repository: 'repo', path: 'a.ts' }, state: 'declared' }],
-    edges: [],
-    opinions: [{ id: '1', entity: 'code.file', node: 'uid-a', state: 'opened', fields: ['content', 'language'], lang: null, said_by: 'base@1.0.0', values: { content: 'saved', language: 'typescript' } }],
-  };
-  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (sql: string) => {
-    if (sql.includes('FROM operation o')) { loads++; return { rows: [{ change }] }; }
-    return { rows: [] };
-  } }) };
-  const wiring = { owner, manifest: {}, contract: {} } as unknown as Parameters<typeof pluginGraphAnswerer>[0];
-  const reader = pluginGraphAnswerer(wiring);
-  const key = { repository: 'repo', path: 'a.ts' };
-  expect(await reader.files('**/*.ts', snapshot)).toEqual([{ kind: 'code.file', key }]);
-  expect(await reader.value('code.file', key, 'content', snapshot)).toBe('saved');
-  expect(await reader.value('code.file', key, 'language', snapshot)).toBe('typescript');
-  expect(await reader.value('code.file', key, 'omitted', snapshot)).toBeNull();
-  expect(loads).toBe(1);
-  expect(await pluginGraphAnswerer(wiring).value('code.file', key, 'content', snapshot)).toBe('saved');
-  expect(loads).toBe(2);
+const snapshotUnit = '019a0000-0000-7000-8000-000000000077';
+const snapshotRun = '019a0000-0000-7000-8000-000000000078';
+async function snapshotFixture() {
+  const { parseKinds } = await import('../src/product/manifest/kinds.js');
+  const manifest = parseKinds({root:{kinds:{
+    'code.organisation':{source:'graph',key:['name'],fields:[{name:'name',type:'text',producers:['fixture']}]},
+    'code.repository':{source:'graph',key:['name'],'key-edges':[{role:'organisation',edge:'repository-organisation',side:'from'}],fields:[{name:'name',type:'text',producers:['fixture']}]},
+    'code.file':{source:'graph',key:['path'],'key-edges':[{role:'repository',edge:'belongs',side:'from'}],fields:[{name:'path',type:'text',producers:['fixture']},{name:'content',type:'text',producers:['fixture']},{name:'language',type:'text',producers:['fixture']}]},
+  },'semantic-bindings':{file:{kind:'code.file',fields:{path:'path'},edges:{repository:{kind:'belongs',direction:'from'}}},repository:{kind:'code.repository',fields:{name:'name'}}},edges:[{name:'repository-organisation',from:['code.repository'],to:['code.organisation'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}},{name:'belongs',from:['code.file'],to:['code.repository'],'on-parent-delete':'restrict',cardinality:{from:{min:1,max:1},to:{min:0,max:null}},labels:{en:{out:'belongs to',in:'contains'},ru:{out:'принадлежит',in:'содержит'}}}]},at:()=>1},'/fixture/catalog.yaml','/fixture');
+  expect(manifest.findings).toEqual([]);
+  const contract = withManifestContract(graphContractOf(manifest));
+  const owner = await createTestDatabaseOwner({graphContract:contract});
+  const encode = (value:unknown):unknown => value instanceof Map ? {$map:[...value].map(([key,value])=>[key,encode(value)])} : Array.isArray(value) ? value.map(encode) : value !== null && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key,value])=>[key,encode(value)])) : value;
+  const publish = async (vertices:Parameters<typeof publishGraphDrafts>[2]['vertices'],withUnit=false) => owner.transaction('write',async tx=>{
+    if(withUnit){
+      const binding = await bindTestWriteCapability(tx, contract);
+      bindWriteCapability(tx, { ...binding, unitUid: snapshotUnit });
+    }
+    return await publishGraphDrafts(tx,contract,{vertices,removals:[]});
+  });
+  await publish([{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify(encode(manifest))},producer:'fixture',producerVersion:'1'},
+    {kind:'system.run',uid:snapshotRun,key:{},values:{run_name:'original-run'},producer:'fixture',producerVersion:'1'},
+    {kind:'system.unit',uid:snapshotUnit,key:{},values:{unit_name:'plugin-turns/base:Source',generation:3,state:'published',scope:'base:Source'},producer:'fixture',producerVersion:'1'},
+    {kind:'code.organisation',key:{name:'org'},producer:'fixture',producerVersion:'1'},
+    {kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}},producer:'fixture',producerVersion:'1'}]);
+  await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'system.unit-run',from:{kind:'system.unit',uid:snapshotUnit,key:{}},to:{kind:'system.run',uid:snapshotRun,key:{}},producer:'fixture',producerVersion:'1'}],removals:[]}));
+  return {owner,manifest,contract,publish};
+}
+
+for (const mode of ['live','snapshot'] as const) test(`${mode} file references recursively match the public protocol`, async () => {
+  const {owner,publish,...wiring}=await snapshotFixture();
+  const key={path:'nested.ts'};
+  const keyEdges={repository:{kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}}}};
+  try {
+    await publish([{kind:'code.file',key,keyEdges,values:{content:'nested content',language:'typescript'},producer:'fixture',producerVersion:'1'}],true);
+    const now=await owner.transaction('snapshot',async tx=>(await tx.query<{now:string}>('SELECT transaction_timestamp()::text AS now')).rows[0]!.now);
+    const snapshot={unitUid:snapshotUnit,recordedAt:now,validAt:now};
+    const token=mode === 'live' ? undefined : snapshot;
+    const reader=pluginGraphAnswerer({...wiring,owner});
+    const files=await reader.files('**/*.ts',token);
+    expect(files).toHaveLength(1);
+    expect(Value.Check(PluginEntityRef,files[0])).toBe(true);
+    expect(files[0]).toEqual({kind:'code.file',key,keyEdges});
+    expect(await reader.value('code.file',key,'content',files[0]!.keyEdges,token)).toBe('nested content');
+  } finally {await owner.close();}
+},30_000);
+
+test('one reader indexes immutable graph snapshot files and fields once without sharing with another reader', async () => {
+  const fixture = await snapshotFixture();
+  const {owner,publish,...wiring}=fixture;
+  const key={path:'a.ts'};
+  const keyEdges={repository:{kind:'code.repository',key:{name:'repo'},keyEdges:{organisation:{kind:'code.organisation',key:{name:'org'}}}}};
+  const vertex={kind:'code.file',key,keyEdges,values:{content:'saved',language:'typescript'},producer:'fixture',producerVersion:'1'};
+  try {
+    await publish([vertex],true);
+    const now=await owner.transaction('snapshot',async tx=>(await tx.query<{now:string}>('SELECT transaction_timestamp()::text AS now')).rows[0]!.now);
+    const snapshot={unitUid:snapshotUnit,recordedAt:now,validAt:now};
+    await publish([{...vertex,values:{content:'later',language:'changed'}}],true);
+    let loads=0;
+    const counted={transaction:async (...args:Parameters<typeof owner.transaction>)=>{loads++;return await owner.transaction(...args);}} as typeof owner;
+    const reader=pluginGraphAnswerer({...wiring,owner:counted});
+    const files=await reader.files('**/*.ts',snapshot);
+    expect(files).toHaveLength(1);
+    expect(files[0]?.key).toEqual(key);
+    expect(files[0]?.keyEdges?.repository).toMatchObject(keyEdges.repository);
+    const frozenKeyEdges=files[0]!.keyEdges!;
+    expect(await reader.value('code.file',key,'content',frozenKeyEdges,snapshot)).toBe('saved');
+    expect(await reader.value('code.file',key,'language',frozenKeyEdges,snapshot)).toBe('typescript');
+    expect(await reader.value('code.file',key,'omitted',frozenKeyEdges,snapshot)).toBeNull();
+    expect(loads).toBe(1);
+    expect(await pluginGraphAnswerer({...wiring,owner:counted}).value('code.file',key,'content',frozenKeyEdges,snapshot)).toBe('saved');
+    expect(loads).toBe(2);
+  } finally {await owner.close();}
+},30_000);
+
+test('snapshot resolver rejects prior-run or unsuccessful graph units before execution', async () => {
+  const {successfulPluginSnapshot}=await import('../src/graph/plugin-turns.js');
+  const {owner,publish}=await snapshotFixture();
+  try {
+    await expect(successfulPluginSnapshot(owner,'run-current','base:Source')).rejects.toThrow('expected one graph run run-current, found 0');
+    await publish([{kind:'system.unit',key:{},uid:snapshotUnit,values:{state:'failed'},producer:'fixture',producerVersion:'1'}]);
+    await expect(successfulPluginSnapshot(owner,'original-run','base:Source')).rejects.toThrow('expected one completed graph unit');
+  } finally {await owner.close();}
+},30_000);
+
+test('completed snapshot captures graph unit identity and clock rather than cloning publication', async () => {
+  const {successfulPluginSnapshot}=await import('../src/graph/plugin-turns.js');
+  const {owner}=await snapshotFixture();
+  try {
+    const before=await owner.transaction('snapshot',async tx=>(await tx.query<{count:number}>('SELECT count(*)::int AS count FROM assertion')).rows[0]!.count);
+    const snapshot=await successfulPluginSnapshot(owner,'original-run','base:Source');
+    expect(snapshot.unitUid).toBe(snapshotUnit);
+    expect(Number.isFinite(Date.parse(snapshot.recordedAt))).toBe(true);
+    expect(snapshot.validAt).toBe(snapshot.recordedAt);
+    expect(await owner.transaction('snapshot',async tx=>(await tx.query<{count:number}>('SELECT count(*)::int AS count FROM assertion')).rows[0]!.count)).toBe(before);
+  } finally {await owner.close();}
+},30_000);
+
+
+test('an inherited run resolves only its declared completed unit membership', async()=>{
+  const {successfulPluginSnapshot}=await import('../src/graph/plugin-turns.js');
+  const {owner,contract,publish}=await snapshotFixture();
+  const inheritedRun='019a0000-0000-7000-8000-000000000079';
+  try{
+    await publish([{kind:'system.run',uid:inheritedRun,key:{},values:{run_name:'inherited-run'},producer:'fixture',producerVersion:'1'}]);
+    await expect(successfulPluginSnapshot(owner,'inherited-run','base:Source')).rejects.toThrow('expected one completed graph unit');
+    await owner.transaction('write',tx=>publishGraphDrafts(tx,contract,{vertices:[],edges:[{kind:'system.run-inherited-unit',from:{kind:'system.run',uid:inheritedRun,key:{}},to:{kind:'system.unit',uid:snapshotUnit,key:{}},producer:'fixture',producerVersion:'1'}],removals:[]}));
+    expect((await successfulPluginSnapshot(owner,'inherited-run','base:Source')).unitUid).toBe(snapshotUnit);
+    await publish([{kind:'system.unit',uid:snapshotUnit,key:{},values:{state:'failed'},producer:'fixture',producerVersion:'1'}]);
+    await expect(successfulPluginSnapshot(owner,'inherited-run','base:Source')).rejects.toThrow('expected one completed graph unit');
+  }finally{await owner.close();}
+},30_000);
+
+
+test('reconciliation reads only selected own facts and selected fields', async () => {
+  const access = pluginInvocationAccess({
+    files: async () => [], value: async () => null,
+    ownFacts: async () => ({ vertices: [
+      { kind: 'A', key: { id: 'a' }, values: { text: 'selected', secret: 'other field' } },
+      { kind: 'B', key: { id: 'b' }, values: { text: 'other output' } },
+    ], edges: [{ kind: 'other-edge', from: { kind: 'A', key: { id: 'a' } }, to: { kind: 'B', key: { id: 'b' } } }] }),
+  }, { location: '/product/plugin.json:7', plugin: 'multi', output: 'A', reads: [], fields: ['text'], fileKind: 'File', edges: [] });
+  expect(await access.graph.ownFacts!({ unitId: 'u1', scope: {} })).toEqual({ vertices: [{ kind: 'A', key: { id: 'a' }, values: { text: 'selected' } }], edges: [] });
 });
 
-test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {
-  const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
-  let parameters: readonly unknown[] = [];
-  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (_sql: string, values: readonly unknown[]) => { parameters = values; return { rows: [] }; } }) };
-  await expect(successfulPluginSnapshot(owner as never, 'run-current', 'base:Source')).rejects.toThrow('no successful current-run snapshot');
-  expect(parameters).toEqual(['run-current', 'base:Source']);
-});
-
-test('verified inherited generation freezes original run identity without cloning publication', async () => {
-  const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
-  const queries: string[] = [];
-  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (query: string) => {
-    queries.push(query);
-    return { rows: [{ run_id: 'original-run', unit_id: 'plugin-turns/base:Source', generation: 3, context: { unitOutcome: { outcome: 'unchanged' } } }] };
-  } }) };
-  expect(await successfulPluginSnapshot(owner as never, 'new-run', 'base:Source')).toEqual({ runId: 'original-run', unitId: 'plugin-turns/base:Source', generation: 3 });
-  expect(queries).toHaveLength(1);
-  expect(queries[0]).toContain("e.kind = 'unit-inherited'");
-  expect(queries[0]).toContain('e.generation = g.generation');
-  expect(queries[0]).toContain('FROM fill_unit_generation');
+test('reconciliation removals cannot target an unselected output', () => {
+  expect(() => setup('A', []).access.assertWrites({ removals: [{ kind: 'B', key: { id: 'b' } }] })).toThrow('write of unselected output B');
 });

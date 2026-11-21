@@ -4,11 +4,49 @@ scalar DateTime
 
 scalar JSON
 
+union AssertionSubject = VertexIdentity | GraphEdge
+
 type Aggregate {
   count: Int!
   groupBy(field: String!, limit: Int = 20): [Group!]!
   histogram(field: String!, bounds: [JSON!]!): [Bucket!]!
   topN(field: String!, n: Int = 10): [Ranked!]!
+}
+
+type Assertion {
+  id: ID!
+  subject: AssertionSubject!
+  property: String!
+  value: JSON
+  operation: AssertionOperation!
+  source: Entity!
+  author: Entity!
+  unit: Entity
+  validFrom: DateTime!
+  validTo: DateTime
+  recordedAt: DateTime!
+  evidence: [AssertionEvidence!]!
+  selected: Boolean!
+  question: AssertionQuestion
+}
+
+type AssertionEvidence {
+  targetUid: ID!
+  target: Entity
+  relation: String!
+  locator: JSON
+  historicalValidity: EvidenceHistoricalValidity!
+  currentApplicability: EvidenceCurrentApplicability!
+  availability: EvidenceAvailability!
+  issues: [String!]!
+}
+
+type AssertionQuestion {
+  id: ID!
+  state: AssertionQuestionState!
+  candidates: [Assertion!]!
+  resolution: Assertion
+  supersededResolutions: [Assertion!]!
 }
 
 type Backlink {
@@ -102,7 +140,6 @@ type CatalogueField {
   name: String!
   type: String!
   nullable: Boolean!
-  reference: String
   producers: [String!]!
 }
 
@@ -128,7 +165,7 @@ type DemoAuthoredConnectionEdge {
 type DemoAuthoredEdge {
   id: ID!
   discriminator: String!
-  opinions: [Opinion!]!
+  assertions: [Assertion!]!
   node: Entity!
 }
 
@@ -147,10 +184,28 @@ type DemoContainsConnectionEdge {
 type DemoContainsEdge {
   id: ID!
   discriminator: String!
-  opinions: [Opinion!]!
+  assertions: [Assertion!]!
   position: Int
-  positionOpinions: [Opinion!]!
-  positionOpinionsCount: Int!
+  positionAssertions: [Assertion!]!
+  node: Entity!
+}
+
+type DemoFileRepositoryConnection {
+  edges: [DemoFileRepositoryConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DemoFileRepositoryConnectionEdge {
+  cursor: String!
+  node: DemoFileRepositoryEdge!
+}
+
+type DemoFileRepositoryEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
   node: Entity!
 }
 
@@ -169,28 +224,21 @@ type DemoTouchedConnectionEdge {
 type DemoTouchedEdge {
   id: ID!
   discriminator: String!
-  opinions: [Opinion!]!
+  assertions: [Assertion!]!
   change: String
-  changeOpinions: [Opinion!]!
-  changeOpinionsCount: Int!
+  changeAssertions: [Assertion!]!
   added: BigInt
-  addedOpinions: [Opinion!]!
-  addedOpinionsCount: Int!
+  addedAssertions: [Assertion!]!
   removed: BigInt
-  removedOpinions: [Opinion!]!
-  removedOpinionsCount: Int!
+  removedAssertions: [Assertion!]!
   changedAt: DateTime
-  changedAtOpinions: [Opinion!]!
-  changedAtOpinionsCount: Int!
+  changedAtAssertions: [Assertion!]!
   weight: Int
-  weightOpinions: [Opinion!]!
-  weightOpinionsCount: Int!
+  weightAssertions: [Assertion!]!
   binary: Boolean
-  binaryOpinions: [Opinion!]!
-  binaryOpinionsCount: Int!
+  binaryAssertions: [Assertion!]!
   meta: JSON
-  metaOpinions: [Opinion!]!
-  metaOpinionsCount: Int!
+  metaAssertions: [Assertion!]!
   node: Entity!
 }
 
@@ -200,7 +248,7 @@ type Detail {
   key: Boolean!
   value: JSON
   contested: Boolean!
-  opinions: [Opinion!]!
+  assertions: [Assertion!]!
 }
 
 interface Entity {
@@ -231,22 +279,118 @@ type EntityEdge {
   node: Entity!
 }
 
-type Evidence {
-  type: String!
-  repository: String
-  path: String
-  lineStart: Int
-  lineEnd: Int
-  revision: String
-  id: String
-  url: String
-  at: String
-  words: String
+type GraphEdge {
+  id: ID!
+  kind: String!
+  from: Entity!
+  to: Entity!
 }
 
 type Group {
   key: JSON
   count: Int!
+}
+
+type KindAgent implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindAgentConnection {
+  edges: [KindAgentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindAgentEdge {
+  cursor: String!
+  node: KindAgent!
+}
+
+type KindAgentSession implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindAgentSessionConnection {
+  edges: [KindAgentSessionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindAgentSessionEdge {
+  cursor: String!
+  node: KindAgentSession!
+}
+
+type KindAgentUsage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindAgentUsageConnection {
+  edges: [KindAgentUsageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindAgentUsageEdge {
+  cursor: String!
+  node: KindAgentUsage!
 }
 
 type KindDemoAuthor implements Entity {
@@ -262,14 +406,11 @@ type KindDemoAuthor implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
-  nameOpinions: [Opinion!]!
-  nameOpinionsCount: Int!
+  nameAssertions: [Assertion!]!
   email: String
-  emailOpinions: [Opinion!]!
-  emailOpinionsCount: Int!
+  emailAssertions: [Assertion!]!
   commits: Int
-  commitsOpinions: [Opinion!]!
-  commitsOpinionsCount: Int!
+  commitsAssertions: [Assertion!]!
   demoAuthored(first: Int, after: String): DemoAuthoredConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
@@ -300,17 +441,13 @@ type KindDemoCommit implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
-  hashOpinions: [Opinion!]!
-  hashOpinionsCount: Int!
+  hashAssertions: [Assertion!]!
   subject: String
-  subjectOpinions: [Opinion!]!
-  subjectOpinionsCount: Int!
+  subjectAssertions: [Assertion!]!
   committedAt: DateTime
-  committedAtOpinions: [Opinion!]!
-  committedAtOpinionsCount: Int!
+  committedAtAssertions: [Assertion!]!
   changedLines: BigInt
-  changedLinesOpinions: [Opinion!]!
-  changedLinesOpinionsCount: Int!
+  changedLinesAssertions: [Assertion!]!
   demoAuthoredOf(first: Int, after: String): DemoAuthoredConnection!
   demoTouched(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
   mentions(first: Int, after: String): MentionsConnection!
@@ -341,31 +478,22 @@ type KindDemoFile implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  repository: KindDemoRepository
-  repositoryOpinions: [Opinion!]!
-  repositoryOpinionsCount: Int!
   path: String
-  pathOpinions: [Opinion!]!
-  pathOpinionsCount: Int!
+  pathAssertions: [Assertion!]!
   lines: Int
-  linesOpinions: [Opinion!]!
-  linesOpinionsCount: Int!
+  linesAssertions: [Assertion!]!
   bytes: BigInt
-  bytesOpinions: [Opinion!]!
-  bytesOpinionsCount: Int!
+  bytesAssertions: [Assertion!]!
   language: String
-  languageOpinions: [Opinion!]!
-  languageOpinionsCount: Int!
+  languageAssertions: [Assertion!]!
   binary: Boolean
-  binaryOpinions: [Opinion!]!
-  binaryOpinionsCount: Int!
+  binaryAssertions: [Assertion!]!
   lastChange: DateTime
-  lastChangeOpinions: [Opinion!]!
-  lastChangeOpinionsCount: Int!
+  lastChangeAssertions: [Assertion!]!
   facets: JSON
-  facetsOpinions: [Opinion!]!
-  facetsOpinionsCount: Int!
+  facetsAssertions: [Assertion!]!
   demoContainsOf(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  demoFileRepository(first: Int, after: String): DemoFileRepositoryConnection!
   demoTouchedOf(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
@@ -396,30 +524,23 @@ type KindDemoRepository implements Entity {
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
-  nameOpinions: [Opinion!]!
-  nameOpinionsCount: Int!
+  nameAssertions: [Assertion!]!
   url: String
-  urlOpinions: [Opinion!]!
-  urlOpinionsCount: Int!
+  urlAssertions: [Assertion!]!
   defaultBranch: String
-  defaultBranchOpinions: [Opinion!]!
-  defaultBranchOpinionsCount: Int!
+  defaultBranchAssertions: [Assertion!]!
   archived: Boolean
-  archivedOpinions: [Opinion!]!
-  archivedOpinionsCount: Int!
+  archivedAssertions: [Assertion!]!
   createdAt: DateTime
-  createdAtOpinions: [Opinion!]!
-  createdAtOpinionsCount: Int!
+  createdAtAssertions: [Assertion!]!
   facets: JSON
-  facetsOpinions: [Opinion!]!
-  facetsOpinionsCount: Int!
+  facetsAssertions: [Assertion!]!
   size: BigInt
-  sizeOpinions: [Opinion!]!
-  sizeOpinionsCount: Int!
+  sizeAssertions: [Assertion!]!
   demoContains(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  demoFileRepositoryOf(first: Int, after: String): DemoFileRepositoryConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
-  repositoryOfDemoFile(where: KindDemoFileWhere, orderBy: [KindDemoFileOrder!], first: Int, after: String): KindDemoFileConnection!
 }
 
 type KindDemoRepositoryConnection {
@@ -432,6 +553,1538 @@ type KindDemoRepositoryConnection {
 type KindDemoRepositoryEdge {
   cursor: String!
   node: KindDemoRepository!
+}
+
+type KindEvent implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindEventConnection {
+  edges: [KindEventEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindEventEdge {
+  cursor: String!
+  node: KindEvent!
+}
+
+type KindKind implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindKindConnection {
+  edges: [KindKindEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindKindEdge {
+  cursor: String!
+  node: KindKind!
+}
+
+type KindManifestCatalogue implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  publicationFingerprint: String
+  publicationFingerprintAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestCatalogueConnection {
+  edges: [KindManifestCatalogueEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestCatalogueEdge {
+  cursor: String!
+  node: KindManifestCatalogue!
+}
+
+type KindManifestDependency implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestDependencyConnection {
+  edges: [KindManifestDependencyEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestDependencyEdge {
+  cursor: String!
+  node: KindManifestDependency!
+}
+
+type KindManifestField implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestFieldConnection {
+  edges: [KindManifestFieldEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestFieldEdge {
+  cursor: String!
+  node: KindManifestField!
+}
+
+type KindManifestRelation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestRelationConnection {
+  edges: [KindManifestRelationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestRelationEdge {
+  cursor: String!
+  node: KindManifestRelation!
+}
+
+type KindManifestWorkflow implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestWorkflowConnection {
+  edges: [KindManifestWorkflowEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestWorkflowEdge {
+  cursor: String!
+  node: KindManifestWorkflow!
+}
+
+type KindManifestWorkflowStage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindManifestWorkflowStageConnection {
+  edges: [KindManifestWorkflowStageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindManifestWorkflowStageEdge {
+  cursor: String!
+  node: KindManifestWorkflowStage!
+}
+
+type KindOperation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindOperationConnection {
+  edges: [KindOperationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindOperationEdge {
+  cursor: String!
+  node: KindOperation!
+}
+
+type KindPageTemplate implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  body: String
+  bodyAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindPageTemplateConnection {
+  edges: [KindPageTemplateEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindPageTemplateEdge {
+  cursor: String!
+  node: KindPageTemplate!
+}
+
+type KindPerson implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindPersonConnection {
+  edges: [KindPersonEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindPersonEdge {
+  cursor: String!
+  node: KindPerson!
+}
+
+type KindPlugin implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindPluginConnection {
+  edges: [KindPluginEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindPluginEdge {
+  cursor: String!
+  node: KindPlugin!
+}
+
+type KindProblem implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindProblemConnection {
+  edges: [KindProblemEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindProblemEdge {
+  cursor: String!
+  node: KindProblem!
+}
+
+type KindQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindQuestionConnection {
+  edges: [KindQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindQuestionEdge {
+  cursor: String!
+  node: KindQuestion!
+}
+
+type KindRole implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindRoleConnection {
+  edges: [KindRoleEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindRoleEdge {
+  cursor: String!
+  node: KindRole!
+}
+
+type KindRun implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindRunConnection {
+  edges: [KindRunEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindRunEdge {
+  cursor: String!
+  node: KindRun!
+}
+
+type KindSetting implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSettingConnection {
+  edges: [KindSettingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSettingEdge {
+  cursor: String!
+  node: KindSetting!
+}
+
+type KindSource implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSourceConnection {
+  edges: [KindSourceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSourceEdge {
+  cursor: String!
+  node: KindSource!
+}
+
+type KindSystemAssertion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemAssertionConnection {
+  edges: [KindSystemAssertionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemAssertionEdge {
+  cursor: String!
+  node: KindSystemAssertion!
+}
+
+type KindSystemAuthoredImport implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  sourcePath: String
+  sourcePathAssertions: [Assertion!]!
+  contentDigest: String
+  contentDigestAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemAuthoredImportConnection {
+  edges: [KindSystemAuthoredImportEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemAuthoredImportEdge {
+  cursor: String!
+  node: KindSystemAuthoredImport!
+}
+
+type KindSystemChain implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemChainConnection {
+  edges: [KindSystemChainEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemChainEdge {
+  cursor: String!
+  node: KindSystemChain!
+}
+
+type KindSystemContentSnapshot implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  digest: String
+  digestAssertions: [Assertion!]!
+  content: String
+  contentAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemContentSnapshotConnection {
+  edges: [KindSystemContentSnapshotEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemContentSnapshotEdge {
+  cursor: String!
+  node: KindSystemContentSnapshot!
+}
+
+type KindSystemDisputePin implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  canonicalValue: String
+  canonicalValueAssertions: [Assertion!]!
+  digest: String
+  digestAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemDisputePinConnection {
+  edges: [KindSystemDisputePinEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemDisputePinEdge {
+  cursor: String!
+  node: KindSystemDisputePin!
+}
+
+type KindSystemDisputeQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  property: String
+  propertyAssertions: [Assertion!]!
+  language: String
+  languageAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemDisputeQuestionConnection {
+  edges: [KindSystemDisputeQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemDisputeQuestionEdge {
+  cursor: String!
+  node: KindSystemDisputeQuestion!
+}
+
+type KindSystemDisputeResolution implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  rationale: String
+  rationaleAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemDisputeResolutionConnection {
+  edges: [KindSystemDisputeResolutionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemDisputeResolutionEdge {
+  cursor: String!
+  node: KindSystemDisputeResolution!
+}
+
+type KindSystemFillTransition implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  step: String
+  stepAssertions: [Assertion!]!
+  fromState: String
+  fromStateAssertions: [Assertion!]!
+  toState: String
+  toStateAssertions: [Assertion!]!
+  event: String
+  eventAssertions: [Assertion!]!
+  cause: String
+  causeAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  fence: Int
+  fenceAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemFillTransitionConnection {
+  edges: [KindSystemFillTransitionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemFillTransitionEdge {
+  cursor: String!
+  node: KindSystemFillTransition!
+}
+
+type KindSystemKindApplicability implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemKindApplicabilityConnection {
+  edges: [KindSystemKindApplicabilityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemKindApplicabilityEdge {
+  cursor: String!
+  node: KindSystemKindApplicability!
+}
+
+type KindSystemMerge implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemMergeAllocation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  direction: String
+  directionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemMergeAllocationConnection {
+  edges: [KindSystemMergeAllocationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeAllocationEdge {
+  cursor: String!
+  node: KindSystemMergeAllocation!
+}
+
+type KindSystemMergeConnection {
+  edges: [KindSystemMergeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeEdge {
+  cursor: String!
+  node: KindSystemMerge!
+}
+
+type KindSystemMergeQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  state: String
+  stateAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemMergeQuestionConnection {
+  edges: [KindSystemMergeQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemMergeQuestionEdge {
+  cursor: String!
+  node: KindSystemMergeQuestion!
+}
+
+type KindSystemOperation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  words: String
+  wordsAssertions: [Assertion!]!
+  key: String
+  keyAssertions: [Assertion!]!
+  canonicalRequest: String
+  canonicalRequestAssertions: [Assertion!]!
+  digest: String
+  digestAssertions: [Assertion!]!
+  result: String
+  resultAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemOperationConnection {
+  edges: [KindSystemOperationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemOperationEdge {
+  cursor: String!
+  node: KindSystemOperation!
+}
+
+type KindSystemProblem implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  rule: String
+  ruleAssertions: [Assertion!]!
+  fingerprint: String
+  fingerprintAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  locator: String
+  locatorAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemProblemConnection {
+  edges: [KindSystemProblemEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemProblemEdge {
+  cursor: String!
+  node: KindSystemProblem!
+}
+
+type KindSystemProduct implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemProductConnection {
+  edges: [KindSystemProductEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemProductEdge {
+  cursor: String!
+  node: KindSystemProduct!
+}
+
+type KindSystemProgress implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  seq: Int
+  seqAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+  stage: String
+  stageAssertions: [Assertion!]!
+  unitName: String
+  unitNameAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  kindField: String
+  kindFieldAssertions: [Assertion!]!
+  summary: String
+  summaryAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemProgressConnection {
+  edges: [KindSystemProgressEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemProgressEdge {
+  cursor: String!
+  node: KindSystemProgress!
+}
+
+type KindSystemRun implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  targetPluginsOnly: Boolean
+  targetPluginsOnlyAssertions: [Assertion!]!
+  targetsPresent: Boolean
+  targetsPresentAssertions: [Assertion!]!
+  endState: String
+  endStateAssertions: [Assertion!]!
+  endMessage: String
+  endMessageAssertions: [Assertion!]!
+  endRecorded: Boolean
+  endRecordedAssertions: [Assertion!]!
+  controlAction: String
+  controlActionAssertions: [Assertion!]!
+  controlAt: BigInt
+  controlAtAssertions: [Assertion!]!
+  repository: String
+  repositoryAssertions: [Assertion!]!
+  defaultBranch: String
+  defaultBranchAssertions: [Assertion!]!
+  commit: String
+  commitAssertions: [Assertion!]!
+  registryHash: String
+  registryHashAssertions: [Assertion!]!
+  targetVertex: String
+  targetVertexAssertions: [Assertion!]!
+  configurationDigest: String
+  configurationDigestAssertions: [Assertion!]!
+  configurationRecordedAt: BigInt
+  configurationRecordedAtAssertions: [Assertion!]!
+  runName: String
+  runNameAssertions: [Assertion!]!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  planningEpoch: Int
+  planningEpochAssertions: [Assertion!]!
+  planningClosed: Boolean
+  planningClosedAssertions: [Assertion!]!
+  hasSelection: Boolean
+  hasSelectionAssertions: [Assertion!]!
+  createdAt: BigInt
+  createdAtAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemRunConnection {
+  edges: [KindSystemRunEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemRunEdge {
+  cursor: String!
+  node: KindSystemRun!
+}
+
+type KindSystemRunSelection implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  role: String
+  roleAssertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
+  name: String
+  nameAssertions: [Assertion!]!
+  groupName: String
+  groupNameAssertions: [Assertion!]!
+  pluginName: String
+  pluginNameAssertions: [Assertion!]!
+  stageUnitName: String
+  stageUnitNameAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemRunSelectionConnection {
+  edges: [KindSystemRunSelectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemRunSelectionEdge {
+  cursor: String!
+  node: KindSystemRunSelection!
+}
+
+type KindSystemRunStage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  stageName: String
+  stageNameAssertions: [Assertion!]!
+  plannedAt: BigInt
+  plannedAtAssertions: [Assertion!]!
+  units: Int
+  unitsAssertions: [Assertion!]!
+  publications: Int
+  publicationsAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemRunStageConnection {
+  edges: [KindSystemRunStageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemRunStageEdge {
+  cursor: String!
+  node: KindSystemRunStage!
+}
+
+type KindSystemRunTarget implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  role: String
+  roleAssertions: [Assertion!]!
+  name: String
+  nameAssertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemRunTargetConnection {
+  edges: [KindSystemRunTargetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemRunTargetEdge {
+  cursor: String!
+  node: KindSystemRunTarget!
+}
+
+type KindSystemTrackedRead implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  queryDigest: String
+  queryDigestAssertions: [Assertion!]!
+  query: String
+  queryAssertions: [Assertion!]!
+  membership: String
+  membershipAssertions: [Assertion!]!
+  members: Int
+  membersAssertions: [Assertion!]!
+  seq: Int
+  seqAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemTrackedReadConnection {
+  edges: [KindSystemTrackedReadEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemTrackedReadEdge {
+  cursor: String!
+  node: KindSystemTrackedRead!
+}
+
+type KindSystemUnit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  planStageName: String
+  planStageNameAssertions: [Assertion!]!
+  planStageUnitName: String
+  planStageUnitNameAssertions: [Assertion!]!
+  planScope: String
+  planScopeAssertions: [Assertion!]!
+  planStagePosition: Int
+  planStagePositionAssertions: [Assertion!]!
+  planPosition: Int
+  planPositionAssertions: [Assertion!]!
+  plannedAt: BigInt
+  plannedAtAssertions: [Assertion!]!
+  unitName: String
+  unitNameAssertions: [Assertion!]!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  stageName: String
+  stageNameAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  inputsDigest: String
+  inputsDigestAssertions: [Assertion!]!
+  fence: Int
+  fenceAssertions: [Assertion!]!
+  attempt: Int
+  attemptAssertions: [Assertion!]!
+  retriesLeft: Int
+  retriesLeftAssertions: [Assertion!]!
+  retryAt: BigInt
+  retryAtAssertions: [Assertion!]!
+  replacementGeneration: Int
+  replacementGenerationAssertions: [Assertion!]!
+  skippedBecause: String
+  skippedBecauseAssertions: [Assertion!]!
+  publishedAt: BigInt
+  publishedAtAssertions: [Assertion!]!
+  staleAt: BigInt
+  staleAtAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
+  producedKind: String
+  producedKindAssertions: [Assertion!]!
+  producer: String
+  producerAssertions: [Assertion!]!
+  outcome: String
+  outcomeAssertions: [Assertion!]!
+  produced: Int
+  producedAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  producerVersion: String
+  producerVersionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+  committedOperations: Int
+  committedOperationsAssertions: [Assertion!]!
+  lastProgress: String
+  lastProgressAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemUnitCacheVersion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemUnitCacheVersionConnection {
+  edges: [KindSystemUnitCacheVersionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemUnitCacheVersionEdge {
+  cursor: String!
+  node: KindSystemUnitCacheVersion!
+}
+
+type KindSystemUnitConnection {
+  edges: [KindSystemUnitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemUnitEdge {
+  cursor: String!
+  node: KindSystemUnit!
+}
+
+type KindSystemUnread implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  repository: String
+  repositoryAssertions: [Assertion!]!
+  path: String
+  pathAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindSystemUnreadConnection {
+  edges: [KindSystemUnreadEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindSystemUnreadEdge {
+  cursor: String!
+  node: KindSystemUnread!
+}
+
+type KindUnit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindUnitConnection {
+  edges: [KindUnitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindUnitEdge {
+  cursor: String!
+  node: KindUnit!
 }
 
 type MentionsConnection {
@@ -449,7 +2102,7 @@ type MentionsConnectionEdge {
 type MentionsEdge {
   id: ID!
   discriminator: String!
-  opinions: [Opinion!]!
+  assertions: [Assertion!]!
   node: Entity!
 }
 
@@ -485,15 +2138,6 @@ type NavigationKind {
 type NavigationPurpose {
   id: String!
   labels: JSON!
-}
-
-type Opinion {
-  value: JSON
-  producer: String!
-  version: String
-  lang: String
-  statedAt: DateTime!
-  evidence: [Evidence!]!
 }
 
 type Outgoing {
@@ -584,35 +2228,132 @@ type TemplateFinding {
   message: String!
 }
 
+type VertexIdentity {
+  id: ID!
+  entity: Entity!
+}
+
 type Query {
-  entity(id: ID!, lang: String): Entity
-  allDemoAuthor(where: KindDemoAuthorWhere, orderBy: [KindDemoAuthorOrder!], first: Int, after: String, lang: String): KindDemoAuthorConnection!
-  allDemoAuthorAggregate(where: KindDemoAuthorWhere, lang: String): Aggregate!
-  allDemoCommit(where: KindDemoCommitWhere, orderBy: [KindDemoCommitOrder!], first: Int, after: String, lang: String): KindDemoCommitConnection!
-  allDemoCommitAggregate(where: KindDemoCommitWhere, lang: String): Aggregate!
-  allDemoFile(where: KindDemoFileWhere, orderBy: [KindDemoFileOrder!], first: Int, after: String, lang: String): KindDemoFileConnection!
-  allDemoFileAggregate(where: KindDemoFileWhere, lang: String): Aggregate!
-  allDemoRepository(where: KindDemoRepositoryWhere, orderBy: [KindDemoRepositoryOrder!], first: Int, after: String, lang: String): KindDemoRepositoryConnection!
-  allDemoRepositoryAggregate(where: KindDemoRepositoryWhere, lang: String): Aggregate!
-  catalogueEntity(name: String!, lang: String): CatalogueEntity
-  allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
-  entityByKey(kind: String!, key: JSON!, lang: String): Entity
-  home(lang: String): Entity
-  search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
-  bootstrap(lang: String): Bootstrap!
-  navigation(lang: String): Navigation!
-  source(repository: String!, path: String!, from: Int, to: Int, fromColumn: Int, blob: String): SourceText
-  templateFindings: [TemplateFinding!]!
-  cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
-  contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
-  catalogueDependencies(lang: String): JSON!
-  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int): JSON!
-  products: JSON
-  fillStatus: JSON
-  fillRuns(run: String): JSON
-  fillPlan(selected: [String!], pluginsOnly: Boolean): JSON
-  searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
-  related(id: ID!, edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
+  entity(id: ID!, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Entity
+  allAgent(where: KindAgentWhere, orderBy: [KindAgentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindAgentConnection!
+  allAgentAggregate(where: KindAgentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allAgentSession(where: KindAgentSessionWhere, orderBy: [KindAgentSessionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindAgentSessionConnection!
+  allAgentSessionAggregate(where: KindAgentSessionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allAgentUsage(where: KindAgentUsageWhere, orderBy: [KindAgentUsageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindAgentUsageConnection!
+  allAgentUsageAggregate(where: KindAgentUsageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allDemoAuthor(where: KindDemoAuthorWhere, orderBy: [KindDemoAuthorOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindDemoAuthorConnection!
+  allDemoAuthorAggregate(where: KindDemoAuthorWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allDemoCommit(where: KindDemoCommitWhere, orderBy: [KindDemoCommitOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindDemoCommitConnection!
+  allDemoCommitAggregate(where: KindDemoCommitWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allDemoFile(where: KindDemoFileWhere, orderBy: [KindDemoFileOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindDemoFileConnection!
+  allDemoFileAggregate(where: KindDemoFileWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allDemoRepository(where: KindDemoRepositoryWhere, orderBy: [KindDemoRepositoryOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindDemoRepositoryConnection!
+  allDemoRepositoryAggregate(where: KindDemoRepositoryWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allEvent(where: KindEventWhere, orderBy: [KindEventOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindEventConnection!
+  allEventAggregate(where: KindEventWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allKind(where: KindKindWhere, orderBy: [KindKindOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindKindConnection!
+  allKindAggregate(where: KindKindWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestCatalogue(where: KindManifestCatalogueWhere, orderBy: [KindManifestCatalogueOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestCatalogueConnection!
+  allManifestCatalogueAggregate(where: KindManifestCatalogueWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestDependency(where: KindManifestDependencyWhere, orderBy: [KindManifestDependencyOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestDependencyConnection!
+  allManifestDependencyAggregate(where: KindManifestDependencyWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestField(where: KindManifestFieldWhere, orderBy: [KindManifestFieldOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestFieldConnection!
+  allManifestFieldAggregate(where: KindManifestFieldWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestRelation(where: KindManifestRelationWhere, orderBy: [KindManifestRelationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestRelationConnection!
+  allManifestRelationAggregate(where: KindManifestRelationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestWorkflow(where: KindManifestWorkflowWhere, orderBy: [KindManifestWorkflowOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestWorkflowConnection!
+  allManifestWorkflowAggregate(where: KindManifestWorkflowWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestWorkflowStage(where: KindManifestWorkflowStageWhere, orderBy: [KindManifestWorkflowStageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindManifestWorkflowStageConnection!
+  allManifestWorkflowStageAggregate(where: KindManifestWorkflowStageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allOperation(where: KindOperationWhere, orderBy: [KindOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindOperationConnection!
+  allOperationAggregate(where: KindOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allPageTemplate(where: KindPageTemplateWhere, orderBy: [KindPageTemplateOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindPageTemplateConnection!
+  allPageTemplateAggregate(where: KindPageTemplateWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allPerson(where: KindPersonWhere, orderBy: [KindPersonOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindPersonConnection!
+  allPersonAggregate(where: KindPersonWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allPlugin(where: KindPluginWhere, orderBy: [KindPluginOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindPluginConnection!
+  allPluginAggregate(where: KindPluginWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allProblem(where: KindProblemWhere, orderBy: [KindProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindProblemConnection!
+  allProblemAggregate(where: KindProblemWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allQuestion(where: KindQuestionWhere, orderBy: [KindQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindQuestionConnection!
+  allQuestionAggregate(where: KindQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allRole(where: KindRoleWhere, orderBy: [KindRoleOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindRoleConnection!
+  allRoleAggregate(where: KindRoleWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allRun(where: KindRunWhere, orderBy: [KindRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindRunConnection!
+  allRunAggregate(where: KindRunWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSetting(where: KindSettingWhere, orderBy: [KindSettingOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSettingConnection!
+  allSettingAggregate(where: KindSettingWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSource(where: KindSourceWhere, orderBy: [KindSourceOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSourceConnection!
+  allSourceAggregate(where: KindSourceWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemAssertion(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemAssertionConnection!
+  allSystemAssertionAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemAuthoredImport(where: KindSystemAuthoredImportWhere, orderBy: [KindSystemAuthoredImportOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemAuthoredImportConnection!
+  allSystemAuthoredImportAggregate(where: KindSystemAuthoredImportWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemChain(where: KindSystemChainWhere, orderBy: [KindSystemChainOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemChainConnection!
+  allSystemChainAggregate(where: KindSystemChainWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemContentSnapshot(where: KindSystemContentSnapshotWhere, orderBy: [KindSystemContentSnapshotOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemContentSnapshotConnection!
+  allSystemContentSnapshotAggregate(where: KindSystemContentSnapshotWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputePin(where: KindSystemDisputePinWhere, orderBy: [KindSystemDisputePinOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemDisputePinConnection!
+  allSystemDisputePinAggregate(where: KindSystemDisputePinWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputeQuestion(where: KindSystemDisputeQuestionWhere, orderBy: [KindSystemDisputeQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemDisputeQuestionConnection!
+  allSystemDisputeQuestionAggregate(where: KindSystemDisputeQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputeResolution(where: KindSystemDisputeResolutionWhere, orderBy: [KindSystemDisputeResolutionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemDisputeResolutionConnection!
+  allSystemDisputeResolutionAggregate(where: KindSystemDisputeResolutionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemFillTransition(where: KindSystemFillTransitionWhere, orderBy: [KindSystemFillTransitionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemFillTransitionConnection!
+  allSystemFillTransitionAggregate(where: KindSystemFillTransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemKindApplicability(where: KindSystemKindApplicabilityWhere, orderBy: [KindSystemKindApplicabilityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemKindApplicabilityConnection!
+  allSystemKindApplicabilityAggregate(where: KindSystemKindApplicabilityWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMerge(where: KindSystemMergeWhere, orderBy: [KindSystemMergeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeConnection!
+  allSystemMergeAggregate(where: KindSystemMergeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeAllocation(where: KindSystemMergeAllocationWhere, orderBy: [KindSystemMergeAllocationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeAllocationConnection!
+  allSystemMergeAllocationAggregate(where: KindSystemMergeAllocationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemMergeQuestion(where: KindSystemMergeQuestionWhere, orderBy: [KindSystemMergeQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemMergeQuestionConnection!
+  allSystemMergeQuestionAggregate(where: KindSystemMergeQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemOperation(where: KindSystemOperationWhere, orderBy: [KindSystemOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemOperationConnection!
+  allSystemOperationAggregate(where: KindSystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProblem(where: KindSystemProblemWhere, orderBy: [KindSystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProblemConnection!
+  allSystemProblemAggregate(where: KindSystemProblemWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProduct(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProductConnection!
+  allSystemProductAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProgress(where: KindSystemProgressWhere, orderBy: [KindSystemProgressOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemProgressConnection!
+  allSystemProgressAggregate(where: KindSystemProgressWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRun(where: KindSystemRunWhere, orderBy: [KindSystemRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemRunConnection!
+  allSystemRunAggregate(where: KindSystemRunWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunSelection(where: KindSystemRunSelectionWhere, orderBy: [KindSystemRunSelectionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemRunSelectionConnection!
+  allSystemRunSelectionAggregate(where: KindSystemRunSelectionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunStage(where: KindSystemRunStageWhere, orderBy: [KindSystemRunStageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemRunStageConnection!
+  allSystemRunStageAggregate(where: KindSystemRunStageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunTarget(where: KindSystemRunTargetWhere, orderBy: [KindSystemRunTargetOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemRunTargetConnection!
+  allSystemRunTargetAggregate(where: KindSystemRunTargetWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemTrackedRead(where: KindSystemTrackedReadWhere, orderBy: [KindSystemTrackedReadOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemTrackedReadConnection!
+  allSystemTrackedReadAggregate(where: KindSystemTrackedReadWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemUnit(where: KindSystemUnitWhere, orderBy: [KindSystemUnitOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemUnitConnection!
+  allSystemUnitAggregate(where: KindSystemUnitWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemUnitCacheVersion(where: KindSystemUnitCacheVersionWhere, orderBy: [KindSystemUnitCacheVersionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemUnitCacheVersionConnection!
+  allSystemUnitCacheVersionAggregate(where: KindSystemUnitCacheVersionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemUnread(where: KindSystemUnreadWhere, orderBy: [KindSystemUnreadOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindSystemUnreadConnection!
+  allSystemUnreadAggregate(where: KindSystemUnreadWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allUnit(where: KindUnitWhere, orderBy: [KindUnitOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindUnitConnection!
+  allUnitAggregate(where: KindUnitWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  catalogueEntity(name: String!, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CatalogueEntity
+  allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CatalogueEntityConnection!
+  entityByKey(kind: String!, key: JSON!, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Entity
+  home(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Entity
+  search(text: String!, kinds: [String!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): EntityConnection!
+  bootstrap(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Bootstrap!
+  navigation(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Navigation!
+  source(repository: String!, path: String!, from: Int, to: Int, fromColumn: Int, blob: String, context: Int, validAt: DateTime, recordedAt: DateTime): SourceText
+  templateFindings(context: Int, validAt: DateTime, recordedAt: DateTime): [TemplateFinding!]!
+  cochange(id: ID!, edge: String!, first: Int, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): [Cochange!]!
+  contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): [Cochange!]!
+  catalogueDependencies(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): JSON!
+  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int, context: Int, validAt: DateTime, recordedAt: DateTime): JSON!
+  products(context: Int, validAt: DateTime, recordedAt: DateTime): JSON
+  fillStatus(context: Int, validAt: DateTime, recordedAt: DateTime): JSON
+  fillRuns(run: String, context: Int, validAt: DateTime, recordedAt: DateTime): JSON
+  fillPlan(selected: [String!], pluginsOnly: Boolean, context: Int, validAt: DateTime, recordedAt: DateTime): JSON
+  searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): [SearchGroup!]!
+  related(id: ID!, edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): EntityConnection!
 }
 
 input CatalogueEntityDefinitionFilter {
@@ -831,6 +2572,168 @@ input DemoTouchedEdgeWhere {
   weight: DemoTouchedEdgeWeightFilter
   binary: DemoTouchedEdgeBinaryFilter
   meta: DemoTouchedEdgeMetaFilter
+}
+
+input KindAgentInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentOrder {
+  field: KindAgentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindAgentScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentSessionInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentSessionLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentSessionOrder {
+  field: KindAgentSessionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindAgentSessionScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentSessionVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentSessionWhere {
+  installation: KindAgentSessionInstallationFilter
+  labelField: KindAgentSessionLabelFieldFilter
+  version: KindAgentSessionVersionFilter
+  scope: KindAgentSessionScopeFilter
+}
+
+input KindAgentUsageLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentUsageOrder {
+  field: KindAgentUsageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindAgentUsageWhere {
+  labelField: KindAgentUsageLabelFieldFilter
+}
+
+input KindAgentVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindAgentWhere {
+  installation: KindAgentInstallationFilter
+  labelField: KindAgentLabelFieldFilter
+  version: KindAgentVersionFilter
+  scope: KindAgentScopeFilter
 }
 
 input KindDemoAuthorCommitsFilter {
@@ -1136,10 +3039,2728 @@ input KindDemoRepositoryWhere {
   size: KindDemoRepositorySizeFilter
 }
 
+input KindEventLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindEventOrder {
+  field: KindEventOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindEventWhere {
+  labelField: KindEventLabelFieldFilter
+}
+
+input KindKindLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindKindOrder {
+  field: KindKindOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindKindWhere {
+  labelField: KindKindLabelFieldFilter
+}
+
+input KindManifestCatalogueDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestCatalogueNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestCatalogueOrder {
+  field: KindManifestCatalogueOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestCataloguePublicationFingerprintFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestCatalogueWhere {
+  name: KindManifestCatalogueNameFilter
+  declaration: KindManifestCatalogueDeclarationFilter
+  publicationFingerprint: KindManifestCataloguePublicationFingerprintFilter
+}
+
+input KindManifestDependencyDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestDependencyNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestDependencyOrder {
+  field: KindManifestDependencyOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestDependencyWhere {
+  name: KindManifestDependencyNameFilter
+  declaration: KindManifestDependencyDeclarationFilter
+}
+
+input KindManifestFieldDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestFieldNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestFieldOrder {
+  field: KindManifestFieldOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestFieldWhere {
+  name: KindManifestFieldNameFilter
+  declaration: KindManifestFieldDeclarationFilter
+}
+
+input KindManifestRelationDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestRelationNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestRelationOrder {
+  field: KindManifestRelationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestRelationWhere {
+  name: KindManifestRelationNameFilter
+  declaration: KindManifestRelationDeclarationFilter
+}
+
+input KindManifestWorkflowDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestWorkflowNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestWorkflowOrder {
+  field: KindManifestWorkflowOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestWorkflowStageDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestWorkflowStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindManifestWorkflowStageOrder {
+  field: KindManifestWorkflowStageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindManifestWorkflowStagePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindManifestWorkflowStageWhere {
+  name: KindManifestWorkflowStageNameFilter
+  position: KindManifestWorkflowStagePositionFilter
+  declaration: KindManifestWorkflowStageDeclarationFilter
+}
+
+input KindManifestWorkflowWhere {
+  name: KindManifestWorkflowNameFilter
+  declaration: KindManifestWorkflowDeclarationFilter
+}
+
+input KindOperationLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindOperationOrder {
+  field: KindOperationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindOperationWhere {
+  labelField: KindOperationLabelFieldFilter
+}
+
+input KindPageTemplateBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPageTemplateNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPageTemplateOrder {
+  field: KindPageTemplateOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindPageTemplateWhere {
+  name: KindPageTemplateNameFilter
+  body: KindPageTemplateBodyFilter
+}
+
+input KindPersonInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPersonLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPersonOrder {
+  field: KindPersonOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindPersonScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPersonVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPersonWhere {
+  installation: KindPersonInstallationFilter
+  labelField: KindPersonLabelFieldFilter
+  version: KindPersonVersionFilter
+  scope: KindPersonScopeFilter
+}
+
+input KindPluginInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPluginLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPluginOrder {
+  field: KindPluginOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindPluginScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPluginVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindPluginWhere {
+  installation: KindPluginInstallationFilter
+  labelField: KindPluginLabelFieldFilter
+  version: KindPluginVersionFilter
+  scope: KindPluginScopeFilter
+}
+
+input KindProblemLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindProblemOrder {
+  field: KindProblemOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindProblemWhere {
+  labelField: KindProblemLabelFieldFilter
+}
+
+input KindQuestionLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindQuestionOrder {
+  field: KindQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindQuestionWhere {
+  labelField: KindQuestionLabelFieldFilter
+}
+
+input KindRoleLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindRoleOrder {
+  field: KindRoleOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindRoleWhere {
+  labelField: KindRoleLabelFieldFilter
+}
+
+input KindRunLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindRunOrder {
+  field: KindRunOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindRunWhere {
+  labelField: KindRunLabelFieldFilter
+}
+
+input KindSettingLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSettingOrder {
+  field: KindSettingOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSettingWhere {
+  labelField: KindSettingLabelFieldFilter
+}
+
+input KindSourceInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSourceLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSourceOrder {
+  field: KindSourceOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSourceScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSourceVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSourceWhere {
+  installation: KindSourceInstallationFilter
+  labelField: KindSourceLabelFieldFilter
+  version: KindSourceVersionFilter
+  scope: KindSourceScopeFilter
+}
+
+input KindSystemAuthoredImportContentDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemAuthoredImportOrder {
+  field: KindSystemAuthoredImportOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemAuthoredImportSourcePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemAuthoredImportWhere {
+  sourcePath: KindSystemAuthoredImportSourcePathFilter
+  contentDigest: KindSystemAuthoredImportContentDigestFilter
+}
+
+input KindSystemChainOrder {
+  field: KindSystemChainOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemChainProductNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemChainStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemChainUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemChainWhere {
+  productName: KindSystemChainProductNameFilter
+  state: KindSystemChainStateFilter
+  updatedAt: KindSystemChainUpdatedAtFilter
+}
+
+input KindSystemContentSnapshotContentFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemContentSnapshotDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemContentSnapshotOrder {
+  field: KindSystemContentSnapshotOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemContentSnapshotWhere {
+  digest: KindSystemContentSnapshotDigestFilter
+  content: KindSystemContentSnapshotContentFilter
+}
+
+input KindSystemDisputePinCanonicalValueFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputePinDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputePinOrder {
+  field: KindSystemDisputePinOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemDisputePinSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputePinSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputePinWhere {
+  canonicalValue: KindSystemDisputePinCanonicalValueFilter
+  digest: KindSystemDisputePinDigestFilter
+  segmentFrom: KindSystemDisputePinSegmentFromFilter
+  segmentTo: KindSystemDisputePinSegmentToFilter
+}
+
+input KindSystemDisputeQuestionLanguageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputeQuestionOrder {
+  field: KindSystemDisputeQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemDisputeQuestionPropertyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputeQuestionSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputeQuestionSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputeQuestionStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputeQuestionWhere {
+  property: KindSystemDisputeQuestionPropertyFilter
+  language: KindSystemDisputeQuestionLanguageFilter
+  segmentFrom: KindSystemDisputeQuestionSegmentFromFilter
+  segmentTo: KindSystemDisputeQuestionSegmentToFilter
+  state: KindSystemDisputeQuestionStateFilter
+}
+
+input KindSystemDisputeResolutionOrder {
+  field: KindSystemDisputeResolutionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemDisputeResolutionRationaleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemDisputeResolutionSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputeResolutionSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindSystemDisputeResolutionWhere {
+  rationale: KindSystemDisputeResolutionRationaleFilter
+  segmentFrom: KindSystemDisputeResolutionSegmentFromFilter
+  segmentTo: KindSystemDisputeResolutionSegmentToFilter
+}
+
+input KindSystemFillTransitionAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionCauseFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionEventFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionFenceFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionFromStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionOrder {
+  field: KindSystemFillTransitionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemFillTransitionReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionStepFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionToStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemFillTransitionWhere {
+  step: KindSystemFillTransitionStepFilter
+  fromState: KindSystemFillTransitionFromStateFilter
+  toState: KindSystemFillTransitionToStateFilter
+  event: KindSystemFillTransitionEventFilter
+  cause: KindSystemFillTransitionCauseFilter
+  reason: KindSystemFillTransitionReasonFilter
+  generation: KindSystemFillTransitionGenerationFilter
+  fence: KindSystemFillTransitionFenceFilter
+  at: KindSystemFillTransitionAtFilter
+}
+
+input KindSystemKindApplicabilityOrder {
+  field: KindSystemKindApplicabilityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemKindApplicabilityReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemKindApplicabilityWhere {
+  state: KindSystemKindApplicabilityStateFilter
+  reason: KindSystemKindApplicabilityReasonFilter
+}
+
+input KindSystemMergeAllocationDirectionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeAllocationOrder {
+  field: KindSystemMergeAllocationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeAllocationWhere {
+  direction: KindSystemMergeAllocationDirectionFilter
+}
+
+input KindSystemMergeOrder {
+  field: KindSystemMergeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionOrder {
+  field: KindSystemMergeQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemMergeQuestionReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeQuestionWhere {
+  state: KindSystemMergeQuestionStateFilter
+  reason: KindSystemMergeQuestionReasonFilter
+}
+
+input KindSystemMergeReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemMergeWhere {
+  state: KindSystemMergeStateFilter
+  reason: KindSystemMergeReasonFilter
+}
+
+input KindSystemOperationCanonicalRequestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemOperationDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemOperationKeyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemOperationOrder {
+  field: KindSystemOperationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemOperationResultFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemOperationWhere {
+  words: KindSystemOperationWordsFilter
+  key: KindSystemOperationKeyFilter
+  canonicalRequest: KindSystemOperationCanonicalRequestFilter
+  digest: KindSystemOperationDigestFilter
+  result: KindSystemOperationResultFilter
+}
+
+input KindSystemOperationWordsFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProblemFingerprintFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProblemLocatorFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProblemOrder {
+  field: KindSystemProblemOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemProblemReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProblemRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProblemWhere {
+  rule: KindSystemProblemRuleFilter
+  fingerprint: KindSystemProblemFingerprintFilter
+  reason: KindSystemProblemReasonFilter
+  locator: KindSystemProblemLocatorFilter
+}
+
+input KindSystemProgressAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemProgressGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemProgressKindFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProgressOrder {
+  field: KindSystemProgressOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemProgressSeqFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemProgressStageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProgressSummaryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProgressUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemProgressWhere {
+  seq: KindSystemProgressSeqFilter
+  at: KindSystemProgressAtFilter
+  stage: KindSystemProgressStageFilter
+  unitName: KindSystemProgressUnitNameFilter
+  generation: KindSystemProgressGenerationFilter
+  kindField: KindSystemProgressKindFieldFilter
+  summary: KindSystemProgressSummaryFilter
+}
+
+input KindSystemRunCommitFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunConfigurationDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunConfigurationRecordedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemRunControlActionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunControlAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemRunCreatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemRunDefaultBranchFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunEndMessageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunEndRecordedFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindSystemRunEndStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunHasSelectionFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindSystemRunOrder {
+  field: KindSystemRunOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemRunPlanningClosedFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindSystemRunPlanningEpochFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemRunProductNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunRegistryHashFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunRunNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionGroupNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionOrder {
+  field: KindSystemRunSelectionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemRunSelectionPluginNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionRoleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionStageUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunSelectionWhere {
+  role: KindSystemRunSelectionRoleFilter
+  position: KindSystemRunSelectionPositionFilter
+  name: KindSystemRunSelectionNameFilter
+  groupName: KindSystemRunSelectionGroupNameFilter
+  pluginName: KindSystemRunSelectionPluginNameFilter
+  stageUnitName: KindSystemRunSelectionStageUnitNameFilter
+}
+
+input KindSystemRunStageOrder {
+  field: KindSystemRunStageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemRunStagePlannedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemRunStagePublicationsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemRunStageStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunStageUnitsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemRunStageWhere {
+  stageName: KindSystemRunStageStageNameFilter
+  plannedAt: KindSystemRunStagePlannedAtFilter
+  units: KindSystemRunStageUnitsFilter
+  publications: KindSystemRunStagePublicationsFilter
+}
+
+input KindSystemRunStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetOrder {
+  field: KindSystemRunTargetOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemRunTargetPluginsOnlyFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetRoleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetVertexFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemRunTargetWhere {
+  role: KindSystemRunTargetRoleFilter
+  name: KindSystemRunTargetNameFilter
+  position: KindSystemRunTargetPositionFilter
+}
+
+input KindSystemRunTargetsPresentFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindSystemRunUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemRunWhere {
+  targetPluginsOnly: KindSystemRunTargetPluginsOnlyFilter
+  targetsPresent: KindSystemRunTargetsPresentFilter
+  endState: KindSystemRunEndStateFilter
+  endMessage: KindSystemRunEndMessageFilter
+  endRecorded: KindSystemRunEndRecordedFilter
+  controlAction: KindSystemRunControlActionFilter
+  controlAt: KindSystemRunControlAtFilter
+  repository: KindSystemRunRepositoryFilter
+  defaultBranch: KindSystemRunDefaultBranchFilter
+  commit: KindSystemRunCommitFilter
+  registryHash: KindSystemRunRegistryHashFilter
+  targetVertex: KindSystemRunTargetVertexFilter
+  configurationDigest: KindSystemRunConfigurationDigestFilter
+  configurationRecordedAt: KindSystemRunConfigurationRecordedAtFilter
+  runName: KindSystemRunRunNameFilter
+  productName: KindSystemRunProductNameFilter
+  planningEpoch: KindSystemRunPlanningEpochFilter
+  planningClosed: KindSystemRunPlanningClosedFilter
+  hasSelection: KindSystemRunHasSelectionFilter
+  createdAt: KindSystemRunCreatedAtFilter
+  updatedAt: KindSystemRunUpdatedAtFilter
+  state: KindSystemRunStateFilter
+}
+
+input KindSystemTrackedReadAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadMembersFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadMembershipFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadOrder {
+  field: KindSystemTrackedReadOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemTrackedReadQueryDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadQueryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadSeqFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemTrackedReadWhere {
+  queryDigest: KindSystemTrackedReadQueryDigestFilter
+  query: KindSystemTrackedReadQueryFilter
+  membership: KindSystemTrackedReadMembershipFilter
+  members: KindSystemTrackedReadMembersFilter
+  seq: KindSystemTrackedReadSeqFilter
+  at: KindSystemTrackedReadAtFilter
+}
+
+input KindSystemUnitAttemptFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitCacheVersionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitCacheVersionOrder {
+  field: KindSystemUnitCacheVersionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemUnitCacheVersionVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitCacheVersionWhere {
+  name: KindSystemUnitCacheVersionNameFilter
+  version: KindSystemUnitCacheVersionVersionFilter
+}
+
+input KindSystemUnitCommittedOperationsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitFenceFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitInputsDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitLastProgressFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitOrder {
+  field: KindSystemUnitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemUnitOutcomeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlanPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlanScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlanStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlanStagePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlanStageUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitPlannedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemUnitProducedFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitProducedKindFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitProducerVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitProductNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitPublishedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemUnitReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitReplacementGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitRetriesLeftFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindSystemUnitRetryAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemUnitScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitSkippedBecauseFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitStaleAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemUnitStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnitUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindSystemUnitWhere {
+  planStageName: KindSystemUnitPlanStageNameFilter
+  planStageUnitName: KindSystemUnitPlanStageUnitNameFilter
+  planScope: KindSystemUnitPlanScopeFilter
+  planStagePosition: KindSystemUnitPlanStagePositionFilter
+  planPosition: KindSystemUnitPlanPositionFilter
+  plannedAt: KindSystemUnitPlannedAtFilter
+  unitName: KindSystemUnitUnitNameFilter
+  productName: KindSystemUnitProductNameFilter
+  stageName: KindSystemUnitStageNameFilter
+  generation: KindSystemUnitGenerationFilter
+  inputsDigest: KindSystemUnitInputsDigestFilter
+  fence: KindSystemUnitFenceFilter
+  attempt: KindSystemUnitAttemptFilter
+  retriesLeft: KindSystemUnitRetriesLeftFilter
+  retryAt: KindSystemUnitRetryAtFilter
+  replacementGeneration: KindSystemUnitReplacementGenerationFilter
+  skippedBecause: KindSystemUnitSkippedBecauseFilter
+  publishedAt: KindSystemUnitPublishedAtFilter
+  staleAt: KindSystemUnitStaleAtFilter
+  updatedAt: KindSystemUnitUpdatedAtFilter
+  producedKind: KindSystemUnitProducedKindFilter
+  producer: KindSystemUnitProducerFilter
+  outcome: KindSystemUnitOutcomeFilter
+  produced: KindSystemUnitProducedFilter
+  reason: KindSystemUnitReasonFilter
+  producerVersion: KindSystemUnitProducerVersionFilter
+  scope: KindSystemUnitScopeFilter
+  state: KindSystemUnitStateFilter
+  committedOperations: KindSystemUnitCommittedOperationsFilter
+  lastProgress: KindSystemUnitLastProgressFilter
+}
+
+input KindSystemUnreadOrder {
+  field: KindSystemUnreadOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindSystemUnreadPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnreadReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnreadRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindSystemUnreadWhere {
+  repository: KindSystemUnreadRepositoryFilter
+  path: KindSystemUnreadPathFilter
+  reason: KindSystemUnreadReasonFilter
+}
+
+input KindUnitLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindUnitOrder {
+  field: KindUnitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindUnitWhere {
+  labelField: KindUnitLabelFieldFilter
+}
+
 input RelatedOrder {
   field: String!
   direction: OrderDirection
   nulls: NullsOrder
+}
+
+enum AssertionOperation {
+  ASSERT
+  RETRACT
+}
+
+enum AssertionQuestionState {
+  OPEN
+  RESOLVED
+  DISMISSED
 }
 
 enum CatalogueEntityOrderField {
@@ -1164,6 +5785,43 @@ enum DemoTouchedEdgeOrderField {
   weight
   binary
   meta
+}
+
+enum EvidenceAvailability {
+  AVAILABLE
+  UNAVAILABLE
+  UNKNOWN
+}
+
+enum EvidenceCurrentApplicability {
+  CURRENT
+  STALE
+  ENDED
+  UNKNOWN
+}
+
+enum EvidenceHistoricalValidity {
+  VALID
+  INVALID
+  UNKNOWN
+}
+
+enum KindAgentOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum KindAgentSessionOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum KindAgentUsageOrderField {
+  labelField
 }
 
 enum KindDemoAuthorOrderField {
@@ -1197,6 +5855,293 @@ enum KindDemoRepositoryOrderField {
   createdAt
   facets
   size
+}
+
+enum KindEventOrderField {
+  labelField
+}
+
+enum KindKindOrderField {
+  labelField
+}
+
+enum KindManifestCatalogueOrderField {
+  name
+  declaration
+  publicationFingerprint
+}
+
+enum KindManifestDependencyOrderField {
+  name
+  declaration
+}
+
+enum KindManifestFieldOrderField {
+  name
+  declaration
+}
+
+enum KindManifestRelationOrderField {
+  name
+  declaration
+}
+
+enum KindManifestWorkflowOrderField {
+  name
+  declaration
+}
+
+enum KindManifestWorkflowStageOrderField {
+  name
+  position
+  declaration
+}
+
+enum KindOperationOrderField {
+  labelField
+}
+
+enum KindPageTemplateOrderField {
+  name
+  body
+}
+
+enum KindPersonOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum KindPluginOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum KindProblemOrderField {
+  labelField
+}
+
+enum KindQuestionOrderField {
+  labelField
+}
+
+enum KindRoleOrderField {
+  labelField
+}
+
+enum KindRunOrderField {
+  labelField
+}
+
+enum KindSettingOrderField {
+  labelField
+}
+
+enum KindSourceOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum KindSystemAuthoredImportOrderField {
+  sourcePath
+  contentDigest
+}
+
+enum KindSystemChainOrderField {
+  productName
+  state
+  updatedAt
+}
+
+enum KindSystemContentSnapshotOrderField {
+  digest
+  content
+}
+
+enum KindSystemDisputePinOrderField {
+  canonicalValue
+  digest
+  segmentFrom
+  segmentTo
+}
+
+enum KindSystemDisputeQuestionOrderField {
+  property
+  language
+  segmentFrom
+  segmentTo
+  state
+}
+
+enum KindSystemDisputeResolutionOrderField {
+  rationale
+  segmentFrom
+  segmentTo
+}
+
+enum KindSystemFillTransitionOrderField {
+  step
+  fromState
+  toState
+  event
+  cause
+  reason
+  generation
+  fence
+  at
+}
+
+enum KindSystemKindApplicabilityOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeAllocationOrderField {
+  direction
+}
+
+enum KindSystemMergeOrderField {
+  state
+  reason
+}
+
+enum KindSystemMergeQuestionOrderField {
+  state
+  reason
+}
+
+enum KindSystemOperationOrderField {
+  words
+  key
+  canonicalRequest
+  digest
+  result
+}
+
+enum KindSystemProblemOrderField {
+  rule
+  fingerprint
+  reason
+  locator
+}
+
+enum KindSystemProgressOrderField {
+  seq
+  at
+  stage
+  unitName
+  generation
+  kindField
+  summary
+}
+
+enum KindSystemRunOrderField {
+  targetPluginsOnly
+  targetsPresent
+  endState
+  endMessage
+  endRecorded
+  controlAction
+  controlAt
+  repository
+  defaultBranch
+  commit
+  registryHash
+  targetVertex
+  configurationDigest
+  configurationRecordedAt
+  runName
+  productName
+  planningEpoch
+  planningClosed
+  hasSelection
+  createdAt
+  updatedAt
+  state
+}
+
+enum KindSystemRunSelectionOrderField {
+  role
+  position
+  name
+  groupName
+  pluginName
+  stageUnitName
+}
+
+enum KindSystemRunStageOrderField {
+  stageName
+  plannedAt
+  units
+  publications
+}
+
+enum KindSystemRunTargetOrderField {
+  role
+  name
+  position
+}
+
+enum KindSystemTrackedReadOrderField {
+  queryDigest
+  query
+  membership
+  members
+  seq
+  at
+}
+
+enum KindSystemUnitCacheVersionOrderField {
+  name
+  version
+}
+
+enum KindSystemUnitOrderField {
+  planStageName
+  planStageUnitName
+  planScope
+  planStagePosition
+  planPosition
+  plannedAt
+  unitName
+  productName
+  stageName
+  generation
+  inputsDigest
+  fence
+  attempt
+  retriesLeft
+  retryAt
+  replacementGeneration
+  skippedBecause
+  publishedAt
+  staleAt
+  updatedAt
+  producedKind
+  producer
+  outcome
+  produced
+  reason
+  producerVersion
+  scope
+  state
+  committedOperations
+  lastProgress
+}
+
+enum KindSystemUnreadOrderField {
+  repository
+  path
+  reason
+}
+
+enum KindUnitOrderField {
+  labelField
 }
 
 enum NullsOrder {

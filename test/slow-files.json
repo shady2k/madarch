@@ -26,6 +26,16 @@
       "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/catalog-check.test.ts",
+      "seconds": 41.4,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but every case runs the catalog check as a subprocess over a starter manifest it rewrites, so seven cases pay a full check each: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Check the starter manifest and its edited variants in-process through the same parse and check the command calls, keeping one subprocess case for the command's exit, counts and file/line refusal text.",
+      "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/consistency-plugin.test.ts",
       "seconds": 144.2,
       "reason": "red-defect",
@@ -196,6 +206,16 @@
       "exit": "Rewrite test/git-file-history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/graph-merges.test.ts",
+      "seconds": 48.5,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its fourteen merge cases each prepare a store and press fills over equivalence and immutable-snapshot fixtures, and the stack added the whole file: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Reuse one prepared store per equivalence set, split and merge through its recorded snapshots, and keep only the cases whose assertions need a separate fixture on their own store.",
+      "exit": "Rewrite test/graph-merges.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/graph-records.test.ts",
       "seconds": 277.8,
       "reason": "red-defect",
@@ -274,6 +294,16 @@
       "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
       "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/owner-daemon-stop.test.ts",
+      "seconds": 84.352,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.74",
+      "defect": "The two live-daemon stop/restart regressions passed in an isolated 84.352-second file run; they start, publish and restart real product servers.",
+      "replacement": "Keep stop/restart and GraphQL assertions while reducing repeated server and catalogue setup.",
+      "exit": "Return to the blocking suite after a fresh green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-agent-fill.test.ts",

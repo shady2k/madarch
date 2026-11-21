@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A Helm release records one installation of a chart: the chart version, the values used, the objects created and the revision history of the installation. Upgrading or rolling back changes the release, not the chart.'
   ru: 'Выпуск Helm записывает одну установку чарта: его версию, использованные значения, созданные объекты и историю изменений установки. Обновление или откат меняют выпуск, а не сам чарт.'
+derives-from:
+- deployment
+- k8s-namespace
+- kubernetes-cluster

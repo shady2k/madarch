@@ -24,3 +24,7 @@ labels:
 description:
   en: A certificate ties a public key to a name and is signed by an authority that the other side trusts. A service presents it to prove that it is the name it claims, and it expires, so it must be renewed.
   ru: Сертификат связывает открытый ключ с именем и подписан удостоверяющим центром, которому другая сторона доверяет. Сервис предъявляет его, чтобы доказать, что он и есть заявленное имя; сертификат истекает, поэтому его нужно продлевать.
+derives-from:
+- domain-name
+- key-material
+- product-profile

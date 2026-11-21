@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A test double replaces a real component in a test: a stub returns prepared answers, a mock records calls, a fake is a simple working version. It lets the test control what the other side does and check what the code sends.'
   ru: 'Тестовый дублёр заменяет настоящий компонент в тесте: заглушка возвращает подготовленные ответы, макет записывает вызовы, подделка — простая работающая версия. Он позволяет тесту управлять другой стороной и проверять, что отправляет код.'
+derives-from:
+- test-condition

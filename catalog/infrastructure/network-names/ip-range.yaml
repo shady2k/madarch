@@ -24,3 +24,6 @@ labels:
 description:
   en: An IP range is a continuous block of network addresses, written as a base address and a prefix length, such as 10.0.0.0/8. Networks, firewall rules and access policies name ranges to say which addresses they cover.
   ru: Диапазон IP — непрерывный блок сетевых адресов, записанный базовым адресом и длиной префикса, например 10.0.0.0/8. Сети, правила брандмауэра и политики доступа называют диапазоны, чтобы указать, какие адреса они покрывают.
+derives-from:
+- network-zone
+- product-profile

@@ -64,7 +64,7 @@ export function readWorker<T extends ReadWork>(work: Promise<T> | T, deadlineMs:
         if (message.kind === 'renderer') { renderer = message.pid; folder = message.folder; return; }
         if (finished) return;
         if (message.kind === 'error') { stop(new Error(message.message ?? 'the read worker failed')); return; }
-        if (message.kind !== 'answer') return;
+        if (message.kind !== 'read-complete') return;
         finished = true;
         clearTimeout(timer);
         finishStage?.();

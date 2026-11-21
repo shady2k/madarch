@@ -24,3 +24,5 @@ labels:
 description:
   en: A flaky test passes and fails on the same version without the code changing, usually because of timing, order, shared state or an outside service. It costs trust in the suite, so it is tracked and either fixed or set aside.
   ru: Нестабильный тест проходит и падает на одной и той же версии без изменения кода, обычно из-за времени, порядка, общего состояния или внешнего сервиса. Он подрывает доверие к набору, поэтому его ведут и либо чинят, либо откладывают.
+derives-from:
+- test-result

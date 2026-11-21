@@ -1,6 +1,6 @@
 /**
  * Every field the graph states of an entity (decision 0036, section 6): the kind's declared fields with the value its
- * producers agreed, the mark a disputed field wears, and under each value the producer that stated it and the place it
+ * sources state, the mark a disputed field wears, and under each value the source that stated it and the place it
  * rests on. A template that names a page's fields narrows this block; a kind with no such template still shows all.
  */
 import { Fragment, type ReactElement } from 'react';
@@ -13,9 +13,10 @@ import { InlineGroup, Metadata, Text } from './ui/typography.js';
 import { DefinitionList, DefinitionTerm, DefinitionValue, Paragraph } from './ui/typography.js';
 import type { SectionContext } from './types.js';
 
-interface DetailOpinion {
-  readonly producer?: unknown;
-  readonly statedAt?: unknown;
+interface DetailAssertion {
+  readonly source?: { readonly label?: unknown };
+  readonly recordedAt?: unknown;
+  readonly selected?: boolean;
   readonly evidence?: unknown;
 }
 
@@ -25,7 +26,7 @@ interface DetailRow {
   readonly key?: unknown;
   readonly value?: unknown;
   readonly contested?: unknown;
-  readonly opinions?: unknown;
+  readonly assertions?: unknown;
 }
 
 export function DetailsSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -40,8 +41,8 @@ export function DetailsSection({ context }: { readonly context: SectionContext }
     <DefinitionList columns data-testid="details">
       {rows.map((row) => {
         const name = typeof row.name === 'string' ? row.name : '';
-        const opinions = Array.isArray(row.opinions) ? row.opinions as DetailOpinion[] : [];
-        const newest = opinions[0];
+        const assertions = Array.isArray(row.assertions) ? row.assertions as DetailAssertion[] : [];
+        const newest = assertions.find((assertion) => assertion.selected === true);
         return (
           <Fragment key={name}>
             <DefinitionTerm>
@@ -62,26 +63,23 @@ export function DetailsSection({ context }: { readonly context: SectionContext }
   );
 }
 
-/** Who stated the value and where it rests: the newest opinion's producer and its first place. */
-function sourceLine(opinion: DetailOpinion, t: (key: string, options?: Record<string, unknown>) => string): string {
-  const producer = typeof opinion.producer === 'string' ? opinion.producer : '';
+/** Who stated the value and where it rests: the selected assertion's source and its first place. */
+function sourceLine(assertion: DetailAssertion, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const producer = typeof assertion.source?.label === 'string' ? assertion.source.label : '';
   const said = producer === '' ? '' : t('knowledge.details.stated', { producer });
-  const evidence = Array.isArray(opinion.evidence) ? opinion.evidence as Record<string, unknown>[] : [];
+  const evidence = Array.isArray(assertion.evidence) ? assertion.evidence as Record<string, unknown>[] : [];
   const place = evidence.length === 0 ? '' : placeOf(evidence[0]!);
   const where = place === '' ? '' : t('knowledge.details.place', { place });
   return [said, where].filter((one) => one !== '').join(' · ');
 }
 
-/** The place an opinion rests on, as a reader reads it: a file and its line, a conversation, or an address. */
+/** The place an assertion rests on, as a reader reads it: a file and its line, a conversation, or an address. */
 function placeOf(evidence: Record<string, unknown>): string {
-  const path = typeof evidence.path === 'string' ? evidence.path : '';
-  const repository = typeof evidence.repository === 'string' ? evidence.repository : '';
-  const line = typeof evidence.lineStart === 'number' ? `:${String(evidence.lineStart)}` : '';
-  if (path !== '') return repository === '' ? `${path}${line}` : `${repository}/${path}${line}`;
-  const url = typeof evidence.url === 'string' ? evidence.url : '';
-  if (url !== '') return url;
-  const at = typeof evidence.at === 'string' ? evidence.at : '';
-  return at === '' ? '' : at;
+  const target = evidence.target as { readonly label?: unknown } | undefined;
+  const locator = evidence['locator'] as { readonly lineStart?: unknown } | undefined;
+  const label = typeof target?.label === 'string' ? target.label : '';
+  const line = typeof locator?.lineStart === 'number' ? `:${String(locator.lineStart)}` : '';
+  return `${label}${line}`;
 }
 
 /** A value as a reader reads it: a reference by its kind and the key it names, a list one after another, else its format. */

@@ -24,3 +24,5 @@ labels:
 description:
   en: A prototype is a rough, often throwaway version of a feature or a screen, built to learn how it could work and what it would cost. It is not meant to ship; what it teaches is.
   ru: Прототип — быстрая, часто одноразовая версия возможности или экрана, которую строят, чтобы понять, как это может работать и чего будет стоить. Его не выпускают в продукт; в продукт идут знания, которые он дал.
+derives-from:
+- considered-option

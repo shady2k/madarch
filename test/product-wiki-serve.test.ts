@@ -11,7 +11,8 @@ import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 import type { StartedServer } from '../src/server/http.js';
@@ -93,8 +94,9 @@ describe('serveWiki with a product or a manifestless directory', () => {
         { name: 'repository', type: 'text', producers: ['fixture'] },
         { name: 'path', type: 'text', producers: ['fixture'] },
         { name: 'markdown', type: 'text', producers: ['fixture'] },
-        { name: 'anchors', type: 'json', producers: ['fixture'] },
-        { name: 'links', type: 'json', producers: ['fixture'] },
+        { name: 'source_text', type: 'text', producers: ['fixture'] },
+        { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+        { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
       ],
     });
     writeFileSync(kindsFile, manifest.toString());
@@ -125,13 +127,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(base))), connectOnly: true });
     try {
       await owner.transaction('write', async (tx) => {
-        const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
-        // The file entity with its blob, as a real fill publishes it: the source view reads the text by the blob.
-        const file = await ensureVertex(tx, contract, { kind: 'code.file', key: { repository: 'source', path: 'README.md' } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'code.file', nodeId: file.nodeId, producer: 'fixture', producerVersion: '1', values: { blob: readmeBlob } }, 1, journal);
-        await writeJournal(tx, journal);
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title: 'Linked source' }, keyEdges: { 'document-repository': { kind: 'code.repository', key: { name: 'source' } } } }, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }], removals: [] });
+        const repository = { kind: 'code.repository', key: { name: 'source' } };
+        const file = { kind: 'code.file', key: { path: 'README.md' }, keyEdges: { 'code.file-repository': repository } };
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...file, producer: 'fixture', producerVersion: '1', values: { blob: readmeBlob } }], edges: [{ kind: 'code.file-repository', from: file, to: repository, producer: 'fixture', producerVersion: '1' }], removals: [] });
       });
     } finally { await owner.close(); }
     // The document is a graph entity (decision 0036, section 8): read through the one read API.

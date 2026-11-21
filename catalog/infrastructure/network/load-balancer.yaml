@@ -24,3 +24,7 @@ labels:
 description:
   en: A load balancer receives traffic on one address and sends each request to one of several targets, by a rule such as round robin or least load. It checks the targets with health probes and stops sending to those that fail.
   ru: 'Балансировщик принимает трафик на один адрес и отправляет каждый запрос одной из нескольких целей по правилу: по кругу или на менее загруженную. Он проверяет цели пробами и перестаёт слать тем, что не отвечают.'
+derives-from:
+- code.service
+- network-zone
+- product-profile

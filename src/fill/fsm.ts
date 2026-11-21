@@ -1,71 +1,13 @@
 /**
- * The fill's state machines (decision 0027, as decision 0039 item 12 amends it):
- * a unit's generations, a run, and the chain of runs per product. Pure
- * transitions only — the tables below are the whole of what each machine allows,
- * XState performs every step, and persistence is `state-store.ts`.
+ * The fill's state machines (decision 0027): a unit's generations and attempts, a
+ * run, and the chain of runs per product. Pure transitions only — the tables
+ * below are the whole of what each machine allows, XState performs every step,
+ * and persistence is `state-store.ts`.
  *
- * A unit has a logical identity and immutable generations (a new input set opens a
- * new generation). A generation's attempts are the queue's: the unit is a pg-boss
- * job (0039 item 12), its claim is the lock on one attempt, its expiry the bound
- * of that attempt and its retry allowance the number of attempts the generation
- * may spend. So the machine records which attempt the unit stands in
- * (`context.attempt`, the job's own number) and nothing about leases or fencing
- * tokens: a claim the queue hands out again is a later attempt, and a step that
- * names an attempt the generation already passed is refused. A published
- * generation stays an immutable record: it is never retried or cancelled, only
- * marked stale and linked to its replacement. There is no draft and no validation
- * state (0039 item 13): a unit's writes go through the one writer while it runs,
- * accepted or refused at once, and a generation that fails leaves what it wrote
- * visible.
- *
- * ```mermaid
-stateDiagram-v2
-  [*] --> planned
-  blocked --> cancelled: cancel
-  blocked --> failed: fail [generation-current & fail-cause]
-  blocked --> stale: invalidate [replacement-named]
-  blocked --> skipped: skip [skip-cause-named]
-  blocked --> ready: unblock [generation-current & resolution-named]
-  planned --> ready: admit [generation-current]
-  planned --> cancelled: cancel
-  planned --> failed: fail [generation-current & fail-cause]
-  planned --> stale: invalidate [replacement-named]
-  planned --> skipped: skip [skip-cause-named]
-  published --> stale: invalidate [replacement-named]
-  ready --> blocked: block [generation-current & block-reason-named]
-  ready --> cancelled: cancel
-  ready --> failed: fail [generation-current & fail-cause]
-  ready --> stale: invalidate [replacement-named]
-  ready --> skipped: skip [skip-cause-named]
-  ready --> running: start [generation-current & attempt-advances]
-  retry_wait --> cancelled: cancel
-  retry_wait --> failed: fail [generation-current & fail-cause]
-  retry_wait --> stale: invalidate [replacement-named]
-  retry_wait --> skipped: skip [skip-cause-named]
-  retry_wait --> running: start [generation-current & attempt-advances]
-  running --> blocked: block [generation-current & block-reason-named]
-  running --> cancelled: cancel
-  running --> failed: fail [generation-current & fail-cause]
-  running --> stale: invalidate [replacement-named]
-  running --> published: publish [generation-current]
-  running --> retry_wait: retry [generation-current & retry-time-named & cause-transient-failure]
-  running --> retry_wait: retry [generation-current & retry-time-named & cause-validation-problem]
-  running --> skipped: skip [skip-cause-named]
-  running --> running: start [generation-current & attempt-advances]
-  running --> waiting_children: wait-for-children [generation-current & children-sealed]
-  waiting_children --> blocked: block [generation-current & block-reason-named]
-  waiting_children --> cancelled: cancel
-  waiting_children --> failed: fail [generation-current & fail-cause]
-  waiting_children --> failed: fail [generation-current & cause-child-failed]
-  waiting_children --> stale: invalidate [replacement-named]
-  waiting_children --> ready: join [generation-current & children-accepted-partial]
-  waiting_children --> ready: join [generation-current & children-published-and-fresh]
-  waiting_children --> skipped: skip [skip-cause-named]
-  cancelled --> [*]
-  failed --> [*]
-  skipped --> [*]
-  stale --> [*]
-```
+ * Unit generations and retry metadata remain here during the graph conversion.
+ * Queue attempts and graph locks own execution authority (decision 0039). A
+ * start records the externally supplied attempt fence; this machine issues no
+ * lease or token. Later steps compare that recorded value for consistency.
  *
  * The run machine walks created → planning → running → succeeded,
  * completed_partial, blocked or failed, pauses through pausing → paused →
@@ -78,17 +20,16 @@ stateDiagram-v2
  * `chainMachine.mermaid()`).
  */
 import type { MachineSpec, TransitionSpec } from './fsm-core.js';
-import { createFillMachine, transition } from './fsm-core.js';
-import type { ProducerOutcomeDraft } from './producer-outcomes.js';
+import { CONTEXT_ACTION, createFillMachine, transition } from './fsm-core.js';
 
 // ---------------------------------------------------------------------------------------------
 // Unit machine
 // ---------------------------------------------------------------------------------------------
 
-/** The states of a unit generation, in the order decision 0027 lists them without the lease, draft and validation states 0039 removed. */
+/** The states of a unit generation, in the order decision 0027 lists them. */
 export const UNIT_STATES = [
-  'planned', 'ready', 'running', 'published', 'waiting_children', 'retry_wait', 'blocked',
-  'failed', 'stale', 'cancelled', 'skipped',
+  'planned', 'ready', 'running', 'published',
+  'waiting_children', 'retry_wait', 'blocked', 'failed', 'stale', 'cancelled', 'skipped',
 ] as const;
 export type UnitState = typeof UNIT_STATES[number];
 
@@ -96,23 +37,25 @@ export type UnitState = typeof UNIT_STATES[number];
 export interface UnitContext {
   /** The generation this row is; a new input set opens the next generation of the same unit. */
   readonly generation: number;
-  /** The attempt the unit stands in, as the queue numbers it: the first attempt is 1, and its job's `retryCount` is one less. */
+  /** Attempts spent on this generation, the first queue attempt included. */
   readonly attempt: number;
-  /** Epoch milliseconds the queue will hand the job out again, while the unit waits on a retry; null when it is not waiting. */
+  /** The fencing token in force: it grows across the unit's generations, and a step naming an older one is refused. */
+  readonly fence: number;
+  /** Retries left on this generation before it fails. */
+  readonly retriesLeft: number;
+  /** Epoch milliseconds the current retry wait may go ready; null when the unit is not waiting. */
   readonly retryAt: number | null;
   /** The generation that replaces this one once it went stale; null while it stands. */
   readonly replacedBy: number | null;
   /** Why the run skipped this generation, when it ended without the generation finishing. */
   readonly skippedBecause?: string | null;
-  /** What the producer answered of its kind, recorded by the generation that published it (0039 item 11). */
-  readonly unitOutcome?: ProducerOutcomeDraft | null;
 }
 
-/** What a unit failed on: its budget, the queue's retries, a child whose failure the policy propagates, or an answer the writer refused. */
-export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'child-failed' | 'answer-refused';
+/** What a unit failed on: its budget, its retries, a bound its run declares, or a child whose failure the policy propagates. */
+export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'bound-exhausted' | 'child-failed';
 
 /** What sent a unit back to a retry wait. */
-export type UnitRetryCause = 'transient-failure' | 'validation-problem';
+export type UnitRetryCause = 'lease-expired' | 'transient-failure';
 
 /** One child of a split, as the parent's join judges it. */
 export interface UnitChildOutcome {
@@ -134,57 +77,64 @@ export interface UnitChildOutcome {
 export type UnitFailedChildPolicy = 'propagate' | 'block' | 'accept-partial';
 
 /**
- * A step a caller asks of a unit generation. Every step names the generation in
- * force, so a message for a superseded generation is refused; an attempt's step
- * names the attempt it runs under, so a claim the queue handed out again is a
- * later attempt and not a second step of the same one. `invalidate` and `cancel`
- * name no attempt: they are the run control's authority over whatever generation
- * stands.
+ * A scheduler metadata transition. Start records the fence of a queue attempt
+ * already checked under the graph run/unit locks by the caller. Generation and
+ * fence comparisons reject inconsistent metadata; they do not grant execution
+ * authority. Run control may invalidate or cancel the current generation.
  */
 export type UnitEvent =
   | { readonly type: 'admit'; readonly at: number; readonly generation: number }
-  | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly attempt: number }
-  | { readonly type: 'publish'; readonly at: number; readonly generation: number; readonly outcome: ProducerOutcomeDraft | null }
-  | { readonly type: 'wait-for-children'; readonly at: number; readonly generation: number; readonly children: readonly UnitChildOutcome[] }
+  | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly fence: number; readonly attempt?: number }
+  | { readonly type: 'complete'; readonly at: number; readonly generation: number; readonly fence: number }
+  | { readonly type: 'wait-for-children'; readonly at: number; readonly generation: number; readonly fence: number; readonly children: readonly UnitChildOutcome[] }
   | { readonly type: 'join'; readonly at: number; readonly generation: number; readonly children: readonly UnitChildOutcome[]; readonly failedChildPolicy: UnitFailedChildPolicy }
-  | { readonly type: 'retry'; readonly at: number; readonly generation: number; readonly cause: UnitRetryCause; readonly retryAt: number | null }
-  | { readonly type: 'block'; readonly at: number; readonly generation: number; readonly reason: string }
+  | { readonly type: 'retry'; readonly at: number; readonly generation: number; readonly cause: UnitRetryCause; readonly retryAt: number | null; readonly fence: number | null }
+  | { readonly type: 'block'; readonly at: number; readonly generation: number; readonly fence: number; readonly reason: string }
   | { readonly type: 'unblock'; readonly at: number; readonly generation: number; readonly resolution: string }
-  | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly cause: UnitFailCause }
+  | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly fence: number; readonly cause: UnitFailCause }
   | { readonly type: 'invalidate'; readonly at: number; readonly replacement: number; readonly cause: string }
   | { readonly type: 'cancel'; readonly at: number; readonly cause: string }
   | { readonly type: 'skip'; readonly at: number; readonly cause: string };
 
-/** Every unit step; the store takes each of them through `advanceUnit`. */
+/** A scheduler metadata step. Queue ownership is checked by the caller's transaction. */
 export type UnitAdvanceEvent = UnitEvent;
 
 const named = (value: string): boolean => value.trim() !== '';
+const fenced = (event: { readonly fence: number | null }): boolean => event.fence !== null;
 
 /** Every unit guard, named and pure: it reads the persisted generation and the event, nothing else. */
 const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
-  'attempt-advances': {
-    describe: 'the attempt the queue hands this unit out as is later than the one the generation stands in',
-    check: (context, event) => event.type === 'start' && event.attempt > context.attempt,
+  'fence-current': {
+    describe: 'the step names the attempt fence recorded at start',
+    check: (context, event) => 'fence' in event && fenced(event) && event.fence === context.fence,
   },
   'generation-current': {
     describe: 'the step names the generation in force, so a message for a superseded generation is refused',
     check: (context, event) => 'generation' in event && event.generation === context.generation,
   },
+  'retries-remain': {
+    describe: 'the generation has a retry left before it fails',
+    check: (context) => context.retriesLeft > 0,
+  },
   'retry-time-named': {
-    describe: 'the retry names the moment the queue will hand the unit out again',
+    describe: 'the retry names the moment it may run again',
     check: (_context, event) => event.type === 'retry' && event.retryAt !== null,
+  },
+  'retry-elapsed': {
+    describe: 'the retry wait is over',
+    check: (context, event) => context.retryAt !== null && event.at >= context.retryAt,
+  },
+  'cause-lease-expired': {
+    describe: 'the lease of the attempt expired',
+    check: (_context, event) => event.type === 'retry' && event.cause === 'lease-expired',
   },
   'cause-transient-failure': {
     describe: 'the attempt failed transiently',
     check: (_context, event) => event.type === 'retry' && event.cause === 'transient-failure',
   },
-  'cause-validation-problem': {
-    describe: 'the attempt ended with a problem the unit may fix in another attempt',
-    check: (_context, event) => event.type === 'retry' && event.cause === 'validation-problem',
-  },
   'fail-cause': {
-    describe: 'the step fails the unit for the run\'s spent budget, because the queue has no attempt left, or because the writer refused its answer',
-    check: (_context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || event.cause === 'retries-exhausted' || event.cause === 'answer-refused'),
+    describe: 'the step fails the unit for the run\'s spent budget, for a bound its run declares, or because the attempt ended with no retry left',
+    check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || event.cause === 'bound-exhausted' || context.retriesLeft === 0),
   },
   'cause-child-failed': {
     describe: 'a child the run resolves as propagated ended failed, so the waiting parent fails with it',
@@ -225,56 +175,62 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
   },
 };
 
-const retryActions = ['wait-for-retry', 'schedule-retry', 'emit-progress'] as const;
-const failFenced = ['revoke-authority', 'emit-progress'] as const;
-const failActions = ['emit-progress'] as const;
+const revokeAndRetract = ['revoke-lease', 'emit-progress'] as const;
+const retractAndEmit = ['emit-progress'] as const;
+const retryActionsFenced = ['spend-retry', 'wait-for-retry', 'revoke-lease', 'schedule-retry', 'emit-progress'] as const;
 const blockActions = ['emit-progress'] as const;
-const invalidateActions = ['link-replacement', 'emit-progress'] as const;
-const cancelActions = ['revoke-authority', 'emit-progress'] as const;
+const blockActionsFenced = ['revoke-lease', 'emit-progress'] as const;
+const invalidateActions = ['link-replacement', 'revoke-lease', 'emit-progress'] as const;
+const invalidatePublishedActions = ['link-replacement', 'revoke-lease', 'emit-progress'] as const;
+const cancelActions = ['revoke-authority', 'revoke-lease', 'emit-progress'] as const;
 
 /** Every unit action, named: context updates XState applies, then effects the orchestrator performs. */
 const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
-  'record-attempt': {
-    kind: 'context',
-    describe: 'records the attempt the queue handed the unit out as',
-    apply: (context, event) => (event.type === 'start' ? { ...context, attempt: event.attempt } : context),
+  'take-fence': {
+    kind: CONTEXT_ACTION,
+    describe: 'records the supplied queue attempt fence and attempt number',
+    apply: (context, event) => (event.type === 'start' ? { ...context, fence: event.fence, attempt: event.attempt ?? context.attempt + 1 } : context),
+  },
+  'spend-retry': {
+    kind: CONTEXT_ACTION,
+    describe: 'spends one retry of the generation',
+    apply: (context) => ({ ...context, retriesLeft: Math.max(0, context.retriesLeft - 1) }),
   },
   'wait-for-retry': {
-    kind: 'context',
-    describe: 'records the moment the queue will hand the unit out again',
+    kind: CONTEXT_ACTION,
+    describe: 'records the moment the retry may run',
     apply: (context, event) => ({ ...context, retryAt: event.type === 'retry' ? event.retryAt : context.retryAt }),
   },
   'clear-retry': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'clears the retry time an earlier attempt set',
     apply: (context) => ({ ...context, retryAt: null }),
   },
   'link-replacement': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'links this generation to the one that replaces it',
     apply: (context, event) => ({ ...context, replacedBy: event.type === 'invalidate' ? event.replacement : context.replacedBy }),
   },
   'record-skip': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records why the run skipped this generation',
     apply: (context, event) => ({ ...context, skippedBecause: event.type === 'skip' ? event.cause : context.skippedBecause ?? null }),
-  },
-  'record-outcome': {
-    kind: 'context',
-    describe: 'records what the producer answered of its kind, with the generation that answered it',
-    apply: (context, event) => (event.type === 'publish' ? { ...context, unitOutcome: event.outcome } : context),
   },
   'enqueue-ready': {
     kind: 'effect',
     describe: 'the orchestrator makes the generation runnable on the queue',
   },
+  'revoke-lease': {
+    kind: 'effect',
+    describe: 'the orchestrator settles or releases the queue attempt under its graph locks',
+  },
   'schedule-retry': {
     kind: 'effect',
-    describe: 'the orchestrator asks the queue to hand the job out again after its retry delay',
+    describe: 'the orchestrator schedules the retry for the recorded moment',
   },
   'suspend-parent': {
     kind: 'effect',
-    describe: 'the orchestrator settles the parent\'s job while its children run',
+    describe: 'the orchestrator releases the parent queue attempt while its children run',
   },
   'resume-join': {
     kind: 'effect',
@@ -298,8 +254,11 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   },
 };
 
+/** The states a unit waits in with a lease in force: their steps name the token as well as the generation. */
+const LEASED_STATES = ['running'] as const;
+
 /** Every state a generation is live in: each may go stale, each may fail, and each may be cancelled. */
-const LIVE_UNIT_STATES = ['planned', 'ready', 'running', 'waiting_children', 'retry_wait', 'blocked'] as const;
+const LIVE_UNIT_STATES = ['planned', 'ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const;
 
 /** One line of the unit table, with its id built from its machine, states and event. */
 const unitTransition = (
@@ -315,54 +274,54 @@ const unitTransition = (
  * `cancelled` leave the table never: a published generation only goes stale with
  * a replacement, and stale work continues in its replacement generation.
  *
- * A generation fails for each cause the decision names: when the run's budget is
- * spent, from every live state; when the queue hands the job out no more, from the
- * states an attempt can end in; and when a child the run resolves as propagated
- * fails, from the state whose join was waiting for it.
+ * A live generation fails for each cause the decision names: when the run's
+ * budget is spent, from every live state; when an attempt ends with no retry
+ * left, from the states an attempt can end in; and when a child the run resolves
+ * as propagated fails, from the state whose join was waiting for it.
  */
 const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitions'] = [
   unitTransition('planned', 'admit', 'ready', { guards: ['generation-current'], actions: ['enqueue-ready', 'emit-progress'] }),
-  // The queue's claim is the unit's lock (0039 item 12): the attempt it hands out is the attempt the
-  // generation records, and a claim handed out again is a later attempt of the same generation.
-  unitTransition('ready', 'start', 'running', { guards: ['generation-current', 'attempt-advances'], actions: ['record-attempt', 'emit-progress'] }),
-  unitTransition('running', 'start', 'running', { label: 'another-attempt', guards: ['generation-current', 'attempt-advances'], actions: ['record-attempt', 'emit-progress'] }),
-  unitTransition('retry_wait', 'start', 'running', { guards: ['generation-current', 'attempt-advances'], actions: ['record-attempt', 'clear-retry', 'emit-progress'] }),
-  // A unit's writes went through the one writer while it ran (0039 item 13); publishing the generation
-  // records what it answered and that it is complete.
-  unitTransition('running', 'publish', 'published', { guards: ['generation-current'], actions: ['record-outcome', 'record-publication', 'emit-progress'] }),
-  unitTransition('running', 'wait-for-children', 'waiting_children', { guards: ['generation-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] }),
+  unitTransition('ready', 'start', 'running', { guards: ['generation-current'], actions: ['take-fence', 'emit-progress'] }),
+  unitTransition('running', 'complete', 'published', { guards: ['generation-current', 'fence-current'], actions: ['record-publication', 'emit-progress'] }),
+  unitTransition('running', 'wait-for-children', 'waiting_children', { guards: ['generation-current', 'fence-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] }),
   // The join under the run's resolved policy for a failed child: every child published and fresh, or
   // the failed ones accepted as partial. A propagated failure fails the parent itself, below.
   unitTransition('waiting_children', 'join', 'ready', { label: 'all-published', guards: ['generation-current', 'children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
   unitTransition('waiting_children', 'join', 'ready', { label: 'accepted-partial', guards: ['generation-current', 'children-accepted-partial'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
-  // An attempt that ends short of its answer asks the queue for the generation's next attempt; the
-  // queue's own retry allowance decides whether there is one, and the failure below is what a spent one
-  // takes.
-  unitTransition('running', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'retry-time-named', 'cause-transient-failure'], actions: retryActions }),
-  unitTransition('running', 'retry', 'retry_wait', { label: 'validation-problem', guards: ['generation-current', 'retry-time-named', 'cause-validation-problem'], actions: retryActions }),
-  unitTransition('ready', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
-  unitTransition('running', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
-  unitTransition('waiting_children', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
+  // A worker's own retry names the token of the attempt that asked for it: the retry a lapsed attempt sends
+  // late must not move the attempt that replaced it, and the lease it held is revoked with it.
+  unitTransition('running', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
+  unitTransition('running', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'fence-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActionsFenced }),
+  unitTransition('retry_wait', 'retry', 'ready', { guards: ['generation-current', 'retry-elapsed'], actions: ['clear-retry', 'enqueue-ready', 'emit-progress'] }),
+  // A block names the token in force even where no lease is held: the token is the unit's, not the lease's,
+  // so a message from an attempt the unit already left cannot block it.
+  unitTransition('ready', 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActions }),
+  ...LEASED_STATES.map((from) => unitTransition(from, 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActionsFenced })),
+  unitTransition('waiting_children', 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActions }),
   unitTransition('blocked', 'unblock', 'ready', { guards: ['generation-current', 'resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] }),
   // "→ failed when budget or retries are exhausted": from every live generation, whichever ended it.
-  ...(['planned', 'ready', 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: failActions })),
-  unitTransition('running', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: failFenced }),
+  unitTransition('planned', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('ready', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('waiting_children', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('retry_wait', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('blocked', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  ...LEASED_STATES.map((from) => unitTransition(from, 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: revokeAndRetract })),
   // The third policy for a failed child: the run propagates the child's failure, and the waiting parent
-  // fails with it without spending an attempt of its own.
-  unitTransition('waiting_children', 'fail', 'failed', { label: 'child-failed', guards: ['generation-current', 'cause-child-failed'], actions: failFenced }),
+  // fails with it without spending a retry of its own.
+  unitTransition('waiting_children', 'fail', 'failed', { label: 'child-failed', guards: ['generation-current', 'fence-current', 'cause-child-failed'], actions: revokeAndRetract }),
   // Staleness: every live generation — a planned one whose inputs changed before admission included —
   // and the published one, which only goes stale.
   ...LIVE_UNIT_STATES.map((from) => unitTransition(from, 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions })),
-  unitTransition('published', 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions }),
+  unitTransition('published', 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidatePublishedActions }),
   // Cancellation is the run control's authority over whatever generation stands, so it names none.
-  unitTransition('planned', 'cancel', 'cancelled', { actions: cancelActions }),
-  ...(['ready', 'running', 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
+  unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'emit-progress'] }),
+  ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
   // The run ends and this generation never finished: a final record that names the failed unit it waited on,
   // instead of a pending state a reader could mistake for work still to come.
   ...LIVE_UNIT_STATES.map((from) => unitTransition(from, 'skip', 'skipped', { guards: ['skip-cause-named'], actions: ['record-skip'] })),
 ];
 
-/** The unit machine: generations and the attempts the queue hands them out as. */
+/** The unit machine: generations, attempts and fencing tokens, as decision 0027 declares them. */
 export const unitMachine = createFillMachine<UnitState, UnitEvent, UnitContext>({
   id: 'fill-unit',
   initial: 'planned',
@@ -372,9 +331,13 @@ export const unitMachine = createFillMachine<UnitState, UnitEvent, UnitContext>(
   actions: unitActions,
 });
 
-/** A generation's context when the unit is first created or a replacement opens: no attempt yet. */
-export function newUnitContext(options: { readonly generation: number }): UnitContext {
-  return { generation: options.generation, attempt: 0, retryAt: null, replacedBy: null, skippedBecause: null, unitOutcome: null };
+/**
+ * A generation's context when the unit is first created or a replacement opens.
+ * `fence` is the floor the next lease takes its token above, so a token is never
+ * reused by a later generation of the same unit.
+ */
+export function newUnitContext(options: { readonly generation: number; readonly retries: number; readonly fence?: number }): UnitContext {
+  return { generation: options.generation, attempt: 0, fence: options.fence ?? 0, retriesLeft: options.retries, retryAt: null, replacedBy: null, skippedBecause: null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -423,8 +386,6 @@ export interface RunEvidence {
   readonly waiting: number;
   /** True when every required capability's coverage is met. */
   readonly coverageMet: boolean;
-  /** Publication effects not yet applied. */
-  readonly pendingPublications: number;
 }
 
 /** A step a caller asks of a run. Each carries the evidence its transition's guards read. */
@@ -483,10 +444,6 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
     describe: 'required coverage is not met, so the run may only complete partially',
     check: (_context, event) => 'evidence' in event && !event.evidence.coverageMet,
   },
-  'no-pending-publication': {
-    describe: 'no publication effect is still pending',
-    check: (_context, event) => 'evidence' in event && event.evidence.pendingPublications === 0,
-  },
   'starvation-path-named': {
     describe: 'the block names the starvation path, consumer → capability → producer',
     check: (_context, event) => event.type === 'block' && named(event.starvationPath),
@@ -508,17 +465,17 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
 /** Every run action, named. */
 const runActions: MachineSpec<RunState, RunEvent, RunContext>['actions'] = {
   'close-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'marks the run\'s planning epoch closed',
     apply: (context) => ({ ...context, planningClosed: true }),
   },
   'bump-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'opens the next planning epoch number',
     apply: (context) => ({ ...context, planningEpoch: context.planningEpoch + 1 }),
   },
   'reopen-planning-epoch': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'marks the run\'s planning epoch open again',
     apply: (context) => ({ ...context, planningClosed: false }),
   },
@@ -593,8 +550,8 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   runTransition('planning', 'start', 'running', { guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] }),
   runTransition('planning', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('planning', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
-  runTransition('running', 'complete', 'succeeded', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met', 'no-pending-publication'], actions: ['record-completion', 'emit-progress'] }),
-  runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
+  runTransition('running', 'complete', 'succeeded', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met'], actions: ['record-completion', 'emit-progress'] }),
+  runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
   runTransition('running', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('running', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
   // A run whose process died is ended by the next start, never left standing `running` with no one to
@@ -609,7 +566,7 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   // reopens its planning epoch for the stages that are due and closes it again when they are planned.
   runTransition('running', 'replan', 'planning', { guards: ['replan-stages-named'], actions: ['reopen-planning-epoch', 'emit-progress'] }),
   ...(['created', 'planning', 'running', 'pausing', 'paused'] as const).map((from) => runTransition(from, 'cancel', 'cancelling', { actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] })),
-  runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] }),
+  runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting'], actions: ['record-cancelled', 'emit-progress'] }),
 ];
 
 /** The run machine: one fill run's life, as decision 0027 declares it. */
@@ -698,6 +655,9 @@ export function isFinalRunState(state: RunState): boolean {
 export const UNIT_PHASES = ['waiting', 'running', 'done', 'failed', 'skipped', 'cancelled'] as const;
 export type UnitPhase = typeof UNIT_PHASES[number];
 
+/** The public phase of a unit the run did not execute. */
+export const SKIPPED_UNIT_PHASE: UnitPhase = 'skipped';
+
 /** Every transition of the public unit machine, with the reason it carries. */
 const UNIT_PHASE_TRANSITIONS: readonly { readonly from: UnitPhase; readonly event: string; readonly to: UnitPhase; readonly reason: string }[] = [
   { from: 'waiting', event: 'start', to: 'running', reason: 'a worker took the unit' },
@@ -722,7 +682,7 @@ export function unitPhaseOf(state: UnitState): UnitPhase {
   switch (state) {
     case 'published': return 'done';
     case 'failed': return 'failed';
-    case 'skipped': case 'stale': return 'skipped';
+    case 'skipped': case 'stale': return SKIPPED_UNIT_PHASE;
     case 'cancelled': return 'cancelled';
     case 'running': return 'running';
     case 'planned': case 'ready': case 'waiting_children': case 'retry_wait': case 'blocked': return 'waiting';
@@ -756,7 +716,6 @@ export interface ChainEvidence {
   readonly runnable: number;
   readonly inFlight: number;
   readonly waiting: number;
-  readonly pendingPublications: number;
 }
 
 /** A step a caller asks of a product's chain. */
@@ -774,19 +733,19 @@ const chainGuards: MachineSpec<ChainState, ChainEvent, ChainContext>['guards'] =
   'nothing-outstanding': {
     describe: 'no unit is runnable, in flight or waiting, and no publication effect is pending',
     check: (_context, event) => 'evidence' in event && event.evidence.runnable === 0 && event.evidence.inFlight === 0
-      && event.evidence.waiting === 0 && event.evidence.pendingPublications === 0,
+      && event.evidence.waiting === 0,
   },
 };
 
 /** Every chain action, named. */
 const chainActions: MachineSpec<ChainState, ChainEvent, ChainContext>['actions'] = {
   'record-active-run': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'records the run the chain follows',
     apply: (context, event) => ({ ...context, activeRunId: 'runId' in event ? event.runId : context.activeRunId }),
   },
   'clear-active-run': {
-    kind: 'context',
+    kind: CONTEXT_ACTION,
     describe: 'clears the run the chain followed',
     apply: (context) => ({ ...context, activeRunId: null }),
   },

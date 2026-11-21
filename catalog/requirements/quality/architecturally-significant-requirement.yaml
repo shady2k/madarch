@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An architecturally significant requirement is one whose fulfilment shapes the structure of the system: a performance target, a regulation, a need to work offline, a hard limit on cost. It is singled out because it must drive an architecture decision rather than be fitted in later.'
   ru: 'Архитектурно значимое требование — то, выполнение которого определяет устройство системы: цель по производительности, правило закона, работа без сети, жёсткое ограничение стоимости. Его выделяют, потому что оно должно вести архитектурное решение, а не подстраиваться под него потом.'
+derives-from:
+- doc.requirement
+- quality-scenario

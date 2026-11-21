@@ -1,26 +1,47 @@
-# The fixture's file kind: a keyed reference, an edge's to end, and a derivation from the repository.
 id: demo.file
 purpose: structure
 definition: A file of the demo.
-sources: [https://example.test/standard]
-acquisition: [document]
-relation-constraints: { out: [], in: [contains] }
+sources:
+- https://example.test/standard
+acquisition:
+- document
+relation-constraints:
+  out: []
+  in:
+  - contains
 template-policy: page
-
 source: graph
 title: path
 labels:
-  en: { one: File, many: Files }
-  ru: { one: Файл, many: Файлы }
-description: { en: A file of the demo., ru: Файл демо. }
+  en:
+    one: File
+    many: Files
+  ru:
+    one: Файл
+    many: Файлы
+description:
+  en: A file of the demo.
+  ru: Файл демо.
 fields:
-  - { name: repository, type: text, reference: demo.repository, producers: [agent] }
-  - { name: path, type: text, producers: [agent] }
-  - { name: lines, type: integer, nullable: true, producers: [agent] }
-  - { name: language, type: text, nullable: true, producers: [agent] }
-  - { name: primary, type: json, nullable: true, reference: demo.repository, producers: [agent] }
-  # A reference declared text holds the reference as JSON text: the inverse of such a field is a plain join, and a reader
-  # of it once met a database error instead (madarch-64o5.83).
-  - { name: preferred, type: text, nullable: true, reference: demo.repository, producers: [agent] }
-key: [repository, path]
-derives-from: [demo.repository]
+- name: path
+  type: text
+  producers:
+  - agent
+- name: lines
+  type: integer
+  nullable: true
+  producers:
+  - agent
+- name: language
+  type: text
+  nullable: true
+  producers:
+  - agent
+key:
+- path
+derives-from:
+- demo.repository
+key-edges:
+- role: repository
+  edge: demo.file-repository
+  side: from

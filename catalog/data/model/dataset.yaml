@@ -5,16 +5,36 @@ definition: A dataset is a collection of data that programs read or write, ident
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasPart
   in:
   - hasInput
   - hasOutput
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: namespace
+  type: text
+  binding:
+    agent: The namespace the dataset is named in, as the jobs that read it name it.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the dataset is known by inside its namespace; it is the dataset's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the dataset holds, in one or two sentences, from the jobs that read and write it in the graph.
+key:
+- namespace
+- name
 labels:
   en:
     one: Dataset
@@ -25,3 +45,6 @@ labels:
 description:
   en: A dataset is a named collection of data that programs read or write, such as a table, a file or a stream. Its namespace and name identify it among other datasets, and its schema and version say what the data looks like.
   ru: 'Набор данных — именованная совокупность данных, которую читают или записывают программы: таблица, файл или поток. Пространство имён и имя отличают его от других наборов, а схема и версия описывают, как устроены данные.'
+derives-from:
+- data-entity
+- product-profile

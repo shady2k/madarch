@@ -1,10 +1,10 @@
 /** One-time import of retired authored Markdown; normal fills never call this module. */
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { commitAuthoredImport } from '../adapters/authored-import.js';
+import type { AuthoredImportHost } from '../adapters/authored-import.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
-import { authoredEntity } from '../graph/authored.js';
 import { type Finding, type KindsManifest } from '../product/manifest/kinds.js';
 import { authoredImportCandidates, readAuthoredImport, archiveAuthoredImport } from '../plugin/authored-import-source.js';
 
@@ -14,10 +14,10 @@ export const AUTHORED_ARCHIVE = '.madarch/imported-authored';
 export interface AuthoredImportResult { imported: string[]; archived: string[]; errors: Finding[]; }
 
 /**
- * Imports each item atomically, keeping failures in place. A committed journal receipt survives an interrupted archive,
- * so retrying never creates a second keyless entity. Original bytes live in the journal, encoded without text loss.
+ * Imports each item atomically, keeping failures in place. A committed graph receipt survives an interrupted archive,
+ * so retrying never creates a second keyless entity. Original bytes live in the graph operation request, encoded without text loss.
  */
-export async function importAuthored(productFolder: string, owner: Parameters<typeof commitAuthoredImport>[0], manifest: KindsManifest, prefix: string, person: string): Promise<AuthoredImportResult> {
+export async function importAuthored(productFolder: string, host: AuthoredImportHost, manifest: KindsManifest, prefix: string, person: string): Promise<AuthoredImportResult> {
   return await withSpan('authored.import', {}, async () => {
   const result: AuthoredImportResult = { imported: [], archived: [], errors: [] };
   const root = resolve(productFolder);
@@ -42,10 +42,11 @@ export async function importAuthored(productFolder: string, owner: Parameters<ty
           else if (field.name === 'title') values[field.name] = entity.title;
           else if (field.name in entity.front) values[field.name] = entity.front[field.name];
         }
-        const imported = await commitAuthoredImport(owner, identity, words, async (tx, uid) => {
-          await authoredEntity(tx, manifest, prefix, person, uid === undefined ? 'create' : 'edit', decl.name, { values, words, ...(uid === undefined ? {} : { uid, recordUnchanged: true }) });
-        });
-        if (imported) result.imported.push(file);
+        const receipts = await host.receipts(identity);
+        if (!receipts.some(receipt => receipt.words === words)) {
+          await host.write({ producer: 'authored-markdown-import', version: '1', operationId: canonicalJsonDigest({ identity, digest }), principal: { kind: 'person', identity: person } }, { kind: 'authored-import', input: { identity, words, entityKind: decl.name, values, prefix } });
+          result.imported.push(file);
+        }
         archiveAuthoredImport(root, file, digest, bytes, AUTHORED_ARCHIVE);
         result.archived.push(file);
       } catch (error) {

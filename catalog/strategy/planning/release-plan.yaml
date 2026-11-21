@@ -24,3 +24,6 @@ labels:
 description:
   en: A release plan states which items a release should deliver, what must be true before it ships and the date it is expected. It aligns the team, the stakeholders and the operations that will carry the release.
   ru: План выпуска говорит, какие элементы должен дать выпуск, что должно быть верно до его отправки и когда его ждут. Он согласует команду, заинтересованные стороны и эксплуатацию, которая будет выпуск проводить.
+derives-from:
+- feature
+- milestone

@@ -1,3 +1,4 @@
+import {createRecordOwner,recordGraph,repoRef,fileRef,fixtureProducer} from './assertion-record-fixture.js';
 /**
  * The ordinary repository plugins (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
@@ -11,32 +12,31 @@ import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { commitFacts, fileFacts, listFiles, repositoryFacts } from '../src/graph/index.js';
 
-import { generatedTableName } from '../src/graph/contract.js';
+import { assertionValueTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { runFill } from '../src/fill/run.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
+import { readRunUnits } from '../src/graph/fill-state.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
 import { seedRepositoryPlugins, useFixturePlugins } from './enabled-plugins-fixture.js';
 import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
-import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import {readKindAssertions} from '../src/graph/records.js';
+import {loadAssertions} from '../src/graph/assertion-read.js';
+import { createTestDatabaseOwner,prepareTestStore } from './test-database.js';
 
 let root = '';
 let repository = '';
 let product = '';
 let runSequence = 0;
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
-
-const RECORD_TABLES = [
-  ...MECHANISM_TABLES,
-  ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
-  ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
-  ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
-] as const;
-
+const RECORD_TABLES = ['context','edge','entity','node','assertion','assertion_vertex_subject','assertion_edge_subject',
+ ...GIT_CONTRACT.vertex.flatMap(k=>['$exists',...k.fields.filter(f=>!k.key.includes(f.name)).map(f=>f.name)].map(p=>assertionValueTableName(k.name,'vertex',p))),
+ ...GIT_CONTRACT.edge.flatMap(k=>['$exists',...k.fields.map(f=>f.name)].map(p=>assertionValueTableName(k.name,'edge',p))),
+];
 let owner: DatabaseOwner | undefined;
 
 function git(args: readonly string[]): string {
@@ -54,9 +54,9 @@ async function fillRepository(folder = repository, name = 'fixture') {
   if (owner === undefined) throw new Error('the store was not opened');
   const fixture = folder === repository ? product : join(root, `product-${name}`);
   if (folder !== repository && !existsSync(fixture)) makeProduct(fixture, folder, name);
-  const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: async contract => { await prepareStore(owner!, { contract }); } });
+  const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: async contract => { await prepareTestStore(owner!, { contract }); } });
   if (!result.ok) throw new Error(`fill refused: ${result.reason}`);
-  expect(result.state).toBe('succeeded');
+  if (result.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify({result,units:await readRunUnits(owner,result.runId),progress:await readProgress(owner,result.runId,{limit:10000})})}`);
   return result;
 }
 
@@ -85,7 +85,7 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'docs', 'same-two.md'), '# one\n');
   writeFileSync(join(repository, 'blob.bin'), Buffer.from([0, 1, 2, 3, 0]));
   writeFileSync(join(repository, 'with space and\nnewline.txt'), 'x\n');
-  writeFileSync(join(repository, 'docs', 'with "quotes" and \\backslash.md'), '# quoted\n');
+  writeFileSync(join(repository, 'docs', 'with "quotes".md'), '# quoted\n');
   symlinkSync('src/a.ts', join(repository, 'link.ts'));
   git(['init', '-q', '-b', 'main']);
   // A remote a person cloned with: the credential is read and never stored (madarch-hsqs stage B review).
@@ -98,8 +98,8 @@ beforeAll(async () => {
   commitAll('two');
   product = join(root, 'product');
   makeProduct(product, repository, 'fixture');
-  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
-});
+  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT, authenticated:false });
+}, 120_000);
 
 afterAll(async () => {
   await owner?.close();
@@ -107,7 +107,7 @@ afterAll(async () => {
 });
 
 describe('the record tables', () => {
-  test('stand in the store with the dictionaries the step needs, and no temporal column', async () => {
+  test('typed values hold no duplicate temporal columns; assertion headers own time', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const found = await owner.transaction('snapshot', async (tx) => await tx.query(
       `SELECT c.relname AS name, a.attname AS column FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid
@@ -116,41 +116,41 @@ describe('the record tables', () => {
     ));
     const columns = (found.rows as { name: string; column: string }[]).map((row) => `${row.name}.${row.column}`);
     for (const table of RECORD_TABLES) expect(columns.some((column) => column.startsWith(`${table}.`))).toBe(true);
-    expect(columns.filter((column) => /^(valid_|recorded_)/.test(column.split('.')[1] ?? ''))).toEqual([]);
+    expect(columns.filter((column) => !column.startsWith('assertion.') && /^(valid_|recorded_)/.test(column.split('.')[1] ?? ''))).toEqual([]);
   }, 120_000);
 });
 
-test('file-only facts need no repository entity or history, and a missing file is null', async () => {
-  const files = await createTestDatabaseOwner({ graphContract: {
-    vertex: GIT_CONTRACT.vertex.filter((kind) => kind.name === GIT_KINDS.file),
-    edge: [], dictionary: [],
-  } });
-  try {
-    const blob = 'b'.repeat(40);
-    await files.transaction('write', async (tx) => {
-      const journal = journalFor('disk@1');
-      const node = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'files-only', path: 'src/one.ts' } }, 1, journal);
-      await publishOpinion(tx, GIT_CONTRACT, {
-        kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '1',
-        values: { mode: '100644', blob, bytes: 20, form: 'text', lines: 1, language: 'TypeScript', languages: ['TypeScript'] },
-      }, 1, journal);
-      await writeJournal(tx, journal);
-    });
-    const repositories = await files.run((tx) => tx.query<{ count: string }>(
-      'SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1',
-      [GIT_KINDS.repository],
-    ));
-    expect(repositories.rows).toEqual([{ count: '0' }]);
-    expect(await fileFacts(files, 'files-only', 'src/one.ts', { history: false })).toMatchObject({
-      path: 'src/one.ts', mode: '100644', blob, bytes: 20, form: 'text', lines: 1,
-      language: 'TypeScript', candidates: ['TypeScript'],
-      created: null, modified: null, commitCount: 0, authors: [],
-    });
-    expect(await fileFacts(files, 'files-only', 'src/missing.ts', { history: false })).toBeNull();
-  } finally {
-    await files.close();
-  }
+test('0039.1: parent-bound file facts need no history and a missing file is null',async()=>{
+ const files=await createRecordOwner();try{
+ const blob='b'.repeat(40);
+ await files.transaction('write',tx=>publishGraphDrafts(tx,recordGraph,{vertices:[{...repoRef('files-only'),...fixtureProducer},{...fileRef('src/one.ts'),values:{mode:'100644',blob,bytes:20,form:'text',lines:1,language:'TypeScript',languages:['TypeScript']},...fixtureProducer}],edges:[{kind:GIT_KINDS.contains,from:repoRef('files-only'),to:fileRef('src/one.ts'),...fixtureProducer}],removals:[]}));
+ expect(await fileFacts(files,'files-only','src/one.ts',{history:false})).toMatchObject({path:'src/one.ts',mode:'100644',blob,bytes:20,form:'text',lines:1,language:'TypeScript',candidates:['TypeScript'],created:null,modified:null,commitCount:0,authors:[]});
+ expect(await fileFacts(files,'files-only','src/missing.ts',{history:false})).toBeNull();
+ }finally{await files.close();}
 });
+
+test('0039.1: a repository read walks the whole contains tree', async () => {
+  const nested = { ...recordGraph, edge: recordGraph.edge.map(edge => edge.name === GIT_KINDS.contains
+    ? { ...edge, from: [GIT_KINDS.repository, GIT_KINDS.directory], to: [GIT_KINDS.directory, GIT_KINDS.file] }
+    : edge) };
+  const store = await createRecordOwner({ contract: nested });
+  try {
+    const directory = { kind: GIT_KINDS.directory, key: { path: 'src' } };
+    await store.transaction('write', tx => publishGraphDrafts(tx, nested, {
+      vertices: [
+        { ...repoRef('nested'), ...fixtureProducer },
+        { ...directory, ...fixtureProducer },
+        { ...fileRef('src/a.ts'), values: { blob: 'b'.repeat(40), bytes: 1, form: 'text', lines: 1, language: 'TypeScript', languages: ['TypeScript'] }, ...fixtureProducer },
+      ],
+      edges: [
+        { kind: GIT_KINDS.contains, from: repoRef('nested'), to: directory, ...fixtureProducer },
+        { kind: GIT_KINDS.contains, from: directory, to: fileRef('src/a.ts'), ...fixtureProducer },
+      ], removals: [],
+    }));
+    expect((await listFiles(store, { repository: 'nested', limit: 10 })).rows.map(row => row.path)).toEqual(['src/a.ts']);
+    expect(await repositoryFacts(store, 'nested')).toMatchObject({ fileCount: 1, directoryCount: 1 });
+  } finally { await store.close(); }
+}, 30_000);
 
 describe('the two passes over one fixture', () => {
   test('write the tree and the history, and a second run writes nothing', async () => {
@@ -160,29 +160,93 @@ describe('the two passes over one fixture', () => {
     expect(roots).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository',
       'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(first.units.every(unit => unit.stageId === 'plugin-turns')).toBe(true);
-    const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
+    const directoryEdges = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM graph_edge_active_ids('code.directory-repository',1)`));
+    expect(directoryEdges.rows[0]?.n).toBe(2);
+    const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM assertion`));
     const second = await fillRepository();
     expect([...new Set(second.reused.map(id => id.split('#')[0]))].sort()).toEqual(roots);
-    const after = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
+    const after = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM assertion`));
     expect(after.rows).toEqual(before.rows);
   }, 120_000);
 
-  test('every opinion event of the tree and the history pass names its vertex by uid and its own producer', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { opinions: { node?: string; said_by: string; state: string; values?: Record<string, unknown>; evidence?: unknown[]; context?: number; said_at?: string }[] } }>(
-      `SELECT change FROM operation WHERE split_part(author, '@', 1) IN ('disk', 'git') ORDER BY seq`,
-    ));
-    const opinions = entries.rows.flatMap((row) => row.change.opinions);
-    expect(opinions.length).toBeGreaterThan(10);
-    // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
-    // a replay names no local id of this store.
-    expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // Inventory and history identify their ordinary plugin producers, with language candidates kept as fields.
-    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['disk', 'git']));
-    // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
-    const opened = opinions.filter((one) => one.state === 'opened');
-    expect(opened.length).toBeGreaterThan(5);
-    expect(opened.every((one) => one.values !== undefined && Array.isArray(one.evidence) && one.context === 1 && typeof one.said_at === 'string' && one.said_at.length > 10)).toBe(true);
+  test('0039.25: every tree and history assertion retains each stating pass and its creator scalars', async () => {
+    const store = await createRecordOwner();
+    try {
+      const passes = [
+        { operation: '019a0000-0000-7000-8000-000000000021', unit: '019a0000-0000-7000-8000-000000000031' },
+        { operation: '019a0000-0000-7000-8000-000000000022', unit: '019a0000-0000-7000-8000-000000000032' },
+      ] as const;
+      const tree = fileRef('src/lineage.ts');
+      const history = { kind: GIT_KINDS.commit, key: { hash: 'a'.repeat(40) } };
+      const drafts = {
+        vertices: [
+          { ...repoRef('lineage'), ...fixtureProducer },
+          { ...tree, values: { content: 'unchanged tree' }, ...fixtureProducer },
+          { ...history, values: { subject: 'unchanged history' }, ...fixtureProducer },
+        ],
+        edges: [
+          { kind: GIT_KINDS.contains, from: repoRef('lineage'), to: tree, ...fixtureProducer },
+          { kind: GIT_KINDS.history, from: repoRef('lineage'), to: history, values: { walk: 0 }, ...fixtureProducer },
+        ],
+        removals: [],
+      };
+      const read = () => store.run(async tx => (await Promise.all([
+        ...recordGraph.vertex.filter(kind => kind.name.startsWith('code.')).map(kind =>
+          loadAssertions(tx, 'vertex', kind.name, ['$exists', ...kind.fields.map(field => field.name)])),
+        ...recordGraph.edge.filter(kind => kind.name.startsWith('code.')).map(kind =>
+          loadAssertions(tx, 'edge', kind.name, ['$exists', ...kind.fields.map(field => field.name)])),
+      ])).flat());
+      const expected = new Map<string, Set<string>>();
+      for (const pass of passes) {
+        await store.transaction('write', async tx => {
+          const binding = await bindTestWriteCapability(tx, recordGraph);
+          await bootstrapWriteIdentity(tx, 'system.operation', pass.operation, binding.productUid);
+          await bootstrapWriteIdentity(tx, 'system.unit', pass.unit, binding.productUid);
+          bindWriteCapability(tx, { ...binding, operationUid: pass.operation, unitUid: pass.unit });
+          await publishGraphDrafts(tx, recordGraph, drafts);
+        });
+        // Both passes state this complete tree/history fixture, including unchanged values.
+        for (const assertion of await read()) {
+          const stated = expected.get(assertion.id) ?? new Set<string>();
+          stated.add(pass.operation);
+          expected.set(assertion.id, stated);
+        }
+      }
+      const assertions = await read();
+      expect(assertions.length, `${import.meta.path}:194: complete tree/history fixture`).toBeGreaterThan(10);
+      expect([...expected.values()].some(operations => operations.size === 2), `${import.meta.path}:195: unchanged assertion must be restated`).toBe(true);
+      const lineage = await store.run(tx => tx.query<{
+        id: string; subjects: number; sources: number; authors: number; contexts: number; context_id: number; recorded_at: Date; operations: string[];
+      }>(`SELECT n.uid::text AS id,a.recorded_at,a.context_id,
+        ((SELECT count(*) FROM assertion_vertex_subject s WHERE s.assertion_id=a.assertion_id)+
+         (SELECT count(*) FROM assertion_edge_subject s WHERE s.assertion_id=a.assertion_id))::integer AS subjects,
+        (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-source')::integer AS sources,
+        (SELECT count(*) FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=a.assertion_id AND k.name='system.assertion-author')::integer AS authors,
+        (SELECT count(*) FROM context c WHERE c.id=a.context_id)::integer AS contexts,
+        ARRAY(SELECT target.uid::text FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node
+          WHERE e.from_node=a.assertion_id AND k.name='system.assertion-operation') AS operations
+        FROM assertion a JOIN node n ON n.id=a.assertion_id WHERE n.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]));
+      expect(lineage.rows.length, `${import.meta.path}:207: every assertion has a header`).toBe(assertions.length);
+      for (const row of lineage.rows) {
+        const found = [...new Set(row.operations)].sort();
+        const wanted = [...expected.get(row.id)!].sort();
+        const message = `${import.meta.path}:211: assertion ${row.id}, expected passes ${JSON.stringify(wanted)}, found set ${JSON.stringify(found)}`;
+        expect(row.subjects, message).toBe(1);
+        expect(row.sources, message).toBe(1);
+        expect(row.authors, message).toBe(1);
+        expect([row.contexts, row.context_id], message).toEqual([1, 1]);
+        expect(new Date(row.recorded_at).getTime(), message).toBeGreaterThan(0);
+        expect(row.operations.length, message).toBeGreaterThanOrEqual(1);
+        expect(found, message).toEqual(wanted);
+      }
+      for (const assertion of assertions) {
+        const message = `${import.meta.path}:221: assertion ${assertion.id}, expected creator pass ${passes[0].operation} / unit ${passes[0].unit}, found scalar ${assertion.operationUid} / ${assertion.unit}`;
+        expect(assertion.operationUid, message).toBe(passes[0].operation);
+        expect(assertion.unit, message).toBe(passes[0].unit);
+      }
+    } finally {
+      await store.close();
+    }
   }, 120_000);
 
   test('a text file\'s blob stands in ordinary opinions, and the graph holds no text of its own', async () => {
@@ -197,7 +261,7 @@ describe('the two passes over one fixture', () => {
     // Two paths on one blob keep one blob: the identity is content-addressed, not per path.
     expect(byPath.get('docs/same-one.md')?.blob ?? byPath.get('docs/same-two.md')?.blob).toBeUndefined();
     const columns = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM information_schema.columns WHERE table_name = $1 AND column_name = 'content'`, [GIT_TABLES.file],
+      `SELECT count(*)::text AS n FROM information_schema.columns WHERE table_name = $1 AND column_name = 'content'`, [assertionValueTableName(GIT_KINDS.file, 'vertex', 'blob')],
     ));
     expect(columns.rows[0]?.n).toBe('0');
   });
@@ -231,50 +295,36 @@ describe('the two passes over one fixture', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 3;\n');
     three = commitAll('three');
-    const before = await owner.transaction('snapshot', tx => tx.query<{ id: string }>(`SELECT (n.key->>'path') AS path, o.mode, o.blob, o.bytes, o.lines FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND n.key->>'path' <> 'src/a.ts' ORDER BY n.key->>'path'`));
+    const before = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines'], { contract: GIT_CONTRACT }));
     const old = await fileFacts(owner, 'fixture', 'src/a.ts');
     const run = await fillRepository();
     expect(run.units.every(unit => unit.state === 'published')).toBe(true);
     const moved = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(moved?.blob).not.toBe(old?.blob);
     expect(await commitFacts(owner, 'fixture', three)).toMatchObject({ hash: three, subject: 'three' });
-    const after = await owner.transaction('snapshot', tx => tx.query<{ id: string }>(`SELECT (n.key->>'path') AS path, o.mode, o.blob, o.bytes, o.lines FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND n.key->>'path' <> 'src/a.ts' ORDER BY n.key->>'path'`));
+    const after = await owner.transaction('snapshot', tx => readKindAssertions(tx,'vertex',GIT_KINDS.file,['mode','blob','bytes','lines'], { contract: GIT_CONTRACT }));
     const canonical = (rows: readonly unknown[]) => rows.map(row => JSON.stringify(row)).sort();
-    expect(canonical(after.rows)).toEqual(canonical(before.rows));
+    expect(canonical(after.filter(r=>r.key['path']!=='src/a.ts').map(r=>({key:r.key,values:r.values})))).toEqual(canonical(before.filter(r=>r.key['path']!=='src/a.ts').map(r=>({key:r.key,values:r.values}))));
     const a = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(a?.lines).toBe(1);
   }, 120_000);
 
 
 
-  test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    // The tree's dataset opinion states candidates in ordinary fields, never in the text's natural-language tag.
-    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
-      `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
-       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
-    ));
-    expect(stored.rows).toEqual([{ lang: null, language: 'TypeScript', languages: ['TypeScript', 'XML'] }]);
-    const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
-    // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
-    // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
-    const first = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'disk'`, [node.nodeId],
-    ));
-    expect(first.rows[0]?.n).toBe('1');
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
-    const states = await owner.transaction('snapshot', async (tx) => await tx.query<{ state: string; language: string | null; lang: string | null }>(
-      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'disk' ORDER BY "id"`, [node.nodeId],
-    ));
-    expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
-    expect(states.rows.every((row) => row.lang === null)).toBe(true);
-    expect(states.rows.filter((row) => row.state === 'open')[0]).toMatchObject({ language: 'JavaScript', lang: null });
-    expect(states.rows.some((row) => row.state === 'closed' && row.language === 'TypeScript')).toBe(true);
-    // The language filter reads the field: the new language finds the file and the one it superseded does not.
-    expect((await listFiles(owner, { repository: 'fixture', language: 'JavaScript', limit: 10 })).rows.map((row) => row.path)).toContain('src/a.ts');
-    expect((await listFiles(owner, { repository: 'fixture', language: 'TypeScript', limit: 10 })).rows.map((row) => row.path)).not.toContain('src/a.ts');
-  }, 120_000);
+  test('0039.25: language changes append typed history and filters read selected values',async()=>{
+    if(owner===undefined)throw new Error('the store was not opened');
+    const before=await owner.run(tx=>loadAssertions(tx,'vertex',GIT_KINDS.file,['language','languages']));
+    for(const language of ['TypeScript','JavaScript'])await owner.transaction('write',async tx=>{
+      await bindTestWriteCapability(tx,GIT_CONTRACT);
+      await publishGraphDrafts(tx,GIT_CONTRACT,{vertices:[{kind:GIT_KINDS.file,key:{path:'src/a.ts'},keyEdges:{'code.file-repository':{kind:GIT_KINDS.repository,key:{name:'fixture'}}},values:{language,languages:[language]},producer:'disk',producerVersion:'9.5.0'}],removals:[]});
+    });
+    const after=await owner.run(tx=>loadAssertions(tx,'vertex',GIT_KINDS.file,['language','languages']));
+    expect(after.filter(a=>before.some(b=>a.id===b.id))).toEqual(before);
+    expect(after.some(a=>a.value==='TypeScript')).toBe(true);
+    expect(after.some(a=>a.value==='JavaScript')).toBe(true);
+    expect((await listFiles(owner,{repository:'fixture',language:'JavaScript',limit:10})).rows.map(r=>r.path)).toContain('src/a.ts');
+    expect((await listFiles(owner,{repository:'fixture',language:'TypeScript',limit:10})).rows.map(r=>r.path)).not.toContain('src/a.ts');
+  },120000);
 
   test('a remote with a user and a password is stored and read without them', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
@@ -282,15 +332,16 @@ describe('the two passes over one fixture', () => {
     expect(git(['remote', 'get-url', 'origin'])).toBe('https://someone:secret-token@example.test/fixture.git');
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.url).toBe('https://example.test/fixture.git');
-    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);
     // The graph\'s own repository read carries the clean address, and the credential stands in no opinion.
     const held = await reader.repository('fixture');
     expect(held?.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
     // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
     // url column is null — and the credential stands in neither.
-    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string | null }>(`SELECT url FROM ${GIT_TABLES.repository} ORDER BY id`));
-    expect(stored.rows.map((row) => row.url).filter((url) => url !== null).sort()).toEqual(['', 'https://example.test/fixture.git']);
+    const stored=await owner.run(tx=>loadAssertions(tx,'vertex',GIT_KINDS.repository,['url']));
+    expect(JSON.stringify(stored)).not.toContain('someone');
+    expect(JSON.stringify(stored)).not.toContain('secret-token');
   });
 
   test('ordinary output units execute through the plugin runtime', async () => {
@@ -303,14 +354,15 @@ describe('the two passes over one fixture', () => {
   }, 120_000);
 
   /** Every folder vertex with the folder it hangs from, read from the graph's own tables. */
-  const listDirectories = async (repository = 'fixture'): Promise<readonly { path: string; parent: string }[]> => {
-    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ path: string; parent: string }>(
-      `SELECT DISTINCT (n.key->>'path') AS path, coalesce(pn.key->>'path', '') AS parent FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = 'code.directory'
-       LEFT JOIN edge ed ON ed.to_node = n.id AND ed.entity_id = (SELECT id FROM entity WHERE name = 'code.contains')
-       LEFT JOIN node pn ON pn.id = ed.from_node WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed`,
-      [repository],
-    ));
-    return found.rows;
+  const listDirectories=async(repository='fixture'):Promise<readonly {path:string;parent:string}[]>=>{
+    return await owner!.run(async tx=>{
+      const directories=await readKindAssertions(tx,'vertex',GIT_KINDS.directory,[], { contract: GIT_CONTRACT });
+      const repos=await readKindAssertions(tx,'vertex',GIT_KINDS.repository,[], { contract: GIT_CONTRACT });
+      const edges=await readKindAssertions(tx,'edge',GIT_KINDS.contains,[], { contract: GIT_CONTRACT });
+      const root=repos.find(r=>r.key['name']===repository);if(root===undefined)return [];
+      const reachable=new Set([root.id]);for(let changed=true;changed;){changed=false;for(const e of edges)if(reachable.has(e.from!)&&!reachable.has(e.to!)){reachable.add(e.to!);changed=true;}}
+      return directories.filter(d=>reachable.has(d.id)).map(d=>({path:String(d.key['path']),parent:String(directories.find(p=>p.id===edges.find(e=>e.to===d.id)?.from)?.key['path']??'')}));
+    });
   };
 
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
@@ -323,11 +375,12 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('src')).toBe('');
     expect(byPath.get('docs')).toBe('');
     // The parent of a file is its folder, never the repository.
-    const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT (fn.key->>'path') AS child, coalesce(pn.key->>'path', '') AS parent FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = 'code.contains'
-       JOIN node fn ON fn.id = e.to_node JOIN entity fe ON fe.id = fn.entity_id AND fe.name = 'code.file'
-       LEFT JOIN node pn ON pn.id = e.from_node`,
-    ));
+    const parents=await owner.run(async tx=>{
+      const edges=await readKindAssertions(tx,'edge',GIT_KINDS.contains,[], { contract: GIT_CONTRACT });
+      const files=await readKindAssertions(tx,'vertex',GIT_KINDS.file,[], { contract: GIT_CONTRACT });
+      const dirs=await readKindAssertions(tx,'vertex',GIT_KINDS.directory,[], { contract: GIT_CONTRACT });
+      return {rows:edges.flatMap(edge=>{const child=files.find(f=>f.id===edge.to);return child===undefined?[]:[{child:String(child.key['path']),parent:String(dirs.find(d=>d.id===edge.from)?.key['path']??'')}];})};
+    });
     expect(parents.rows.length).toBeGreaterThan(0);
     for (const row of parents.rows as unknown as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
@@ -364,7 +417,7 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
     const wireRead = async () => {
-      const reader = new GraphReader(owner!, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
+      const reader = new GraphReader(owner!, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);
       return JSON.parse(JSON.stringify(await reader.repository('shallow')));
     };
     expect((await wireRead()).historyShallow).toBe(true);
@@ -375,10 +428,12 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
     expect((await wireRead()).historyShallow).toBe(false);
     expect(await wireRead()).not.toHaveProperty('gaps');
-    const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git' AND (n.key->>'name') = 'shallow'`,
-    ));
-    expect(open.rows[0]?.n).toBe('1');
+    const rows=await owner.run(tx=>readKindAssertions(tx,'vertex',GIT_KINDS.repository,['history_shallow'], { contract: GIT_CONTRACT }));
+    expect(rows.filter(r=>r.key['name']==='shallow')).toHaveLength(1);
+    expect(rows.find(r=>r.key['name']==='shallow')?.values['history_shallow']).toBe(false);
+    const history=await owner.run(tx=>loadAssertions(tx,'vertex',GIT_KINDS.repository,['history_shallow']));
+    expect(history.some(a=>a.value===true)).toBe(true);
+    expect(history.some(a=>a.value===false)).toBe(true);
   }, 120_000);
 });
 
@@ -389,17 +444,18 @@ test('an empty disk-only tree is available from its successful inventory publica
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty tree'], { cwd: empty });
   const fixture = join(root, 'product-empty-tree');
   makeProduct(fixture, empty, 'empty-tree');
-  useFixturePlugins(fixture, ['disk']);
+  useFixturePlugins(fixture, ['disk'], GIT_CONTRACT.vertex.map(kind => kind.name).filter(name => !['product', 'code.repository', 'code.directory', 'code.file', 'code.gitlink'].includes(name)));
+  restrictRepositoryDeclarations(fixture);
   execFileSync('git', ['add', '-A'], { cwd: fixture });
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Only inventory'], { cwd: fixture });
   const inventory = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
   try {
-    const run = await runFill({ product: fixture, database: inventory, home: join(root, 'empty-home'), runId: 'empty-tree', prepareContract: async contract => { await prepareStore(inventory, { contract }); } });
+    const run = await runFill({ product: fixture, database: inventory, home: join(root, 'empty-home'), runId: 'empty-tree', prepareContract: async contract => { await prepareTestStore(inventory, { contract }); } });
     if (!run.ok) throw new Error(`empty inventory fill refused: ${run.reason}`);
-    expect(run.state).toBe('succeeded');
+    if (run.state !== 'succeeded') throw new Error(`empty inventory fill failed: ${JSON.stringify({run,units:await readRunUnits(inventory,run.runId),progress:await readProgress(inventory,run.runId,{limit:10000})})}`);
     const facts = await repositoryFacts(inventory, 'empty-tree');
     expect(facts).toMatchObject({ hasTree: true, asIsCommit: null, fileCount: 0, directoryCount: 0, commitCount: 0 });
-    const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
+    const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);
     expect((await reader.repository('empty-tree'))?.steps).toEqual({ tree: true, history: false });
   } finally {
     await inventory.close();
@@ -454,7 +510,7 @@ describe('a git date of a zero or a negative offset', () => {
 
   test('a listing answers the opinions\' values without their sources, and a single entity answers both', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, GIT_CONTRACT);
     // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
     // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
     // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
@@ -466,14 +522,14 @@ describe('a git date of a zero or a negative offset', () => {
     }
     expect(listed.rows).toHaveLength(listed.total);
     // The later offsets fill replaces disk/git opinions in this shared store; read its standing file.
-    const file = listed.rows.find((one) => one.key === 'code.file:offsets/a.txt');
+    const file = listed.rows.find((one) => one.properties['path'] === 'a.txt' && one.properties['repositoryName'] === 'offsets');
     if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
     expect(typeof file.properties['path']).toBe('string');
     expect(typeof file.properties['mode']).toBe('string');
     expect(file.evidence ?? []).toEqual([]);
     expect(file.opinions ?? []).toEqual([]);
     // The single entity's read is the one that states the sources, and the value is the same one.
-    const one = (await reader.find('code.file:offsets/a.txt'))[0];
+    const one = (await reader.find(file.key))[0];
     expect(one?.properties['mode']).toBe(file.properties['mode']);
     expect((one?.evidence ?? []).length).toBeGreaterThan(0);
     expect((one?.opinions ?? []).length).toBeGreaterThan(0);

@@ -351,4 +351,3 @@ test('the machine settings show and change the isolation answer', async () => {
     expect(page.container.querySelector('[data-testid="settings-isolation-allowed"]')?.textContent).toContain('без изоляции');
   } finally { await page.close(); }
 });
-

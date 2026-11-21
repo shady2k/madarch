@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A supply-chain risk is a danger to the product that starts outside it: a supplier that stops delivering, a component with a known weakness, or a subcontractor with poor security. It is assessed together with how much the product depends on that supplier and what would happen if it failed.'
   ru: 'Риск цепочки поставок — опасность для продукта, которая приходит извне: поставщик прекращает поставку, в компоненте находят слабость, у субподрядчика плохая безопасность. Его оценивают вместе с тем, насколько продукт зависит от поставщика и что будет при его отказе.'
+derives-from:
+- subcontractor
+- supplier-assessment

@@ -24,3 +24,6 @@ labels:
 description:
   en: A security group collects the rules that one group of cloud resources shares, such as the servers of a service, and applies them together. A resource belongs to one or more groups, and all their rules decide what reaches it.
   ru: 'Группа безопасности собирает правила, общие для одной группы облачных ресурсов: например, серверов сервиса, — и применяет их вместе. Ресурс входит в одну или несколько групп, и все их правила решают, что до него доходит.'
+derives-from:
+- network-zone
+- product-profile

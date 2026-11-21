@@ -24,3 +24,6 @@ labels:
 description:
   en: Replication keeps a second copy of data or a running service up to date by copying every change as it happens. The copying lag says how far behind the second place can be, and therefore how much data a failure may lose.
   ru: Репликация поддерживает вторую копию данных или работающего сервиса в актуальном состоянии, копируя каждое изменение по мере появления. Задержка копирования говорит, насколько второе место может отставать и сколько данных потеряется при отказе.
+derives-from:
+- code.database
+- recovery-objective

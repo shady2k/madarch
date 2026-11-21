@@ -24,3 +24,6 @@ labels:
 description:
   en: A network zone groups addresses and machines that share a level of trust, such as a public zone, an internal zone or a management zone. Traffic between zones passes only through controlled points, where it can be filtered.
   ru: 'Сетевая зона объединяет адреса и машины с одним уровнем доверия: внешняя зона, внутренняя зона или зона управления. Трафик между зонами идёт только через контролируемые точки, где его можно отфильтровать.'
+derives-from:
+- deployment-environment
+- product-profile

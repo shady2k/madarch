@@ -5,6 +5,7 @@ definition: A principle is a rule the team keeps in its architecture and its cod
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -18,22 +19,34 @@ relation-constraints:
   - appliesTo
 template-policy: none
 fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the principle is known by; it is the principle's key.
+- name: statement
+  type: text
+  binding:
+    agent: The rule itself, in one sentence a decision can be judged against.
 - name: rationale
   type: text
   nullable: true
-  producers:
-  - person
-- name: examples
-  type: json
+  binding:
+    agent: Why the rule holds, from what it protects.
+- name: implications
+  type: text
   nullable: true
-  producers:
-  - person
+  binding:
+    agent: What follows from the rule for the people who build and run the product.
 - name: status
-  type: json
-  reference: value-set-entry
+  type: value-set-value
   nullable: true
-  producers:
-  - person
+  binding:
+    agent: Whether the principle is in force.
+key:
+- name
 labels:
   en:
     one: Principle
@@ -44,3 +57,5 @@ labels:
 description:
   en: 'A principle is a rule the team follows in every choice about the architecture, the code or the way it works: one system for one job, no hard-coded values, delete what is replaced at once. It is written so a decision can be held against it and a departure must be argued.'
   ru: 'Принцип — правило, которого команда держится в каждом выборе об архитектуре, коде или способе работы: одна система для одной задачи, никаких вписанных значений, заменённое удаляют сразу. Он сформулирован так, чтобы по нему можно было судить решение, а отступление нужно было обосновать.'
+derives-from:
+- system.product

@@ -24,3 +24,5 @@ labels:
 description:
   en: A frequently asked question is one that users, customers or colleagues keep raising, written with an answer that ends the need to ask. The answers are short and point to the full document where one exists.
   ru: Частый вопрос — тот, который постоянно задают пользователи, клиенты или коллеги, вместе с ответом, после которого спрашивать больше не нужно. Ответы короткие и указывают на полный документ, если он есть.
+derives-from:
+- support-answer

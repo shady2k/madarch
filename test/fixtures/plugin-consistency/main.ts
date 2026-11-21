@@ -3,7 +3,7 @@
  * problem. Its id carries every value that tells two findings apart — the field, the opinion, the edge discriminator and
  * the ends — so two unevidenced fields of one entity are two findings, not one key written twice.
  */
-import { definePlugin, type GraphPage, type GraphPageQuery, type GraphRemovedEnd, type GraphUnevidencedOpinion, type GraphUnresolvedReference, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
+import { definePlugin, type GraphPage, type GraphPageQuery, type GraphRemovedEnd, type GraphUnevidencedAssertion, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 
 const FINDING_KIND = 'probe.finding';
 
@@ -27,24 +27,6 @@ function findingOf(finding: Finding): VertexResult {
   return { kind: FINDING_KIND, key: { id: idOf(finding.rule, finding.subject, finding.target, finding.cause) }, values: { ...finding } };
 }
 
-function unresolvedFindings(references: readonly GraphUnresolvedReference[]): Finding[] {
-  return references.map((reference) => reference.edge === undefined
-    ? {
-        rule: 'missing-reference',
-        subject: `${reference.referrer?.kind ?? 'vertex'}:${reference.referrer?.label ?? '?'}`,
-        target: `${reference.target.kind}:${reference.target.label}:${reference.id}`,
-        cause: `its key field "${reference.field}" names ${reference.target.kind} ${reference.target.label}, and no vertex holds that key`,
-        severity: 'major',
-      }
-    : {
-        rule: 'dangling-reference',
-        subject: `${reference.edge.kind}:${reference.referrer?.label ?? '?'}`,
-        target: `${reference.target.kind}:${reference.target.label}:${reference.id}`,
-        cause: `the ${reference.field} end of ${reference.edge.kind} names ${reference.target.kind} ${reference.target.label}, and no vertex holds that key`,
-        severity: 'major',
-      });
-}
-
 function removedEndFindings(ends: readonly GraphRemovedEnd[]): Finding[] {
   return ends.map((end) => ({
     rule: 'removed-end',
@@ -55,23 +37,22 @@ function removedEndFindings(ends: readonly GraphRemovedEnd[]): Finding[] {
   }));
 }
 
-function unevidencedFindings(opinions: readonly GraphUnevidencedOpinion[]): Finding[] {
+function unevidencedFindings(opinions: readonly GraphUnevidencedAssertion[]): Finding[] {
   return opinions.map((opinion) => ({
     rule: 'unevidenced-opinion',
     subject: `${opinion.entity.kind}:${opinion.entity.label}`,
-    target: `${opinion.producer}:${opinion.field}:${opinion.opinion}`,
+    target: `${opinion.producer}:${opinion.field}:${opinion.assertion}`,
     cause: `the opinion on "${opinion.field}" states no evidence, and its contract requires it`,
     severity: 'minor',
   }));
 }
 
 async function extract(_unit: Unit, context: import('madarch-plugin-sdk').ExtractContext): Promise<UnitResult> {
-  const [references, ends, opinions] = await Promise.all([
-    every((query) => context.graph.unresolved(query)),
+  const [ends, opinions] = await Promise.all([
     every((query) => context.graph.removedEnds(query)),
     every((query) => context.graph.unevidenced(query)),
   ]);
-  return { vertices: [...unresolvedFindings(references), ...removedEndFindings(ends), ...unevidencedFindings(opinions)].map(findingOf), end: { state: 'complete' } };
+  return { vertices: [...removedEndFindings(ends), ...unevidencedFindings(opinions)].map(findingOf), end: { state: 'complete' } };
 }
 
 await definePlugin({
@@ -79,7 +60,7 @@ await definePlugin({
   version: '1.0.0',
   reads: 'whole-graph',
   graph: true,
-  graphReads: ['unresolved', 'removedEnds', 'unevidenced'],
+  graphReads: ['removedEnds', 'unevidenced'],
   contract: {
     vertices: [{
       kind: FINDING_KIND,

@@ -6,14 +6,34 @@ sources:
 - https://diataxis.fr/
 acquisition:
 - document
-- conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - documents
+  - hasPart
+  - partOf
   in:
   - documents
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the guide is known by, such as Administrator guide or User guide; it is the guide's key.
+- name: purpose
+  type: text
+  nullable: true
+  binding:
+    agent: What the guide takes its reader through, in one or two sentences, from
+      the sections it holds in the graph.
+key:
+- name
+derives-from:
+- doc.use-case
 labels:
   en:
     one: Guide

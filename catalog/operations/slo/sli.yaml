@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A service level indicator measures one thing users care about, from their side: the share of requests answered quickly, the share that succeeded, the age of the freshest data. It is a number, not a promise.'
   ru: 'SLI измеряет одну сторону сервиса так, как её ощущают пользователи: долю запросов, отвеченных быстро, долю удачных, свежесть данных. Это число, а не обещание.'
+derives-from:
+- code.service

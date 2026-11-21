@@ -1,0 +1,60 @@
+id: arc42.scenario-step
+purpose: understand
+audience: [architect, developer, analyst]
+definition: A scenario step is one message one participant sends another during a runtime scenario, in its place in the order.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - partOf
+  - triggers
+  in:
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: order
+  type: integer
+  binding:
+    agent: Where the step stands in the scenario, lowest first, from the chain of calls the graph holds.
+- name: message
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the step sends, in the words the code or the document gives it: an
+      operation, a channel message or an action.'
+- name: asynchronous
+  type: boolean
+  nullable: true
+  binding:
+    agent: 'Whether the sender waits for the answer: false when it waits, true when
+      it does not.'
+key:
+- order
+member:
+  relation: partOf
+  direction: out
+  parentKind: runtime-scenario
+derives-from:
+- code.service
+- role
+- runtime-scenario
+labels:
+  en:
+    one: Scenario step
+    many: Scenario steps
+  ru:
+    one: Шаг сценария
+    many: Шаги сценария
+description:
+  en: 'A scenario step is one message in a runtime scenario: who sends it, who receives it, what it carries, and whether the sender waits. Read in order, the steps are the sequence diagram of the situation the scenario tells.'
+  ru: 'Шаг сценария — одно сообщение в сценарии выполнения: кто его отправляет, кто получает, что оно несёт и ждёт ли отправитель ответа. Прочитанные по порядку, шаги и есть диаграмма последовательности той ситуации, которую рассказывает сценарий.'
+
+key-edges:
+- role: scenario-step-scenario
+  edge: scenario-step-scenario
+  side: from

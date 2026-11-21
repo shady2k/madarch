@@ -27,6 +27,11 @@ import {
 import { agentNote } from './agent-words.js';
 import type { SectionContext } from './types.js';
 
+const SETTINGS_CONTROLS = {
+  language: "settings-language",
+  reader: "settings-reader",
+} as const;
+
 const message = (failure: unknown): string | null => isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
 
 /** One card of the page. */
@@ -472,7 +477,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         {choices.error === null ? null : (
           <Alert variant="problem" data-testid="settings-model-error">
             <AlertDescription>
-              {t('settings.model.failed')}: {choices.error}
+              {t('settings.model.failed')}{t('common.labelSeparator')}{choices.error}
               <Paragraph className="mt-2"><Button variant="default" size="default" disabled={connection.offline} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
             </AlertDescription>
           </Alert>
@@ -494,7 +499,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
       <Section id="language" title={t('settings.language.title')} intro={t('settings.language.intro')}>
         <SegmentedChoice
           label={t('settings.language.title')}
-          testId="settings-language"
+          testId={SETTINGS_CONTROLS.language}
           value={data.language}
           options={[
             { value: 'ru', label: t('navigation.russian'), testId: 'settings-language-ru' },
@@ -545,7 +550,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         {reader.data === null ? <Paragraph className="m-0 text-muted">{t('knowledge.loading')}</Paragraph> : (
           <SegmentedChoice
             label={t('settings.reader.title')}
-            testId="settings-reader"
+            testId={SETTINGS_CONTROLS.reader}
             value={reader.data.role}
             options={reader.data.roles.map((role) => ({
               value: role,

@@ -20,7 +20,7 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
     writeFileSync(join(folder, 'serial-sdk.ts'), 'export let plugin; export async function definePlugin(value) { plugin = value; }');
     await import(join(folder, 'serial.ts'));
     const { plugin: serial } = await import(join(folder, 'serial-sdk.ts')) as { plugin: Extractor };
-    const definitions = Array.from({ length: 18 }, (_, index) => ({ kind: 'code.file', key: { repository: 'own', path: `${index}.ts` } }));
+    const definitions = Array.from({ length: 18 }, (_, index) => ({ kind: 'code.file', key: { path: `${index}.ts` }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'own' } } } }));
     const run = async (extractor: Extractor, delayed: boolean) => {
       let active = 0;
       let peak = 0;
@@ -28,7 +28,8 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
       const reads: string[] = [];
       const patterns: string[] = [];
       const context: ExtractContext = {
-        signal: new AbortController().signal, heartbeat() {}, progress() {},
+        facts: { apply: async () => { throw new Error("unexpected immediate operation"); } },
+        signal: new AbortController().signal, heartbeat() {}, progress() {}, async reconcile() { throw new Error('direct extraction must not invoke reconciliation'); },
         async agent() { throw new Error('no agent requested'); },
         // The text is the blob the graph names, asked of the host: the fixture answers it as the blob it names.
         async read(request: { readonly repository: string; readonly blob: string }) {
@@ -36,7 +37,8 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
           return { text: `const sql = "CREATE TABLE ${String(request.blob).split('-')[0]}_${index} (id integer PRIMARY KEY)";`, lines: 1, bytes: 1, binary: false };
         },
         graph: {
-          async files(value) { pattern = value; patterns.push(value); return value === 'first' ? definitions : [...definitions].reverse(); },
+          async ownFacts() { return { vertices: [], edges: [] }; },
+    async files(value) { pattern = value; patterns.push(value); return value === 'first' ? definitions : [...definitions].reverse(); },
           async value<T>(_kind: string, key: KeyValues, field: string) {
             const index = Number(String(key['path']).split('.')[0]);
             const heldPattern = pattern;
@@ -47,7 +49,7 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
             // The graph names a blob per file; two files hold none, and the fixture reads no text for them.
             return (index === 0 ? null : index === 1 ? '' : `${heldPattern}-${index}`) as T;
           },
-          async unresolved() { return { rows: [] }; }, async removedEnds() { return { rows: [] }; }, async unevidenced() { return { rows: [] }; },
+          async removedEnds() { return { rows: [] }; }, async unevidenced() { return { rows: [] }; },
         },
       };
       const answer = await extractor.extract({ unitId: 'schema', kind: 'code.table', key: {}, inputs: { patterns: ['first', 'second'] } }, context);
