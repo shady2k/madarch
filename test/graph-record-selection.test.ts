@@ -20,7 +20,7 @@ async function executor(values: readonly { property: string; value: unknown; ope
     let rows: Record<string, unknown>[];
     if (sql.includes("AS present")) rows = [{ present: false }];
     else if (sql.includes('WITH anchors AS')) rows = [];
-    else if (sql.includes('FROM assertion a')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
+    else if (sql.includes('WITH RECURSIVE context_path')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
       request_index: 0, property_rank: (parameters?.[1] as readonly string[]).indexOf(value.property), id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
       property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
       unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
@@ -31,7 +31,7 @@ async function executor(values: readonly { property: string; value: unknown; ope
     else if (sql.includes('FROM node n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: { name: 'fixture' }, read_at: now }, ...(values.some(value => value.subjectId === 2) ? [{ request_index: 0, id: 2, uid: 'other', key: { name: 'other' }, read_at: now }] : [])];
     else if (sql.includes('FROM edge n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
     else throw new Error(`Unexpected query: ${sql}`);
-    if (sql.includes('FROM assertion a')) {
+    if (sql.includes('WITH RECURSIVE context_path')) {
       const raw = `SELECT * FROM jsonb_to_recordset($1::jsonb) AS fixture(request_index integer, property_rank integer, id text, subject_id bigint, original_subject_id bigint, subject_uid text, edge_from text, edge_to text, property text, context_id bigint, language text, source text, author text, unit text, operation_uid text, evidence jsonb, value jsonb, operation text, valid_from timestamptz, valid_to timestamptz, recorded_at timestamptz, recorded_sequence text)`;
       const start = sql.indexOf('raw AS MATERIALIZED (') + 'raw AS MATERIALIZED ('.length;
       const end = sql.indexOf('), eligible AS (', start);

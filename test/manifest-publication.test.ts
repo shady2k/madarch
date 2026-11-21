@@ -396,7 +396,13 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
           cutoffs.push(cutoff);
         }
         if (sql.includes('WITH RECURSIVE context_path') && !sql.startsWith('SELECT marker.value') && cutoffs.length > 0) {
-          expect(sql).toContain(cutoffs.at(-1)!);
+          const cutoff = cutoffs.at(-1)!;
+          // A parameterized selector keeps the cutoff out of the SQL text; either place must carry it unchanged.
+          expect(sql.includes(cutoff) || (values ?? []).some(value => value === cutoff)).toBe(true);
+          // node-postgres renders anything but a string by its own rules: a Date here would drop the microseconds.
+          expect((values ?? []).some(value => value instanceof Date)).toBe(false);
+          // Every temporal bound is this cutoff, not a truncated form of it.
+          for (const match of sql.matchAll(/\$(\d+)::timestamptz/g)) expect((values ?? [])[Number(match[1]) - 1]).toBe(cutoff);
           expect(sql).not.toContain('transaction_timestamp()');
         }
         if (sql.includes('AS request_index') && values?.length) {
@@ -417,6 +423,32 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
     });
   } finally { await owner.close(); }
 }, 30_000);
+
+test('ALX-174 a cutoff keeps its microseconds through the parameterized read', async () => {
+  const validated = publicationFixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  const boundary = '2026-01-01T00:00:00.000400Z';
+  try {
+    await publishValidatedManifests(owner, validated);
+    const subject = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!;
+    await owner.transaction('write', async tx => {
+      // Assertion history is immutable; a replica session is how the store's own tests age a row.
+      await tx.query('SET LOCAL session_replication_role = replica');
+      await tx.query(`UPDATE assertion SET recorded_at=$1::timestamptz, valid_from=$1::timestamptz
+        WHERE assertion_id IN (
+          SELECT a.assertion_id FROM assertion a
+          JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id
+          JOIN edge e ON e.id=s.subject_edge_id
+          WHERE e.to_node=(SELECT id FROM node WHERE uid=$2::uuid)
+        )`, [boundary, subject.uid]);
+    });
+    const visible = async (at: string) => (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], { validAt: at, recordedAt: at }))).some(row => row.uid === subject.uid);
+    // Truncating the bound to a millisecond reads .000400 as .000 and hides the row.
+    expect(await visible('2026-01-01T00:00:00.000400Z')).toBe(true);
+    // Rounding the bound up to .001 would show the row; one microsecond earlier must not.
+    expect(await visible('2026-01-01T00:00:00.000399Z')).toBe(false);
+  } finally { await owner.close(); }
+}, 60_000);
 
 function atomicFixture() {
   const folder = fixture();
