@@ -450,6 +450,56 @@ test('ALX-174 a cutoff keeps its microseconds through the parameterized read', a
   } finally { await owner.close(); }
 }, 60_000);
 
+test('ALX-884 identity selection sees a merge exactly at .000400 and not at .000399', async () => {
+  const validated = publicationFixture();
+  const valueKind = { name: 'fixture.value', table: generatedTableName('fixture.value', 'vertex'), capability: 'fixture', key: ['name'],
+    fields: [{ name: 'name', type: 'text' as const }, { name: 'label', type: 'text' as const }] };
+  const contract = withManifestContract({ ...EMPTY_CONTRACT, vertex: [valueKind] });
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  // A future instant keeps today's assertions visible on both sides of the boundary.
+  const boundary = '2026-12-31T00:00:00.000400Z';
+  const earlier = '2026-12-31T00:00:00.000399Z';
+  const write = async (drafts: Parameters<typeof publishGraphDrafts>[2]) => await owner.transaction('write', async tx => {
+    const { contract: installed } = await startupBinding(tx, contract, 'alx-884');
+    await publishGraphDrafts(tx, installed, drafts);
+  });
+  try {
+    await publishValidatedManifests(owner, validated, contract);
+    await write({
+      vertices: ['one', 'two'].map(name => ({ kind: valueKind.name, key: { name }, values: { label: name }, producer: 'alx-884', producerVersion: '1' })),
+      removals: [],
+    });
+    const [survivor, alias] = (await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'], { contract: owner.graphContract })))
+      .sort((left, right) => left.id - right.id);
+    if (survivor === undefined || alias === undefined) throw new Error('ALX-884 fixture needs two value entities');
+    const mergeUid = newUid();
+    await write({
+      vertices: [{ kind: 'system.merge', uid: mergeUid, key: {}, values: { state: 'ACTIVE', reason: 'ALX-884 microsecond merge' }, producer: 'alx-884', producerVersion: '1' }],
+      edges: [
+        ...[survivor, alias].map(row => ({ kind: 'system.merge-member', from: { kind: 'system.merge', uid: mergeUid, key: {} },
+          to: { kind: valueKind.name, uid: row.uid, key: {} }, discriminator: row.uid, producer: 'alx-884', producerVersion: '1' })),
+        { kind: 'system.merge-survivor', from: { kind: 'system.merge', uid: mergeUid, key: {} },
+          to: { kind: valueKind.name, uid: survivor.uid, key: {} }, producer: 'alx-884', producerVersion: '1' },
+      ],
+      removals: [],
+    });
+    // Assertion history is immutable; a replica session places the merge's valid time exactly on the boundary.
+    await owner.transaction('write', async tx => {
+      await tx.query('SET LOCAL session_replication_role = replica');
+      await tx.query(`UPDATE assertion SET valid_from=$1::timestamptz WHERE property='state' AND assertion_id IN (
+        SELECT a.assertion_id FROM assertion a
+        JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
+        JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id
+        WHERE subject_edge.to_node=(SELECT id FROM node WHERE uid=$2::uuid))`, [boundary, mergeUid]);
+    });
+    const visible = async (instant: string) => (await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'],
+      { contract: owner.graphContract, subjectUids: [alias.uid], validAt: instant, recordedAt: instant }))).map(row => row.uid);
+    // The alias resolves to the survivor only when the merge's valid time is inside the bound.
+    expect(await visible(boundary)).toEqual([survivor.uid]);
+    expect(await visible(earlier)).toEqual([alias.uid]);
+  } finally { await owner.close(); }
+}, 60_000);
+
 function atomicFixture() {
   const folder = fixture();
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: A\n');
