@@ -268,6 +268,13 @@ class PgBossQueue implements QueueService {
         [job.queue, job.id],
       );
       if (locked.rows.length === 0) return false;
+      return await this.isActive(job, transaction);
+    });
+  }
+
+  async isActive(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean> {
+    this.jobOf(job.queue, job);
+    return await withSpan('queue.is-active', { 'madarch.queue': job.queue, 'madarch.attempt': job.attempt }, async () => {
       const checked = await transaction.query<{ accepted: boolean }>(
         `SELECT state = 'active' AND retry_count = $3
           AND started_on + expire_seconds * interval '1 second' > clock_timestamp()

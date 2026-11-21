@@ -1854,11 +1854,17 @@ async function attemptUnitPhases(
       const at=orchestrator.clock();
       const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       let failedEvent: FillProgressEvent | undefined;
-      const failed=await operation.host.fail(bound.message,async(tx,writeContext)=>{
-        const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}},writeContext);
-        if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1660: FAILURE_CONFLICT ${step.refusal.reason}`);
-        failedEvent=await appendProgressIn(tx,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
-      });
+      let failed: boolean;
+      try {
+        failed=await operation.host.fail(bound.message,async(tx,writeContext)=>{
+          const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence,cause:'bound-exhausted'}},writeContext);
+          if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1660: FAILURE_CONFLICT ${step.refusal.reason}`);
+          failedEvent=await appendProgressIn(tx,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:`${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}`});
+        });
+      } catch (error) {
+        if (error instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, bound.message);
+        throw error;
+      }
       if (!failed) return await claimLapsed(orchestrator, unit, request.job, bound.message);
       terminalWritten = true;
       if(failedEvent!==undefined)await orchestrator.sink?.(failedEvent);
@@ -1938,23 +1944,27 @@ async function retryAttempt(
   const operation=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
   let stored: FillProgressEvent | undefined;
   if(unit.context.retriesLeft===0){
-    const failed=await operation.host.fail(request.reason,async (tx,writeContext)=>{
-      const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}},writeContext);
-      if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1800: FAILURE_CONFLICT ${step.refusal.reason}`);
-      stored=await appendProgressIn(tx,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:request.reason});
-    });
+    let failed: boolean;
+    try {
+      failed=await operation.host.fail(request.reason,async (tx,writeContext)=>{
+        const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'fail',at,generation:unit.generation,fence:request.fence,cause:'retries-exhausted'}},writeContext);
+        if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1800: FAILURE_CONFLICT ${step.refusal.reason}`);
+        stored=await appendProgressIn(tx,{runId:unit.runId,at,stage:unit.stageId,unitId:unit.unitId,generation:unit.generation,kind:'unit-failed',summary:request.reason});
+      });
+    } catch (error) {
+      if (error instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, request.reason);
+      throw error;
+    }
     if (!failed) return await claimLapsed(orchestrator, unit, request.job, request.reason);
     if(stored!==undefined)await orchestrator.sink?.(stored);
     return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:failed?'failed':'refused',summary:request.reason,job:failed?'failed':'none'};
   }
 
   try {
-    await operation.host.execute({key:`retry:${unit.context.attempt}`,request:{cause:request.cause,reason:request.reason}},async(tx,writeContext)=>{
+    await operation.host.execute({key:`retry:${unit.context.attempt}`,request:{cause:request.cause,reason:request.reason},completion:{unitState:'retry_wait',output:{reason:request.reason},enqueue:[{queue:orchestrator.queueName,data:{unitId:unit.unitId,generation:unit.generation},singletonKey:unit.unitId,startAfter:new Date(retryAt)}]}},async(tx,writeContext)=>{
       const step=await advanceUnitIn(tx,{unitId:unit.unitId,event:{type:'retry',at,generation:unit.generation,cause:request.cause,retryAt,fence:request.fence}},writeContext);
       if(!step.ok)throw new Error(`${new URL(import.meta.url).pathname}:1750: RETRY_CONFLICT ${step.refusal.reason}`);
       stored=await appendProgressIn(tx,{ runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${request.summary}; the attempt is retried at ${retryAt}` });
-      await orchestrator.queue.complete(orchestrator.queueName,request.job,{reason:request.reason},tx);
-      await orchestrator.queue.enqueue({queue:orchestrator.queueName,data:{unitId:unit.unitId,generation:unit.generation},singletonKey:unit.unitId,startAfter:new Date(retryAt),transaction:tx});
       return true;
     });
   } catch (error) {
