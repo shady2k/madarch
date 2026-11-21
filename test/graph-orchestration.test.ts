@@ -1,6 +1,7 @@
 import {test,expect} from 'bun:test';
+import {assertionValueTableName} from '../src/graph/contract.js';
 import {createTestDatabaseOwner} from './test-database.js';
-import {createRun,readUnitGraphUidIn,putFillVertexIn} from '../src/graph/fill-state.js';
+import {createRun,readRunGraphUidIn,readUnitGraphUidIn,putFillVertexIn} from '../src/graph/fill-state.js';
 import { createUnit } from './fill-unit-fixture.js';
 import {writeOrchestration,recordInheritedUnitIn,recordRunConfigurationIn,readRunConfiguration,recordUnitPlanIn,readRunPlans,appendProgresses,readProgress,askRunControl,readRunControl,writeFillEnd,readFillEnd,recordUnitReads,readUnitReads} from '../src/graph/fill-orchestration.js';
 
@@ -43,17 +44,35 @@ test('allocating progress sequences reads only the existing sequence field',asyn
  const owner=await createTestDatabaseOwner();
  try{
   await createRun(owner,{runId:'sequence-run',product:'sequence-product',at:1});
+  const uid=await owner.transaction('snapshot',async tx=>await readRunGraphUidIn(tx,'sequence-run'));
+  expect(typeof uid).toBe('string');
   const event={runId:'sequence-run',at:2,stage:'',unitId:'',generation:null,kind:'run-started' as const,summary:'started'};
   await appendProgresses(owner,[event]);
-  const progressProperties:string[][]=[];
+  const seen:{sql:string;parameters:readonly unknown[]}[]=[];
   const measured={graphContract:owner.graphContract,transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: (tx: import('../src/history-types.js').OuterTransaction)=>Promise<T>):Promise<T> => owner.transaction(kind,async tx=>work({...tx,query:async <Row extends object>(sql:string,parameters?:readonly unknown[])=>{
-   if(parameters?.includes('system.progress'))for(const value of parameters)if(Array.isArray(value)&&value.includes('seq'))progressProperties.push(value as string[]);
+   seen.push({sql,parameters:parameters??[]});
    return tx.query<Row>(sql,parameters);
   }}))};
   const appended=await appendProgresses(measured,[{...event,at:3,summary:'next'}]);
   expect(appended.map(row=>row.seq)).toEqual([2]);
-  expect(progressProperties.length).toBeGreaterThan(0);
-  expect(progressProperties.every(properties=>properties.every(property=>property==='$exists'||property==='seq'))).toBe(true);
+  // One generated value table holds one property of system.progress (decision 0039, item 25).
+  // The sequence selection is the only statement that names a progress value table and is bound
+  // to the run; it must name only the seq table and carry the run's uid. The transaction also
+  // writes every property table, so the selection check is not vacuous.
+  const properties=['seq','at','stage','unit_name','generation','kind','summary'];
+  const table=(property:string):string=>assertionValueTableName('system.progress','vertex',property);
+  const writes=(sql:string,property:string):boolean=>sql.includes(`INSERT INTO "${table(property)}"`);
+  const namesProgressValue=(sql:string):boolean=>properties.some(property=>sql.includes(`"${table(property)}"`));
+  const boundToRun=(query:{sql:string;parameters:readonly unknown[]}):boolean=>namesProgressValue(query.sql)&&query.sql.includes("name='system.progress-run'")&&query.parameters.includes(uid);
+  const selectionReads=seen.filter(boundToRun);
+  expect(selectionReads).toHaveLength(1);
+  const selection=selectionReads[0]!;
+  expect(properties.filter(property=>selection.sql.includes(`"${table(property)}"`))).toEqual(['seq']);
+  expect(selection.sql).toContain("property='seq'");
+  // The statement is bound to one run: its first parameter is that run's uid, and no other is.
+  expect(selection.parameters[0]).toBe(uid);
+  expect(selection.parameters.filter(parameter=>parameter===uid)).toEqual([uid]);
+  for(const property of properties)expect({property,writes:seen.some(query=>writes(query.sql,property))}).toEqual({property,writes:true});
   expect((await readProgress(owner,'sequence-run')).map(row=>row.summary)).toEqual(['started','next']);
  }finally{await owner.close();}
 },30_000);
