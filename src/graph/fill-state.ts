@@ -439,7 +439,7 @@ export async function readRunStateSnapshot(database:FillStateSnapshotDatabase,ru
   const all=await readRecordsIn(tx,'vertex','system.unit',[...fields.unit,'plan_stage_name','plan_stage_unit_name','plan_scope','plan_stage_position','plan_position','planned_at'],(await edgeRowsIn(tx,'system.unit-run','to',[node.id])).map(edge=>edge.from));
   const replaced=new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from));
   const current=all.filter(row=>!replaced.has(row.id));
-  const units=(await unitRecords(tx,current)).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  const units=current.map(row=>decodeUnitRecord(row,node)).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
   return {runId,stamp,run:await runRecord(tx,node),units,producerOutcomes:await readProducerOutcomesIn(tx,{runId},{runNodeId:node.id,units:all}),plans:await readRunPlansIn(tx,runId,{},current)};
  });
 }

@@ -9,8 +9,9 @@ import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS } from '../src/fill/stage.js';
 import { createOrchestrator, planRun, runEvidence, schedulerPass, startRun, stopHeartbeat } from '../src/fill/orchestrator.js';
 
-async function fixture() {
+async function fixture(count = 1) {
   const owner = await createTestDatabaseOwner();
+  let statements = 0;
   let membershipReads = 0;
   let snapshotTransactions = 0;
   const counting = Object.create(owner) as TestDatabaseOwner;
@@ -19,6 +20,7 @@ async function fixture() {
     if (kind === 'snapshot') snapshotTransactions += 1;
     return await work({
       query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        statements += 1;
         if (values?.[0] === 'system.unit-run' && sql.includes('e.to_node=ANY')) runMembership = true;
         if (sql.includes('SELECT DISTINCT n.id')) runMembership = false;
         if (kind === 'snapshot' && runMembership && values?.[0] === 'system.unit-replacement') membershipReads += 1;
@@ -32,7 +34,7 @@ async function fixture() {
   const registry = new StageRegistry().register({
     id: 'source', version: 1, consumes: { required: [], optional: [] }, produces: [],
     configSchema: Type.Object({}), defaults: DEFAULT_STAGE_DEFAULTS,
-    plan: () => ({ units: [{ id: 'one', scope: 'one' }], coverage: 'planned' }),
+    plan: () => ({ units: Array.from({ length: count }, (_, index) => ({ id: index === 0 ? 'one' : `unit-${index}`, scope: `scope-${index}` })), coverage: 'planned' }),
     execute: () => ({ outcome: 'draft' }),
   });
   const orchestrator = createOrchestrator({
@@ -46,7 +48,7 @@ async function fixture() {
   expect((await planRun(orchestrator, { runId: 'run' })).outcome).toBe('planned');
   await schedulerPass(orchestrator, { runId: 'run' });
   stopHeartbeat(orchestrator);
-  return { owner, orchestrator, queue, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { membershipReads = 0; snapshotTransactions = 0; },
+  return { owner, orchestrator, queue, statements: () => statements, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { statements = 0; membershipReads = 0; snapshotTransactions = 0; },
     close: async () => { stopHeartbeat(orchestrator); await queue.stop(); await owner.close(); } };
 }
 
@@ -72,7 +74,7 @@ test('a worker write during a pass is visible at the next checkpoint', async () 
       const answer = await enqueue(request);
       if (!changed) {
         changed = true;
-        expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } }))).ok).toBe(true);
+        expect((await advanceUnitIn(request.transaction!, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } })).ok).toBe(true);
       }
       return answer;
     };
@@ -122,5 +124,18 @@ test('run snapshots bind producer outcomes to their run and invalidate after an 
     const inherited = await readRunStateSnapshot(opened.owner, 'other', other);
     expect(inherited.units).toEqual([]);
     expect(inherited.producerOutcomes).toEqual([{ runId: 'other', unitId: 'source/one', generation: 1, plugin: 'external', kind: 'example', outcome: 'unchanged', produced: 1 }]);
+  } finally { await opened.close(); }
+}, 30_000);
+
+
+test('a busy scheduler pass batches state and evidence within fifty statements', async () => {
+  const opened = await fixture();
+  try {
+    await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'start', at: Date.now(), generation: 1, fence: 1 } }));
+    opened.reset();
+    const result = await schedulerPass(opened.orchestrator, { runId: 'run' });
+    console.log(JSON.stringify({ busyPassStatements: opened.statements() }));
+    expect(result.settlement.outcome).toBe('waiting');
+    expect(opened.statements()).toBeLessThanOrEqual(50);
   } finally { await opened.close(); }
 }, 30_000);

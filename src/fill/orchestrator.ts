@@ -2366,6 +2366,11 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
   const snapshot = _state === undefined ? await readRunStateSnapshot(orchestrator.database, options.runId) : await _state();
   if (!snapshot.run) raise(`no run ${options.runId} is recorded`);
   const pending = { run: snapshot.run, evidence: await runEvidence(orchestrator, options.runId, async () => snapshot) };
+  // A busy run has no transition to take. Its committed pass snapshot is enough to
+  // answer waiting; only a possible settlement needs the locked recheck below.
+  if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting > 0) {
+    return { ...pending, outcome: 'waiting' };
+  }
   if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting === 0) {
     await skipOutstandingUnits(orchestrator, pending.run, pending.evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
   }
@@ -2808,7 +2813,8 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // holds, for its epoch is the one a crash between the re-planning step and
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
-  const quiet = (await runEvidence(orchestrator, run.runId, state));
+  const evidenceSnapshot = await state();
+  const quiet = await runEvidence(orchestrator, run.runId, async () => evidenceSnapshot);
   tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
     ? await replanAfterPublications(orchestrator, { runId: run.runId }, state)
@@ -2853,7 +2859,8 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
-  const beforeStale = await runEvidence(orchestrator, run.runId, state);
+  const staleSnapshot = await state();
+  const beforeStale = staleSnapshot === evidenceSnapshot ? quiet : await runEvidence(orchestrator, run.runId, async () => staleSnapshot);
   tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
