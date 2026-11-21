@@ -36,6 +36,16 @@
       "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/catalogue-starter-kinds.test.ts",
+      "seconds": 34.296,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its single acceptance case creates the whole `everything` template draft as a repository with a commit, validates and publishes the full starter catalogue into a fresh store, pages the catalogue 200 at a time, then asks one GraphQL query per kind across nineteen kinds; the stack added the whole file (create mode since dcbe85185), and it measured 34498 ms then 34296 ms alone in GitHub run 44913378966; speed-up owed.",
+      "replacement": "Create the `everything` draft and publish its catalogue once in a shared setup, reuse that store and published manifest across the assertions, and read the per-kind names and labels in one query that names the kinds instead of one request per kind.",
+      "exit": "Rewrite test/catalogue-starter-kinds.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/consistency-plugin.test.ts",
       "seconds": 144.2,
       "reason": "red-defect",
@@ -296,6 +306,16 @@
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/manifest-publication.test.ts",
+      "seconds": 31.214,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but the stack grew it from roughly 300 lines to 1154: about thirty async cases each build a fixture folder with a git commit and its manifests, open a store and publish the catalogue, and the ALX-174 abort and queued-publication cases plus the two home-watcher cases wait on real filesystem events through 25 ms polls (880 added lines since dcbe85185); it measured 31039 ms then 31214 ms alone in GitHub run 44913378966; speed-up owed.",
+      "replacement": "Share one validated publication fixture and one prepared store per assertion group, publish its catalogue once per group and read the resulting state instead of republishing per case, and keep the watcher and interception cases on their own fixtures so the bounded waits they need stay.",
+      "exit": "Rewrite test/manifest-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/owner-daemon-stop.test.ts",
       "seconds": 84.352,
       "reason": "green-slow",
@@ -394,6 +414,16 @@
       "defect": "Manual problem creation cases time out and the Problems-page case raises PostgreSQL operator does not exist: text ->> unknown instead of creating or reopening its graph task.",
       "replacement": "Read typed graph assertions rather than applying JSON extraction to text, and assert idempotent problem/task identities, concurrent author retention, safe fingerprints and atomic missing-binding refusal.",
       "exit": "Rewrite test/problem-task.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/producer-lifecycle.test.ts",
+      "seconds": 31.739,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its one case runs a whole lifecycle: it creates a product and a scripted plugin, prepares a store, then runs eight fills (`bad`, `cached`, `partial`, `good`, `bad-again`, `inapplicable`, `bad-before-failed`, `failed`), each booting the plugin's Bun runtime and preparing the contract again, now on top of the stack's content-snapshot seeding, principal bindings and per-run opinion reads (101 added lines since dcbe85185); it measured 32256 ms then 31739 ms alone in GitHub run 44909420763; speed-up owed.",
+      "replacement": "Prepare the product, plugin and store once and give each fill the already prepared contract instead of re-preparing it, keep the ordered fill sequence in one case, and move the reader status and scoped-replacement assertions to cases that reuse the published store the sequence leaves.",
+      "exit": "Rewrite test/producer-lifecycle.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-cli-script.test.ts",
