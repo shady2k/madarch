@@ -170,6 +170,7 @@ interface OperationPreflight {
   readonly principalKind:string|null; readonly locked:readonly {id:string;uid:string}[];
 }
 async function operationPreflight(tx:OuterTransaction,options:OperationHostOptions,key:string):Promise<OperationPreflight>{
+  return await withSpan('graph.operation.preflight',{},async()=>{
   const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
   const row=(await tx.query<{receipt_id:string|null;run_id:string|null;unit_id:string|null;principal_kind:string|null;locked:{id:string;uid:string}[]}>(`WITH receipt AS MATERIALIZED (
     SELECT n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id JOIN edge e ON e.from_node=n.id JOIN entity ek ON ek.id=e.entity_id JOIN node u ON u.id=e.to_node
@@ -184,6 +185,7 @@ async function operationPreflight(tx:OuterTransaction,options:OperationHostOptio
     (SELECT kind FROM identities WHERE uid=$6::uuid) AS principal_kind,
     (SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'uid',uid)),'[]'::jsonb) FROM locked) AS locked`,[options.unitUid,key,[...uids,options.capability.principalUid],uids,options.runUid,options.capability.principalUid])).rows[0]!;
   return {receiptId:row.receipt_id,runId:row.run_id,unitId:row.unit_id,principalKind:row.principal_kind,locked:row.locked};
+  });
 }
 
 export function createOperationHost(options:OperationHostOptions):OperationHost {
