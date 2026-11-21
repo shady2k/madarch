@@ -38,6 +38,6 @@ test('receipt reads one or several stored fields with one subject lookup and ass
     console.log(JSON.stringify({ receiptQueries: [one.queries, several.queries], subjectLookups: [one.nodes, several.nodes] }));
     expect(several.queries).toBe(one.queries);
     expect(several.nodes).toBe(1);
-    expect(several.queries).toBe(4);
+    expect(several.queries).toBe(3);
   } finally { await owner.close(); }
 });
