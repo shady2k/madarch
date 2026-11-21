@@ -450,15 +450,13 @@ test('ALX-174 a cutoff keeps its microseconds through the parameterized read', a
   } finally { await owner.close(); }
 }, 60_000);
 
+// Task: madarch-64o5.74
 test('ALX-884 identity selection sees a merge exactly at .000400 and not at .000399', async () => {
   const validated = publicationFixture();
   const valueKind = { name: 'fixture.value', table: generatedTableName('fixture.value', 'vertex'), capability: 'fixture', key: ['name'],
     fields: [{ name: 'name', type: 'text' as const }, { name: 'label', type: 'text' as const }] };
   const contract = withManifestContract({ ...EMPTY_CONTRACT, vertex: [valueKind] });
   const owner = await createTestDatabaseOwner({ graphContract: contract });
-  // A future instant keeps today's assertions visible on both sides of the boundary.
-  const boundary = '2026-12-31T00:00:00.000400Z';
-  const earlier = '2026-12-31T00:00:00.000399Z';
   const write = async (drafts: Parameters<typeof publishGraphDrafts>[2]) => await owner.transaction('write', async tx => {
     const { contract: installed } = await startupBinding(tx, contract, 'alx-884');
     await publishGraphDrafts(tx, installed, drafts);
@@ -483,6 +481,11 @@ test('ALX-884 identity selection sees a merge exactly at .000400 and not at .000
       ],
       removals: [],
     });
+    // Bounds derive from the fixture's own writes, so the test holds on any calendar date.
+    const { boundary, earlier } = (await owner.run(tx => tx.query<{ boundary: string; earlier: string }>(`
+      WITH base AS (SELECT date_trunc('second', greatest(max(recorded_at), max(valid_from))) + interval '1 second' AS s FROM assertion)
+      SELECT to_char((s + interval '400 microseconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS boundary,
+             to_char((s + interval '399 microseconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS earlier FROM base`))).rows[0]!;
     // Assertion history is immutable; a replica session places the merge's valid time exactly on the boundary.
     await owner.transaction('write', async tx => {
       await tx.query('SET LOCAL session_replication_role = replica');
@@ -492,6 +495,8 @@ test('ALX-884 identity selection sees a merge exactly at .000400 and not at .000
         JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id
         WHERE subject_edge.to_node=(SELECT id FROM node WHERE uid=$2::uuid))`, [boundary, mergeUid]);
     });
+    const precondition = await owner.run(tx => tx.query<{ valid: boolean }>(`SELECT bool_and(recorded_at < $1::timestamptz AND (valid_from < $1::timestamptz OR valid_from = $2::timestamptz)) AS valid FROM assertion`, [earlier, boundary]));
+    expect(precondition.rows[0]?.valid).toBe(true);
     const visible = async (instant: string) => (await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'],
       { contract: owner.graphContract, subjectUids: [alias.uid], validAt: instant, recordedAt: instant }))).map(row => row.uid);
     // The alias resolves to the survivor only when the merge's valid time is inside the bound.
