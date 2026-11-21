@@ -317,8 +317,9 @@ export interface RepositoryTreeRead {
  * patterns (`kinds[].exclude`). The keys alone narrow the tree listing, so `inventory` states their rows or, with no keys,
  * every row of the pinned tree: the scope and the exclusion never move it, and the snapshot a fill reads does not depend
  * on what that fill happened to ask for. A path that is not a key, outside the scope, or matched by an exclusion is never
- * read — its text, its attributes and its line counts are the bytes of a fact nothing publishes — and an excluded path is
- * named to `git diff --numstat` only as an exclusion (madarch-64o5.74, madarch-64o5.160).
+ * fetched through cat-file or check-attr. Numstat may count unselected blobs as an optimization fallback; an excluded path is
+ * named to `git diff --numstat` only as an exclusion while the optional pathspec fits its bounds. Otherwise git counts
+ * the wider tree; only selected entries use those counts (madarch-64o5.74, madarch-64o5.160).
  */
 export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[]; readonly scope?: readonly string[]; readonly exclude?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
@@ -346,12 +347,27 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   const selectedEntries = entries.filter(entry => inScope(entry.path) && !excludedPath(entry.path, options.exclude ?? []));
   // Git's own text-or-binary answer and its line count, in one call against the empty tree: the added count is the
   // file's own line count, and `-` is a blob git calls binary. The fill's paths or scope narrow that call too, and each
-  // excluded path is named as an exclusion, so no excluded blob is unpacked to count lines nothing publishes
-  // (madarch-64o5.160).
+  // excluded path is named as an exclusion when the optional pathspec fits. Bound both UTF-8 bytes (including NULs)
+  // and argument count: sparse exclusions can exceed ARG_MAX or make git compare every entry to thousands of specs.
+  // Falling back to wider counts costs time, not facts: only selectedEntries consume them (madarch-64o5.160).
+  const NUMSTAT_ARG_BYTES = 32 * 1024;
+  const NUMSTAT_ARG_COUNT = 256;
+  const numstatArgs = ['diff', '--numstat', '--no-renames', '-z', options.fileFacts === false ? '' : await emptyTreeOf(pin.root), pin.commit];
+  const fitsNumstat = (spec: readonly string[]): boolean => 1 + numstatArgs.length + spec.length <= NUMSTAT_ARG_COUNT
+    && [process.env['MADARCH_TOOL_GIT'] ?? 'git', ...numstatArgs, ...spec].reduce((bytes, arg) => bytes + Buffer.byteLength(arg) + 1, 0) <= NUMSTAT_ARG_BYTES;
+  let numstatPathspec: string[] = [];
   const countedSpec = (options.paths ?? options.scope)?.map(path => `:(literal)${path}`) ?? [];
-  const excludedSpec = [...new Set(entries.filter(entry => inScope(entry.path) && excludedPath(entry.path, options.exclude ?? [])).map(entry => entry.path))]
-    .map(path => `:(exclude,literal)${path}`);
-  const numstatPathspec = countedSpec.length === 0 && excludedSpec.length === 0 ? [] : ['--', ...countedSpec, ...excludedSpec];
+  if (countedSpec.length > 0 && fitsNumstat(['--', ...countedSpec])) numstatPathspec = ['--', ...countedSpec];
+  const countedPathspec = [...numstatPathspec];
+  for (const entry of entries) {
+    if (!inScope(entry.path) || !excludedPath(entry.path, options.exclude ?? [])) continue;
+    const next = [...numstatPathspec, ...(numstatPathspec.length === 0 ? ['--'] : []), `:(exclude,literal)${entry.path}`];
+    if (!fitsNumstat(next)) {
+      numstatPathspec = countedPathspec;
+      break;
+    }
+    numstatPathspec = next;
+  }
   const countsByKey = new Map<string, { added: number | null; removed: number | null }>();
   /** The key a numstat record names: the path's text, or the bytes no text can hold (which no file row holds either). */
   const keyOf = (pathBytes: Uint8Array): string => textOf(pathBytes) ?? `\u0000${escapedOf(pathBytes)}`;
@@ -369,7 +385,7 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   };
   const numstatRecords: Buffer[] = [];
   const numstatSplit = byteSplit();
-  if (options.fileFacts !== false) await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit, ...numstatPathspec], (chunk) => {
+  if (options.fileFacts !== false) await gitStream(pin.root, [...numstatArgs, ...numstatPathspec], (chunk) => {
     for (const record of numstatSplit.push(chunk)) numstatRecords.push(record);
   });
   for (const record of numstatSplit.done()) numstatRecords.push(record);
