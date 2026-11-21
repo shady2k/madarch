@@ -57,7 +57,7 @@ import {
   type RunStateSnapshot,
   readRunUnits,
   readRunUnitsIn,
-  lockFillScope,
+  lockFillScope, lockRunSnapshotIn,
   readUnit,
   readUnitIn,
   readUnitGeneration, readUnitGenerationIn,
@@ -2367,6 +2367,10 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
   const snapshot = _state === undefined ? await readRunStateSnapshot(orchestrator.database, options.runId) : await _state();
   if (!snapshot.run) raise(`no run ${options.runId} is recorded`);
   const pending = { run: snapshot.run, evidence: await runEvidence(orchestrator, options.runId, async () => snapshot) };
+  if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting > 0) {
+    const current = await writeOrchestration(orchestrator.database, tx => lockRunSnapshotIn(tx, snapshot));
+    if (current) return { ...pending, outcome: 'waiting' };
+  }
   if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting === 0) {
     await skipOutstandingUnits(orchestrator, pending.run, pending.evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
   }

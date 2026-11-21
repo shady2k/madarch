@@ -14,6 +14,8 @@ async function fixture(count = 1) {
   let statements = 0;
   let membershipReads = 0;
   let snapshotTransactions = 0;
+  let settlementStampReads = 0;
+  let settlementEvidenceReads = 0;
   const counting = Object.create(owner) as TestDatabaseOwner;
   let afterSettlementSnapshot: (() => Promise<void>) | undefined;
   counting.transaction = async (kind, work) => {
@@ -24,6 +26,9 @@ async function fixture(count = 1) {
       return await work({
         query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
           statements += 1;
+          const stack = new Error().stack ?? '';
+          if (stack.includes('settleRun') && sql.includes('max(recorded_sequence)')) settlementStampReads += 1;
+          if (stack.includes('controlEvidenceIn')) settlementEvidenceReads += 1;
           if (values?.[0] === 'system.unit-run' && sql.includes('e.to_node=ANY')) runMembership = true;
           if (sql.includes('SELECT DISTINCT n.id')) runMembership = false;
           if (kind === 'snapshot' && runMembership && values?.[0] === 'system.unit-replacement') membershipReads += 1;
@@ -58,7 +63,7 @@ async function fixture(count = 1) {
   expect((await planRun(orchestrator, { runId: 'run' })).outcome).toBe('planned');
   await schedulerPass(orchestrator, { runId: 'run' });
   stopHeartbeat(orchestrator);
-  return { owner, orchestrator, queue, afterSettlementSnapshot: (work: () => Promise<void>) => { afterSettlementSnapshot = work; }, statements: () => statements, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { statements = 0; membershipReads = 0; snapshotTransactions = 0; },
+  return { owner, orchestrator, queue, settlementStampReads: () => settlementStampReads, settlementEvidenceReads: () => settlementEvidenceReads, afterSettlementSnapshot: (work: () => Promise<void>) => { afterSettlementSnapshot = work; }, statements: () => statements, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { settlementStampReads = 0; settlementEvidenceReads = 0; statements = 0; membershipReads = 0; snapshotTransactions = 0; },
     close: async () => { stopHeartbeat(orchestrator); await queue.stop(); await owner.close(); } };
 }
 
@@ -164,7 +169,20 @@ test('the last publication after the settlement snapshot settles in the same pas
     });
     const result = await schedulerPass(opened.orchestrator, { runId: 'run' });
     expect(published).toBe(true);
+    expect(opened.settlementEvidenceReads()).toBeGreaterThan(0);
     expect(result.settlement.outcome).toBe('succeeded');
     expect(result.run.state).toBe('succeeded');
+  } finally { await opened.close(); }
+}, 30_000);
+
+test('matching settlement stamps wait without a full evidence recheck', async () => {
+  const opened = await fixture();
+  try {
+    await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'start', at: Date.now(), generation: 1, fence: 1 } }));
+    opened.reset();
+    const result = await schedulerPass(opened.orchestrator, { runId: 'run' });
+    expect(result.settlement.outcome).toBe('waiting');
+    expect(opened.settlementStampReads()).toBeGreaterThan(0);
+    expect(opened.settlementEvidenceReads()).toBe(0);
   } finally { await opened.close(); }
 }, 30_000);

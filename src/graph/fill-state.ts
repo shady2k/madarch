@@ -381,6 +381,12 @@ async function storeStampIn(tx: SqlExecutor): Promise<string> {
   });
 }
 export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await snapshotRun(here(),database,'readStoreStamp',storeStampIn);}
+/** Reuse settlement evidence only while its stamp still holds under the graph write lock. */
+export async function lockRunSnapshotIn(tx:SqlExecutor,snapshot:RunStateSnapshot):Promise<boolean>{
+  await acquireGraphWriteLock(tx);
+  return await storeStampIn(tx)===snapshot.stamp;
+}
+
 export async function advanceRunIn(tx:SqlExecutor,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState},at=here()):Promise<StoreStep<RunRecord,RunState>>{
     const node=await runNode(tx,options.runId);if(!node)raise(`graph system.run: no run ${options.runId}`);const current=await runRecord(tx,node);
     if(options.expectedState!==undefined&&current.state!==options.expectedState)return {ok:false,record:current,refusal:{code:'fill-run/guard-refused',reason:`${at}: run ${current.runId} is ${current.state}, expected ${options.expectedState}`,state:current.state,event:options.event.type,guard:'expected-state',guards:['expected-state'],transitions:runMachine.from(current.state).filter(t=>t.event===options.event.type).map(t=>t.id)}} as const;
