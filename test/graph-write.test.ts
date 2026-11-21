@@ -238,9 +238,16 @@ test('0039.25: edge existence and properties have edge subjects and the same typ
     await owner.transaction('write', async tx => { await bindTestWriteCapability(tx, graph); await publishGraphDrafts(tx, graph, { vertices: [term('a'), term('b')], removals: [], edges: [{ kind: 'fixture.links', from: ref('a'), to: ref('b'), discriminator: 'one', values: { weight: 7 }, producer: 'fixture', producerVersion: '1' }] }); });
     const rows = await owner.run(tx => loadAssertions(tx, 'edge', 'fixture.links', ['$exists', 'weight']));
     expect(rows.map(a => [a.property, a.value, a.source]).sort()).toEqual([['$exists', true, TEST_SOURCE_UID], ['weight', 7, TEST_SOURCE_UID]]);
-    const edgeRow = rows[0];
-    if (edgeRow === undefined || edgeRow.subject.type !== 'edge') throw new Error('the fixture assertions name no edge');
-    const { from, to, id: edgeUid } = edgeRow.subject;
+    const endpoints = await owner.run(tx => tx.query<{ name: string; uid: string }>(`SELECT key->>'name' AS name,uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture.term' AND key->>'name'=ANY($1::text[])`, [['a', 'b']]));
+    expect(endpoints.rows.map(row => row.name).sort()).toEqual(['a', 'b']);
+    const from = endpoints.rows.find(row => row.name === 'a')!.uid;
+    const to = endpoints.rows.find(row => row.name === 'b')!.uid;
+    const fixtureEdge = await owner.run(tx => tx.query<{ uid: string }>(`SELECT subject.uid::text AS uid
+      FROM edge subject JOIN entity kind ON kind.id=subject.entity_id
+      JOIN node edge_from ON edge_from.id=subject.from_node JOIN node edge_to ON edge_to.id=subject.to_node
+      WHERE kind.name='fixture.links' AND subject.discriminator='one' AND edge_from.uid=$1::uuid AND edge_to.uid=$2::uuid`, [from, to]));
+    expect(fixtureEdge.rows).toHaveLength(1);
+    const edgeUid = fixtureEdge.rows[0]!.uid;
     const edgeSubjects = await owner.run(tx => tx.query<{ property: string; assertion_id: string; edge_uid: string }>(`SELECT a.property,assertion_node.uid::text AS assertion_id,subject.uid::text AS edge_uid
       FROM assertion_edge_subject attachment JOIN assertion a ON a.assertion_id=attachment.assertion_id JOIN node assertion_node ON assertion_node.id=a.assertion_id
       JOIN edge subject ON subject.id=attachment.edge_id JOIN entity kind ON kind.id=subject.entity_id
