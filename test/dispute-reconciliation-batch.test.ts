@@ -209,9 +209,9 @@ async function hostMeasure(catalog:number,withdraw=false){
   await queue.enqueue({queue:declaration.name,data:{}});const [job]=await queue.claim({queue:declaration.name});
   const runUid=newUid(),unitUid=newUid();
   const binding=await f.owner.transaction('write',async tx=>{f.bind(tx,f.a);const binding=requireWriteCapability(tx);for(const [kind,uid] of [['person',binding.principalUid],['source',binding.sourceUid]] as const){const node=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[uid])).rows[0]!;await writeAssertion(tx,contract,{sort:'vertex',kind,subjectId:node.id,property:'$exists',operation:'assert',value:true});}await initializeOperationScope(tx,contract,binding,runUid,unitUid);return binding;});
-  const statements:{sql:string;rows:number}[]=[];let recording=false;
+  const statements:{sql:string;rows:number;values?:readonly unknown[]}[]=[];let recording=false;
   const observed:typeof f.owner={...f.owner,transaction:(kind,work,options)=>f.owner.transaction(kind,async tx=>{
-   const query=tx.query.bind(tx);tx.query=async<Row extends object>(sql:string,values?:readonly unknown[])=>{const result=await query<Row>(sql,values);if(recording)statements.push({sql,rows:result.rows.length});return result;};
+   const query=tx.query.bind(tx);tx.query=async<Row extends object>(sql:string,values?:readonly unknown[])=>{const result=await query<Row>(sql,values);if(recording)statements.push({sql,rows:result.rows.length,values});return result;};
    try{return await work(tx);}finally{tx.query=query;}
   },options)};
   const host=createOperationHost({owner:observed,queue,job:job!,contract,capability:binding,runUid,unitUid});
@@ -224,13 +224,34 @@ async function hostMeasure(catalog:number,withdraw=false){
   operationMs=performance.now()-operationStart;recording=false;
   console.log('HOST-OPERATION',JSON.stringify({catalog,withdraw,operationMs}));
   const outcome=withdraw?await f.owner.transaction('snapshot',async tx=>({state:(await readDispute(tx,contract,(await loadAssertions(tx,'vertex','sample',['amount'])).filter(row=>row.subjectId===f.slots[0]!.subjectId),{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}))?.state,retracted:(await loadAssertions(tx,'vertex','sample',['amount'])).some(row=>row.source===resolutionSource&&row.operation==='retract')})):undefined;
-  return {total:statements.length,rows:statements.reduce((sum,s)=>sum+s.rows,0),statements,outcome,setupMs,baselineMs,operationMs};
+  // Measure tuples visited, not just the rows the anchor lookup returns.
+  const anchorStatements=statements.filter(statement=>statement.sql.startsWith('SELECT CASE WHEN vertex.assertion_id IS NOT NULL')&&statement.sql.includes("name='system.dispute-anchor'"));
+  expect(anchorStatements.length).toBeGreaterThan(0);
+  let anchorWork=0;
+  const rollback=new Error('rollback anchor plans');
+  const countedRelations=new Set(['edge','node','assertion','assertion_vertex_subject','assertion_edge_subject']);
+  const visited=(plan:Record<string,unknown>):number=>{
+   const own=countedRelations.has(String(plan['Relation Name']))?(Number(plan['Actual Rows']??0)+Number(plan['Rows Removed by Filter']??0)+Number(plan['Rows Removed by Index Recheck']??0))*Number(plan['Actual Loops']??0):0;
+   return own+((plan['Plans']??[]) as Record<string,unknown>[]).reduce((sum,child)=>sum+visited(child),0);
+  };
+  await expect(f.owner.transaction('write',async tx=>{
+   await tx.query('SET LOCAL enable_seqscan=off');
+   for(const statement of anchorStatements){
+    const explained=await tx.query<{'QUERY PLAN':{Plan:Record<string,unknown>}[]}>(`EXPLAIN (ANALYZE, FORMAT JSON) ${statement.sql}`,statement.values);
+    const plan=explained.rows[0]!['QUERY PLAN'][0]!.Plan;
+    const work=visited(plan);anchorWork+=work;
+    console.log('HOST-ANCHOR-PLAN',JSON.stringify({catalog,withdraw,sql:statement.sql,values:statement.values,work,plan}));
+   }
+   throw rollback;
+  })).rejects.toBe(rollback);
+  return {total:statements.length,rows:statements.reduce((sum,s)=>sum+s.rows,0),statements,outcome,setupMs,baselineMs,operationMs,anchorWork};
  }finally{await queue.stop();await f.owner.close();}
 }
 test('operation host bounds fixed touched slots independently of unrelated questions',async()=>{
  const small=await hostMeasure(10),large=await hostMeasure(200);
  console.log('HOST-TOUCHED',JSON.stringify({small,large}));
  expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
+ expect(large.anchorWork).toBe(small.anchorWork);
 },30000);
 
 test('operation host support withdrawal reopens only dependent resolution with bounded rows',async()=>{
@@ -239,5 +260,6 @@ test('operation host support withdrawal reopens only dependent resolution with b
  expect(small.outcome?.state).toBe('OPEN');expect(large.outcome?.state).toBe('OPEN');
  expect(small.outcome?.retracted).toBe(true);expect(large.outcome?.retracted).toBe(true);
  expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
+ expect(large.anchorWork).toBe(small.anchorWork);
 // The baseline walks every resolved question; the measured 200-question setup exceeded 30 seconds.
 },120000);

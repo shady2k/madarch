@@ -17,9 +17,9 @@ import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates } from './evidence-read.js';
 import { withSpan } from '../obs/trace.js';
 
-async function mergedAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],ids:readonly number[]|undefined,selectors:Selectors):Promise<StoredAssertion[]> {
+async function mergedAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],ids:readonly number[]|undefined,selectors:Selectors,mergePresent?:boolean):Promise<StoredAssertion[]> {
  return await withSpan('graph.dispute.merged-assertions',{},async()=>{
- const merged=(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+ const merged=mergePresent??(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
  const targets=ids===undefined?undefined:merged&&sort==='vertex'?(await tx.query<{id:number}>(`SELECT DISTINCT graph_merge_target(id,$2::bigint,$3::timestamptz,$4::timestamptz) AS id FROM unnest($1::bigint[]) subject(id)`,[ids,selectors.contexts[0],selectors.validAt,selectors.recordedAt])).rows.map(row=>Number(row.id)):ids;
  return await loadAssertions(tx,sort,kind,properties,targets,{...selectors,projectMergedSubjects:merged&&sort==='vertex'});
  });
@@ -198,7 +198,7 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
  if(values===undefined)throw new Error(`${import.meta.path}:194: reconciliation snapshot missing resolution ${uid}`);
  const assertion=selectAssertions(values,selectors).selected as StoredAssertion|null;
  if(assertion===null||assertion.evidence.length===0)return false;
- const manifest=await readPublishedManifest(tx);const support=evidenceSupportRoles(manifest?.semanticBindings);
+ const manifest=await readPublishedManifest(tx,selectors);const support=evidenceSupportRoles(manifest?.semanticBindings);
  const attachments=(await tx.query<{target:string;locator:Record<string,unknown>}>(`SELECT target.uid::text AS target,e.discriminator::jsonb->'locator' AS locator FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE origin.uid=$1::uuid AND k.name='system.assertion-evidence'`,[assertion.id])).rows;
  const states=await readEvidenceStates(tx,contract,attachments.map(attachment=>({targetUid:attachment.target,locator:attachment.locator,assertion})),selectors,support);
  for(const [index,attachment] of attachments.entries()){
@@ -210,6 +210,7 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
   if(support){
    const here=support.direction==='from'?'from_node':'to_node';
    const supportEdges=(await tx.query<{id:number}>(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.${here}=$1::bigint AND k.name=$2`,[node.id,support.edgeKind])).rows;
+   if(supportEdges.length>0&&state.currentApplicability==='unknown')stale=true;
    const supportAssertions=await loadAssertions(tx,'edge',support.edgeKind,['$exists'],supportEdges.map(edge=>Number(edge.id)));
    for(const edge of supportEdges){
     const stream=supportAssertions.filter(row=>row.subjectId===Number(edge.id)&&selectors.contexts.includes(row.context)&&Date.parse(row.validFrom)<=Date.parse(selectors.validAt)&&(row.validTo===null||Date.parse(row.validTo)>Date.parse(selectors.validAt))&&Date.parse(row.recordedAt)<=Date.parse(selectors.recordedAt)).sort((a,b)=>a.recordedSequence>b.recordedSequence?-1:1);
@@ -220,7 +221,7 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
   if(state.historicalValidity==='invalid'||state.currentApplicability==='ended')return false;
   if(stale){
    const problem=keyUid('system.resolution-stale-evidence',[uid,attachment.target]);
-   await internal(tx,contract,()=>save(tx,contract,'system.problem',problem,{rule:'resolution-stale-evidence',fingerprint:`${uid}:${attachment.target}`,reason:'Resolution evidence is stale; its source must reconcile current support.'},[{kind:'system.problem-about',target:uid,targetKind:'system.dispute-resolution'}]));
+   await internal(tx,contract,()=>save(tx,contract,'system.problem',problem,{rule:'resolution-stale-evidence',fingerprint:`${uid}:${attachment.target}`,reason:`Resolution evidence is stale; its source must reconcile current support.${state.currentApplicability==='unknown'&&state.issues.length?` ${state.issues.join(' ')}`:''}`},[{kind:'system.problem-about',target:uid,targetKind:'system.dispute-resolution'}]));
   }
  }
  return true;
@@ -231,7 +232,7 @@ export interface AffectedDisputeSlot {readonly sort:'vertex'|'edge';readonly kin
 export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,affected?:readonly AffectedDisputeSlot[]|'all',propagate=true):Promise<void>{
  return await withSpan('graph.dispute.reconcile',{},async()=>{
  const contract=withAssertionContract(declared);const binding=requireWriteCapability(tx);
- const now=(await tx.query<{now:string}>(`SELECT clock_timestamp()::text AS now`)).rows[0]!.now;
+ const current=(await tx.query<{now:string;merged:boolean}>(`SELECT clock_timestamp()::text AS now,EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS merged`)).rows[0]!;const now=current.now;
  const layers=await contextLayers(tx,String(binding.context));
  const selectors:Selectors={validAt:now,recordedAt:now,contexts:layers.map(layer=>Number(layer.id)),contextRecordedThrough:Object.fromEntries(layers.map(layer=>[Number(layer.id),layer.recordedThrough]))};
  const operationUid=binding.operationUid;
@@ -242,19 +243,31 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
  const here=support?.direction==='to'?'to_node':'from_node',there=support?.direction==='to'?'from_node':'to_node';
  const evidenceTargets=affected===undefined?(await tx.query<{id:number}>(`WITH vertices AS (SELECT DISTINCT unnest($1::bigint[]) AS id), written_edges AS (SELECT e.* FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.id=ANY($2::bigint[]) AND k.name=$3), sources AS (SELECT ${there} AS id FROM written_edges)
  SELECT id FROM vertices UNION SELECT ${here} FROM written_edges UNION SELECT e.${here} FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.${there} IN (SELECT id FROM sources UNION SELECT id FROM vertices) AND k.name=$3`,[touched.filter(row=>row.sort==='vertex').map(row=>Number(row.subject_id)),touched.filter(row=>row.sort==='edge').map(row=>Number(row.subject_id)),support?.edgeKind??null])).rows.map(row=>Number(row.id)):[];
- const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE $6::boolean OR EXISTS(SELECT 1 FROM jsonb_to_recordset($4::jsonb) slot(sort text,kind text,"subjectId" bigint,property text,language text) WHERE slot.sort=CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AND slot.kind=k.name AND CASE WHEN slot.sort='vertex' THEN graph_merge_target(slot."subjectId",$1::bigint,$2::timestamptz,$3::timestamptz) ELSE slot."subjectId" END=CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AND slot.property=a.property AND slot.language IS NOT DISTINCT FROM a.language) OR EXISTS(
- SELECT 1 FROM edge qr JOIN entity qrk ON qrk.id=qr.entity_id AND qrk.name='system.dispute-question-resolution'
- JOIN assertion_vertex_subject rationale ON true JOIN edge rs ON rs.id=rationale.subject_edge_id AND rs.to_node=qr.to_node
- JOIN assertion ra ON ra.assertion_id=rationale.assertion_id AND ra.property='rationale'
- JOIN edge evidence ON evidence.from_node=ra.assertion_id JOIN entity ek ON ek.id=evidence.entity_id AND ek.name='system.assertion-evidence'
- WHERE qr.from_node=anchor.from_node AND evidence.to_node=ANY($5::bigint[]))`,[selectors.contexts[0],selectors.validAt,selectors.recordedAt,JSON.stringify(relevant),evidenceTargets,affected==='all'])).rows;
- const affectedSlots=[...relevant,...anchors.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}))];
+ type AnchorSlot={sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null};
  const slots=new Map<string,StoredAssertion[]>();
- for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort]){
-  const changed=affectedSlots.filter(slot=>slot.sort===sort&&slot.kind===kind.name&&isDisputableProperty(sort,kind.name,slot.property));if(changed.length===0)continue;
-  const rows=await mergedAssertions(tx,sort,kind.name,[...new Set(changed.map(slot=>slot.property))],[...new Set(changed.map(slot=>slot.subjectId))],selectors);
-  for(const row of rows){const key=JSON.stringify([sort,subject(row),row.property,row.language]);slots.set(key,[...(slots.get(key)??[]),row]);}
+ const loadSlots=async(locations:readonly AffectedDisputeSlot[])=>{
+  for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort]){
+   const changed=locations.filter(slot=>slot.sort===sort&&slot.kind===kind.name&&isDisputableProperty(sort,kind.name,slot.property));if(changed.length===0)continue;
+   const rows=await mergedAssertions(tx,sort,kind.name,[...new Set(changed.map(slot=>slot.property))],[...new Set(changed.map(slot=>slot.subjectId))],selectors,affected===undefined?current.merged:undefined);
+   const grouped=new Map<string,StoredAssertion[]>();
+   for(const row of rows){const key=JSON.stringify([sort,subject(row),row.property,row.language]);const values=grouped.get(key)??[];values.push(row);grouped.set(key,values);}
+   for(const [key,rows] of grouped)slots.set(key,rows);
+  }
+ };
+ await loadSlots(relevant);
+ const anchorParameters=[selectors.contexts[0],selectors.validAt,selectors.recordedAt];
+ let anchors:AnchorSlot[];let additional:AnchorSlot[];
+ if(affected==='all'){
+  anchors=(await tx.query<AnchorSlot>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id)`,anchorParameters)).rows;additional=anchors;
+ }else{
+  // Q1 follows the immutable assertions of the already merge-projected slots.
+  const direct=(await tx.query<AnchorSlot>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM node header CROSS JOIN LATERAL (SELECT candidate.*,judged.assertion_id FROM edge candidate JOIN assertion judged ON judged.assertion_id=candidate.to_node WHERE candidate.to_node=header.id AND candidate.entity_id=(SELECT id FROM entity WHERE name='system.dispute-anchor') OFFSET 0) anchor JOIN assertion a ON a.assertion_id=anchor.assertion_id LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE header.uid=ANY($4::uuid[])`,[...anchorParameters,[...slots.values()].flat().map(row=>row.id)])).rows;
+  // Q2 starts with this operation's evidence dependencies, never the question catalogue.
+  const dependent=evidenceTargets.length===0?[]:(await tx.query<AnchorSlot>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge evidence CROSS JOIN LATERAL (SELECT judged.assertion_id FROM assertion judged WHERE judged.assertion_id=evidence.from_node AND judged.property='rationale' OFFSET 0) ra CROSS JOIN LATERAL (SELECT attachment.subject_edge_id FROM assertion_vertex_subject attachment WHERE attachment.assertion_id=ra.assertion_id OFFSET 0) rationale JOIN edge rs ON rs.id=rationale.subject_edge_id CROSS JOIN LATERAL (SELECT candidate.* FROM edge candidate WHERE candidate.to_node=rs.to_node AND candidate.entity_id=(SELECT id FROM entity WHERE name='system.dispute-question-resolution') OFFSET 0) qr CROSS JOIN LATERAL (SELECT candidate.* FROM edge candidate WHERE candidate.from_node=qr.from_node AND candidate.entity_id=(SELECT id FROM entity WHERE name='system.dispute-anchor') OFFSET 0) anchor JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE evidence.to_node=ANY($4::bigint[]) AND evidence.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')`,[...anchorParameters,evidenceTargets])).rows;
+  anchors=[...direct,...dependent];additional=dependent;
  }
+ const affectedSlots=[...relevant,...anchors.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}))];
+ await loadSlots(additional.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language})));
  if(slots.size===0)return;
  const anchoredSlots=new Set(anchors.map(row=>JSON.stringify([row.sort,Number(row.subject_id),row.property,row.language])));
  for(const [key,rows] of slots){
