@@ -78,7 +78,8 @@ for(const withdraw of [false,true])test(`0039.17/27: durable resolution survives
    const capability=await owner.transaction('write',tx=>activateGraphProducer(tx,contract,gr));
    const runUid=newUid(),unitUid=newUid();await owner.transaction('write',tx=>initializeOperationScope(tx,contract,capability,runUid,unitUid));
    const host=createOperationHost({owner,queue,job:job!,contract,capability,runUid,unitUid});
-   const input={questionUid:question.id,chosenAssertionUid:question.candidates[1]!,expectedCandidates:question.candidates,rationale:'Checked evidence',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]};
+   const chosen=(await owner.transaction('snapshot',tx=>loadAssertions(tx,'vertex','sample',['amount']))).find(row=>row.source===ga.sourceUid)!;
+   const input={questionUid:question.id,chosenAssertionUid:chosen.id,expectedCandidates:question.candidates,rationale:'Checked evidence',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]};
    await expect(executeResolution(host,contract,{} as ProducerBinding,{key:'forged',input})).rejects.toThrow('does not permit resolve');
    await owner.transaction('write',async tx=>{await activateGraphProducer(tx,contract,gr);await publishGraphDrafts(tx,contract,{vertices:[{kind:'sample',key:{name:'unrelated'},values:{amount:9},producer:'fixture',producerVersion:'1'}],removals:[]});});
    const unrelatedUid=(await owner.run(tx=>tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' AND n.key->>'name'='unrelated'`))).rows[0]!.uid;

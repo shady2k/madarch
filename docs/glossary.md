@@ -238,6 +238,14 @@ judged assertions, rationale and evidence, and the assertion it writes into the
 disputed slot in the resolution stream.
 _Avoid_: answer (closes an open question of the earlier model), pin
 
+**Question state** (ru: состояние вопроса):
+The writer's verdict on a dispute question, recorded as an assertion history on the
+question vertex (decision 0039, item 27): `OPEN` while sources disagree, or while
+the value shown differs from the one its latest resolution chose; `RESOLVED` while
+a resolution matches the current candidates; `DISMISSED` when the disagreement
+ended and nothing shown contradicts a resolution. Only `OPEN` carries the
+«требует уточнения» badge.
+
 **Resolution stream** (ru: поток решений):
 The source stream of a principal's resolution source — a source with the role
 `resolution`, distinct from that principal's ordinary source — so a resolution

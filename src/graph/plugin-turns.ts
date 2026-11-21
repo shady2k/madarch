@@ -233,11 +233,12 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
     const selected = assertions.filter(assertion => assertion.selected === true);
     const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
     const nodes = await tx.query<{ id: number; uid: string; key: import('../plugin/protocol.js').PluginKeyValues }>('SELECT id,uid::text,key FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid', [ids]);
-    return await Promise.all(nodes.rows.map(async node => {
-      const ref = sdkReference(await referenceOf(tx, contract, kind, Number(node.id), new Set(), snapshot));
+    const references = await referencesOf(tx, contract, kind, nodes.rows.map(node => Number(node.id)), snapshot);
+    return nodes.rows.map(node => {
+      const ref = sdkReference(references.get(Number(node.id))!);
       const values = Object.fromEntries(selected.filter(assertion => assertion.subject.type === 'vertex' && assertion.subject.uid === node.uid && assertion.property !== '$exists').map(assertion => [assertion.property, assertion.value]));
       return { key: node.key, ...(ref.keyEdges === undefined ? {} : { keyEdges: ref.keyEdges }), values };
-    }));
+    });
   }));
 }
 

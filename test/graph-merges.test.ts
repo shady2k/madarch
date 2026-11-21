@@ -1,33 +1,14 @@
 import {expect,test} from 'bun:test';
 import { SQL_TRANSACTION_KINDS } from '../src/sql-driver.js';
-import {createTestDatabaseOwner} from './test-database.js';
 import {bindTestWriteCapability} from './write-capability-fixture.js';
 import {pinContext} from '../src/graph/context.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
 import {withAssertionContract} from '../src/graph/system-contract.js';
 import {publishGraphDrafts} from '../src/graph/write.js';
-import {bindGraphProducer,activateGraphProducer,type ProducerBinding} from '../src/graph/producer-binding.js';
-import {registerSystemSource} from '../src/graph/system-installation.js';
-import {startupBinding} from '../src/graph/manifest-publication.js';
+import {bindGraphProducer} from '../src/graph/producer-binding.js';
 import {duplicateCandidates,resolveDuplicate,unmerge} from '../src/graph/merges.js';
 import {readKindAssertions,readKindsAssertions} from '../src/graph/records.js';
-const productContract:GraphContract={vertex:['sample','other'].map(name=>({name,table:generatedTableName(name,'vertex'),key:['name'],capability:'fixture',fields:[{name:'name',type:'text' as const},{name:'synonyms',type:'json' as const,schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'array',items:{type:'string'}}},{name:'note',type:'text' as const,nullable:true}]})),edge:['related','shared'].map(name=>({name,from:['sample'],to:['other'],repeats:false,cardinality:{from:'many',to:name==='related'?'one':'many'},labels:{en:{out:'related',in:'related'},ru:{out:'related',in:'related'}},fields:[],capability:'fixture'})),dictionary:[]};
-const contract:GraphContract=withAssertionContract(productContract);
-async function fixture(declared:GraphContract=contract){
- const contract=declared;
- const owner=await createTestDatabaseOwner({graphContract:contract});
- const scope=await owner.transaction(SQL_TRANSACTION_KINDS.write,async tx=>(await startupBinding(tx,contract,'fixture')).binding.productUid);
- const writer=await registerSystemSource(owner,contract,{type:'plugin',installationKey:'writer',scope,version:'1'});
- const resolver=await registerSystemSource(owner,contract,{type:'plugin',installationKey:'resolver',scope,version:'1'});
- const grants=(principal:typeof writer.principal,merge=false)=>bindGraphProducer(owner,contract,{principal,vertices:{sample:['synonyms','note'],other:['synonyms','note'],'system.content-snapshot':['content','digest'],...(contract.vertex.some(kind=>kind.name==='child')?{child:[]}: {})},edges:{related:[],shared:[],...(contract.edge.some(kind=>kind.name==='child-parent')?{'child-parent':[]}: {})},actions:merge?['assert','merge','retract-own']:['assert','retract-own']});
- const a=grants(writer.principal),r=grants(resolver.principal,true);
- const execute=async<T>(binding:ProducerBinding,apply:(tx:import('../src/sql-driver.js').SqlExecutor)=>Promise<T>)=>owner.transaction(SQL_TRANSACTION_KINDS.write,async tx=>{await activateGraphProducer(tx,contract,binding);return apply(tx);});
- const {createHash}=await import('node:crypto');const actual=createHash('sha256').update('Evidence').digest('hex');
- await execute(a,tx=>publishGraphDrafts(tx,contract,{vertices:[{kind:'system.content-snapshot',key:{digest:actual},values:{content:'Evidence'},producer:'fixture',producerVersion:'1'},...['one','two'].map(name=>({kind:'sample',key:{name},values:{synonyms:['shared'],note:name},producer:'fixture',producerVersion:'1'})),{kind:'other',key:{name:'parent'},values:{synonyms:[]},producer:'fixture',producerVersion:'1'}],edges:['related','shared'].flatMap(kind=>['one','two'].map(name=>({kind,from:{kind:'sample',key:{name}},to:{kind:'other',key:{name:'parent'}},producer:'fixture',producerVersion:'1'}))),removals:[]}));
- const rows=await owner.transaction(SQL_TRANSACTION_KINDS.snapshot,tx=>readKindAssertions(tx,'vertex','sample',['name','note','synonyms'],{contract}));
- const input={members:rows.map(row=>({kind:'sample',key:{},uid:row.uid})) as unknown as readonly [import('../src/graph/contract.js').EntityRefDraft,import('../src/graph/contract.js').EntityRefDraft],signals:{kind:'sample',name:'name',synonyms:'synonyms',edges:['related','shared']},decision:'sure' as const,reason:'Same entity checked',evidence:[{target:{kind:'system.content-snapshot',key:{digest:actual}}}]};
- return {owner,a,r,resolver,execute,rows,input};
-}
+import {contract,fixture,productContract} from './dispute-merge-fixture.js';
 async function expectNoKeyAllocations(owner:import('../src/adapters/database-owner.js').DatabaseOwner){
  const keys=await owner.transaction(SQL_TRANSACTION_KINDS.snapshot,tx=>tx.query(`SELECT a.assertion_id FROM edge allocation JOIN entity kind ON kind.id=allocation.entity_id AND kind.name='system.merge-allocation-assertion' JOIN assertion a ON a.assertion_id=allocation.to_node WHERE a.property='name'`));
  expect(keys.rows).toHaveLength(0);
@@ -318,3 +299,50 @@ test('supplied survivor identities hydrate absorbed member assertions',async()=>
   });
  }finally{await f.owner.close();}
 },60000);
+
+// A child can own a merge independently of its unpinned parent.
+test('parent affected alias is projected alongside child question anchors',async()=>{
+ const f=await fixture();
+ try{
+  const child=await f.owner.transaction('write',async tx=>(await tx.query<{id:string}>(`INSERT INTO context(parent,ref) VALUES(1,'child-merge') RETURNING id::text`)).rows[0]!.id);
+  const [survivor,alias]=[...f.rows].sort((a,b)=>a.id-b.id);
+  const {loadAssertions}=await import('../src/graph/assertion-read.js');
+  const {reconcileDisputes}=await import('../src/graph/disputes.js');
+  const {bindWriteCapability,requireWriteCapability,writeAssertion}=await import('../src/graph/write.js');
+  const question=crypto.randomUUID();
+  await f.owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,contract);
+   const active=requireWriteCapability(tx);bindWriteCapability(tx,{...active,context:Number(child)});
+   const anchor=(await loadAssertions(tx,'vertex','sample',['note'],[alias!.id]))[0]!;
+   const merge={kind:'system.merge',key:{},uid:crypto.randomUUID()},q={kind:'system.dispute-question',uid:question,key:{}};
+   await publishGraphDrafts(tx,contract,{vertices:[{...merge,values:{state:'ACTIVE',reason:'Child owns merge'},evidence:f.input.evidence,producer:'fixture',producerVersion:'1'},{...q,values:{property:'note',language:null,segment_from:anchor.validFrom,segment_to:null,state:'OPEN'},validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],edges:[
+    ...[survivor!,alias!].map(row=>({kind:'system.merge-member',from:merge,to:{kind:'sample',key:{},uid:row.uid},discriminator:row.uid,producer:'fixture',producerVersion:'1'})),
+    {kind:'system.merge-survivor',from:merge,to:{kind:'sample',key:{},uid:survivor!.uid},discriminator:survivor!.uid,producer:'fixture',producerVersion:'1'},
+    {kind:'system.dispute-anchor',from:q,to:{kind:'system.assertion',uid:anchor.id,key:{}},discriminator:anchor.id,validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'},
+   ],removals:[]},Number(child));
+  });
+  await f.execute(f.a,async tx=>{
+   await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:String(alias!.id),property:'note',operation:'assert',value:'one'});
+   await reconcileDisputes(tx,contract);
+  });
+  await f.owner.transaction('snapshot',async tx=>{
+   const states=await loadAssertions(tx,'vertex','system.dispute-question',['state']);
+   expect(states.some(row=>row.subject.type==='vertex'&&row.subject.uid===question&&row.context===Number(child)&&row.value==='DISMISSED')).toBe(true);
+  });
+ }finally{await f.owner.close();}
+},30000);
+
+test('merge reconciles existence anchors on its members',async()=>{
+ const f=await fixture();try{
+  const {loadAssertions}=await import('../src/graph/assertion-read.js');
+  const question=crypto.randomUUID();
+  await f.owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,contract);
+   const anchor=(await loadAssertions(tx,'vertex','sample',['$exists'],[f.rows[0]!.id]))[0]!;
+   const q={kind:'system.dispute-question',uid:question,key:{}};
+   await publishGraphDrafts(tx,contract,{vertices:[{...q,values:{property:'$exists',language:null,segment_from:anchor.validFrom,segment_to:null,state:'OPEN'},validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],edges:[{kind:'system.dispute-anchor',from:q,to:{kind:'system.assertion',uid:anchor.id,key:{}},discriminator:anchor.id,validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],removals:[]});
+  });
+  await f.execute(f.r,tx=>resolveDuplicate(tx,contract,f.r,f.input));
+  await f.owner.transaction('snapshot',async tx=>{const states=await loadAssertions(tx,'vertex','system.dispute-question',['state']);expect(states.some(row=>row.subject.type==='vertex'&&row.subject.uid===question&&row.value==='DISMISSED')).toBe(true);});
+ }finally{await f.owner.close();}
+},30000);

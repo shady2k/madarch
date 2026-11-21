@@ -100,7 +100,7 @@ export async function resolveDuplicate(tx:SqlExecutor,declared:GraphContract,bin
   const held=current[0]?.values[input.signals.synonyms];
   await writeAssertion(tx,contract,{sort:'vertex',kind:survivor.kind,subjectId:String(survivor.id),property:input.signals.synonyms,operation:'assert',value:[...new Set([...(Array.isArray(held)?held:[]),...(Array.isArray(losing.values[input.signals.synonyms])?losing.values[input.signals.synonyms] as unknown[]:[]),...(typeof original==='string'?[original]:[])])].sort(byCodePoint),evidence:input.evidence},prior.context);
  }finally{bindWriteCapability(tx,prior);}
- await reconcileDisputes(tx,contract,contract.vertex.filter(kind=>kind.name===survivor.kind).flatMap(kind=>kind.fields.map(field=>({sort:'vertex' as const,kind:kind.name,subjectId:Number(survivor.id),property:field.name}))));
+ await reconcileDisputes(tx,contract,contract.vertex.filter(kind=>kind.name===survivor.kind).flatMap(kind=>[{name:'$exists'},...kind.fields].map(field=>({sort:'vertex' as const,kind:kind.name,subjectId:Number(survivor.id),property:field.name}))));
  await tx.query('SET CONSTRAINTS ALL IMMEDIATE');await tx.query('SET CONSTRAINTS ALL DEFERRED');
  return {kind:'system.merge',uid};
  });
@@ -128,7 +128,7 @@ export async function unmerge(tx:SqlExecutor,declared:GraphContract,binding:Prod
  if(edits.some(edit=>!allocations.some(a=>a.assertionUid===edit.uid&&(a.direction??null)===edit.direction))){const uid=newUid();await save(tx,contract,'system.merge-question',uid,{state:'OPEN',reason:'Explicit allocation required: '+input.reason},[{kind:'system.merge-question-merge',target:{kind:'system.merge',key:{},uid:input.mergeUid}},...links.map(member=>({kind:'system.merge-question-member',target:{kind:member.kind,key:{},uid:member.uid}}))],input.evidence);return {kind:'system.merge-question',uid};}
  for(const allocation of allocations){const member=links.find(member=>member.uid===allocation.memberUid)!;await save(tx,contract,'system.merge-allocation',newUid(),allocation.direction?{direction:allocation.direction}:{},[{kind:'system.merge-allocation-merge',target:{kind:'system.merge',key:{},uid:input.mergeUid}},{kind:'system.merge-allocation-assertion',target:{kind:'system.assertion',key:{},uid:allocation.assertionUid}},{kind:'system.merge-allocation-member',target:{kind:member.kind,key:{},uid:member.uid}}],input.evidence);}
  await save(tx,contract,'system.merge',input.mergeUid,{state:'UNDONE' ,reason:input.reason},[],input.evidence);
- await reconcileDisputes(tx,contract,links.flatMap(member=>contract.vertex.find(kind=>kind.name===member.kind)!.fields.map(field=>({sort:'vertex' as const,kind:member.kind,subjectId:Number(member.id),property:field.name}))));
+ await reconcileDisputes(tx,contract,links.flatMap(member=>[{name:'$exists'},...contract.vertex.find(kind=>kind.name===member.kind)!.fields].map(field=>({sort:'vertex' as const,kind:member.kind,subjectId:Number(member.id),property:field.name}))));
  await tx.query('SET CONSTRAINTS ALL IMMEDIATE');await tx.query('SET CONSTRAINTS ALL DEFERRED');return {kind:'system.merge',uid:input.mergeUid};
  });
 }
