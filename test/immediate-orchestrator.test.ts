@@ -35,17 +35,16 @@ test('real orchestrator binds immediate attempt and terminal receipt without pri
   expect((await owner.run(tx=>tx.query("SELECT to_regclass('public.fill_unit_draft') AS held"))).rows[0]?.held).toBeNull();
   const lifecycle=await owner.run(tx=>tx.query<{same_operation:boolean,affected:boolean}>(`SELECT
     EXISTS(SELECT 1 FROM edge l JOIN entity lk ON lk.id=l.entity_id AND lk.name='system.assertion-operation' WHERE l.from_node=a.assertion_id AND l.to_node=op.id) AS same_operation,
-    EXISTS(SELECT 1 FROM edge e JOIN entity ek ON ek.id=e.entity_id AND ek.name='system.operation-affected' WHERE e.from_node=op.id AND e.to_node=a.assertion_id) AS affected
+    EXISTS(SELECT 1 FROM edge e JOIN entity ek ON ek.id=e.entity_id AND ek.name='system.assertion-operation' WHERE e.to_node=op.id AND e.from_node=a.assertion_id) AS affected
     FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id JOIN edge subject ON subject.id=av.subject_edge_id
     JOIN node unit ON unit.id=subject.to_node JOIN edge ur ON ur.from_node=unit.id JOIN entity urk ON urk.id=ur.entity_id AND urk.name='system.unit-run'
     JOIN edge ou ON ou.to_node=unit.id JOIN entity ouk ON ouk.id=ou.entity_id AND ouk.name='system.operation-unit' JOIN node op ON op.id=ou.from_node
-    WHERE a.property='state' AND EXISTS(SELECT 1 FROM edge affected JOIN entity ak ON ak.id=affected.entity_id AND ak.name='system.operation-affected' WHERE affected.from_node=op.id AND affected.to_node=a.assertion_id)`));
+    WHERE a.property='state' AND EXISTS(SELECT 1 FROM edge affected JOIN entity ak ON ak.id=affected.entity_id AND ak.name='system.assertion-operation' WHERE affected.to_node=op.id AND affected.from_node=a.assertion_id)`));
   expect(lifecycle.rows.some(row=>row.same_operation&&row.affected)).toBe(true);
   const journal=await owner.run(tx=>tx.query<{linked:boolean}>(`SELECT EXISTS(
     SELECT 1 FROM assertion a JOIN assertion_vertex_subject av ON av.assertion_id=a.assertion_id JOIN edge subject ON subject.id=av.subject_edge_id
     JOIN node transition ON transition.id=subject.to_node JOIN entity tk ON tk.id=transition.entity_id AND tk.name='system.fill-transition'
     JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lk ON lk.id=lineage.entity_id AND lk.name='system.assertion-operation'
-    JOIN edge affected ON affected.from_node=lineage.to_node AND affected.to_node=a.assertion_id JOIN entity ak ON ak.id=affected.entity_id AND ak.name='system.operation-affected'
     WHERE a.property='to_state') AS linked`));
   expect(journal.rows[0]?.linked).toBe(true);
 
