@@ -3,7 +3,7 @@ import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, EvidenceDraft } from './contract.js';
 import { withAssertionContract, isDisputableProperty } from './system-contract.js';
 import { loadResolutionAssertion, type DisputeView } from './dispute-read.js';
-import { loadAssertions, type StoredAssertion } from './assertion-read.js';
+import { loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { selectAssertions, candidateFingerprint, resolutionMatches, applySemanticResolution, type AssertionRow } from './assertion-selection.js';
 import { bindWriteCapability, bootstrapWriteIdentity, writeAssertion, requireWriteCapability, requireAssertionScope, publishGraphDrafts } from './write.js';
 import { requireProducerAction, requirePublicationBinding, requireProducerBinding, type ProducerBinding } from './producer-binding.js';
@@ -47,6 +47,49 @@ async function records(tx:SqlExecutor,kind:string,selectors:Selectors):Promise<M
  return result;
  });
 }
+interface ReconciliationSnapshot {
+ records(kind:string,selectors:Selectors):Map<string,Record<string,unknown>>;
+ links(uid:string,kind:string,selectors:Selectors):string[];
+ producerRows(rows:readonly StoredAssertion[]):StoredAssertion[];
+}
+async function reconciliationSnapshot(tx:SqlExecutor):Promise<ReconciliationSnapshot>{
+ return await withSpan('graph.dispute.reconciliation-snapshot',{},async()=>{
+ const linkKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.resolution-assertion'];
+ const lineage=(await tx.query<{origin:string;uid:string;id:number;kind:string}>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) ORDER BY target.uid::text COLLATE "C"`,[linkKinds])).rows;
+ const batches=await loadAssertionsBatch(tx,[
+  {sort:'vertex',kind:'system.dispute-question',properties:['segment_from','segment_to','state']},
+  {sort:'vertex',kind:'system.dispute-resolution',properties:['segment_from','segment_to','rationale']},
+  ...linkKinds.map(kind=>({sort:'edge' as const,kind,properties:['$exists'],subjectIds:lineage.filter(link=>link.kind===kind).map(link=>Number(link.id))})),
+ ]);
+ const fields=new Map<string,Map<string,StoredAssertion[]>>();
+ for(const [index,kind] of ['system.dispute-question','system.dispute-resolution'].entries()){
+  const grouped=new Map<string,StoredAssertion[]>();
+  for(const row of batches[index]!){const uid=subject(row);const values=grouped.get(uid)??[];values.push(row);grouped.set(uid,values);}
+  fields.set(kind,grouped);
+ }
+ const linked=new Map<string,typeof lineage>();
+ for(const link of lineage){const key=JSON.stringify([link.origin,link.kind]);const values=linked.get(key)??[];values.push(link);linked.set(key,values);}
+ const existence=new Map<number,StoredAssertion[]>();
+ for(const row of batches.slice(2).flat()){const values=existence.get(row.subjectId)??[];values.push(row);existence.set(row.subjectId,values);}
+ const decisionIds=new Set(lineage.filter(link=>link.kind==='system.resolution-assertion').map(link=>link.uid));
+ return {
+  records(kind,selectors){
+   const result=new Map<string,Record<string,unknown>>();
+   for(const [uid,rows] of fields.get(kind)??[]){
+    const values:Record<string,unknown>={};
+    for(const property of kind==='system.dispute-question'?['segment_from','segment_to','state']:['segment_from','segment_to','rationale']){
+     const selected=selectAssertions(rows.filter(row=>row.property===property),selectors).selected;
+     if(selected)values[property]=selected.value instanceof Date?selected.value.toISOString():selected.value;
+    }
+    if(Object.keys(values).length)result.set(uid,values);
+   }
+   return result;
+  },
+  links(uid,kind,selectors){return (linked.get(JSON.stringify([uid,kind]))??[]).filter(link=>selectAssertions(existence.get(Number(link.id))??[],selectors).selected?.value===true).map(link=>link.uid);},
+  producerRows(rows){const sources=new Set(rows.filter(row=>decisionIds.has(row.id)).map(row=>row.source));return rows.filter(row=>!sources.has(row.source));},
+ };
+ });
+}
 async function internal<T>(tx:SqlExecutor,contract:GraphContract,work:()=>Promise<T>,preserveSource=false):Promise<T>{
  return await withSpan('graph.dispute.internal',{},async()=>{
  const previous=requireWriteCapability(tx);
@@ -79,7 +122,6 @@ function segmentAt(rows:readonly AssertionRow[],at:string):Segment{
  const point=Date.parse(at);const bounds=rows.flatMap(row=>[row.validFrom,...(row.validTo===null?[]:[row.validTo])]).map(Date.parse).sort((a,b)=>a-b);
  return {from:new Date(Math.max(...bounds.filter(b=>b<=point),-62135596800000)).toISOString(),to:bounds.find(b=>b>point)===undefined?null:new Date(bounds.find(b=>b>point)!).toISOString()};
 }
-async function candidatesForResolution(tx:SqlExecutor,all:readonly StoredAssertion[],resolution:string,selectors:Selectors):Promise<StoredAssertion[]>{const ids=await links(tx,resolution,'system.resolution-judged',selectors);return all.filter(row=>ids.includes(row.id));}
 async function producerRows(tx:SqlExecutor,rows:readonly StoredAssertion[]):Promise<StoredAssertion[]> {
  return await withSpan('graph.dispute.producer-rows',{},async()=>{
  const decisionIds=(await tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM edge e JOIN entity k ON k.id=e.entity_id AND k.name='system.resolution-assertion' JOIN node n ON n.id=e.to_node`)).rows.map(row=>row.uid);
@@ -100,26 +142,26 @@ async function resolutionSource(tx:SqlExecutor,contract:GraphContract,principal:
  });
 }
 /** Materialize a persisted question at the same temporal/context snapshot as its slot. */
-async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors):Promise<DisputeView|null>{
+async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly StoredAssertion[],selectors:Selectors,snapshot:ReconciliationSnapshot):Promise<DisputeView|null>{
  return await withSpan('graph.dispute.read',{},async()=>{
- rows=await producerRows(tx,rows);
+ rows=snapshot.producerRows(rows);
  if(!rows.length)return null;
- const selected=selectAssertions(rows,selectors);const questions=await records(tx,'system.dispute-question',selectors);
- const resolutions=await records(tx,'system.dispute-resolution',selectors);
+ const selected=selectAssertions(rows,selectors);const questions=snapshot.records('system.dispute-question',selectors);
+ const resolutions=snapshot.records('system.dispute-resolution',selectors);
  for(const [id,fields] of questions){
-  const anchor=(await links(tx,id,'system.dispute-anchor',selectors))[0];const anchorRow=rows.find(row=>row.id===anchor);if(!anchorRow)continue;
+  const anchor=snapshot.links(id,'system.dispute-anchor',selectors)[0];const anchorRow=rows.find(row=>row.id===anchor);if(!anchorRow)continue;
   const segment=segmentAt(selected.candidates.length?selected.candidates:rows,selectors.validAt);
   if(fields['segment_from']===undefined)continue;
   if(Date.parse(String(fields['segment_from']))>=Date.parse(segment.to??'9999-01-01T00:00:00Z')||(fields['segment_to']!==null&&Date.parse(String(fields['segment_to']))<=Date.parse(segment.from)))continue;
-  const history=(await links(tx,id,'system.dispute-question-resolution',selectors)).filter(uid=>resolutions.has(uid));
+  const history=snapshot.links(id,'system.dispute-question-resolution',selectors).filter(uid=>resolutions.has(uid));
   let matching:string|null=null;let chosen:string|null=null;
   for(const resolution of history){
-   const pin=await candidatesForResolution(tx,rows,resolution,selectors);const current=selected.candidates;
+   const pin=rows.filter(row=>snapshot.links(resolution,'system.resolution-judged',selectors).includes(row.id));const current=selected.candidates;
    const metadata=resolutions.get(resolution)!;const scope={from:String(metadata['segment_from']),to:metadata['segment_to']===null?null:String(metadata['segment_to'])};
    const evidenceAt=(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
    const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...selectors,validAt:evidenceAt});
    if(pin.length&&resolutionMatches(pin.map(row=>candidateFingerprint(row,scope)),current.map(row=>candidateFingerprint(row,segment)),evidenceValid)){
-    const chosenId=(await links(tx,resolution,'system.dispute-chosen',selectors))[0];const original=rows.find(row=>row.id===chosenId);
+    const chosenId=snapshot.links(resolution,'system.dispute-chosen',selectors)[0];const original=rows.find(row=>row.id===chosenId);
     const repeated=original?applySemanticResolution(selected,{pins:pin.map(row=>candidateFingerprint(row,scope)),segment,chosenSource:original.source,chosenValue:original.value,evidenceValid}).selected:null;
     if(repeated){matching=resolution;chosen=repeated.id;}
    }
@@ -189,16 +231,16 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
   // One source cannot disagree with itself; anchored slots still need evidence revalidation.
   if(!anchoredSlots.has(JSON.stringify([row.subject.type,row.subjectId,row.property,row.language]))&&new Set(rows.filter(row=>row.operation==='assert').map(row=>row.source)).size<=1)slots.delete(key);
  }
- if(slots.size>0)await internal(tx,contract,async()=>{for(const rows of slots.values()){
+ if(slots.size>0)await internal(tx,contract,async()=>{let snapshot=await reconciliationSnapshot(tx);for(const rows of slots.values()){
   const instants=[...new Set([now,...rows.flatMap(row=>[row.validFrom,...(row.validTo===null?[]:[row.validTo])])])];
   for(const validAt of instants){
   const segmentSelectors={...selectors,validAt,recordedAt:(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now};
-  const candidateRows=await producerRows(tx,rows);
+  const candidateRows=snapshot.producerRows(rows);
   const selection=selectAssertions(candidateRows,segmentSelectors);
-  const existing=await judgeDispute(tx,contract,candidateRows,segmentSelectors);
+  const existing=await judgeDispute(tx,contract,candidateRows,segmentSelectors,snapshot);
   if(existing){
    const desired=existing.state;
-   const held=(await records(tx,'system.dispute-question',segmentSelectors)).get(existing.id);
+   const held=snapshot.records('system.dispute-question',segmentSelectors).get(existing.id);
    if(held?.['state']!==desired){
     if(desired!=='RESOLVED')for(const resolution of existing.supersededResolutions){
      const assertion=await loadResolutionAssertion(tx,contract,resolution,rows,segmentSelectors);if(!assertion)continue;
@@ -211,13 +253,13 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
       await writeAssertion(tx,contract,{sort:assertion.subject.type,kind:subjectKind,subjectId:String(assertion.subjectId),property:assertion.property,language:assertion.language,operation:'retract',validFrom:from,validTo:assertion.validTo},binding.context);
      }finally{bindWriteCapability(tx,previous);}
     }
-    const oldCandidates=await links(tx,existing.id,'system.dispute-candidate',segmentSelectors);
+    const oldCandidates=snapshot.links(existing.id,'system.dispute-candidate',segmentSelectors);
     for(const candidate of oldCandidates.filter(uid=>!selection.candidates.some(row=>row.id===uid))){
      const edge=(await tx.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name='system.dispute-candidate' AND origin.uid=$1::uuid AND target.uid=$2::uuid`,[existing.id,candidate])).rows[0];
      if(edge)await writeAssertion(tx,contract,{sort:'edge',kind:'system.dispute-candidate',subjectId:edge.id,property:'$exists',operation:'retract',validFrom:'0001-01-01T00:00:00.000Z'},binding.context);
     }
     await recordQuestionState(tx,contract,existing.id,desired,selection.candidates.filter(row=>!oldCandidates.includes(row.id)).map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),segmentAt(candidateRows,validAt));
-
+    snapshot=await reconciliationSnapshot(tx);
    }
    continue;
   }
@@ -227,6 +269,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
    {kind:'system.dispute-anchor',target:rows[0]!.id,targetKind:'system.assertion'},
    ...selection.candidates.map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),
   ],undefined,segment);
+  snapshot=await reconciliationSnapshot(tx);
  }}});
  if(propagate){
   const children=(await tx.query<{id:string}>(`WITH RECURSIVE children AS (SELECT id FROM context WHERE parent=$1::bigint AND parent_recorded_seq IS NULL UNION ALL SELECT c.id FROM context c JOIN children p ON c.parent=p.id WHERE c.parent_recorded_seq IS NULL) SELECT id::text AS id FROM children`,[binding.context])).rows;

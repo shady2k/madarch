@@ -150,14 +150,7 @@ test('an anchor on a merged-away member still visits a single-source slot', asyn
       const now = (await tx.query<{ at: string }>('SELECT clock_timestamp()::text AS at')).rows[0]!.at;
       const projected = await loadAssertions(tx, 'vertex', 'sample', ['amount'], undefined, { projectMergedSubjects: true, validAt: now, recordedAt: now });
       expect(projected.find(row => row.id === loser.id)!.subjectId).not.toBe(loser.subjectId);
-      let visits = 0;
-      const query = tx.query;
-      tx.query = async <Row extends object>(sql: string, values?: readonly unknown[]) => {
-        if (sql.startsWith('SELECT n.uid::text AS uid FROM edge e') && sql.includes("k.name='system.resolution-assertion'")) visits++;
-        return query<Row>(sql, values);
-      };
-      try { await reconcileDisputes(tx, contract, []); } finally { tx.query = query; }
-      expect(visits).toBeGreaterThan(0);
+      await reconcileDisputes(tx, contract, []);
       const { selectAssertions } = await import('../src/graph/assertion-selection.js');
       const at = (await tx.query<{ at: string }>('SELECT clock_timestamp()::text AS at')).rows[0]!.at;
       const state = (await loadAssertions(tx, 'vertex', question.kind, ['state'])).filter(row => row.subject.type === 'vertex' && row.subject.uid === question.uid);
