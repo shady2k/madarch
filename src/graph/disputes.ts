@@ -176,7 +176,7 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
    const pin=rows.filter(row=>snapshot.links(resolution,'system.resolution-judged',selectors).includes(row.id));const current=selected.candidates;
    const metadata=resolutions.get(resolution)!;const scope={from:String(metadata['segment_from']),to:metadata['segment_to']===null?null:String(metadata['segment_to'])};
    const evidenceAt=snapshot.at;
-   const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...selectors,validAt:evidenceAt});
+   const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...selectors,validAt:evidenceAt},snapshot);
    if(pin.length&&resolutionMatches(pin.map(row=>candidateFingerprint(row,scope)),current.map(row=>candidateFingerprint(row,segment)),evidenceValid)){
     const chosenId=snapshot.links(resolution,'system.dispute-chosen',selectors)[0];const original=rows.find(row=>row.id===chosenId);
     const repeated=original?applySemanticResolution(selected,{pins:pin.map(row=>candidateFingerprint(row,scope)),segment,chosenSource:original.source,chosenValue:original.value,evidenceValid}).selected:null;
@@ -188,9 +188,10 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
  return null;
  });
 }
-async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid:string,selectors:Selectors):Promise<boolean>{
+async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid:string,selectors:Selectors,snapshot:ReconciliationSnapshot):Promise<boolean>{
  return await withSpan('graph.dispute.evidence',{},async()=>{
- const values=(await loadAssertions(tx,'vertex','system.dispute-resolution',['rationale'])).filter(row=>subject(row)===uid);
+ const values=snapshot.fields.get('system.dispute-resolution')?.get(uid);
+ if(values===undefined)throw new Error(`${import.meta.path}:194: reconciliation snapshot missing resolution ${uid}`);
  const assertion=selectAssertions(values,selectors).selected as StoredAssertion|null;
  if(assertion===null||assertion.evidence.length===0)return false;
  const manifest=await readPublishedManifest(tx);const support=evidenceSupportRoles(manifest?.semanticBindings);
@@ -223,7 +224,7 @@ async function resolutionEvidenceValid(tx:SqlExecutor,contract:GraphContract,uid
 }
 /** Call once after the operation's final assertions and deferred evidence, while its write lock is held. */
 export interface AffectedDisputeSlot {readonly sort:'vertex'|'edge';readonly kind:string;readonly subjectId:number;readonly property:string;readonly language?:string|null}
-export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,affected?:readonly AffectedDisputeSlot[],propagate=true):Promise<void>{
+export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,affected?:readonly AffectedDisputeSlot[]|'all',propagate=true):Promise<void>{
  return await withSpan('graph.dispute.reconcile',{},async()=>{
  const contract=withAssertionContract(declared);const binding=requireWriteCapability(tx);
  const now=(await tx.query<{now:string}>(`SELECT clock_timestamp()::text AS now`)).rows[0]!.now;
@@ -231,9 +232,18 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
  const selectors:Selectors={validAt:now,recordedAt:now,contexts:layers.map(layer=>Number(layer.id)),contextRecordedThrough:Object.fromEntries(layers.map(layer=>[Number(layer.id),layer.recordedThrough]))};
  const operationUid=binding.operationUid;
  const touched=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,coalesce(subject.id,edge_subject.id) AS subject_id,a.property,a.language FROM assertion a JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE op.uid=$1::uuid`,[operationUid])).rows;
- const relevant=affected??touched.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}));
- // Existing question anchors are the reverse-dependency set for justification withdrawal.
- const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE $4::jsonb IS NULL OR EXISTS(SELECT 1 FROM jsonb_to_recordset($4::jsonb) slot(sort text,kind text,"subjectId" bigint,property text,language text) WHERE slot.sort=CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AND slot.kind=k.name AND slot."subjectId"=CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AND slot.property=a.property AND slot.language IS NOT DISTINCT FROM a.language)`,[selectors.contexts[0],selectors.validAt,selectors.recordedAt,affected===undefined||affected.length===0?null:JSON.stringify(affected)])).rows;
+ const relevant=affected===undefined||affected==='all'?touched.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language})):affected;
+ // Reverse structural evidence dependencies are bounded by subjects written by this operation.
+ const support=affected===undefined?evidenceSupportRoles((await readPublishedManifest(tx))?.semanticBindings):undefined;
+ const here=support?.direction==='to'?'to_node':'from_node',there=support?.direction==='to'?'from_node':'to_node';
+ const evidenceTargets=affected===undefined?(await tx.query<{id:number}>(`WITH vertices AS (SELECT DISTINCT unnest($1::bigint[]) AS id), written_edges AS (SELECT e.* FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.id=ANY($2::bigint[]) AND k.name=$3), sources AS (SELECT ${there} AS id FROM written_edges)
+ SELECT id FROM vertices UNION SELECT ${here} FROM written_edges UNION SELECT e.${here} FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.${there} IN (SELECT id FROM sources UNION SELECT id FROM vertices) AND k.name=$3`,[touched.filter(row=>row.sort==='vertex').map(row=>Number(row.subject_id)),touched.filter(row=>row.sort==='edge').map(row=>Number(row.subject_id)),support?.edgeKind??null])).rows.map(row=>Number(row.id)):[];
+ const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE $6::boolean OR EXISTS(SELECT 1 FROM jsonb_to_recordset($4::jsonb) slot(sort text,kind text,"subjectId" bigint,property text,language text) WHERE slot.sort=CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AND slot.kind=k.name AND CASE WHEN slot.sort='vertex' THEN graph_merge_target(slot."subjectId",$1::bigint,$2::timestamptz,$3::timestamptz) ELSE slot."subjectId" END=CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AND slot.property=a.property AND slot.language IS NOT DISTINCT FROM a.language) OR EXISTS(
+ SELECT 1 FROM edge qr JOIN entity qrk ON qrk.id=qr.entity_id AND qrk.name='system.dispute-question-resolution'
+ JOIN assertion_vertex_subject rationale ON true JOIN edge rs ON rs.id=rationale.subject_edge_id AND rs.to_node=qr.to_node
+ JOIN assertion ra ON ra.assertion_id=rationale.assertion_id AND ra.property='rationale'
+ JOIN edge evidence ON evidence.from_node=ra.assertion_id JOIN entity ek ON ek.id=evidence.entity_id AND ek.name='system.assertion-evidence'
+ WHERE qr.from_node=anchor.from_node AND evidence.to_node=ANY($5::bigint[]))`,[selectors.contexts[0],selectors.validAt,selectors.recordedAt,JSON.stringify(relevant),evidenceTargets,affected==='all'])).rows;
  const affectedSlots=[...relevant,...anchors.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}))];
  const slots=new Map<string,StoredAssertion[]>();
  for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort]){
@@ -261,7 +271,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
    if(held?.['state']!==desired){
     if(desired!=='RESOLVED')for(const resolution of existing.supersededResolutions){
      const assertion=await loadResolutionAssertion(tx,contract,resolution,rows,segmentSelectors);if(!assertion)continue;
-     const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...segmentSelectors,validAt:now});
+     const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...segmentSelectors,validAt:now},snapshot);
      const from=evidenceValid?segmentAt(candidateRows,validAt).from:assertion.validFrom;
      const subjectKind=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM ${assertion.subject.type==='vertex'?'node':'edge'} s JOIN entity k ON k.id=s.entity_id WHERE s.id=$1::bigint`,[assertion.subjectId])).rows[0]!.kind;
      const previous=requireWriteCapability(tx);

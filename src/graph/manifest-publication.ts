@@ -1,5 +1,6 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
 import { extname, isAbsolute, join, resolve } from 'node:path';
+import { reconcileDisputes } from './disputes.js';
 import { withSpan } from '../obs/trace.js';
 import { readKindAssertions, readKindsAssertions, type AssertionRecord } from './records.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -511,6 +512,7 @@ async function publishDeclarations(tx: SqlExecutor, validated: ValidatedManifest
       kind: kindName, key: row.key as VertexRemovalDraft['key'], producer: 'manifest',
     }));
     written += await publish(tx, publicationContract, { vertices: validated.templates, removals: removedTemplates }, 1, { author: 'manifest' });
+    await reconcileDisputes(tx, publicationContract, 'all');
     return written;
   });
 }

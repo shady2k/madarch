@@ -6,7 +6,7 @@ import {generatedTableName,graphContractVersion,type GraphContract} from '../src
 import {withAssertionContract} from '../src/graph/system-contract.js';
 import {withManifestContract} from '../src/graph/manifest-contract.js';
 import {startupBinding} from '../src/graph/manifest-publication.js';
-import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
+import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion,writeAssertions} from '../src/graph/write.js';
 import * as uidModule from '../src/graph/uid.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
 import {reconcileDisputes} from '../src/graph/disputes.js';
@@ -162,3 +162,82 @@ test('opening questions reads the same statements and rows per change',async()=>
  expect((large.total-26)/200).toBe((small.total-26)/10);
  expect((large.rows-small.rows)/190).toBe((small.rows-41)/10);
 },60000);
+
+// Exercise the production default through the fenced host, not an explicit slot list.
+async function hostMeasure(catalog:number,withdraw=false){
+ const contract=withdraw?withAssertionContract(withManifestContract({...baseContract,edge:[{name:'justifies',from:['system.content-snapshot'],to:['sample'],cardinality:{from:'many',to:'many'},labels:{en:{out:'justifies',in:'justified by'},ru:{out:'justifies',in:'justified by'}},fields:[],repeats:false,capability:'fixture'}]})):baseContract;
+ const started=performance.now();
+ const f=await fixture(withdraw?catalog+1:catalog+10,true,contract);
+ let setupMs=0,baselineMs=0,operationMs=0;
+ let supportEdge='';let resolutionSource='';
+ if(withdraw)await f.owner.transaction('write',async tx=>{
+  const installed=await startupBinding(tx,contract,'support-manifest');
+  await publishGraphDrafts(tx,installed.contract,{vertices:[{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify({file:'/fixture/catalog.yaml',kinds:{$map:[]},groups:{$map:[]},roles:{$map:[]},properties:{$map:[]},excludeDocuments:[],ignoreBlocks:[],findings:[],semanticBindings:{$map:[['evidence-support',{kind:'system.content-snapshot',fields:{},line:1,edges:{about:{kind:'justifies',direction:'from',line:1}}}]]}})},validFrom:from,producer:'fixture',producerVersion:'1'}],removals:[]});
+  f.bind(tx,f.a);
+  const rows=await loadAssertions(tx,'vertex','sample',['amount']);
+  const anchors=(await tx.query<{question:string;target:string}>(`SELECT q.uid::text AS question,a.uid::text AS target FROM edge e JOIN entity k ON k.id=e.entity_id AND k.name='system.dispute-anchor' JOIN node q ON q.id=e.from_node JOIN node a ON a.id=e.to_node`)).rows;
+  const vertices=[],edges=[];const decision=newUid();resolutionSource=decision;await bootstrapWriteIdentity(tx,'source',decision,f.productUid);
+  const proofs=f.slots.map((_,index)=>{const content=`Proof ${index}`,digest=createHash('sha256').update(content).digest('hex');return {kind:'system.content-snapshot',key:{digest},values:{content},validFrom:from,producer:'fixture',producerVersion:'1'};});
+  await publishGraphDrafts(tx,contract,{vertices:proofs,edges:proofs.map((proof,index)=>({kind:'justifies',from:proof,to:{kind:'sample',key:{name:`slot-${String(index).padStart(3,'0')}`}},validFrom:from,producer:'fixture',producerVersion:'1'})),removals:[]});
+  f.bind(tx,decision);
+  const decisions=await writeAssertions(tx,contract,f.slots.map((slot,index)=>({sort:'vertex' as const,kind:'sample',subjectId:String(slot.subjectId),property:'amount',operation:'assert' as const,value:2,validFrom:from,evidence:[{target:proofs[index]!}]})));f.bind(tx,f.a);
+  for(const [index,slot] of f.slots.entries()){
+   const candidates=rows.filter(row=>row.subjectId===slot.subjectId);const question=anchors.find(anchor=>candidates.some(row=>row.id===anchor.target))!.question;
+   const support=proofs[index]!,assertion=decisions[index]!;
+   const resolution={kind:'system.dispute-resolution',uid:newUid(),key:{}};
+   vertices.push({...resolution,values:{segment_from:from,segment_to:null,rationale:'Checked'},evidence:[{target:support}],validFrom:from,producer:'fixture',producerVersion:'1'});
+   const targets=[...candidates.map(row=>({kind:'system.resolution-judged',target:{kind:'system.assertion',uid:row.id,key:{}}})),{kind:'system.dispute-chosen',target:{kind:'system.assertion',uid:candidates.find(row=>row.source===f.b)!.id,key:{}}},{kind:'system.resolution-assertion',target:{kind:'system.assertion',uid:assertion,key:{}}}];
+   for(const target of targets)edges.push({kind:target.kind,from:resolution,to:target.target,discriminator:target.target.uid,validFrom:from,producer:'fixture',producerVersion:'1'});
+   edges.push({kind:'system.dispute-question-resolution',from:{kind:'system.dispute-question',uid:question,key:{}},to:resolution,discriminator:resolution.uid,validFrom:from,producer:'fixture',producerVersion:'1'});
+  }
+  await publishGraphDrafts(tx,contract,{vertices,edges,removals:[]});
+  const states=await loadAssertions(tx,'vertex','system.dispute-question',['state']);
+  await writeAssertions(tx,contract,states.map(state=>({sort:'vertex' as const,kind:'system.dispute-question',subjectId:String(state.subjectId),property:'state',operation:'assert' as const,value:'RESOLVED',validFrom:from})));
+  supportEdge=(await tx.query<{id:string}>(`SELECT e.id::text FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node WHERE k.name='justifies' AND target.id=$1::bigint`,[f.slots[0]!.subjectId])).rows[0]!.id;
+ });
+ setupMs=performance.now()-started;
+ if(withdraw){const baseline=performance.now();await f.owner.transaction('write',async tx=>{f.bind(tx,f.a);await reconcileDisputes(tx,contract,f.slots,false);});baselineMs=performance.now()-baseline;}
+ console.log('HOST-PHASE',JSON.stringify({catalog,withdraw,setupMs,baselineMs}));
+ const {createPgBossQueue}=await import('../src/adapters/pg-boss-queue.js');
+ const {prepareQueueSchema}=await import('../src/adapters/schemas/queue.js');
+ const {createOperationHost,initializeOperationScope}=await import('../src/graph/operation-host.js');
+ const {requireWriteCapability}=await import('../src/graph/write.js');
+ const queue=await createPgBossQueue({owner:f.owner,supervise:false});
+ try{
+  const declaration={name:'dependency-fixture',leaseSeconds:60,retries:0,retryDelaySeconds:0,retryBackoff:false};
+  await prepareQueueSchema(f.owner,{declarations:[declaration]});await queue.declare(declaration);
+  await queue.enqueue({queue:declaration.name,data:{}});const [job]=await queue.claim({queue:declaration.name});
+  const runUid=newUid(),unitUid=newUid();
+  const binding=await f.owner.transaction('write',async tx=>{f.bind(tx,f.a);const binding=requireWriteCapability(tx);for(const [kind,uid] of [['person',binding.principalUid],['source',binding.sourceUid]] as const){const node=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[uid])).rows[0]!;await writeAssertion(tx,contract,{sort:'vertex',kind,subjectId:node.id,property:'$exists',operation:'assert',value:true});}await initializeOperationScope(tx,contract,binding,runUid,unitUid);return binding;});
+  const statements:{sql:string;rows:number}[]=[];let recording=false;
+  const observed:typeof f.owner={...f.owner,transaction:(kind,work,options)=>f.owner.transaction(kind,async tx=>{
+   const query=tx.query.bind(tx);tx.query=async<Row extends object>(sql:string,values?:readonly unknown[])=>{const result=await query<Row>(sql,values);if(recording)statements.push({sql,rows:result.rows.length});return result;};
+   try{return await work(tx);}finally{tx.query=query;}
+  },options)};
+  const host=createOperationHost({owner:observed,queue,job:job!,contract,capability:binding,runUid,unitUid});
+  const operationStart=performance.now();
+  await host.execute({key:'fixed-ten',request:{}},async tx=>{
+   if(withdraw)await writeAssertion(tx,contract,{sort:'edge',kind:'justifies',subjectId:supportEdge,property:'$exists',operation:'retract'});
+   else for(const slot of f.slots.slice(0,10))await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:String(slot.subjectId),property:'amount',operation:'assert',value:1,validFrom:from});
+   recording=true;return {accepted:true};
+  });
+  operationMs=performance.now()-operationStart;recording=false;
+  console.log('HOST-OPERATION',JSON.stringify({catalog,withdraw,operationMs}));
+  const outcome=withdraw?await f.owner.transaction('snapshot',async tx=>({state:(await readDispute(tx,contract,(await loadAssertions(tx,'vertex','sample',['amount'])).filter(row=>row.subjectId===f.slots[0]!.subjectId),{validAt:new Date().toISOString(),recordedAt:new Date().toISOString(),contexts:[1]}))?.state,retracted:(await loadAssertions(tx,'vertex','sample',['amount'])).some(row=>row.source===resolutionSource&&row.operation==='retract')})):undefined;
+  return {total:statements.length,rows:statements.reduce((sum,s)=>sum+s.rows,0),statements,outcome,setupMs,baselineMs,operationMs};
+ }finally{await queue.stop();await f.owner.close();}
+}
+test('operation host bounds fixed touched slots independently of unrelated questions',async()=>{
+ const small=await hostMeasure(10),large=await hostMeasure(200);
+ console.log('HOST-TOUCHED',JSON.stringify({small,large}));
+ expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
+},30000);
+
+test('operation host support withdrawal reopens only dependent resolution with bounded rows',async()=>{
+ const small=await hostMeasure(10,true),large=await hostMeasure(200,true);
+ console.log('HOST-SUPPORT',JSON.stringify({small,large}));
+ expect(small.outcome?.state).toBe('OPEN');expect(large.outcome?.state).toBe('OPEN');
+ expect(small.outcome?.retracted).toBe(true);expect(large.outcome?.retracted).toBe(true);
+ expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
+// The baseline walks every resolved question; the measured 200-question setup exceeded 30 seconds.
+},120000);

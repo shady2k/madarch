@@ -318,3 +318,50 @@ test('supplied survivor identities hydrate absorbed member assertions',async()=>
   });
  }finally{await f.owner.close();}
 },60000);
+
+// A child can own a merge independently of its unpinned parent.
+test('parent affected alias is projected alongside child question anchors',async()=>{
+ const f=await fixture();
+ try{
+  const child=await f.owner.transaction('write',async tx=>(await tx.query<{id:string}>(`INSERT INTO context(parent,ref) VALUES(1,'child-merge') RETURNING id::text`)).rows[0]!.id);
+  const [survivor,alias]=[...f.rows].sort((a,b)=>a.id-b.id);
+  const {loadAssertions}=await import('../src/graph/assertion-read.js');
+  const {reconcileDisputes}=await import('../src/graph/disputes.js');
+  const {bindWriteCapability,requireWriteCapability,writeAssertion}=await import('../src/graph/write.js');
+  const question=crypto.randomUUID();
+  await f.owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,contract);
+   const active=requireWriteCapability(tx);bindWriteCapability(tx,{...active,context:Number(child)});
+   const anchor=(await loadAssertions(tx,'vertex','sample',['note'],[alias!.id]))[0]!;
+   const merge={kind:'system.merge',key:{},uid:crypto.randomUUID()},q={kind:'system.dispute-question',uid:question,key:{}};
+   await publishGraphDrafts(tx,contract,{vertices:[{...merge,values:{state:'ACTIVE',reason:'Child owns merge'},evidence:f.input.evidence,producer:'fixture',producerVersion:'1'},{...q,values:{property:'note',language:null,segment_from:anchor.validFrom,segment_to:null,state:'OPEN'},validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],edges:[
+    ...[survivor!,alias!].map(row=>({kind:'system.merge-member',from:merge,to:{kind:'sample',key:{},uid:row.uid},discriminator:row.uid,producer:'fixture',producerVersion:'1'})),
+    {kind:'system.merge-survivor',from:merge,to:{kind:'sample',key:{},uid:survivor!.uid},discriminator:survivor!.uid,producer:'fixture',producerVersion:'1'},
+    {kind:'system.dispute-anchor',from:q,to:{kind:'system.assertion',uid:anchor.id,key:{}},discriminator:anchor.id,validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'},
+   ],removals:[]},Number(child));
+  });
+  await f.execute(f.a,async tx=>{
+   await writeAssertion(tx,contract,{sort:'vertex',kind:'sample',subjectId:String(alias!.id),property:'note',operation:'assert',value:'one'});
+   await reconcileDisputes(tx,contract);
+  });
+  await f.owner.transaction('snapshot',async tx=>{
+   const states=await loadAssertions(tx,'vertex','system.dispute-question',['state']);
+   expect(states.some(row=>row.subject.type==='vertex'&&row.subject.uid===question&&row.context===Number(child)&&row.value==='DISMISSED')).toBe(true);
+  });
+ }finally{await f.owner.close();}
+},30000);
+
+test('merge reconciles existence anchors on its members',async()=>{
+ const f=await fixture();try{
+  const {loadAssertions}=await import('../src/graph/assertion-read.js');
+  const question=crypto.randomUUID();
+  await f.owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,contract);
+   const anchor=(await loadAssertions(tx,'vertex','sample',['$exists'],[f.rows[0]!.id]))[0]!;
+   const q={kind:'system.dispute-question',uid:question,key:{}};
+   await publishGraphDrafts(tx,contract,{vertices:[{...q,values:{property:'$exists',language:null,segment_from:anchor.validFrom,segment_to:null,state:'OPEN'},validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],edges:[{kind:'system.dispute-anchor',from:q,to:{kind:'system.assertion',uid:anchor.id,key:{}},discriminator:anchor.id,validFrom:anchor.validFrom,producer:'fixture',producerVersion:'1'}],removals:[]});
+  });
+  await f.execute(f.r,tx=>resolveDuplicate(tx,contract,f.r,f.input));
+  await f.owner.transaction('snapshot',async tx=>{const states=await loadAssertions(tx,'vertex','system.dispute-question',['state']);expect(states.some(row=>row.subject.type==='vertex'&&row.subject.uid===question&&row.value==='DISMISSED')).toBe(true);});
+ }finally{await f.owner.close();}
+},30000);
