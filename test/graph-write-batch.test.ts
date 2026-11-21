@@ -49,9 +49,9 @@ test('ALX-117: 10 and 100 evidenced files have constant publication statements, 
  // edge insert/read (2), endpoint activity (1), scope (1), streams (1), immutable
  // values/content (1), assertion CTE (1), seven typed value tables (7), repeat
  // lineage (1), evidence/mentions insert (1). Total 21; no array slicing allowance.
- // A repeat has no fresh assertions (fresh.length is 0), so the assertion-insert CTE is
- // the one phase it omits (d662c5dc0): repeat is one statement below first, and the same
- // count at 10 and 100 files.
+ // ALX-117 holds that the count is independent of the file count (10 and 100 agree) and
+ // that a repeat adds no statements beyond the first publication. That the assertion-insert
+ // CTE is skipped entirely on empty fresh rows is checked by test/empty-publication-phases.test.ts.
  expect(ten.first).toBeLessThanOrEqual(21);
  expect(hundred.first).toBe(ten.first);
  expect(hundred.repeat).toBe(ten.repeat);
