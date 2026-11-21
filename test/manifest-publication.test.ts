@@ -396,7 +396,13 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
           cutoffs.push(cutoff);
         }
         if (sql.includes('WITH RECURSIVE context_path') && !sql.startsWith('SELECT marker.value') && cutoffs.length > 0) {
-          expect(sql).toContain(cutoffs.at(-1)!);
+          const cutoff = cutoffs.at(-1)!;
+          // A parameterized selector keeps the cutoff out of the SQL text; either place must carry it unchanged.
+          expect(sql.includes(cutoff) || (values ?? []).some(value => value === cutoff)).toBe(true);
+          // node-postgres renders anything but a string by its own rules: a Date here would drop the microseconds.
+          expect((values ?? []).some(value => value instanceof Date)).toBe(false);
+          // Every temporal bound is this cutoff, not a truncated form of it.
+          for (const match of sql.matchAll(/\$(\d+)::timestamptz/g)) expect((values ?? [])[Number(match[1]) - 1]).toBe(cutoff);
           expect(sql).not.toContain('transaction_timestamp()');
         }
         if (sql.includes('AS request_index') && values?.length) {
@@ -417,6 +423,87 @@ test('ALX-174 startup reads preserve sub-millisecond cutoffs', async () => {
     });
   } finally { await owner.close(); }
 }, 30_000);
+
+test('ALX-174 a cutoff keeps its microseconds through the parameterized read', async () => {
+  const validated = publicationFixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  const boundary = '2026-01-01T00:00:00.000400Z';
+  try {
+    await publishValidatedManifests(owner, validated);
+    const subject = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'])))[0]!;
+    await owner.transaction('write', async tx => {
+      // Assertion history is immutable; a replica session is how the store's own tests age a row.
+      await tx.query('SET LOCAL session_replication_role = replica');
+      await tx.query(`UPDATE assertion SET recorded_at=$1::timestamptz, valid_from=$1::timestamptz
+        WHERE assertion_id IN (
+          SELECT a.assertion_id FROM assertion a
+          JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id
+          JOIN edge e ON e.id=s.subject_edge_id
+          WHERE e.to_node=(SELECT id FROM node WHERE uid=$2::uuid)
+        )`, [boundary, subject.uid]);
+    });
+    const visible = async (at: string) => (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], { validAt: at, recordedAt: at }))).some(row => row.uid === subject.uid);
+    // Truncating the bound to a millisecond reads .000400 as .000 and hides the row.
+    expect(await visible('2026-01-01T00:00:00.000400Z')).toBe(true);
+    // Rounding the bound up to .001 would show the row; one microsecond earlier must not.
+    expect(await visible('2026-01-01T00:00:00.000399Z')).toBe(false);
+  } finally { await owner.close(); }
+}, 60_000);
+
+// Task: madarch-64o5.74
+test('ALX-884 identity selection sees a merge exactly at .000400 and not at .000399', async () => {
+  const validated = publicationFixture();
+  const valueKind = { name: 'fixture.value', table: generatedTableName('fixture.value', 'vertex'), capability: 'fixture', key: ['name'],
+    fields: [{ name: 'name', type: 'text' as const }, { name: 'label', type: 'text' as const }] };
+  const contract = withManifestContract({ ...EMPTY_CONTRACT, vertex: [valueKind] });
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  const write = async (drafts: Parameters<typeof publishGraphDrafts>[2]) => await owner.transaction('write', async tx => {
+    const { contract: installed } = await startupBinding(tx, contract, 'alx-884');
+    await publishGraphDrafts(tx, installed, drafts);
+  });
+  try {
+    await publishValidatedManifests(owner, validated, contract);
+    await write({
+      vertices: ['one', 'two'].map(name => ({ kind: valueKind.name, key: { name }, values: { label: name }, producer: 'alx-884', producerVersion: '1' })),
+      removals: [],
+    });
+    const [survivor, alias] = (await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'], { contract: owner.graphContract })))
+      .sort((left, right) => left.id - right.id);
+    if (survivor === undefined || alias === undefined) throw new Error('ALX-884 fixture needs two value entities');
+    const mergeUid = newUid();
+    await write({
+      vertices: [{ kind: 'system.merge', uid: mergeUid, key: {}, values: { state: 'ACTIVE', reason: 'ALX-884 microsecond merge' }, producer: 'alx-884', producerVersion: '1' }],
+      edges: [
+        ...[survivor, alias].map(row => ({ kind: 'system.merge-member', from: { kind: 'system.merge', uid: mergeUid, key: {} },
+          to: { kind: valueKind.name, uid: row.uid, key: {} }, discriminator: row.uid, producer: 'alx-884', producerVersion: '1' })),
+        { kind: 'system.merge-survivor', from: { kind: 'system.merge', uid: mergeUid, key: {} },
+          to: { kind: valueKind.name, uid: survivor.uid, key: {} }, producer: 'alx-884', producerVersion: '1' },
+      ],
+      removals: [],
+    });
+    // Bounds derive from the fixture's own writes, so the test holds on any calendar date.
+    const { boundary, earlier } = (await owner.run(tx => tx.query<{ boundary: string; earlier: string }>(`
+      WITH base AS (SELECT date_trunc('second', greatest(max(recorded_at), max(valid_from))) + interval '1 second' AS s FROM assertion)
+      SELECT to_char((s + interval '400 microseconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS boundary,
+             to_char((s + interval '399 microseconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS earlier FROM base`))).rows[0]!;
+    // Assertion history is immutable; a replica session places the merge's valid time exactly on the boundary.
+    await owner.transaction('write', async tx => {
+      await tx.query('SET LOCAL session_replication_role = replica');
+      await tx.query(`UPDATE assertion SET valid_from=$1::timestamptz WHERE property='state' AND assertion_id IN (
+        SELECT a.assertion_id FROM assertion a
+        JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
+        JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id
+        WHERE subject_edge.to_node=(SELECT id FROM node WHERE uid=$2::uuid))`, [boundary, mergeUid]);
+    });
+    const precondition = await owner.run(tx => tx.query<{ valid: boolean }>(`SELECT bool_and(recorded_at < $1::timestamptz AND (valid_from < $1::timestamptz OR valid_from = $2::timestamptz)) AS valid FROM assertion`, [earlier, boundary]));
+    expect(precondition.rows[0]?.valid).toBe(true);
+    const visible = async (instant: string) => (await owner.run(tx => readKindAssertions(tx, 'vertex', valueKind.name, ['label'],
+      { contract: owner.graphContract, subjectUids: [alias.uid], validAt: instant, recordedAt: instant }))).map(row => row.uid);
+    // The alias resolves to the survivor only when the merge's valid time is inside the bound.
+    expect(await visible(boundary)).toEqual([survivor.uid]);
+    expect(await visible(earlier)).toEqual([alias.uid]);
+  } finally { await owner.close(); }
+}, 60_000);
 
 function atomicFixture() {
   const folder = fixture();

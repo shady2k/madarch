@@ -12,6 +12,15 @@ const contract: GraphContract = {
   dictionary: [],
 };
 
+/** Any assertion load, indexed or unbounded. */
+const assertionLoad = (call: { readonly sql: string }): boolean => call.sql.includes('JOIN node assertion_node ON assertion_node.id=a.assertion_id');
+/** The indexed assertion load a bounded subject read issues; the identity lookup has neither marker. */
+const indexedSubjectLoad = (call: { readonly sql: string }): boolean => call.sql.includes('assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id');
+/** The subject ids the load binds: its single `bigint[]` parameter. */
+function boundSubjectIds(call: { readonly sql: string; readonly parameters?: readonly unknown[] }): unknown {
+  const match = /ANY\(\$(\d+)::bigint\[\]\)/.exec(call.sql);
+  return match === null ? undefined : call.parameters?.[Number(match[1]) - 1];
+}
 const now = '2026-11-15T12:00:00.000Z';
 async function executor(values: readonly { property: string; value: unknown; operation?: string; validFrom?: string; source?: string; context?: number; recordedAt?: string; subjectId?: number }[]): Promise<SqlExecutor> {
   const owner = await createTestDatabaseOwner({ authenticated: false });
@@ -20,18 +29,22 @@ async function executor(values: readonly { property: string; value: unknown; ope
     let rows: Record<string, unknown>[];
     if (sql.includes("AS present")) rows = [{ present: false }];
     else if (sql.includes('WITH anchors AS')) rows = [];
-    else if (sql.includes('FROM assertion a')) rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
-      request_index: 0, property_rank: (parameters?.[1] as readonly string[]).indexOf(value.property), id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
-      property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
-      unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
-      valid_from: value.validFrom ?? '2026-11-14T00:00:00.000Z', valid_to: null,
-      recorded_at: value.recordedAt ?? '2026-11-14T00:00:00.000Z', recorded_sequence: String(index + 1),
-    }));
+    else if (sql.includes('WITH RECURSIVE context_path')) {
+      // Return only the assertions the load binds, so a wrong subject bound changes the result too.
+      const bound = boundSubjectIds({ sql, ...(parameters === undefined ? {} : { parameters }) }) as readonly number[] | undefined;
+      rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
+        request_index: 0, property_rank: (parameters?.[1] as readonly string[]).indexOf(value.property), id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
+        property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
+        unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
+        valid_from: value.validFrom ?? '2026-11-14T00:00:00.000Z', valid_to: null,
+        recorded_at: value.recordedAt ?? '2026-11-14T00:00:00.000Z', recorded_sequence: String(index + 1),
+      })).filter(row => bound === undefined || bound.includes(Number(row.subject_id)));
+    }
     else if (sql === 'SELECT transaction_timestamp() AS now') rows = [{ now }];
     else if (sql.includes('FROM node n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: { name: 'fixture' }, read_at: now }, ...(values.some(value => value.subjectId === 2) ? [{ request_index: 0, id: 2, uid: 'other', key: { name: 'other' }, read_at: now }] : [])];
     else if (sql.includes('FROM edge n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
     else throw new Error(`Unexpected query: ${sql}`);
-    if (sql.includes('FROM assertion a')) {
+    if (sql.includes('WITH RECURSIVE context_path')) {
       const raw = `SELECT * FROM jsonb_to_recordset($1::jsonb) AS fixture(request_index integer, property_rank integer, id text, subject_id bigint, original_subject_id bigint, subject_uid text, edge_from text, edge_to text, property text, context_id bigint, language text, source text, author text, unit text, operation_uid text, evidence jsonb, value jsonb, operation text, valid_from timestamptz, valid_to timestamptz, recorded_at timestamptz, recorded_sequence text)`;
       const start = sql.indexOf('raw AS MATERIALIZED (') + 'raw AS MATERIALIZED ('.length;
       const end = sql.indexOf('), eligible AS (', start);
@@ -110,11 +123,26 @@ test('0039.30: subject UID bounds apply before assertion loading and preserve co
   const identity = calls.find(call => call.sql.includes('n.uid=ANY($2::uuid[])'));
   expect(identity).toBeDefined();
   expect(identity?.parameters).toEqual(['fixture', ['subject']]);
-  expect(calls.filter(call => call.sql.includes('FROM assertion a')).every(call => call.parameters?.some(parameter => Array.isArray(parameter) && parameter.length === 1 && parameter[0] === 1))).toBe(true);
+  const loads = calls.filter(assertionLoad);
+  expect(loads.length).toBeGreaterThan(0);
+  for (const load of loads) {
+    expect(indexedSubjectLoad(load)).toBe(true);
+    expect(boundSubjectIds(load)).toEqual([1]);
+  }
+  expect(loads).toHaveLength(1);
   expect(rows[0]?.values['amount']).toBe(1);
   calls.length = 0;
-  expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: [] })).toEqual([]);
-  expect(calls.some(call => call.sql.includes('FROM assertion a'))).toBe(false);
+  const empty = await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: [] });
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
+  expect(calls.filter(indexedSubjectLoad)).toHaveLength(0);
+  expect(calls.find(call => call.sql.includes('n.uid=ANY('))).toBeUndefined();
+  expect(empty).toEqual([]);
+  calls.length = 0;
+  expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectIds: [] })).toEqual([]);
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
+  calls.length = 0;
+  expect(await readKindAssertions(tx, 'edge', 'fixture', ['amount'], { contract, subjectUids: [] })).toEqual([]);
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
 });
 
 test('0039.25: the effective false existence beats an older true candidate from another source', async () => {
