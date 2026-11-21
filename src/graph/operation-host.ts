@@ -236,13 +236,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         const result=await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
         const canonicalResult = result === undefined ? undefined : canonicalJson(result);
-        await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
-        await reconcileDisputes(tx,options.contract);
         const count=Number(await selected(tx,'system.unit',options.unitUid,'committed_operations',context)??0);
         await publishGraphDrafts(tx,options.contract,{vertices:[
           {kind:'system.operation',uid:operationUid,key:{},values:{key:request.key,canonical_request:canonical,digest,...(canonicalResult === undefined ? {} : {result:canonicalResult})},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
           {kind:'system.unit',uid:options.unitUid,key:{},values:{committed_operations:count+1,last_progress:request.key},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
-        ],removals:[]},context);
+        ],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
+        await reconcileDisputes(tx,options.contract);
         if(request.completion){
           await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
             await set(tx,options.contract,'system.unit',options.unitUid,'state',request.completion!.unitState??'published',context);
