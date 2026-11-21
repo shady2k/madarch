@@ -312,17 +312,21 @@ export interface RepositoryTreeRead {
 }
 
 /**
- * Reads one repository's tree at one commit. The declared knowledge narrows the read before any byte of a file is
- * fetched: `paths` is the exact keys the unit was asked for, `scope` the path prefixes the fill selected, and `exclude`
- * the product's own patterns (`kinds[].exclude`). A path outside them is never read — its text, its attributes and its
- * line counts are the bytes of a fact nothing publishes — while `inventory` still states the rows the keys name or the
- * whole pinned tree, so a snapshot does not move with what a fill happened to ask for (madarch-64o5.74).
+ * Reads one repository's tree at one commit. The declared knowledge narrows what is published and what is read: `paths`
+ * is the exact keys the unit was asked for, `scope` the path prefixes the fill selected, and `exclude` the product's own
+ * patterns (`kinds[].exclude`). The keys alone narrow the tree listing, so `inventory` states their rows or, with no keys,
+ * every row of the pinned tree: the scope and the exclusion never move it, and the snapshot a fill reads does not depend
+ * on what that fill happened to ask for. A path that is not a key, outside the scope, or matched by an exclusion is never
+ * fetched through cat-file or check-attr. Numstat may count unselected blobs as an optimization fallback; an excluded path is
+ * named to `git diff --numstat` only as an exclusion while the optional pathspec fits its bounds. Otherwise git counts
+ * the wider tree; only selected entries use those counts (madarch-64o5.74, madarch-64o5.160).
  */
 export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[]; readonly scope?: readonly string[]; readonly exclude?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
-  const narrow = options.paths ?? options.scope;
-  const pathspec = narrow === undefined ? [] : ['--', ...narrow.map(path => `:(literal)${path}`)];
+  // The keys alone narrow the listing: the listing is the pinned tree's inventory, and the scope and the exclusion
+  // decide what of it is published, not what it holds (madarch-64o5.160).
+  const pathspec = options.paths === undefined ? [] : ['--', ...options.paths.map(path => `:(literal)${path}`)];
   const treeSplit = byteSplit();
   const takeTree = (record: Buffer): void => {
     const held = treeRecordOf(record);
@@ -337,8 +341,33 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
     for (const record of treeSplit.push(chunk)) takeTree(record);
   });
   for (const record of treeSplit.done()) takeTree(record);
-  // Git's own text-or-binary answer and its line count, in one call over the whole tree against the
-  // empty tree: the added count is the file's own line count, and `-` is a blob git calls binary.
+  const inScope = (path: string): boolean => options.paths !== undefined
+    ? options.paths.includes(path)
+    : options.scope === undefined ? true : options.scope.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
+  const selectedEntries = entries.filter(entry => inScope(entry.path) && !excludedPath(entry.path, options.exclude ?? []));
+  // Git's own text-or-binary answer and its line count, in one call against the empty tree: the added count is the
+  // file's own line count, and `-` is a blob git calls binary. The fill's paths or scope narrow that call too, and each
+  // excluded path is named as an exclusion when the optional pathspec fits. Bound both UTF-8 bytes (including NULs)
+  // and argument count: sparse exclusions can exceed ARG_MAX or make git compare every entry to thousands of specs.
+  // Falling back to wider counts costs time, not facts: only selectedEntries consume them (madarch-64o5.160).
+  const NUMSTAT_ARG_BYTES = 32 * 1024;
+  const NUMSTAT_ARG_COUNT = 256;
+  const numstatArgs = ['diff', '--numstat', '--no-renames', '-z', options.fileFacts === false ? '' : await emptyTreeOf(pin.root), pin.commit];
+  const fitsNumstat = (spec: readonly string[]): boolean => 1 + numstatArgs.length + spec.length <= NUMSTAT_ARG_COUNT
+    && [process.env['MADARCH_TOOL_GIT'] ?? 'git', ...numstatArgs, ...spec].reduce((bytes, arg) => bytes + Buffer.byteLength(arg) + 1, 0) <= NUMSTAT_ARG_BYTES;
+  let numstatPathspec: string[] = [];
+  const countedSpec = (options.paths ?? options.scope)?.map(path => `:(literal)${path}`) ?? [];
+  if (countedSpec.length > 0 && fitsNumstat(['--', ...countedSpec])) numstatPathspec = ['--', ...countedSpec];
+  const countedPathspec = [...numstatPathspec];
+  for (const entry of entries) {
+    if (!inScope(entry.path) || !excludedPath(entry.path, options.exclude ?? [])) continue;
+    const next = [...numstatPathspec, ...(numstatPathspec.length === 0 ? ['--'] : []), `:(exclude,literal)${entry.path}`];
+    if (!fitsNumstat(next)) {
+      numstatPathspec = countedPathspec;
+      break;
+    }
+    numstatPathspec = next;
+  }
   const countsByKey = new Map<string, { added: number | null; removed: number | null }>();
   /** The key a numstat record names: the path's text, or the bytes no text can hold (which no file row holds either). */
   const keyOf = (pathBytes: Uint8Array): string => textOf(pathBytes) ?? `\u0000${escapedOf(pathBytes)}`;
@@ -356,7 +385,7 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   };
   const numstatRecords: Buffer[] = [];
   const numstatSplit = byteSplit();
-  if (options.fileFacts !== false) await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit, ...pathspec], (chunk) => {
+  if (options.fileFacts !== false) await gitStream(pin.root, [...numstatArgs, ...numstatPathspec], (chunk) => {
     for (const record of numstatSplit.push(chunk)) numstatRecords.push(record);
   });
   for (const record of numstatSplit.done()) numstatRecords.push(record);
@@ -373,10 +402,6 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
     if (newPath !== undefined && newPath.length > 0) countsByKey.set(keyOf(newPath), { added: held.added, removed: held.removed });
     at += 2;
   }
-  const inScope = (path: string): boolean => options.paths !== undefined
-    ? options.paths.includes(path)
-    : options.scope === undefined ? true : options.scope.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
-  const selectedEntries = entries.filter(entry => inScope(entry.path) && !excludedPath(entry.path, options.exclude ?? []));
   const blobs = selectedEntries.filter((entry) => entry.type === 'blob');
   const overrides = options.fileFacts === false ? new Map<string, string>() : await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];

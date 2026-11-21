@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extract as diskExtract } from '../plugins/disk/main.js';
 import { extract as gitExtract } from '../plugins/git/main.js';
+import { readRepositoryTree } from '../plugins/disk/reader.js';
 import diskContract from '../plugins/disk/contract.json';
 import gitContract from '../plugins/git/contract.json';
 
@@ -148,16 +149,65 @@ test('disk repository snapshots cover the complete pinned inventory including an
   });
 }, 60_000);
 
+test('disk publishes the whole pinned inventory under a fill scope, and the keys alone narrow it (madarch-64o5.160)', async () => {
+  await fixture(async ({ root, commit, git }) => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'README.md'), 'readme\n');
+    // A NUL byte is git's own answer that this blob is binary, so its file row stands on the inventory and not on bytes.
+    writeFileSync(join(root, 'src/a.bin'), Buffer.from([0, 1, 2, 3]));
+    const pin = commit('files', '2026-01-01T00:00:00Z');
+    const rows = [['README.md', git('rev-parse', `${pin}:README.md`)], ['src/a.bin', git('rev-parse', `${pin}:src/a.bin`)]] as const;
+    const inventoryDigest = createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+    const inventoryOf = (result: Awaited<ReturnType<typeof diskExtract>>) => (result.vertices ?? []).find(vertex => vertex.kind === 'code.blob' && vertex.key['digest'] === inventoryDigest);
+    const published = (result: Awaited<ReturnType<typeof diskExtract>>) => (result.vertices ?? []).filter(vertex => vertex.kind === 'code.file').map(vertex => vertex.key['path']);
+    const targetOf = (result: Awaited<ReturnType<typeof diskExtract>>, path: string) => (result.vertices ?? []).find(vertex => vertex.kind === 'code.file' && vertex.key['path'] === path)?.evidence?.target.key['digest'];
+    const base = unit(root, pin, diskContract.outputs);
+    const withInputs = (inputs: Record<string, unknown>) => ({ ...base, inputs: { ...(base.inputs as Record<string, unknown>), ...inputs } });
+    const full = await diskExtract(base, context());
+    expect(published(full)).toEqual(['README.md', 'src/a.bin']);
+    expect(inventoryOf(full)?.values?.['content']).toBe(JSON.stringify(rows));
+    // A fill's paths decide what is published, never what the inventory states: the binary row is still part of it.
+    const scoped = await diskExtract(withInputs({ paths: ['src'] }), context());
+    expect(published(scoped)).toEqual(['src/a.bin']);
+    expect(inventoryOf(scoped)?.values?.['content']).toBe(JSON.stringify(rows));
+    expect(targetOf(scoped, 'src/a.bin')).toBe(inventoryDigest);
+    expect(targetOf(full, 'src/a.bin')).toBe(inventoryDigest);
+    // Keys are the rows that narrow the inventory; a narrower scope does not take a key's row away.
+    const keyed = await diskExtract(withInputs({ paths: ['src'], keys: [{ path: 'README.md' }, { path: 'src/a.bin' }] }), context());
+    expect(published(keyed)).toEqual(['README.md', 'src/a.bin']);
+    expect(inventoryOf(keyed)?.values?.['content']).toBe(JSON.stringify(rows));
+    // A strict subset outside the scope must keep only its own inventory row and still publish the key.
+    const subset = await diskExtract(withInputs({ paths: ['src'], keys: [{ path: 'README.md' }] }), context());
+    const subsetRows = [rows[0]];
+    expect(published(subset)).toEqual(['README.md']);
+    const recorder = recordingGit(root, process.env['MADARCH_TOOL_GIT']!);
+    try {
+      const subsetTree = await readRepositoryTree({ repository: 'fixture', root, commit: pin }, { paths: ['README.md'], scope: ['src'] });
+      expect(subsetTree.inventory).toEqual(subsetRows);
+      expect(recorder.commands().split('\n').filter(line => line.startsWith('ls-tree '))).toEqual([
+        `ls-tree -r -l -z ${pin} -- :(literal)README.md`,
+      ]);
+      // Git treats a directory pathspec as a prefix; inventory must still keep only exact keys.
+      const directoryKey = await readRepositoryTree({ repository: 'fixture', root, commit: pin }, { paths: ['src'], scope: ['src'] });
+      expect(directoryKey.inventory).toEqual([]);
+    } finally { recorder.restore(); }
+
+  });
+}, 60_000);
+
 /**
  * A git that writes every command it is given, and every batch `cat-file` is handed, so a test states which bytes the
  * plugin asked git for — never a stopwatch (madarch-64o5.74).
  */
-function recordingGit(work: string, real: string): { commands: () => string; batches: () => string; restore: () => void } {
+function recordingGit(work: string, real: string): { commands: () => string; batches: () => string; diff: () => string; diffArgs: () => string[]; restore: () => void } {
   const executable = join(work, 'git-recording.sh');
   const commands = join(work, 'git-commands.log');
   const batches = join(work, 'git-batches.log');
+  const diff = join(work, 'git-diff.log');
+  const diffArgs = join(work, 'git-diff-args.log');
   writeFileSync(commands, '');
   writeFileSync(batches, '');
+  writeFileSync(diff, '');
   writeFileSync(executable, [
     '#!/bin/sh',
     'printf "%s\n" "$*" >> "$MADARCH_TEST_GIT_COMMANDS"',
@@ -167,6 +217,13 @@ function recordingGit(work: string, real: string): { commands: () => string; bat
     '  printf "%s\n" "$batch" | "$MADARCH_TEST_GIT_REAL" "$@"',
     '  exit $?',
     'fi',
+    'if [ "$1" = "diff" ]; then',
+    '  printf "%s\\0" "$@" > "$MADARCH_TEST_GIT_DIFF_ARGS"',
+    '  "$MADARCH_TEST_GIT_REAL" "$@" > "$MADARCH_TEST_GIT_DIFF"',
+    '  status=$?',
+    '  cat "$MADARCH_TEST_GIT_DIFF"',
+    '  exit $status',
+    'fi',
     'exec "$MADARCH_TEST_GIT_REAL" "$@"',
     '',
   ].join('\n'));
@@ -175,15 +232,21 @@ function recordingGit(work: string, real: string): { commands: () => string; bat
   process.env['MADARCH_TOOL_GIT'] = executable;
   process.env['MADARCH_TEST_GIT_COMMANDS'] = commands;
   process.env['MADARCH_TEST_GIT_BATCHES'] = batches;
+  process.env['MADARCH_TEST_GIT_DIFF'] = diff;
+  process.env['MADARCH_TEST_GIT_DIFF_ARGS'] = diffArgs;
   process.env['MADARCH_TEST_GIT_REAL'] = real;
   return {
     commands: () => readFileSync(commands, 'utf8'),
     batches: () => readFileSync(batches, 'utf8'),
+    diff: () => readFileSync(diff, 'utf8'),
+    diffArgs: () => readFileSync(diffArgs, 'utf8').split('\u0000').slice(0, -1),
     restore: () => {
       if (previous === undefined) delete process.env['MADARCH_TOOL_GIT'];
       else process.env['MADARCH_TOOL_GIT'] = previous;
       delete process.env['MADARCH_TEST_GIT_COMMANDS'];
       delete process.env['MADARCH_TEST_GIT_BATCHES'];
+      delete process.env['MADARCH_TEST_GIT_DIFF'];
+      delete process.env['MADARCH_TEST_GIT_DIFF_ARGS'];
       delete process.env['MADARCH_TEST_GIT_REAL'];
     },
   };
@@ -204,6 +267,14 @@ test('disk never reads the bytes of a path the product excludes, and the tree sn
       // The product's own exclusion decides what is published: a dependency tree's bytes are never read to be dropped.
       expect((files.vertices ?? []).filter(vertex => vertex.kind === 'code.file').map(vertex => vertex.key['path'])).toEqual(['src/kept.ts']);
       expect(recorder.batches()).not.toContain(git('rev-parse', `${pin}:node_modules/pkg/index.js`));
+      // The paired control keeps the absence honest: the kept text blob really was read through that same call.
+      expect(recorder.batches()).toContain(git('rev-parse', `${pin}:src/kept.ts`));
+      // Git is told to leave the excluded path out of its line counts, so its blob is never unpacked to count it.
+      expect(recorder.commands().split('\n').filter(line => line.startsWith('diff '))).toEqual([
+        expect.stringContaining(':(exclude,literal)node_modules/pkg/index.js'),
+      ]);
+      expect(recorder.diff()).toContain('src/kept.ts');
+      expect(recorder.diff()).not.toContain('node_modules');
       // The snapshot states the whole pinned inventory, which the exclusion does not narrow (output unchanged).
       const repositoryUnit = { ...unit(root, pin, diskContract.outputs), kind: 'code.repository' };
       const snapshotOf = (result: Awaited<ReturnType<typeof diskExtract>>) => result.vertices?.find(vertex => vertex.kind === 'code.repository')?.values?.['tree_snapshot'];
@@ -215,3 +286,44 @@ test('disk never reads the bytes of a path the product excludes, and the tree sn
     }
   });
 }, 60_000);
+
+// Separate count and UTF-8 byte pressure, then a sparse tree whose old exclusions exceed Linux ARG_MAX.
+for (const [label, count, stem] of [
+  ['argument count', 600, 'x'],
+  ['UTF-8 bytes', 180, 'é'.repeat(110)],
+  ['ARG_MAX sparse tree', 9_000, 'x'.repeat(220)],
+] as const) {
+  test(`disk bounds numstat arguments under ${label} without narrowing inventory or published facts (madarch-64o5.160)`, async () => {
+    await fixture(async ({ root, git, commit }) => {
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'src/kept.ts'), 'export const kept = 1;\n// second line\n');
+      writeFileSync(join(root, 'src/binary.bin'), Buffer.from([0, 1, 2]));
+      // Every excluded file is at the root; no directory can stand in for this sparse exclusion set.
+      for (let at = 0; at < count; at++) writeFileSync(join(root, `${at}-${stem}.omit`), 'excluded\n');
+      const pin = commit('sparse excluded files', '2026-01-01T00:00:00Z');
+      const rows = git('ls-tree', '-r', '-z', pin).split('\u0000').filter(Boolean)
+        .map(line => [line.slice(line.indexOf('\t') + 1), line.slice(0, line.indexOf('\t')).split(' ')[2]!]);
+      const digest = createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+      const recorder = recordingGit(root, process.env['MADARCH_TOOL_GIT']!);
+      try {
+        const base = unit(root, pin, diskContract.outputs);
+        // Successful extraction is also the no-E2BIG check: this is a real git, not a mocked spawn.
+        const result = await diskExtract({ ...base, inputs: { ...(base.inputs as Record<string, unknown>), exclude: ['*.omit'] } }, context());
+        const args = recorder.diffArgs();
+        expect(args.length).toBeLessThanOrEqual(256);
+        expect(args.reduce((bytes, arg) => bytes + Buffer.byteLength(arg) + 1, 0)).toBeLessThanOrEqual(32 * 1024);
+        expect(args.some(arg => arg.startsWith(':(exclude,literal)'))).toBe(false);
+        expect(result.end?.state).toBe('complete');
+        const files = result.vertices?.filter(vertex => vertex.kind === 'code.file');
+        expect(files?.map(vertex => vertex.key['path'])).toEqual(['src/binary.bin', 'src/kept.ts']);
+        expect(files?.map(vertex => [vertex.values?.['form'], vertex.values?.['lines'], vertex.values?.['bytes']])).toEqual([
+          ['binary', null, 3], ['text', 2, 38],
+        ]);
+        expect(files?.[0]?.evidence?.target.key['digest']).toBe(digest);
+        expect(result.vertices?.find(vertex => vertex.kind === 'code.blob' && vertex.key['digest'] === digest)?.values?.['content']).toBe(JSON.stringify(rows));
+        expect(recorder.batches()).not.toContain(git('rev-parse', `${pin}:0-${stem}.omit`));
+        expect(recorder.batches()).toContain(git('rev-parse', `${pin}:src/kept.ts`));
+      } finally { recorder.restore(); }
+    });
+  }, 60_000);
+}
