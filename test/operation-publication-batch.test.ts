@@ -8,6 +8,8 @@ import { createOperationHost, initializeOperationScope, operationReceipt } from 
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { newUid } from '../src/graph/uid.js';
 import { readKindAssertions } from '../src/graph/records.js';
+import { bindWriteCapability } from '../src/graph/write.js';
+import { reconcileDisputes } from '../src/graph/disputes.js';
 import { publicationReadSelector } from '../src/graph/publication-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -54,7 +56,11 @@ test('operation linkage and receipt counters share one PostgreSQL admission roun
       const units = await readKindAssertions(tx, 'vertex', 'system.unit', ['committed_operations', 'last_progress'], await publicationReadSelector(tx, contract));
       expect(units.find(unit => unit.uid === unitUid)?.values).toMatchObject({ committed_operations: 1, last_progress: 'receipt' });
     });
-    console.log(JSON.stringify({ metadataAdmissionRounds: rounds.length }));
+    const disputes = async () => await owner.transaction('snapshot', async tx =>
+      (await tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.dispute-question' ORDER BY n.uid::text COLLATE "C"`)).rows.map(row => row.uid));
+    expect(await disputes()).toEqual([]);
+    await owner.transaction('write', async tx => { bindWriteCapability(tx, binding); await reconcileDisputes(tx, contract); });
+    expect(await disputes()).toEqual([]);
     expect(rounds).toHaveLength(1);
     expect(rounds[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'system.operation-unit', property: '$exists' }),

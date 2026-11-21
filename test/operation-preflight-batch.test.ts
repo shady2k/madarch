@@ -30,7 +30,13 @@ test('operation preflight batches selected state and replay precedes attempt aut
       } };
       return work(wrapped);
     }, options) };
-    const host = createOperationHost({ owner: measured, queue, job: job!, contract, capability: binding, runUid, unitUid });
+    const authorityQueue = Object.assign(Object.create(queue) as typeof queue, {
+      isActive: async (...args: Parameters<typeof queue.isActive>) => {
+        if (beforeApply) expect(statements.some(sql => sql.includes('FOR UPDATE'))).toBe(false);
+        return await queue.isActive(...args);
+      },
+    });
+    const host = createOperationHost({ owner: measured, queue: authorityQueue, job: job!, contract, capability: binding, runUid, unitUid });
     let calls = 0;
     const request = { key: 'done', request: {}, completion: { output: {}, enqueue: [] } };
     expect(await host.execute(request, async () => { beforeApply = false; return { calls: ++calls }; })).toEqual({ calls: 1 });
@@ -39,7 +45,6 @@ test('operation preflight batches selected state and replay precedes attempt aut
     await expect(replay.execute({ ...request, request: { changed: true } }, async () => null)).rejects.toThrow('IDEMPOTENCY_CONFLICT');
     expect(calls).toBe(1);
     const assertionReads = statements.filter(sql => sql.includes('batches ORDER BY request_index'));
-    console.log(JSON.stringify({ preflightAssertionReads: assertionReads.length, preflightClockReads: statements.filter(sql => sql.includes('SELECT clock_timestamp()::text AS now')).length }));
     expect(assertionReads).toHaveLength(1);
     expect(assertionReads[0]).toContain('selection_pick');
     expect(statements.filter(sql => sql.includes('SELECT clock_timestamp()::text AS now'))).toHaveLength(0);

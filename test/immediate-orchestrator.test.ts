@@ -34,7 +34,6 @@ test('real orchestrator binds immediate attempt and terminal receipt without pri
   await planRun(orchestrator,{runId:'immediate-run'});
   const result=await driveRun(orchestrator,{runId:'immediate-run',maxPasses:20});
   expect(result.settled).toBe(true);expect(operations).toBe(1);
-  console.log(JSON.stringify({ attemptOperationHosts: openedHosts }));
   expect(openedHosts).toBe(1);
   expect((await owner.run(tx=>tx.query("SELECT to_regclass('public.fill_unit_draft') AS held"))).rows[0]?.held).toBeNull();
   const lifecycle=await owner.run(tx=>tx.query<{same_operation:boolean,affected:boolean}>(`SELECT
