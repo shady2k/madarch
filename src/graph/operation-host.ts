@@ -23,16 +23,19 @@ export interface OperationRequest {
   readonly key: string;
   readonly request: unknown;
   readonly preconditions?: readonly {readonly uid:string; readonly recordedSequence:string}[];
-  readonly completion?: {readonly output:object; readonly enqueue:readonly EnqueueRequest[];readonly outcome?:import('../fill/producer-outcomes.js').ProducerOutcomeDraft};
+  readonly completion?: {readonly unitState?:'retry_wait'; readonly output:object; readonly enqueue:readonly EnqueueRequest[];readonly outcome?:import('../fill/producer-outcomes.js').ProducerOutcomeDraft};
 }
 export interface OperationReceiptRequest {
   readonly request: OperationRequest['request'];
   readonly preconditions: NonNullable<OperationRequest['preconditions']>;
-  readonly completion: OperationRequest['completion'] | null;
+  readonly completion: NonNullable<OperationRequest['completion']> | null;
 }
 export function canonicalOperationRequest(request: OperationRequest): string {
   const receipt: OperationReceiptRequest = { request: request.request, preconditions: request.preconditions ?? [], completion: request.completion ?? null };
-  return canonicalJson(receipt);
+  return canonicalJson({ ...receipt, completion: receipt.completion === null ? null : {
+    ...receipt.completion,
+    enqueue: receipt.completion.enqueue.map(({ startAfter, ...enqueue }) => ({ ...enqueue, ...(startAfter === undefined ? {} : { startAfter: startAfter.toISOString() }) })),
+  } });
 }
 export interface OperationHostOptions {
   readonly owner:DatabaseOwner; readonly queue:QueueService; readonly job:ClaimedJob;
@@ -168,7 +171,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
   const context=options.context??1;
   return {fail:async(reason,apply)=>await withSpan('fill.operation.failure',{'madarch.unit':options.unitUid},async()=>await options.owner.transaction('write',async tx=>{
     await acquireGraphWriteLock(tx);
-    if(!await options.queue.fence(options.job,tx))return false;
+    if(!await options.queue.isActive(options.job,tx))return false;
     await tx.query('SELECT id FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[[options.runUid,options.unitUid].sort(byCodePoint)]);
     const operationUid=newUid();
     await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
@@ -192,9 +195,10 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
       await assertOutcomeApplicability(tx,options.contract,{kind:producedKind,plugin:producer,outcome:'failed',produced:0,reason},evidenceUid,String(fields.plan_scope ?? fields.scope ?? options.unitUid));
     }
     await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',reason,context);
-    await options.queue.fail(options.job.queue,options.job,reason,tx);
     await publishAffected(tx,options,operationUid,context);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:169: ATTEMPT_STALE failure`);
+    await options.queue.fail(options.job.queue,options.job,reason,tx);
     return true;
   })),execute:async<Result>(request:OperationRequest,apply:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<Result>):Promise<Result>=> {
     return await withSpan('fill.operation',{'madarch.unit':options.unitUid,'madarch.attempt':options.job.attempt},async()=> {
@@ -206,10 +210,12 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         const receipt=await operationReceipt(tx,options.contract,options.unitUid,request.key,context);
         if(receipt){
           if(receipt.canonicalRequest!==canonical||receipt.digest!==digest)throw new Error(`${WHERE}:81: IDEMPOTENCY_CONFLICT ${request.key}`);
-          if(request.completion&&await options.queue.fence(options.job,tx))await options.queue.complete(options.job.queue,options.job,request.completion.output,tx);
+          if(request.completion&&await options.queue.fence(options.job,tx)){
+            if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:81: ATTEMPT_STALE completion`);
+          }
           return (receipt.result === undefined ? undefined : JSON.parse(receipt.result)) as Result;
         }
-        if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:84: ATTEMPT_STALE`);
+        if(!await options.queue.isActive(options.job,tx))throw new AttemptStaleError(`${WHERE}:84: ATTEMPT_STALE`);
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
         const locked=await tx.query('SELECT id FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[uids]);
         const runState=await selected(tx,'system.run',options.runUid,'state',context),unitState=await selected(tx,'system.unit',options.unitUid,'state',context);
@@ -239,7 +245,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         ],removals:[]},context);
         if(request.completion){
           await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
-            await set(tx,options.contract,'system.unit',options.unitUid,'state','published',context);
+            await set(tx,options.contract,'system.unit',options.unitUid,'state',request.completion!.unitState??'published',context);
           },context);
           if(request.completion.outcome) {
             const values = {produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})};
@@ -249,11 +255,15 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
             const scope = await selectedFields(tx,'system.unit',options.unitUid,['plan_scope','scope'],context);
             await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]] )).outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
           }
-          if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
-          for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
         }
         await publishAffected(tx,options,operationUid,context);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+        // All graph writes remain provisional until authority is locked through commit.
+        if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE publication`);
+        if(request.completion){
+          if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE completion`);
+          for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
+        }
         return result;
       });
     });

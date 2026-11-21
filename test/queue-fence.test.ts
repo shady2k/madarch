@@ -56,6 +56,7 @@ test('job lock serializes concurrent completion and rollback preserves the activ
     });
     const rejected = writing.catch(error => error as Error);
     await lockReady;
+    expect(await owner.run(tx => queue.isActive(job!, tx))).toBe(true);
     const lock = await owner.run((other) => other.query("SELECT id FROM pgboss.job WHERE id = $1 FOR UPDATE SKIP LOCKED", [job!.id]));
     expect(lock.rows).toEqual([]);
     release();

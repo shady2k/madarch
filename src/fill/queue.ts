@@ -223,9 +223,11 @@ export interface QueueService {
   /**
    * Locks the pg-boss job in the caller's graph transaction and verifies its
    * active state, retry count, expiry and heartbeat against database time.
-   * The writer calls this before accepting an operation (0039 item 24).
+   * The writer holds this lock from the final publication check through commit (0039 item 24).
    */
   fence(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean>;
+  /** Checks current authority without locking; publication still requires fence at settlement. */
+  isActive(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean>;
   /**
    * Refreshes the claim of `job` so the queue does not treat it as dead before
    * its lease lapses: true when the claim is this attempt and is still held,

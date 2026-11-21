@@ -1,3 +1,4 @@
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import {readKindAssertions} from '../src/graph/records.js';
 /**
  * The fill's orchestrator with fake stages (madarch-tzte.19.5, decision 0027):
@@ -38,7 +39,8 @@ import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { fixtureOperations, writeFixtureFact } from './fill-operation-fixture.js';
-import { AttemptStaleError, operationReceipt } from '../src/graph/operation-host.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { AttemptStaleError, createOperationHost, resolveOperationScope, operationReceipt } from '../src/graph/operation-host.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { execFileSync } from 'node:child_process';
 import { createStagesFill } from '../src/product/fill-stages.js';
@@ -1837,6 +1839,114 @@ test('declaration scheduling admits unrelated producers but waits for publicatio
 
 
 describe('immediate operation transactions (decision 0039)', () => {
+  async function publicationFixture() {
+    const opened = await world({ registry: new StageRegistry() });
+    const queued = await opened.queue.enqueue({ queue: QUEUE, data: {}, singletonKey: 'publication' });
+    const [job] = await opened.queue.claim({ queue: QUEUE });
+    expect(queued.created).toBe(true);
+    const scope = await opened.owner.transaction('write', async tx => {
+      const { binding, contract } = await startupBinding(tx, EMPTY_CONTRACT, 'publication-fixture');
+      return { binding, contract, ...await resolveOperationScope(tx, contract, binding, { runId: 'publication', unitId: 'publication/unit', generation: 1 }) };
+    });
+    let completions = 0;
+    const queue = new Proxy(opened.queue, { get(target, key) {
+      if (key === 'complete') return async (...args: Parameters<QueueService['complete']>) => {
+        const settled = await target.complete(...args);
+        if (settled) completions++;
+        return settled;
+      };
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const host = createOperationHost({ owner: opened.owner, queue, job: job!, capability: scope.binding, ...scope });
+    const database = (await opened.owner.run(tx => tx.query<{name:string}>('SELECT current_database() AS name'))).rows[0]!.name;
+    const other = await createDatabaseOwner({ cluster: { socketDir: process.env.MADARCH_TEST_PG_SOCKET! }, database, connectOnly: true });
+    opened.owner.onClose(async () => await other.close());
+    const heartbeatOwner = Object.create(other) as typeof other;
+    heartbeatOwner.run = async work => await other.transaction('write', async tx => {
+      await tx.query("SET LOCAL lock_timeout = '500ms'");
+      return await work(tx);
+    });
+    const heartbeatQueue = await createPgBossQueue({ owner: heartbeatOwner, supervise: false });
+    await heartbeatQueue.declare({ name: QUEUE, leaseSeconds: DEFAULT_ORCHESTRATOR_LIMITS.attemptSeconds, heartbeatSeconds: 30, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+    const heartbeat = async () => { await heartbeatQueue.heartbeat(QUEUE, job!); };
+    const snapshot = async () => {
+      const counts = (await opened.owner.run(tx => tx.query(`SELECT (SELECT count(*) FROM node) AS nodes, (SELECT count(*) FROM edge) AS edges, (SELECT count(*) FROM assertion) AS assertions`))).rows;
+      return { counts, unit: await readUnit(opened.owner, 'publication/unit') };
+    };
+    // A separate connection must finish while the graph transaction is open.
+    // lock_timeout makes the old early fence fail promptly, not hang the test.
+    const concurrent = async (work: (tx: import('../src/history-types.js').OuterTransaction) => Promise<void>) =>
+      await other.transaction('write', async tx => {
+        await tx.query("SET LOCAL lock_timeout = '500ms'");
+        await work(tx);
+      });
+    const lapse = async () => await concurrent(async tx => {
+      await tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET retry_count = retry_count + 1 WHERE id = $1`, [job!.id]);
+    });
+    return { opened, job: job!, host, scope, snapshot, concurrent, lapse, heartbeat, completions: () => completions };
+  }
+
+  test('completion fence: a live body outlasts heartbeatSeconds and publishes without deadlock', async () => {
+    const f = await publicationFixture();
+    await f.opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET heartbeat_seconds = 3, heartbeat_on = clock_timestamp() WHERE id = $1`, [f.job.id]));
+    const deadlocks = async () => (await f.opened.owner.run(tx => tx.query<{deadlocks:number}>(`SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()`))).rows[0]!.deadlocks;
+    const before = await deadlocks();
+    let heartbeatError: unknown;
+    let touching = Promise.resolve();
+    const heartbeat = f.heartbeat;
+    const timer = setInterval(() => { touching = touching.then(heartbeat).catch(error => { heartbeatError = error; }); }, 250);
+    try {
+    await f.host.execute({ key: 'live', request: {}, completion: { output: { ok: true }, enqueue: [] } }, async tx => {
+      const start = (await tx.query<{at:number}>('SELECT extract(epoch FROM clock_timestamp())::float8 AS at')).rows[0]!.at;
+      for (let i = 0; i < 4; i++) {
+        await tx.query('SELECT pg_sleep(1)');
+        await heartbeat();
+      }
+      const end = (await tx.query<{at:number}>('SELECT extract(epoch FROM clock_timestamp())::float8 AS at')).rows[0]!.at;
+      expect(end - start).toBeGreaterThan(3);
+      return { accepted: true };
+    });
+    } finally {
+      clearInterval(timer);
+      await touching;
+    }
+    expect(heartbeatError).toBeUndefined();
+    expect(await f.opened.queue.job(QUEUE, f.job.id)).toMatchObject({ state: 'completed', output: { ok: true } });
+    expect(await f.opened.owner.transaction('snapshot', tx => operationReceipt(tx, EMPTY_CONTRACT, f.scope.unitUid, 'live'))).toBeDefined();
+    expect((await readUnit(f.opened.owner, 'publication/unit'))?.state).toBe('published');
+    expect(await deadlocks()).toBe(before);
+    console.log(`completion fence deadlocks: ${before} -> ${await deadlocks()}`);
+  }, 30_000);
+
+  test.each(['execute', 'fail'] as const)('completion fence: ownership lost during %s rolls back every graph write', async path => {
+    const f = await publicationFixture();
+    const before = await f.snapshot();
+    const apply = async (tx: import('../src/history-types.js').OuterTransaction) => {
+      await putFillVertexIn(tx, 'system.unit', f.scope.unitUid, { state: 'failed', reason: 'uncommitted body' });
+      await f.lapse();
+    };
+    const result = path === 'execute'
+      ? f.host.execute({ key: 'lost', request: {}, completion: { output: {}, enqueue: [] } }, apply)
+      : f.host.fail('lost ownership', apply);
+    await expect(result).rejects.toBeInstanceOf(AttemptStaleError);
+    expect(await f.snapshot()).toEqual(before);
+    expect(await f.opened.owner.transaction('snapshot', tx => operationReceipt(tx, EMPTY_CONTRACT, f.scope.unitUid, 'lost'))).toBeUndefined();
+    expect(await f.opened.queue.job(QUEUE, f.job.id)).toEqual({ state: 'active' });
+    expect((await f.opened.owner.run(tx => tx.query<{retry_count:number}>(`SELECT retry_count FROM ${QUEUE_SCHEMA}.job WHERE id=$1`, [f.job.id]))).rows[0]!.retry_count).toBe(f.job.attempt + 1);
+  }, 30_000);
+
+  test('completion fence: an idempotent receipt completes its job only once', async () => {
+    const f = await publicationFixture();
+    const request = { key: 'repeat', request: {}, completion: { output: { ok: true }, enqueue: [] } };
+    expect(await f.host.execute(request, async () => 42)).toBe(42);
+    const before = await f.snapshot();
+    expect(await f.host.execute<number>(request, async () => { throw new Error('receipt must not reapply'); })).toBe(42);
+    expect(await f.snapshot()).toEqual(before);
+    expect(f.completions()).toBe(1);
+    expect(await f.opened.queue.job(QUEUE, f.job.id)).toMatchObject({ state: 'completed', output: { ok: true } });
+  }, 30_000);
+
   test('a serialization failure rolls back the operation and a later attempt commits it', async () => {
     const owner = await createTestDatabaseOwner();
     let inject = false;
