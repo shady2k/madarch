@@ -28,7 +28,7 @@ import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotV
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName, graphContractVersion } from '../graph/contract.js';
 import { applyPluginFacts } from '../graph/graph-writes.js';
-import { producerFacts } from '../graph/producer-facts.js';
+import { producerFacts, reconciliationEndpoint } from '../graph/producer-facts.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
@@ -275,10 +275,9 @@ async function producerOwnFacts(wiring: Pick<PluginTurnWiring, 'owner' | 'manife
   // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
   // reconciliation must not withdraw it merely because the extract names no such edge of its own.
   const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
-  const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
-  const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind) || scope?.foreignEdges?.includes(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
+  const edges = [...new Set((scope?.ownedEdges ?? []).map(edge => edge.kind))].filter(kind => !keyEdges.has(kind));
   if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
-  return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges, scope === undefined ? undefined : { ...scope, supportEdges: [...supportEdges] });
+  return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges, scope);
 }
 
 /**
@@ -444,12 +443,16 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
     return fromKinds.flatMap((from) => toKinds.filter((to) => support.edges.has(edge.kind) || edgeOwner(from, to) === unit.kind.name)
       .map((to) => ({ kind: edge.kind, from, to })));
   });
+  const ownedEdges = edgeOutputs.filter(edge => edgeOwner(edge.from, edge.to) === unit.kind.name &&
+    (!support.edges.has(edge.kind) || unit.plugin.declaration?.produces.some(output => output.kind === unit.kind.name && output.support?.edges?.includes(edge.kind))));
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
-    (!support.edges.has(edge.kind) || edge.to.kind === unit.kind.name) && edgeOutputs.some((held) => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
+    ownedEdges.some(held => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
   const unitEdges = new Set(edgeOutputs.map((edge) => edge.kind));
-  const foreignEdges = edgeOutputs.filter(edge => !support.edges.has(edge.kind) && edge.from !== unit.kind.name && edge.to !== unit.kind.name).map(edge => edge.kind);
   const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
   const location = `${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}`;
+  const partitioned = unit.plugin.declaration?.produces.some(output => (output.kind === unit.kind.name || output.kind === '*') && output.partition === 'key');
+  const foreignPair = ownedEdges.find(edge => edge.from !== unit.kind.name && edge.to !== unit.kind.name);
+  if (partitioned && foreignPair !== undefined) throw new Error(`${location}: partitioned owner ${unit.kind.name} cannot reconcile cross-kind pair ${foreignPair.kind} (${foreignPair.from} -> ${foreignPair.to})`);
   const reads = declarationPlan.readsFor(unit.plugin.id, unit.kind.name);
   const snapshots = new Map<string, Awaited<ReturnType<typeof successfulPluginSnapshot>>>();
   const capturedSnapshots = new Map<string, ReturnType<typeof successfulPluginSnapshot>>();
@@ -484,7 +487,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (query.unitId !== id) throw new Error(`${location}: reconciliation names another unit`);
       if ((query.scope.repository !== undefined || query.scope.commit !== undefined) && !currentPins.some((pin) => (query.scope.repository === undefined || pin.id === query.scope.repository) && (query.scope.commit === undefined || pin.commit === query.scope.commit))) throw new Error(`${location}: reconciliation scope is not a current repository revision`);
       // Prior output is reconciliation state, never a dependency on this turn's own publication.
-      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name, foreignEdges,
+      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name, ownedEdges,
         ...(partition?.keys === undefined ? {} : { keys: partition.keys }),
         ...(wiring.paths === undefined ? {} : { paths: wiring.paths }),
       });
@@ -500,7 +503,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       };
       const scoped = {
         vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence)),
-        edges: facts.edges.filter((edge) => ownsEdge(edge) && inScope(!support.edges.has(edge.kind) && edge.from.kind === unit.kind.name ? edge.from : edge.to, edge.evidence)),
+        edges: facts.edges.filter((edge) => ownsEdge(edge) && inScope(reconciliationEndpoint(unit.kind.name, edge.from, edge.to), edge.evidence)),
       };
       priorFactCount = scoped.vertices.length + scoped.edges.length;
       return scoped;

@@ -188,7 +188,7 @@ test('batched producer facts are byte-identical to the old reader for key edges,
   } finally { await owner.close(); }
 }, 30_000);
 
-test('producer fact scope selects support edges by target kind, not a matching source kind', async () => {
+test('producer fact scope selects only owned endpoint triples, including a read-only owner', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
   try {
     await publishFiles(owner, ['src/a.ts']);
@@ -198,16 +198,19 @@ test('producer fact scope selects support edges by target kind, not a matching s
         { kind: 'fixture.snapshot-about', from: { kind: 'fixture.snapshot', key: { digest } }, to: fileRef('src/a.ts'), producer: 'reader', producerVersion: '1' },
       ] }, 1);
     });
-    const scopedProducerFacts = producerFacts as (owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope: { readonly kind: string; readonly supportEdges?: readonly string[] }) => ReturnType<typeof producerFacts>;
+    const scopedProducerFacts = producerFacts as (owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope: { readonly kind: string; readonly ownedEdges?: readonly { kind: string; from: string; to: string }[] }) => ReturnType<typeof producerFacts>;
     const supportEdges = ['fixture.snapshot-about'];
+    const ownedEdges = [{ kind: 'fixture.snapshot-about', from: 'fixture.snapshot', to: 'code.file' }];
     const unscoped = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, [], supportEdges);
     expect(unscoped.edges).toHaveLength(1);
     expect(unscoped.edges[0]).toMatchObject({ from: { kind: 'fixture.snapshot', key: { digest } }, to: fileRef('src/a.ts') });
-    const sourceScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['fixture.snapshot'], supportEdges, { kind: 'fixture.snapshot', supportEdges });
-    expect(sourceScope.vertices.map(vertex => vertex.key)).toEqual([{ digest }]);
+    const sourceScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['fixture.snapshot'], supportEdges, { kind: 'code.gitlink', ownedEdges: [] });
+    expect(sourceScope.vertices).toEqual([]);
     expect(sourceScope.edges).toEqual([]);
-    const targetScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], supportEdges, { kind: 'code.file', supportEdges });
+    const targetScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], supportEdges, { kind: 'code.file', ownedEdges });
     expect(targetScope.edges).toEqual(unscoped.edges);
+    const reader = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, [], supportEdges, { kind: 'reader.index', ownedEdges });
+    expect(reader.edges).toEqual(unscoped.edges);
     const neitherEndpoint = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['fixture.snapshot'], ['code.file-repository'], { kind: 'fixture.snapshot' });
     expect(neitherEndpoint.edges).toEqual([]);
   } finally { await owner.close(); }
@@ -217,14 +220,14 @@ test('producer facts filter partition keys and evidence paths before returning o
   const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
   try {
     await publishFiles(owner, ['src/a.ts', 'src/b.ts', 'src/c.ts']);
-    const scopedProducerFacts = producerFacts as (owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope: { readonly kind: string; readonly keys?: readonly PluginKeyValues[]; readonly paths?: readonly string[] }) => ReturnType<typeof producerFacts>;
-    const keys = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', keys: [{ path: 'src/b.ts' }] });
+    const scopedProducerFacts = producerFacts as (owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope: { readonly kind: string; readonly keys?: readonly PluginKeyValues[]; readonly paths?: readonly string[]; readonly ownedEdges?: readonly { kind: string; from: string; to: string }[] }) => ReturnType<typeof producerFacts>;
+    const keys = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', ownedEdges: [{ kind: 'code.file-repository', from: 'code.file', to: 'code.repository' }], keys: [{ path: 'src/b.ts' }] });
     expect(keys.vertices.map(vertex => vertex.key)).toEqual([{ path: 'src/b.ts' }]);
     expect(keys.edges.map(edge => edge.from.key)).toEqual([{ path: 'src/b.ts' }]);
-    const paths = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', paths: ['src/c.ts'] });
+    const paths = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', ownedEdges: [{ kind: 'code.file-repository', from: 'code.file', to: 'code.repository' }], paths: ['src/c.ts'] });
     expect(paths.vertices.map(vertex => vertex.key)).toEqual([{ path: 'src/c.ts' }]);
     expect(paths.edges.map(edge => edge.from.key)).toEqual([{ path: 'src/c.ts' }]);
-    const empty = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', keys: [] });
+    const empty = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', ownedEdges: [{ kind: 'code.file-repository', from: 'code.file', to: 'code.repository' }], keys: [] });
     expect(empty).toEqual({ vertices: [], edges: [] });
   } finally { await owner.close(); }
 }, 30_000);
