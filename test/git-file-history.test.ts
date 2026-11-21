@@ -112,6 +112,26 @@ test('a rename into a path the product leaves out keeps no edge to that path (ma
   expect(dangling).toEqual([]);
 });
 
+test('a commit over a tracked dependency path carries no edge to it when the path is excluded (madarch-64o5.74)', async () => {
+  // The host now hands the commit unit the file kind's exclusions (their union with its own, madarch-64o5.74). A
+  // repository that tracks a dependency tree — the starter set commits `plugins/<plugin>/node_modules` — must give the
+  // commit unit no `code.touched` edge to a path `code.file` leaves out, or the edge ends at a vertex no producer writes.
+  const tree = join(ROOT, 'excluded-commit');
+  mkdirSync(tree);
+  git(tree, ONE, 'init', '-q', '-b', 'main');
+  git(tree, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(tree, 'app.js'), 'export const app = 1;\n');
+  commit(tree, ONE, 'add app.js');
+  mkdirSync(join(tree, 'node_modules', 'pkg'), { recursive: true });
+  writeFileSync(join(tree, 'node_modules/pkg/index.js'), 'export const dependency = 1;\n');
+  const added = commit(tree, TWO, 'add the dependency tree');
+  expect(current(tree)).toContain('node_modules/pkg/index.js');
+  const held = unit('code.commit', commitEdges, pin(tree, 'tree', added));
+  const answer = await gitExtract({ ...held, inputs: { ...(held.inputs as Record<string, unknown>), exclude: ['**/node_modules/**'] } } as Unit, context(['app.js', 'node_modules/pkg/index.js']));
+  const touched = (answer.edges ?? []).filter((edge) => edge.kind === 'code.touched').map((edge) => String(edge.to.key['path'])).sort();
+  expect(touched).toEqual(['app.js']);
+});
+
 test('a backdated side deletion ends a period in ancestry order, not commit-date order', async () => {
   const dag = join(ROOT, 'dag');
   mkdirSync(dag);
