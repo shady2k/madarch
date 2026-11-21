@@ -18,7 +18,15 @@ async function fixture(count = 1) {
   let settlementEvidenceReads = 0;
   const counting = Object.create(owner) as TestDatabaseOwner;
   let afterSettlementSnapshot: (() => Promise<void>) | undefined;
+  let beforeNextSnapshot: (() => Promise<void>) | undefined;
   counting.transaction = async (kind, work) => {
+    // A worker's write lands between the pass's own transactions: it commits before
+    // the next checkpoint snapshot opens, as an external writer's does.
+    if (kind === 'snapshot' && beforeNextSnapshot !== undefined) {
+      const write = beforeNextSnapshot;
+      beforeNextSnapshot = undefined;
+      await write();
+    }
     const settlement = kind === 'snapshot' && new Error().stack?.includes('settleRun');
     const answer = await owner.transaction(kind, async tx => {
       let runMembership = false;
@@ -63,7 +71,7 @@ async function fixture(count = 1) {
   expect((await planRun(orchestrator, { runId: 'run' })).outcome).toBe('planned');
   await schedulerPass(orchestrator, { runId: 'run' });
   stopHeartbeat(orchestrator);
-  return { owner, orchestrator, queue, settlementStampReads: () => settlementStampReads, settlementEvidenceReads: () => settlementEvidenceReads, afterSettlementSnapshot: (work: () => Promise<void>) => { afterSettlementSnapshot = work; }, statements: () => statements, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { settlementStampReads = 0; settlementEvidenceReads = 0; statements = 0; membershipReads = 0; snapshotTransactions = 0; },
+  return { owner, orchestrator, queue, settlementStampReads: () => settlementStampReads, settlementEvidenceReads: () => settlementEvidenceReads, afterSettlementSnapshot: (work: () => Promise<void>) => { afterSettlementSnapshot = work; }, beforeNextSnapshot: (work: () => Promise<void>) => { beforeNextSnapshot = work; }, statements: () => statements, reads: () => membershipReads, snapshots: () => snapshotTransactions, reset: () => { settlementStampReads = 0; settlementEvidenceReads = 0; statements = 0; membershipReads = 0; snapshotTransactions = 0; },
     close: async () => { stopHeartbeat(orchestrator); await queue.stop(); await owner.close(); } };
 }
 
@@ -89,7 +97,9 @@ test('a worker write during a pass is visible at the next checkpoint', async () 
       const answer = await enqueue(request);
       if (!changed) {
         changed = true;
-        expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } }))).ok).toBe(true);
+        opened.beforeNextSnapshot(async () => {
+          expect((await writeOrchestration(opened.owner, tx => advanceUnitIn(tx, { unitId: 'source/one', event: { type: 'cancel', at: Date.now(), cause: 'external worker' } }))).ok).toBe(true);
+        });
       }
       return answer;
     };
