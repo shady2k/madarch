@@ -12,6 +12,8 @@ const contract: GraphContract = {
   dictionary: [],
 };
 
+/** Any assertion load, indexed or unbounded. */
+const assertionLoad = (call: { readonly sql: string }): boolean => call.sql.includes('JOIN node assertion_node ON assertion_node.id=a.assertion_id');
 /** The indexed assertion load a bounded subject read issues; the identity lookup has neither marker. */
 const indexedSubjectLoad = (call: { readonly sql: string }): boolean => call.sql.includes('assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id');
 /** The subject ids the load binds: its single `bigint[]` parameter. */
@@ -121,14 +123,26 @@ test('0039.30: subject UID bounds apply before assertion loading and preserve co
   const identity = calls.find(call => call.sql.includes('n.uid=ANY($2::uuid[])'));
   expect(identity).toBeDefined();
   expect(identity?.parameters).toEqual(['fixture', ['subject']]);
-  const loads = calls.filter(indexedSubjectLoad);
+  const loads = calls.filter(assertionLoad);
   expect(loads.length).toBeGreaterThan(0);
-  for (const load of loads) expect(boundSubjectIds(load)).toEqual([1]);
+  for (const load of loads) {
+    expect(indexedSubjectLoad(load)).toBe(true);
+    expect(boundSubjectIds(load)).toEqual([1]);
+  }
+  expect(loads).toHaveLength(1);
   expect(rows[0]?.values['amount']).toBe(1);
   calls.length = 0;
   const empty = await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectUids: [] });
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
   expect(calls.filter(indexedSubjectLoad)).toHaveLength(0);
+  expect(calls.find(call => call.sql.includes('n.uid=ANY('))).toBeUndefined();
   expect(empty).toEqual([]);
+  calls.length = 0;
+  expect(await readKindAssertions(tx, 'vertex', 'fixture', ['amount'], { contract, subjectIds: [] })).toEqual([]);
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
+  calls.length = 0;
+  expect(await readKindAssertions(tx, 'edge', 'fixture', ['amount'], { contract, subjectUids: [] })).toEqual([]);
+  expect(calls.filter(assertionLoad)).toHaveLength(0);
 });
 
 test('0039.25: the effective false existence beats an older true candidate from another source', async () => {
