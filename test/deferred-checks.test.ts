@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import type { OuterTransaction } from '../src/history-types.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
@@ -72,9 +73,11 @@ for (const [code, message] of [
         await tx.query('SET CONSTRAINTS ALL DEFERRED');
         await tx.query(`DELETE FROM "${table}" WHERE assertion_id=$1`,[id]);
         await tx.query("SELECT set_config('madarch.graph_node_lower',$1,true),set_config('madarch.checked_graph_revision','',true)",[id]);
+        await expectEquivalent(tx,code,id);
         await tx.query('SELECT graph_checks_pass()');
       }
       if (code===214) await tx.query(`UPDATE node SET key='{"name":"contradiction"}' WHERE id=(SELECT e.to_node FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id WHERE s.assertion_id=$1)`,[id]);
+      await expectEquivalent(tx,code,code===214 ? undefined : id);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     })).rejects.toThrow(code===77 ? 'requires exactly one subject' : `:${code}: ${message}`);
   } finally { await owner.close(); }
@@ -217,3 +220,124 @@ test('typed value dispatch checks wrong-table inserts across immediate checks an
   });
  }finally{await owner.close();}
 },30_000);
+
+
+async function headerQuery(tx: OuterTransaction) {
+  const body = (await tx.query<{body:string}>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_checks_pass()'::regprocedure")).rows[0]!.body;
+  const begin = body.includes('WITH assertion_headers AS MATERIALIZED') ? body.indexOf('WITH assertion_headers AS MATERIALIZED') : body.indexOf('SELECT id,code INTO bad_id,violation');
+  return body.slice(begin,body.indexOf(';',begin)).replace(' INTO bad_id,violation','').replaceAll('node_lower','$1');
+}
+
+test('header validation batches subjects and provenance without correlated subplans', async () => {
+  const owner=await createTestDatabaseOwner({graphContract:contract});
+  try { await owner.transaction('write',async tx=>{
+    await publishGraphDrafts(tx,contract,{vertices:Array.from({length:20},(_,i)=>({kind:'keyed',key:{name:`batch-${i}`},values:{amount:i},producer:'fixture',producerVersion:'1'})),removals:[]});
+    await expectEquivalent(tx,0);
+    const query=await headerQuery(tx);
+    const plan=(await tx.query('EXPLAIN (FORMAT JSON) '+query,['0'])).rows;
+    expect(JSON.stringify(plan)).not.toContain('SubPlan');
+  }); } finally {await owner.close();}
+},60_000);
+
+test('relation validation keeps a generic cached vertex_groups plan', async () => {
+  const declared:GraphContract={...contract,edge:[{name:'related',table:generatedTableName('related','edge'),
+    from:['keyed'],to:['keyed'],cardinality:{from:'many',to:'many'},fields:[],capability:'fixture',repeats:false,labels:{en:{out:'related',in:'related'},ru:{out:'related',in:'related'}}}]};
+  const owner=await createTestDatabaseOwner({graphContract:declared});
+  try {await owner.transaction('write',async tx=>{
+    const functions=(await tx.query<{proconfig:string[]}>("SELECT proconfig FROM pg_proc WHERE proname='graph_relation_violation'")).rows;
+    expect(functions).toHaveLength(1);
+    expect(functions[0]!.proconfig).toContain('plan_cache_mode=force_generic_plan');
+    for(const name of ['first','second']) {
+      await publishGraphDrafts(tx,declared,{vertices:[{kind:'keyed',key:{name},producer:'fixture',producerVersion:'1'}],removals:[]});
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('SET CONSTRAINTS ALL DEFERRED');
+    }
+    expect((await tx.query<{mode:string}>("SELECT current_setting('plan_cache_mode') AS mode")).rows[0]!.mode).toBe('auto');
+  });} finally {await owner.close();}
+},60_000);
+
+async function expectEquivalent(tx: OuterTransaction, expectedCode: number, expectedId?: string) {
+  const body=(await tx.query<{body:string}>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_checks_pass()'::regprocedure")).rows[0]!.body;
+  const header=await headerQuery(tx);
+  const oldHeader=(await Bun.file(new URL('./fixtures/deferred-checks/header-before.sql',import.meta.url)).text())
+    .replaceAll('$1','node_lower').replace('SELECT id,code','SELECT id,code INTO bad_id,violation').trim().replace(/;$/, '');
+  const currentHeader=header.replaceAll('$1','node_lower').replace('SELECT id,code FROM failures','SELECT id,code INTO bad_id,violation FROM failures');
+  const answers=[];
+  for(const [name,implementation] of [['current',body],['before',body.replace(currentHeader,oldHeader)]] as const) {
+    expect(implementation.includes('WITH assertion_headers AS MATERIALIZED')).toBe(name==='current');
+    const observed=implementation.replace(/RAISE EXCEPTION '[^']*:(77|80|83|88|106|43|60|214):[^']*'[^;]*;/g,
+      (_match,code:string)=>`RETURN jsonb_build_object('id',bad_id::text,'code',${code});`)
+      .replace('RETURN; END',"RETURN jsonb_build_object('id',NULL,'code',0); END");
+    await tx.query(`CREATE OR REPLACE FUNCTION deferred_${name}() RETURNS jsonb LANGUAGE plpgsql AS $oracle$ ${observed} $oracle$`);
+    await tx.query('SAVEPOINT equivalence');
+    answers.push((await tx.query<{answer:{id:string|null;code:number}}>(`SELECT deferred_${name}() AS answer`)).rows[0]!.answer);
+    await tx.query('ROLLBACK TO SAVEPOINT equivalence');
+  }
+  expect(answers[0]).toEqual(answers[1]);
+  expect(answers[0]!.code).toBe(expectedCode);
+  if(expectedId!==undefined)expect(answers[0]!.id).toBe(expectedId);
+  console.log('DEFERRED_EQUIVALENCE',JSON.stringify({expectedCode,answers}));
+}
+
+test('header batch keeps old first-row and check precedence with several failures',async()=>{
+  const owner=await createTestDatabaseOwner({graphContract:contract});
+  try {
+    await owner.transaction('write',async tx=>{
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('ALTER TABLE assertion_vertex_subject DISABLE TRIGGER immutable');
+    });
+    await owner.transaction('write',async tx=>{
+      await publishGraphDrafts(tx,contract,{vertices:[{kind:'keyed',key:{name:'first'},values:{amount:1},producer:'fixture',producerVersion:'1'},
+        {kind:'keyed',key:{name:'second'},values:{amount:2},producer:'fixture',producerVersion:'1'}],removals:[]});
+      const ids=(await tx.query<{id:string}>("SELECT assertion_id::text AS id FROM assertion WHERE property='amount' ORDER BY assertion_id")).rows.map(r=>r.id);
+      expect(ids).toHaveLength(2);
+      await tx.query('SAVEPOINT missing_subjects');
+      await tx.query('DELETE FROM assertion_vertex_subject WHERE assertion_id=ANY($1::bigint[])',[ids]);
+      await expectEquivalent(tx,77,ids[0]!);
+      await tx.query('ROLLBACK TO SAVEPOINT missing_subjects');
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+    });
+  } finally {await owner.close();}
+},60_000);
+
+test('header checks stay deferred through savepoints and reject invalid commit',async()=>{
+  const owner=await createTestDatabaseOwner({graphContract:contract});
+  try {
+    await owner.transaction('write',async tx=>{
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('ALTER TABLE assertion_vertex_subject DISABLE TRIGGER immutable');
+    });
+    const write=async(tx:OuterTransaction,name:string)=>{
+      await publishGraphDrafts(tx,contract,{vertices:[{kind:'keyed',key:{name},values:{amount:1},producer:'fixture',producerVersion:'1'}],removals:[]});
+      return (await tx.query<{id:string}>("SELECT max(assertion_id)::text AS id FROM assertion WHERE property='amount'")).rows[0]!.id;
+    };
+    await owner.transaction('write',async tx=>{
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('SET CONSTRAINTS ALL DEFERRED');
+      const settings=()=>tx.query("SELECT current_setting('madarch.graph_node_lower',true) AS node,current_setting('madarch.graph_edge_lower',true) AS edge,current_setting('madarch.graph_context_lower',true) AS context,current_setting('madarch.graph_revision',true) AS revision,current_setting('madarch.graph_value_tables',true) AS tables");
+      const before=(await settings()).rows;
+      await tx.query('SAVEPOINT discarded');
+      const id=await write(tx,'discarded');
+      await tx.query('DELETE FROM assertion_vertex_subject WHERE assertion_id=$1',[id]);
+      // Invalid data can still be read before constraints are forced.
+      expect((await tx.query('SELECT 1 FROM assertion WHERE assertion_id=$1',[id])).rows).toHaveLength(1);
+      await expect(tx.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(':77:');
+      await tx.query('ROLLBACK TO SAVEPOINT discarded');
+      expect((await settings()).rows).toEqual(before);
+      await write(tx,'retained');
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      expect((await tx.query("SELECT current_setting('madarch.graph_node_lower',true) AS lower")).rows[0]!.lower).toBe('');
+    });
+    await expect(owner.transaction('write',async tx=>{
+      const id=await write(tx,'invalid-commit');
+      await tx.query('DELETE FROM assertion_vertex_subject WHERE assertion_id=$1',[id]);
+      expect((await tx.query('SELECT 1 FROM assertion WHERE assertion_id=$1',[id])).rows).toHaveLength(1);
+    })).rejects.toThrow(':77:');
+    await owner.transaction('write',async tx=>{
+      expect((await tx.query(`SELECT 1 FROM node WHERE key='{"name":"invalid-commit"}'::jsonb`)).rows).toHaveLength(0);
+      await tx.query('SAVEPOINT immutable');
+      await expect(tx.query("UPDATE assertion SET property=property")).rejects.toThrow('immutable graph assertion history');
+      await tx.query('ROLLBACK TO SAVEPOINT immutable');
+    });
+  } finally {await owner.close();}
+},60_000);

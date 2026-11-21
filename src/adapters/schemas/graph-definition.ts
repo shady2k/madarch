@@ -369,6 +369,38 @@ export function generateContractStatements(declared: GraphContract) {
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
       }
+      // Keep this parameterized statement on one generic plan across boundary instants and passes.
+      statements.push(`CREATE OR REPLACE FUNCTION graph_relation_violation(
+        checked_vertices bigint[],counted_edges bigint[],checked_edges bigint[],checked_contexts bigint[],
+        vertex_kind_ids bigint[],edge_kind_ids bigint[],vertex_kinds text[],edge_kinds text[],
+        source_kind_id bigint,merge_present boolean,instant timestamptz
+      ) RETURNS integer LANGUAGE plpgsql SET plan_cache_mode=force_generic_plan AS $$
+        DECLARE violation integer; BEGIN
+WITH vertex_groups AS MATERIALIZED (
+        SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name,array_agg(n.id) AS ids
+        FROM unnest(checked_vertices) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=candidate.id OFFSET 0) n
+        WHERE n.entity_id=ANY(vertex_kind_ids) GROUP BY n.entity_id
+      ), edge_groups AS MATERIALIZED (
+        SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name,array_agg(e.id) AS ids
+        FROM unnest(counted_edges) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM edge WHERE id=candidate.id OFFSET 0) e
+        GROUP BY e.entity_id
+      ), active_edges AS MATERIALIZED (
+        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.from_node ELSE graph_edge_endpoint(e.id,e.from_node,'from',ctx.id,instant,clock_timestamp()) END AS from_node,
+          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.to_node ELSE graph_edge_endpoint(e.id,e.to_node,'to',ctx.id,instant,clock_timestamp()) END AS to_node
+        FROM unnest(checked_contexts) ctx(id)
+        CROSS JOIN edge_groups k
+        CROSS JOIN LATERAL graph_edge_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
+        CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=active.id OFFSET 0) e
+      ), active_vertices AS MATERIALIZED (
+        SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
+          CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)
+        CROSS JOIN vertex_groups k
+        CROSS JOIN LATERAL graph_vertex_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
+        CROSS JOIN LATERAL (SELECT id FROM node WHERE id=active.id OFFSET 0) n
+      ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
+        RETURN violation;
+      END $$`);
       relationChecks.push(`
       SELECT coalesce(array_agg(DISTINCT subject), '{}') INTO changed_vertices FROM (
         SELECT n.id AS subject FROM (SELECT * FROM node WHERE id>=node_lower OFFSET 0) n
@@ -467,29 +499,8 @@ export function generateContractStatements(declared: GraphContract) {
             WHERE boundary.at IS NOT NULL AND EXISTS(SELECT 1 FROM intervals i WHERE boundary.at>=i.lo AND (i.hi IS NULL OR boundary.at<=i.hi))
         ) SELECT DISTINCT at FROM boundaries ORDER BY at
       LOOP
-WITH vertex_groups AS MATERIALIZED (
-        SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name,array_agg(n.id) AS ids
-        FROM unnest(checked_vertices) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=candidate.id OFFSET 0) n
-        WHERE n.entity_id=ANY(vertex_kind_ids) GROUP BY n.entity_id
-      ), edge_groups AS MATERIALIZED (
-        SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name,array_agg(e.id) AS ids
-        FROM unnest(counted_edges) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM edge WHERE id=candidate.id OFFSET 0) e
-        GROUP BY e.entity_id
-      ), active_edges AS MATERIALIZED (
-        SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
-          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.from_node ELSE graph_edge_endpoint(e.id,e.from_node,'from',ctx.id,instant,clock_timestamp()) END AS from_node,
-          CASE WHEN NOT merge_present OR k.name=ANY(ARRAY[${keyEdgeNames.map(literal).join(',')}]::text[]) THEN e.to_node ELSE graph_edge_endpoint(e.id,e.to_node,'to',ctx.id,instant,clock_timestamp()) END AS to_node
-        FROM unnest(checked_contexts) ctx(id)
-        CROSS JOIN edge_groups k
-        CROSS JOIN LATERAL graph_edge_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
-        CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=active.id OFFSET 0) e
-      ), active_vertices AS MATERIALIZED (
-        SELECT DISTINCT ctx.id AS context_id,k.name AS kind,n.id AS raw_id,
-          CASE WHEN merge_present THEN graph_merge_target(n.id,ctx.id,instant,clock_timestamp()) ELSE n.id END AS id FROM unnest(checked_contexts) ctx(id)
-        CROSS JOIN vertex_groups k
-        CROSS JOIN LATERAL graph_vertex_active_ids_batch(k.name,ctx.id,k.ids,instant,source_kind_id) active(id)
-        CROSS JOIN LATERAL (SELECT id FROM node WHERE id=active.id OFFSET 0) n
-      ) SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
+        violation:=graph_relation_violation(checked_vertices,counted_edges,checked_edges,checked_contexts,
+          vertex_kind_ids,edge_kind_ids,vertex_kinds,edge_kinds,source_kind_id,merge_present,instant);
       ${refusals.join('\n')}
       END LOOP;`);
     }
@@ -525,13 +536,40 @@ WITH vertex_groups AS MATERIALIZED (
         edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
       revision := current_setting('madarch.graph_revision',true);
 
-SELECT id,code INTO bad_id,violation FROM (SELECT h.assertion_id AS id,CASE WHEN (SELECT count(*) FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id) + (SELECT count(*) FROM assertion_edge_subject WHERE assertion_id=h.assertion_id) <> 1 THEN 77 WHEN EXISTS (SELECT 1 FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id OFFSET 0) s CROSS JOIN LATERAL (SELECT * FROM edge WHERE id=s.subject_edge_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE s.assertion_id=h.assertion_id AND (e.from_node<>h.assertion_id OR k.name<>'system.assertion-subject')) THEN 80 WHEN NOT EXISTS (SELECT 1 FROM (SELECT entity_id FROM node WHERE id=h.assertion_id OFFSET 0) n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.assertion') THEN 83 WHEN (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-source') <> 1
-        OR (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-author') <> 1
-        OR (SELECT count(*) FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id WHERE e.from_node=h.assertion_id AND k.name='system.assertion-operation') < 1 THEN 88 WHEN EXISTS (SELECT 1 FROM (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e JOIN entity k ON k.id=e.entity_id CROSS JOIN LATERAL (SELECT entity_id FROM node WHERE id=e.to_node OFFSET 0) target JOIN entity tk ON tk.id=target.entity_id
-        WHERE e.from_node=h.assertion_id AND ((k.name='system.assertion-source' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
-          OR (k.name='system.assertion-author' AND tk.name NOT IN ('source','person','plugin','agent','agent-session'))
-          OR (k.name='system.assertion-operation' AND tk.name<>'system.operation')
-          OR (k.name='system.assertion-unit' AND tk.name<>'system.unit'))) THEN 106 ELSE 0 END AS code FROM (SELECT * FROM assertion WHERE assertion_id>=node_lower OFFSET 0) h) failures WHERE code<>0 ORDER BY id,code LIMIT 1;
+WITH assertion_headers AS MATERIALIZED (
+        SELECT assertion_id FROM assertion WHERE assertion_id>=node_lower
+      ), subjects AS MATERIALIZED (
+        SELECT h.assertion_id,count(av.assertion_id)+count(ae.assertion_id) AS total,
+          bool_or(attachment.from_node<>h.assertion_id OR kind.name<>'system.assertion-subject') AS invalid
+        FROM assertion_headers h
+        LEFT JOIN assertion_vertex_subject av ON av.assertion_id=h.assertion_id
+        LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=h.assertion_id
+        LEFT JOIN edge attachment ON attachment.id=av.subject_edge_id
+        LEFT JOIN entity kind ON kind.id=attachment.entity_id
+        GROUP BY h.assertion_id
+      ), provenance AS MATERIALIZED (
+        SELECT e.from_node AS assertion_id,
+          count(*) FILTER (WHERE kind.name='system.assertion-source') AS sources,
+          count(*) FILTER (WHERE kind.name='system.assertion-author') AS authors,
+          count(*) FILTER (WHERE kind.name='system.assertion-operation') AS operations,
+          bool_or((kind.name IN ('system.assertion-source','system.assertion-author') AND target_kind.name NOT IN ('source','person','plugin','agent','agent-session'))
+            OR (kind.name='system.assertion-operation' AND target_kind.name<>'system.operation')
+            OR (kind.name='system.assertion-unit' AND target_kind.name<>'system.unit')) AS invalid
+        FROM assertion_headers h CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e
+        JOIN entity kind ON kind.id=e.entity_id
+        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=e.to_node OFFSET 0) target ON true LEFT JOIN entity target_kind ON target_kind.id=target.entity_id
+        GROUP BY e.from_node
+      ), failures AS MATERIALIZED (
+        SELECT h.assertion_id AS id,CASE
+          WHEN subjects.total<>1 THEN 77
+          WHEN subjects.invalid THEN 80
+          WHEN kind.name IS DISTINCT FROM 'system.assertion' THEN 83
+          WHEN coalesce(provenance.sources,0)<>1 OR coalesce(provenance.authors,0)<>1 OR coalesce(provenance.operations,0)<1 THEN 88
+          WHEN provenance.invalid THEN 106 ELSE 0 END AS code
+        FROM assertion_headers h JOIN subjects ON subjects.assertion_id=h.assertion_id
+        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=h.assertion_id OFFSET 0) n ON true LEFT JOIN entity kind ON kind.id=n.entity_id
+        LEFT JOIN provenance ON provenance.assertion_id=h.assertion_id
+      ) SELECT id,code INTO bad_id,violation FROM failures WHERE code<>0 ORDER BY id,code LIMIT 1;
 IF violation=77 THEN RAISE EXCEPTION '${import.meta.path}:77: assertion % requires exactly one subject',bad_id; END IF;
 IF violation=80 THEN RAISE EXCEPTION '${import.meta.path}:80: invalid assertion subject edge'; END IF;
 IF violation=83 THEN RAISE EXCEPTION '${import.meta.path}:83: assertion header requires a system.assertion vertex'; END IF;
