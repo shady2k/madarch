@@ -4,7 +4,7 @@ import type { GraphContract, EvidenceDraft } from './contract.js';
 import { withAssertionContract, isDisputableProperty } from './system-contract.js';
 import { loadResolutionAssertion, type DisputeView } from './dispute-read.js';
 import { loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
-import { selectAssertions, candidateFingerprint, resolutionMatches, applySemanticResolution, type AssertionRow } from './assertion-selection.js';
+import { selectAssertions, candidateFingerprint, canonicalAssertionValue, resolutionMatches, applySemanticResolution, type AssertionRow } from './assertion-selection.js';
 import { bindWriteCapability, bootstrapWriteIdentity, writeAssertion, requireWriteCapability, requireAssertionScope, publishGraphDrafts } from './write.js';
 import { requireProducerAction, requirePublicationBinding, requireProducerBinding, type ProducerBinding } from './producer-binding.js';
 import { keyUid, newUid } from './uid.js';
@@ -59,7 +59,7 @@ interface ReconciliationSnapshot {
 }
 async function reconciliationSnapshot(tx:SqlExecutor,rows:readonly StoredAssertion[],questionUid?:string,previous?:ReconciliationSnapshot):Promise<ReconciliationSnapshot>{
  return await withSpan('graph.dispute.reconciliation-snapshot',{},async()=>{
- const linkKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.resolution-assertion'];
+ const linkKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.dispute-supersedes','system.resolution-assertion'];
  const at=(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
  const scope=(await tx.query<{id:number;uid:string;kind:string}>(`WITH questions AS (
  SELECT DISTINCT q.id,q.uid FROM node q JOIN edge e ON e.from_node=q.id JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node
@@ -183,7 +183,11 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
     if(repeated){matching=resolution;chosen=repeated.id;}
    }
   }
-  return {id,state:matching!==null?'RESOLVED':selected.contested?'OPEN':'DISMISSED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
+  const superseded=new Set(history.flatMap(uid=>snapshot.links(uid,'system.dispute-supersedes',selectors)));
+  const latest=history.find(uid=>!superseded.has(uid));
+  const latestChosen=latest===undefined?undefined:rows.find(row=>snapshot.links(latest,'system.dispute-chosen',selectors).includes(row.id));
+  const contradicts=selected.selected!==null&&latestChosen!==undefined&&canonicalAssertionValue(selected.selected.value)!==canonicalAssertionValue(latestChosen.value);
+  return {id,state:matching!==null?'RESOLVED':selected.contested||contradicts?'OPEN':'DISMISSED',candidates:selected.candidates.map(row=>row.id),resolution:matching,supersededResolutions:history.filter(uid=>uid!==matching),selectedAssertionUid:chosen};
  }
  return null;
  });
