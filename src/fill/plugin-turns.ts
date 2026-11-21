@@ -264,6 +264,23 @@ function entityIdOf(wiring: PluginTurnWiring, kind: string, key: import('../plug
 }
 
 
+async function producerOwnFacts(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract' | 'sourceUid'>,
+  query: Parameters<NonNullable<GraphAnswerer['ownFacts']>>[0], scope?: Parameters<typeof producerFacts>[5]) {
+  const separator = query.unitId.indexOf(':');
+  const producer = query.unitId.slice(0, separator);
+  const kindName = query.unitId.slice(separator + 1).split('@')[0]!.split('#')[0]!;
+  const plugin = wiring.manifest.plugins?.get(producer);
+  const kind = wiring.manifest.kinds.get(kindName);
+  if (separator < 0 || plugin === undefined || kind === undefined || !fills(plugin, kind)) throw new Error(`${import.meta.path}:218: invalid own-facts unit ${query.unitId}`);
+  // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
+  // reconciliation must not withdraw it merely because the extract names no such edge of its own.
+  const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
+  const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
+  const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
+  if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
+  return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges, scope);
+}
+
 /**
  * The graph the host answers a plugin's reads from: the file vertices its pattern names, and a file's content as the
  * files producer stored it. The plugin never sees a folder (decision 0035, item 9). The host records each request it
@@ -284,21 +301,7 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
     return held;
   };
   return {
-    ownFacts: async (query) => {
-      const separator = query.unitId.indexOf(':');
-      const producer = query.unitId.slice(0, separator);
-      const kindName = query.unitId.slice(separator + 1).split('@')[0]!.split('#')[0]!;
-      const plugin = wiring.manifest.plugins?.get(producer);
-      const kind = wiring.manifest.kinds.get(kindName);
-      if (separator < 0 || plugin === undefined || kind === undefined || !fills(plugin, kind)) throw new Error(`${import.meta.path}:218: invalid own-facts unit ${query.unitId}`);
-      // 0039 item 2: a key edge is the child's identity, written with its key, never an edge the producer answers;
-      // reconciliation must not withdraw it merely because the extract names no such edge of its own.
-      const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
-      const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
-      const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
-      if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
-      return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges);
-    },
+    ownFacts: async (query) => producerOwnFacts(wiring, query),
     files: async (pattern, snapshot) => {
       const files = snapshot === undefined ? await graphFiles(wiring.owner, wiring.contract)
         : [...(await vertices(snapshot, 'code.file')).values()].map(({ key, keyEdges }) => {
@@ -480,7 +483,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (query.unitId !== id) throw new Error(`${location}: reconciliation names another unit`);
       if ((query.scope.repository !== undefined || query.scope.commit !== undefined) && !currentPins.some((pin) => (query.scope.repository === undefined || pin.id === query.scope.repository) && (query.scope.commit === undefined || pin.commit === query.scope.commit))) throw new Error(`${location}: reconciliation scope is not a current repository revision`);
       // Prior output is reconciliation state, never a dependency on this turn's own publication.
-      const facts = await pluginGraphAnswerer(wiring).ownFacts!(query);
+      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name,
+        ...(partition?.keys === undefined ? {} : { keys: partition.keys }),
+        ...(wiring.paths === undefined ? {} : { paths: wiring.paths }),
+      });
       const inScope = (ref: import('../plugin/protocol.js').PluginEntityRef, evidence?: import('../plugin/protocol.js').PluginEvidence): boolean => {
         if (query.scope.repository !== undefined && query.scope.parent === undefined) throw new Error(`${location}: repository reconciliation requires an explicit parent identity`);
         const underParent = (reference: import('../plugin/protocol.js').PluginEntityRef): boolean => canonicalEntity(reference) === canonicalEntity(query.scope.parent!) || Object.values(reference.keyEdges ?? {}).some(underParent);

@@ -44,6 +44,10 @@ function select(result: UnitResult, kind: string, keys: ReadonlySet<string>): Un
   return { ...result, vertices: vertices.filter(vertex => included.has(refOf(vertex))), edges: edges.filter(edge => primaryEdges.includes(edge) || supportEdges.has(edge)) };
 }
 
+/** How long the grouping pass may run before it hands the loop back to the host's heartbeat (madarch-64o5.74). */
+const LOOP_YIELD_MS = 20;
+const yieldToLoop = async (): Promise<void> => { await new Promise<void>((done) => setTimeout(done, 0)); };
+
 /** Enumerate bounded key groups; support never becomes a partition identity. */
 export function partitioned(extractOutput: (unit: Unit, context: ExtractContext) => Promise<UnitResult>) {
   let held: { identity: string; result: UnitResult; groups: KeyValues[][] } | undefined;
@@ -56,14 +60,34 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     for (const vertex of result.vertices ?? []) if (vertex.kind === unit.kind) byKey.set(keyOf(vertex.key), vertex.key);
     const all = select(result, unit.kind, new Set(byKey.keys()));
     for (const edge of result.edges ?? []) if (!all.edges?.includes(edge)) throw new Error(`partition edge has no output identity or referenced support: ${JSON.stringify(edge)}`);
+    // A group takes the longest run of keys whose published output stays within GROUP_BYTES, and one key always stands
+    // (the rule never judges a group of one). The size only grows as keys join, so the run is found by search rather
+    // than by rebuilding the whole selection once per key: the cost follows the keys published, not their square
+    // (madarch-64o5.74). The pass hands the loop back between groups, so the host's heartbeat is answered while a
+    // whole tree is grouped.
+    const ordered = [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, key]) => key);
+    const sizeOf = (start: number, end: number): number => bytesOf(select(result, unit.kind, new Set(ordered.slice(start, end + 1).map(keyOf))));
+    const endOfGroup = (start: number): number => {
+      let good = start;
+      let step = 1;
+      while (start + step < ordered.length && sizeOf(start, start + step) <= GROUP_BYTES) { good = start + step; step *= 2; }
+      let low = good + 1;
+      let high = Math.min(ordered.length, start + step);
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (sizeOf(start, middle) <= GROUP_BYTES) low = middle + 1;
+        else high = middle;
+      }
+      return low - 1;
+    };
     const groups: KeyValues[][] = [];
-    let group: KeyValues[] = [];
-    for (const [_, key] of [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-      const candidate = [...group, key];
-      if (group.length > 0 && bytesOf(select(result, unit.kind, new Set(candidate.map(keyOf)))) > GROUP_BYTES) { groups.push(group); group = []; }
-      group.push(key);
+    let lastYield = Date.now();
+    for (let start = 0; start < ordered.length;) {
+      const end = endOfGroup(start);
+      groups.push(ordered.slice(start, end + 1));
+      start = end + 1;
+      if (Date.now() - lastYield >= LOOP_YIELD_MS) { await yieldToLoop(); lastYield = Date.now(); }
     }
-    if (group.length > 0) groups.push(group);
     held = { identity, result, groups };
     return held;
   };

@@ -354,7 +354,9 @@ graph. (Decisions 0018, 0036.)
 
 **Product repository**:
 One product's knowledge kept as Markdown and YAML in a git repository of its
-own, apart from the product's code; before it has a name it is a draft.
+own, apart from the product's code; before it has a name it is a draft. Its
+files reach the graph through the files plugin, like a code repository's; the
+product's kinds and their exclusions decide what is published.
 
 **Draft product**:
 A product repository created by `madarch init` outside Git: a folder `idea-YYYY-MM-DD`

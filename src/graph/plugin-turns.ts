@@ -42,7 +42,7 @@ export async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind
 }
 
 /** Batch the same effective key-edge reads as referenceOf, once per reachable kind. */
-async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[]): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
+export async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[], selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
   return await withSpan('graph.plugin-turns.referencesOf', {}, async () => {
     const kinds = new Set<string>();
     const edgeKinds = new Set<string>();
@@ -57,7 +57,7 @@ async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: stri
     };
     visit(kind);
     const names = [...edgeKinds];
-    const batches = names.length === 0 ? [] : await readKindsAssertions(tx, names.map(name => ({ sort: 'edge', kind: name, fields: [] })), { contract });
+    const batches = names.length === 0 ? [] : await readKindsAssertions(tx, names.map(name => ({ sort: 'edge', kind: name, fields: [] })), { ...selector, contract });
     const edges = new Map(names.map((name, index) => [name, batches[index]!]));
     const nodeIds = [...new Set([...ids, ...batches.flatMap(rows => rows.flatMap(row => [row.from!, row.to!]))])];
     const nodes = (await tx.query<{ id: number; uid: string; kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT n.id,n.uid::text,n.key,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])`, [nodeIds])).rows;

@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listFiles, repositoryFacts } from '../src/graph/index.js';
+import { listFiles, productFileIndex, repositoryFacts } from '../src/graph/index.js';
 import { runFill } from '../src/fill/run.js';
 import { createTestDatabaseOwner, prepareTestStore as prepareStore, type TestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
@@ -161,6 +161,25 @@ describe('the one fill', () => {
       expect(after.map((file) => file.path).sort()).toEqual(['docs/readme.md', 'src/a.ts']);
       expect(after.find((file) => file.path === 'docs/readme.md')!.blob).toBe(docsBlob);
       expect(after.find((file) => file.path === 'src/a.ts')!.blob).not.toBe(oldBlob);
+    } finally {
+      await store.close();
+    }
+  }, 300_000);
+
+  test("the product repository's own files reach the graph through the files plugin, its manifest among them (madarch-hsqs, madarch-64o5.74)", async () => {
+    // The owner's words (madarch-hsqs, 2026-11-10): «У нас один источник, граф… запрещено получать информацию
+    // откуда-либо, кроме графа» and «с исходной файловой системой работает только плагин файлов… больше никто».
+    // A reader of the product's documents reads them from the graph (src/plugin/product-source.ts), so the files
+    // plugin must publish the product repository's own files: no exclusion leaves the product's manifest unread.
+    const store = await createTestDatabaseOwner({ btreeGist: true });
+    try {
+      const run = await runFill({ product, database: store, steps: ['plugin-turns'], runId: 'product-repository', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.state).toBe('succeeded');
+      const paths = (await productFileIndex(store, 'run-product')).map(file => file.path);
+      expect(paths).toContain('madarch/catalog.yaml');
+      expect(paths).toContain('workspace.yaml');
     } finally {
       await store.close();
     }
