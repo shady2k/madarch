@@ -19,11 +19,13 @@ test('real orchestrator binds immediate attempt and terminal receipt without pri
  const queue=await createPgBossQueue({owner,supervise:false});
  await queue.declare(declaration);
  let operations=0;
+ let openedHosts=0;
  const stage:FillStage={id:'probe',version:1,defaults:DEFAULT_STAGE_DEFAULTS,configSchema:Type.Object({}),consumes:{required:[],optional:[]},produces:[],
   plan:async()=>({units:[{id:'one',scope:'one'}],coverage:'planned'}),
   execute:async(_unit,context)=>{expect(context.operationUnitUid).toBeDefined();expect(await context.executeOperation!('write',{hello:true},async()=>({accepted:++operations}))).toEqual({accepted:1});return {outcome:'draft'};}};
  const registry=new StageRegistry();registry.register(stage);
  const orchestrator=createOrchestrator({database:owner,queue,queueName:name,product:'fixture',registry,configuration:()=>undefined,snapshot:()=>({repository:'fixture',defaultBranch:'main',commit:'abc',registryHash:'hash'}),graph:()=>({query:async()=>[]}),inputs:()=>({}),operations:{open:async({unit,plan,job,queue})=>{
+  openedHosts++;
   const opened=await owner.transaction('write',async tx=>{const {binding,contract}=await startupBinding(tx,EMPTY_CONTRACT,'probe',[]);const scope=await resolveOperationScope(tx,contract,binding,{runId:unit.runId,unitId:unit.unitId,generation:unit.generation,scope:plan.stageUnitId});return {binding,contract,...scope};});
   return {sourceUid:opened.binding.sourceUid,unitUid:opened.unitUid,host:createOperationHost({owner,queue,job,contract:opened.contract,capability:opened.binding,runUid:opened.runUid,unitUid:opened.unitUid})};
  }}});
@@ -32,6 +34,8 @@ test('real orchestrator binds immediate attempt and terminal receipt without pri
   await planRun(orchestrator,{runId:'immediate-run'});
   const result=await driveRun(orchestrator,{runId:'immediate-run',maxPasses:20});
   expect(result.settled).toBe(true);expect(operations).toBe(1);
+  console.log(JSON.stringify({ attemptOperationHosts: openedHosts }));
+  expect(openedHosts).toBe(1);
   expect((await owner.run(tx=>tx.query("SELECT to_regclass('public.fill_unit_draft') AS held"))).rows[0]?.held).toBeNull();
   const lifecycle=await owner.run(tx=>tx.query<{same_operation:boolean,affected:boolean}>(`SELECT
     EXISTS(SELECT 1 FROM edge l JOIN entity lk ON lk.id=l.entity_id AND lk.name='system.assertion-operation' WHERE l.from_node=a.assertion_id AND l.to_node=op.id) AS same_operation,

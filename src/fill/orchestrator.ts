@@ -1794,6 +1794,7 @@ async function attemptUnitPhases(
     // hold), and a refusal there must leave neither an authority entry behind it nor a unit's tool session open.
     let tools: StageUnitTools | undefined;
     let context: StageContext | undefined;
+    let attemptOperations: Awaited<ReturnType<UnitOperations['open']>> | undefined;
     let result: StageExecutionResult | undefined;
     let failure: StageThrow | undefined;
     try {
@@ -1808,7 +1809,7 @@ async function attemptUnitPhases(
       // again — the store's own answer, read once per attempt, and no graph read that
       // a child's publication could move.
       const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
-      const immediate = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+      const immediate = attemptOperations = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       context = {
         ...{operationSourceUid:immediate.sourceUid,operationUnitUid:immediate.unitUid,executeOperation:<Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>immediate.host.execute({key,request,...(preconditions===undefined?{}:{preconditions})},apply)},
         completeOutcome:outcome=>{producerOutcome=outcome;},
@@ -1895,7 +1896,7 @@ async function attemptUnitPhases(
     }
 
     {
-      const immediate=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+      const immediate=attemptOperations ?? await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       const terminal={unitId:unit.unitId,generation:unit.generation};
       let published: FillProgressEvent | undefined;
       try {
