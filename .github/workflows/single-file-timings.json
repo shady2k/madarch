@@ -266,6 +266,7 @@
     "test/e2e/summarize-slow-tests.test.ts": 5303,
     "test/check-tests.test.ts": 6783,
     "test/measure/measure.test.ts": 5563,
-    "test/e2e/check-slow-tests.test.ts": 5883
+    "test/e2e/check-slow-tests.test.ts": 5883,
+    "test/plugin-turn-exclusions.test.ts": 11537
   }
 }
