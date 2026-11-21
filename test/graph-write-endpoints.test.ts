@@ -73,15 +73,13 @@ async function measure(size:number){
 }
 
 for(const size of [500,4000]){
- test(`ALX-930: endpoint comparison count is linear at ${size} edges`,async()=>{
-  const result=await measure(size);expect(result.comparisons).toBeLessThanOrEqual(result.bound);
- },120000);
- test(`ALX-930: endpoint multiset and scope parameter match H at ${size} edges`,async()=>{
+ test(`ALX-930: endpoint comparison count is linear and the multiset matches H at ${size} edges`,async()=>{
   const result=await measure(size);
   expect(result.subjectNodes).toEqual(result.expected);
   expect(counts(result.subjectNodes!)).toEqual(counts(result.expected));
   // checkBatchScope already deduplicates: test its actual public SQL input
   // separately, not as a substitute for the full multiset above.
   expect(result.scopeParameter).toEqual([...new Set(result.expected)]);
+  expect(result.comparisons).toBeLessThanOrEqual(result.bound);
  },120000);
 }
