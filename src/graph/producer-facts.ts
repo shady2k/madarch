@@ -14,6 +14,8 @@ type EvidenceLink = { origin: string; id: number; kind: string; discriminator: s
 /** The argument is the host-issued source uid, never a producer display name. */
 export async function producerFacts(owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope?: {
   readonly kind: string;
+  readonly supportEdges?: readonly string[];
+  readonly foreignEdges?: readonly string[];
   readonly keys?: readonly PluginKeyValues[];
   readonly paths?: readonly string[];
 }): Promise<{ vertices: PluginVertexResult[]; edges: PluginEdgeResult[] }> {
@@ -58,8 +60,9 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const selected = held.filter(item => {
       if (scope === undefined) return true;
       const end = item.sort === 'vertex' ? { kind: item.name, key: item.row.key! }
-        : byEnd.get(Number(item.row.from_node))?.kind === scope.kind ? byEnd.get(Number(item.row.from_node)) : byEnd.get(Number(item.row.to_node));
+        : !scope.supportEdges?.includes(item.name) && byEnd.get(Number(item.row.from_node))?.kind === scope.kind ? byEnd.get(Number(item.row.from_node)) : byEnd.get(Number(item.row.to_node));
       if (end === undefined) throw new Error(`${import.meta.path}:1: reconciliation edge has a missing endpoint`);
+      if (end.kind !== scope.kind && (item.sort !== 'edge' || scope.supportEdges?.includes(item.name) || !scope.foreignEdges?.includes(item.name))) return false;
       if (keys !== undefined && !keys.has(canonicalKey(end.key))) return false;
       const locator = item.link === undefined ? undefined : (JSON.parse(item.link.discriminator) as { locator: Record<string, unknown> }).locator;
       const path = locator?.['path'] ?? end.key['path'];

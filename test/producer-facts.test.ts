@@ -115,6 +115,7 @@ const partitionContract: GraphContract = {
   edge: [
     { ...contract.edge[0]!, name: 'code.file-repository', from: ['code.file'], to: ['code.repository'], repeats: false, discriminator: undefined, cardinality: { from: 'many', to: 'one' }, fields: [] },
     { ...contract.edge[0]!, name: 'code.file-link', from: ['code.file'], to: ['code.file'] },
+    { ...contract.edge[0]!, name: 'fixture.snapshot-about', from: ['fixture.snapshot'], to: ['code.file'], repeats: false, discriminator: undefined, fields: [] },
   ],
   dictionary: [],
 };
@@ -184,6 +185,31 @@ test('batched producer facts are byte-identical to the old reader for key edges,
     expect(expected.vertices.every(vertex => vertex.keyEdges?.repository?.kind === 'code.repository' && vertex.evidence?.commit === 'fixture-commit')).toBe(true);
     const actual = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-link', 'code.file-repository']);
     expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('producer fact scope selects support edges by target kind, not a matching source kind', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
+  try {
+    await publishFiles(owner, ['src/a.ts']);
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, partitionContract);
+      await publishGraphDrafts(tx, partitionContract, { vertices: [], removals: [], edges: [
+        { kind: 'fixture.snapshot-about', from: { kind: 'fixture.snapshot', key: { digest } }, to: fileRef('src/a.ts'), producer: 'reader', producerVersion: '1' },
+      ] }, 1);
+    });
+    const scopedProducerFacts = producerFacts as (owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope: { readonly kind: string; readonly supportEdges?: readonly string[] }) => ReturnType<typeof producerFacts>;
+    const supportEdges = ['fixture.snapshot-about'];
+    const unscoped = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, [], supportEdges);
+    expect(unscoped.edges).toHaveLength(1);
+    expect(unscoped.edges[0]).toMatchObject({ from: { kind: 'fixture.snapshot', key: { digest } }, to: fileRef('src/a.ts') });
+    const sourceScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['fixture.snapshot'], supportEdges, { kind: 'fixture.snapshot', supportEdges });
+    expect(sourceScope.vertices.map(vertex => vertex.key)).toEqual([{ digest }]);
+    expect(sourceScope.edges).toEqual([]);
+    const targetScope = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], supportEdges, { kind: 'code.file', supportEdges });
+    expect(targetScope.edges).toEqual(unscoped.edges);
+    const neitherEndpoint = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['fixture.snapshot'], ['code.file-repository'], { kind: 'fixture.snapshot' });
+    expect(neitherEndpoint.edges).toEqual([]);
   } finally { await owner.close(); }
 }, 30_000);
 

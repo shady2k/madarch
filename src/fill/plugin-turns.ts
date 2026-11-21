@@ -276,9 +276,9 @@ async function producerOwnFacts(wiring: Pick<PluginTurnWiring, 'owner' | 'manife
   // reconciliation must not withdraw it merely because the extract names no such edge of its own.
   const keyEdges = new Set(wiring.contract.vertex.flatMap((vertex) => (vertex.keyEdges ?? []).map((role) => role.edge)));
   const supportEdges = new Set(plugin.declaration?.produces.find(output => output.kind === kindName)?.support?.edges ?? []);
-  const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
+  const edges = (plugin.contract?.edges ?? []).filter((edge) => edge.from === kindName || edge.to === kindName || supportEdges.has(edge.kind) || scope?.foreignEdges?.includes(edge.kind)).map((edge) => edge.kind).filter((kind) => !keyEdges.has(kind));
   if (wiring.sourceUid === undefined) throw new Error(`${import.meta.path}:1: authenticated producer source is unavailable`);
-  return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges, scope);
+  return await producerFacts(wiring.owner, wiring.contract, wiring.sourceUid, [kindName], edges, scope === undefined ? undefined : { ...scope, supportEdges: [...supportEdges] });
 }
 
 /**
@@ -445,8 +445,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       .map((to) => ({ kind: edge.kind, from, to })));
   });
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
-    edgeOutputs.some((held) => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
+    (!support.edges.has(edge.kind) || edge.to.kind === unit.kind.name) && edgeOutputs.some((held) => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
   const unitEdges = new Set(edgeOutputs.map((edge) => edge.kind));
+  const foreignEdges = edgeOutputs.filter(edge => !support.edges.has(edge.kind) && edge.from !== unit.kind.name && edge.to !== unit.kind.name).map(edge => edge.kind);
   const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
   const location = `${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}`;
   const reads = declarationPlan.readsFor(unit.plugin.id, unit.kind.name);
@@ -483,7 +484,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (query.unitId !== id) throw new Error(`${location}: reconciliation names another unit`);
       if ((query.scope.repository !== undefined || query.scope.commit !== undefined) && !currentPins.some((pin) => (query.scope.repository === undefined || pin.id === query.scope.repository) && (query.scope.commit === undefined || pin.commit === query.scope.commit))) throw new Error(`${location}: reconciliation scope is not a current repository revision`);
       // Prior output is reconciliation state, never a dependency on this turn's own publication.
-      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name,
+      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name, foreignEdges,
         ...(partition?.keys === undefined ? {} : { keys: partition.keys }),
         ...(wiring.paths === undefined ? {} : { paths: wiring.paths }),
       });
@@ -499,7 +500,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       };
       const scoped = {
         vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence)),
-        edges: facts.edges.filter((edge) => ownsEdge(edge) && inScope(edge.from.kind === unit.kind.name ? edge.from : edge.to, edge.evidence)),
+        edges: facts.edges.filter((edge) => ownsEdge(edge) && inScope(!support.edges.has(edge.kind) && edge.from.kind === unit.kind.name ? edge.from : edge.to, edge.evidence)),
       };
       priorFactCount = scoped.vertices.length + scoped.edges.length;
       return scoped;
@@ -558,7 +559,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
         for (const vertex of [...checked.unit.vertices, ...checked.unit.removals]) if (!supportOutputs.has(vertex.kind) && !keys.has(canonicalKey(vertex.key))) throw new Error(`${location}: operation writes outside selected partition keys`);
         for (const edge of checked.unit.edges) if (!supportOutputs.has(edge.from.kind) && !supportOutputs.has(edge.to.kind) && !keys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge writes outside selected partition keys`);
       }
-      for (const edge of checked.unit.edges) if (!ownsEdge(edge)) throw new Error(`${location}: write of unselected edge endpoints ${edge.kind}`);
+      for (const edge of checked.unit.edges) if (!edgeOutputs.some(held => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind)) throw new Error(`${location}: write of unselected edge endpoints ${edge.kind}`);
       const execute = wiring.executeOperation;
       if (execute === undefined) throw new Error(`${location}: immediate operation authority is unavailable`);
       const written = await execute(id, key, operation, async (tx) => await applyPluginFacts(tx, wiring.contract, {
