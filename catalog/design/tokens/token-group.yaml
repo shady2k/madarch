@@ -11,8 +11,10 @@ acquisition:
 relation-constraints:
   out:
   - hasPart
+  - token-group.contains
   in:
   - partOf
+  - token-group.contains
 template-policy: none
 labels:
   en:
@@ -24,3 +26,5 @@ labels:
 description:
   en: A token group gathers design tokens under one name, such as all colours or all spacing values, and may hold other groups inside it. The grouping gives the tokens a structure that tools and people can navigate.
   ru: 'Группа токенов собирает токены дизайна под одним именем: например, все цвета или все отступы, — и может содержать внутри другие группы. Группировка даёт токенам устройство, по которому удобно двигаться людям и инструментам.'
+derives-from:
+- token-set

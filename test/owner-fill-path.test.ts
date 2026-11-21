@@ -114,25 +114,28 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if (data['bootstrap'] === undefined || data['navigation'] === undefined) throw new Error('the graph answered no bootstrap or navigation');
   });
 
-  await step('3 the plugins-only fill plan names the agent fields it leaves unfilled', async () => {
+  await step('3 the plugins-only fill plan leaves no field of the code kinds to the agent', async () => {
     const planned = await fetch(`${address}/api/fill-plan`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], pluginsOnly: true }) });
     const view = (await planned.json()) as { plan?: { needsAgent?: { kind: string; fields: string[] }[]; pluginsOnly?: boolean } };
     if (planned.status !== 200) throw new Error(`POST /api/fill-plan answered ${String(planned.status)}: ${JSON.stringify(view)}`);
     if (view.plan?.pluginsOnly !== true) throw new Error(`the plan is not plugins-only: ${JSON.stringify(view)}`);
+    // Every field of the three code kinds is a producer's: the state machines are a kind of their own (madarch-64o5.114).
     const named = view.plan?.needsAgent?.find((need) => need.kind === 'code.file')?.fields ?? [];
-    if (!named.includes('state_machines')) throw new Error(`the plan does not name the agent's unfilled state_machines: ${JSON.stringify(view.plan?.needsAgent)}`);
+    if (named.length !== 0) throw new Error(`the plan leaves code.file fields to the agent: ${JSON.stringify(named)}`);
+    if ((view.plan?.needsAgent ?? []).some((need) => ['code.repository', 'code.directory', 'code.file'].includes(need.kind))) throw new Error(`the plan names an agent need among the code kinds: ${JSON.stringify(view.plan?.needsAgent)}`);
   });
 
-  await step('3 the fill plan names the code kinds only, with plugin units and no agent', async () => {
+  await step('3 the fill plan names the code kinds and their product prerequisites, with plugin units and no agent', async () => {
     const answer = await fetch(`${address}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], agent: null, tokenCap: null, pluginsOnly: true }) });
     const body = (await answer.json()) as { runId?: string; order?: string[]; plan?: { needsAgent?: { kind: string; fields: string[] }[] }; error?: { message?: string } };
     if (answer.status !== 202) throw new Error(`POST /api/fill-selected answered ${String(answer.status)}: ${body.error?.message ?? JSON.stringify(body)}`);
     if (body.runId === undefined) throw new Error('the fill press answered no run id');
     const left = body.plan?.needsAgent?.find((need) => need.kind === 'code.file')?.fields ?? [];
-    if (!left.includes('state_machines')) throw new Error(`the press does not name the agent field it leaves unfilled: ${JSON.stringify(body.plan?.needsAgent)}`);
+    if (left.length !== 0) throw new Error(`the press leaves code.file fields to the agent: ${JSON.stringify(left)}`);
     runId = body.runId;
     const order = [...(body.order ?? [])].sort();
-    if (JSON.stringify(order) !== JSON.stringify(['code.directory', 'code.file', 'code.repository'])) throw new Error(`the plan is ${JSON.stringify(order)}, not the three code kinds`);
+    // R1 (ALX-12): code kinds derive from system.product; product-profile remains a plugin prerequisite.
+    if (JSON.stringify(order) !== JSON.stringify(['code.directory', 'code.file', 'code.repository', 'product-profile', 'system.product'])) throw new Error(`the plan is ${JSON.stringify(order)}, not the code kinds and their product prerequisites`);
     // The units the run planned: the plugin stage only, and a producer on every group.
     const start = Date.now();
     let detail: any;

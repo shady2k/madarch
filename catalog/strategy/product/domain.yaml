@@ -1,76 +1,57 @@
 id: backstage.domain
 purpose: understand
 audience: [product, analyst, architect, developer]
-definition: A domain is a part of the business the product serves, which groups the systems that answer for it.
+definition: A domain is a part of the business the product serves, with its own responsibilities and language.
 sources:
 - https://backstage.io/docs/features/software-catalog/system-model
 acquisition:
 - document
 - conversation
+- agent-from-graph
 relation-constraints:
   out:
-  - hasPart
+  - contains
+  - uses
+  - domain.contains
   in:
-  - partOf
+  - domain.contains
+  - architecture.serves-domain
+  - term.in-domain
 template-policy: page
 source: graph
+title: name
 fields:
-- name: title
+- name: name
   type: text
+  labels:
+    en: Name
+    ru: Имя
   binding:
-    agent: 'Read docs/domains/**/*.md: the page title; use it as the entity label.'
-- name: slug
-  type: text
-  binding:
-    agent: 'Read docs/domains/**/*.md: The stable page slug from its id; identify the entity with its declared page id.'
-- name: body
-  type: text
-  binding:
-    agent: 'Read docs/domains/**/*.md: The complete Markdown body, preserving paragraphs and references.'
-- name: body_line
-  type: integer
-  binding:
-    agent: 'Read docs/domains/**/*.md: The positive source line where the body starts.'
-- name: file
-  type: text
-  binding:
-    agent: 'Read docs/domains/**/*.md: The repository-relative page source path.'
-- name: relates
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: The array of related entity ids.'
-- name: sources
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: The array of source paths.'
-- name: statements
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: Complete statements as [{id,text,digest,labels,mentions,grounds,line,paragraph}], preserving
-      ids and grounds.'
-- name: digest
-  type: text
-  binding:
-    agent: 'Read docs/domains/**/*.md: The body digest identifying this page revision.'
-- name: producer
+    agent: The name the business gives this part of itself, one or two words such as Payments, Orders or Identity; it is the
+      domain's key.
+- name: description
   type: text
   nullable: true
+  labels:
+    en: Description
+    ru: Описание
   binding:
-    agent: 'Read docs/domains/**/*.md: The producer text, or null when absent.'
-- name: links
-  type: json
+    agent: What this business area answers for. Use stated intent and documents in the graph first, then code evidence. Without
+      documents, code-based proposals remain unconfirmed until a person approves them. If no source answers, open a question
+      instead of guessing; conflicting sources remain an open question.
+- name: type
+  type: text
+  nullable: true
+  labels:
+    en: Type
+    ru: Тип
   binding:
-    agent: 'Read docs/domains/**/*.md: All body links as [{url,line,ground}].'
-- name: findings
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: All page findings as [{file,line,message}].'
-- name: ungrounded
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: All ungrounded statements as [{text,line}].'
+    agent: 'How much of the product''s own advantage this part of the business carries: core, supporting or generic, as the
+      product states it.'
 key:
-- slug
+- name
+derives-from:
+- system.product
 labels:
   en:
     one: Domain
@@ -79,5 +60,7 @@ labels:
     one: Домен
     many: Домены
 description:
-  en: A domain is one area of the business — payments, orders, identity — that the product serves and that groups the systems, data and rules answering for it. It is a business division, not necessarily a software boundary.
-  ru: 'Домен — часть бизнеса, которую обслуживает продукт: оплата, заказы, идентификация, — и которая объединяет системы, данные и правила, отвечающие за неё. Это деление бизнеса, не обязательно граница программы.'
+  en: A domain is a business area such as payments, orders or identity, with its own responsibilities and language. It may
+    contain smaller domains. A system or component may serve several domains without being copied.
+  ru: Домен — область бизнеса, например оплата, заказы или идентификация, со своими обязанностями и языком. Он может содержать
+    меньшие домены. Система или компонент может обслуживать несколько доменов без копирования.

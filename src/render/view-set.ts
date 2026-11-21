@@ -12,7 +12,7 @@ import { messagingOf } from '../model/contracts.js';
 import type { ElementAnswer, QueryError, QuerySnapshot, QueryTime, ViewRelation } from '../query-types.js';
 
 /** Where a shown element sits in its view. */
-type Place = 'scope' | 'inside' | 'neighbour';
+type Place = 'focus' | 'inside' | 'neighbour';
 
 /** One element a view shows. */
 export interface ShownElement {
@@ -20,7 +20,7 @@ export interface ShownElement {
   kind: string;
   name?: string;
   parent?: string;
-  /** `scope` for the view's own element, `inside` for one within it (every element of the landscape), `neighbour` for one outside it. */
+  /** `focus` for the view's own element, `inside` for one within it (every element of the landscape), `neighbour` for one outside it. */
   place: Place;
   /** Whether the element has children, and so a view of its own in the set. */
   hasView: boolean;
@@ -122,7 +122,7 @@ function assemble(
   errors: ViewSetError[],
 ): View {
   const shown = [
-    ...elements.map((element) => shownElement(element, element.id === scope ? 'scope' : 'inside', withChildren)),
+    ...elements.map((element) => shownElement(element, element.id === scope ? 'focus' : 'inside', withChildren)),
     ...neighbours.map((element) => shownElement(element, 'neighbour', withChildren)),
   ].sort((a, b) => byCodePoint(a.id, b.id));
 

@@ -24,3 +24,6 @@ labels:
 description:
   en: An AI system is software that uses one or more models to make or support decisions, together with its data, its users and the setting it works in. The NIST AI risk management framework treats the whole system, not only the model, as the thing to assess.
   ru: Система ИИ — программа, которая использует одну или несколько моделей для решений или их поддержки, вместе с данными, пользователями и условиями работы. Рамка управления рисками ИИ NIST рассматривает как предмет оценки всю систему, а не только модель.
+derives-from:
+- product-profile
+- software-system

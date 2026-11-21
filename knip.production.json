@@ -4,6 +4,7 @@
   "entry": [
     "scripts/madarch.ts!",
     "src/plugin-sdk.ts!",
+    "src/assertion-prerequisites.ts!",
     "wiki/app/index.html!",
     "wiki/app/src/main.tsx!",
     "wiki/app/vite.config.ts!"

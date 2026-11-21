@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A dynamic application security test sends requests to a running service and looks for weaknesses in what comes back: injection, broken access, exposed data. It sees the service as an attacker would, without reading its code.'
   ru: 'Сканирование DAST отправляет запросы работающему сервису и ищет слабости в ответах: внедрение, сломанный доступ, открытые данные. Оно видит сервис так, как увидел бы атакующий, не читая код.'
+derives-from:
+- code.service
+- security-target

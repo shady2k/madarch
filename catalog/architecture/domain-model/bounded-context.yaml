@@ -24,3 +24,6 @@ labels:
 description:
   en: A bounded context marks where one domain model applies and its words have one meaning, such as billing or shipping. Inside it the model is consistent; across its boundary, the same word may mean something else.
   ru: 'Ограниченный контекст отмечает, где действует одна модель предметной области и её слова имеют одно значение: оплата или доставка. Внутри границы модель согласована, а за ней то же слово может значить другое.'
+derives-from:
+- doc.term
+- domain

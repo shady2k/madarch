@@ -17,7 +17,15 @@
       "fields": "*",
       "reads": [
         "code.file"
-      ]
+      ],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     }
   ],
   "concurrency": 1,

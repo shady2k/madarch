@@ -51,7 +51,7 @@ try {
     registry: fill.registry,
     wiring: () => fill.wiring,
     clock: () => (at += 1_000),
-    limits: { leaseMs: 86_400_000 },
+    limits: { attemptSeconds: 86_400 },
     maxPasses: 100_000,
   });
   // The fill's tables, the queue and the graph's schema are open: what a process pays once is

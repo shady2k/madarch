@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An external system is another organisation''s or team''s software that the product depends on or serves: a payment provider, a tax service, a customer''s own system. The product does not control it, so its behaviour is a given constraint.'
   ru: 'Внешняя система — программа другой организации или команды, от которой продукт зависит или которую обслуживает: платёжный провайдер, налоговая служба или система клиента. Продукт ею не управляет, поэтому её поведение — заданное ограничение.'
+derives-from:
+- software-system

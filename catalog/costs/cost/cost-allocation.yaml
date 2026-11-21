@@ -24,3 +24,6 @@ labels:
 description:
   en: A cost allocation divides one bill among the products, teams or services that caused the spending, by a stated rule such as usage, headcount or a fixed share. It lets each part see what it costs and answer for its own spending.
   ru: 'Распределение затрат делит один счёт между продуктами, командами или сервисами, которые вызвали траты, по определённому правилу: по потреблению, числу людей или фиксированной доле. Так каждая часть видит, чего она стоит, и отвечает за свои расходы.'
+derives-from:
+- cost-record
+- team

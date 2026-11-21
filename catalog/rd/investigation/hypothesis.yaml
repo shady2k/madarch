@@ -25,3 +25,5 @@ labels:
 description:
   en: A hypothesis says what the team expects to be true and why it would matter, for example that a shorter form will be completed more often. It must be worded so that an experiment can prove it wrong.
   ru: 'Гипотеза говорит, что команда ожидает увидеть и почему это важно: например, что короткую форму чаще доводят до конца. Её формулируют так, чтобы эксперимент мог её опровергнуть.'
+derives-from:
+- goal

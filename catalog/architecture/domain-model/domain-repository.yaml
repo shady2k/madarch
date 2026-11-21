@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A domain repository hides where aggregates of one type come from and go to, and offers them as a collection a domain expert recognises: add one, find one by identity, list some. It belongs to the domain model, unlike a version control repository, which stores source files and their history.'
   ru: 'Репозиторий предметной области скрывает, откуда берутся и куда сохраняются агрегаты одного типа, и предоставляет их как коллекцию: добавить, найти по идентификатору, получить список. Он относится к модели предметной области, в отличие от репозитория системы контроля версий, который хранит исходные файлы и их историю.'
+derives-from:
+- aggregate

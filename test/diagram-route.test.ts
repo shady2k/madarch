@@ -12,7 +12,6 @@ import type { DiagramNeighbourhood } from '../src/graph/graphql-read.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import { callProductTool } from '../src/mcp/authored.js';
-import type { WriteSource } from '../src/graph/graph-writes.js';
 
 /** One entity of the stub graph: a repository and two files that contain edges reach. */
 function entity(uid: string, kind: string): Record<string, unknown> {
@@ -31,7 +30,7 @@ const neighbourhood: DiagramNeighbourhood = {
     { from: '1', to: '3', relation: 'codeContains' },
     { from: '2', to: '1', relation: 'codeContainsOf' },
   ],
-  groups: [{ relation: 'codeContains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
+  groups: [{ relation: 'codeContains', label: 'contains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
   kindWords: new Map([['code.file', 'Файлы']]),
   kindPages: new Map(),
   labels: new Map([['1', 'repo'], ['2', 'a.ts'], ['3', 'b.ts']]),
@@ -163,8 +162,7 @@ test('an entity the graph does not hold is refused', async () => {
 });
 
 test('the MCP tool answers through the same function', async () => {
-  const source: WriteSource = { producer: 'test', version: '1' } as unknown as WriteSource;
-  const answer = await callProductTool(product, source, 'render_diagram', { entity: '1', format: 'mermaid' });
+  const answer = await callProductTool(product, { producer: 'test-reader', version: '1' }, 'render_diagram', { entity: '1', format: 'mermaid' });
   expect(answer.isError).toBe(false);
   const held = answer.answer as { format: string; source: string };
   expect(held.format).toBe('mermaid');
@@ -185,15 +183,16 @@ test('an unknown format, a depth below one and a missing entity are refused by t
       const answer = await part.diagram(new Request(`http://localhost/render/diagram?${query}`));
       return answer.response;
     };
-    const format = await ask('entity=1&format=svg');
-    expect(format.status).toBe(400);
-    expect(((await format.json()) as { error: { message: string } }).error.message).toContain('"format" is one of "likec4", "mermaid" and "archify"');
-    const depth = await ask('entity=1&format=mermaid&depth=0');
-    expect(depth.status).toBe(400);
-    expect(((await depth.json()) as { error: { message: string } }).error.message).toContain('"depth" is a whole number of levels, 1 or more');
-    const missing = await ask('format=mermaid');
-    expect(missing.status).toBe(400);
-    expect(((await missing.json()) as { error: { message: string } }).error.message).toContain('"entity" is the id of the entity');
+    // The door's generated contract refuses the request before the handler reads it (decision 0039, items 7 and 30):
+    // the answer is the coded body `{ error: { code, path, expected, actual, retryable } }` with the field's path and
+    // no `message`, so the refusal is read by `code` and `path`.
+    const refusal = async (query: string): Promise<{ status: number; error: { code: string; path: string } }> => {
+      const answer = await ask(query);
+      return { status: answer.status, error: ((await answer.json()) as { error: { code: string; path: string } }).error };
+    };
+    expect(await refusal('entity=1&format=svg')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/format' } });
+    expect(await refusal('entity=1&format=mermaid&depth=0')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/depth' } });
+    expect(await refusal('format=mermaid')).toMatchObject({ status: 400, error: { code: 'SCHEMA_INVALID', path: '/entity' } });
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
@@ -295,7 +294,7 @@ test('read budgets default to thirty seconds and accept server or environment se
   const part = createKnowledgePart({ json: (status: number, body: unknown) => Response.json(body, { status }), refused: (status: number, error: unknown) => ({ response: Response.json({ error }, { status }) }), errorLog: () => undefined }, held, () => [], {});
   const route = await part.diagram(new Request('http://localhost/render/diagram?entity=1&format=mermaid&depth=2'));
   expect(route.response.status).toBe(400);
-  const mcp = await callProductTool(held, {} as WriteSource, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
+  const mcp = await callProductTool(held, { producer: 'test-reader', version: '1' }, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
   expect(mcp.isError).toBe(true);
   expect(reads).toBe(0);
 });

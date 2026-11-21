@@ -24,3 +24,5 @@ labels:
 description:
   en: An access review asks the person responsible for a resource to confirm, on a schedule, that each account with access still needs it. Access found unnecessary is removed, and the review's record shows who decided what.
   ru: Проверка доступа на определённый срок просит ответственного за ресурс подтвердить, что каждой учётной записи с доступом он всё ещё нужен. Ненужный доступ снимают, а запись проверки показывает, кто что решил.
+derives-from:
+- iam-grant

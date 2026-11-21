@@ -9,12 +9,14 @@ import { createServer } from 'node:net';
 import { stopDaemon } from '../src/product/daemon.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import type { StarterTemplate } from '../src/knowledge/starter-templates.js';
 import { parseDocument } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 
@@ -199,13 +201,15 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const manifest = parseDocument(readFileSync(path, 'utf8'));
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
-    ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
-    fields: ['title', 'repository', 'path', 'markdown'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
-      { name: 'anchors', type: 'json', producers: ['fixture'] },
-      { name: 'links', type: 'json', producers: ['fixture'] },
-    ]),
+    ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], 'key-edges': [], title: 'title',
+    fields: [...['title', 'repository', 'path', 'markdown', 'content', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
+      { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+      { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
+    ],
   });
   writeFileSync(path, manifest.toString());
+  // These serving fixtures declare independent documents, not repository children: no repository kind is
+  // declared, and the relaxed declaration above names no such edge.
   const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });
   if (committed.status !== 0) throw new Error(new TextDecoder().decode(committed.stderr));
   preparationOwners.push(await prepareTestProduct(folder, home));
@@ -215,29 +219,38 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const journal = journalFor('fixture@1');
+      await bindTestWriteCapability(tx, contract);
       for (const entry of readdirSync(join(folder, 'docs'), { recursive: true, withFileTypes: true })) {
         if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
         const file = join(entry.parentPath, entry.name);
         const markdown = readFileSync(file, 'utf8');
         const title = /^# (.+)$/m.exec(markdown)?.[1];
         if (title === undefined) throw new Error(`the fixture document ${file} has no title`);
-        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, anchors: {}, links: [] } }, 1, journal);
+        await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title } }, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, content: markdown, source_text: markdown, anchors: {}, links: [] } }], removals: [] });
       }
-      await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }
 }
 
-/** A product folder to serve: its manifest plus docs. */
-function product(base: string, name = 'demo'): string {
+/**
+ * The kinds the two serving cases below declare: the document kind they read and the product it
+ * derives from, and nothing else, so a first `/graphql` publishes only these.
+ */
+const SERVED_KINDS: StarterTemplate = {
+  id: 'served-kinds',
+  title: { en: 'Served kinds', ru: 'Отдаваемые виды' },
+  description: { en: 'The document kind and the product it derives from.', ru: 'Вид документа и продукт, от которого он зависит.' },
+  kinds: ['document', 'product'],
+};
+
+/** A product folder to serve: its manifest plus docs. A `template` replaces the starter set's default kinds. */
+function product(base: string, name = 'demo', template?: StarterTemplate): string {
   const folder = join(base, 'demo');
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
   // A hand-made folder stands as `madarch init` would leave it: its own copy of the starter set.
-  seedStarterSet(folder);
+  seedStarterSet(folder, template?.id, template === undefined ? undefined : [template]);
   gitCheckout(folder);
   return folder;
 }
@@ -432,7 +445,7 @@ describe('madarch serve: an existing product served', () => {
     const built = freshApp(base);
     const builder = injectableBuilder(built, 'ok');
     const opener = injectableOpener('ok');
-    const folder = product(base, 'named');
+    const folder = product(base, 'named', SERVED_KINDS);
     await prepareDocuments(folder, base);
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
@@ -474,7 +487,7 @@ describe('madarch serve: an existing product served', () => {
     const text = await Bun.file(manifest).text();
     writeFileSync(manifest, text.slice(0, text.indexOf('\nrepos:')) + '\n');
     // The example folder stands as the set leaves a product now: it holds its own copy of the starter set.
-    seedStarterSet(setMade);
+    seedStarterSet(setMade, SERVED_KINDS.id, [SERVED_KINDS]);
     gitCheckout(setMade);
     await prepareDocuments(setMade, base);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],

@@ -1,0 +1,77 @@
+id: practice.work-span
+purpose: operations
+audience: [developer, product-lead, operations]
+definition: A work span is one stretch of work a person or an agent did on something, with how long it took, which model helped and what it cost.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
+- https://openai.github.io/openai-agents-python/tracing/
+acquisition:
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - measures
+  - partOf
+  in:
+  - measures
+  - hasPart
+template-policy: page
+source: graph
+origin: agent
+fields:
+- name: step
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the span did, in the words of the run it belongs to, such as fill:modules or review.'
+- name: executor_type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Who carried the span out: a person, an agent or a plugin.'
+- name: model
+  type: text
+  nullable: true
+  binding:
+    agent: The model that helped, where an agent did the span.
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the span started.
+- name: duration
+  type: duration-seconds
+  nullable: true
+  binding:
+    agent: How long the span took, in seconds.
+- name: tokens
+  type: bigint
+  nullable: true
+  binding:
+    agent: How many tokens the span spent, input and output together.
+- name: cost
+  type: text
+  nullable: true
+  binding:
+    agent: What the span cost, in the money the product records it in.
+- name: outcome
+  type: text
+  nullable: true
+  binding:
+    agent: 'How the span ended, in the words of the run: done, failed, blocked.'
+key:
+- started_at
+- step
+derives-from:
+- person
+- task
+labels:
+  en:
+    one: Work span
+    many: Work spans
+  ru:
+    one: Промежуток работы
+    many: Промежутки работы
+description:
+  en: 'A work span is one stretch of work on an entity: a person writing a description, an agent reading a kind, a program reading a repository. It keeps how long the work took, which model helped and what it cost in tokens and money, and spans add up to what the work has taken so far.'
+  ru: 'Промежуток работы — один отрезок работы над сущностью: человек пишет описание, агент читает вид, программа читает репозиторий. В нём остаются длительность, какая модель помогала и сколько это стоило токенов и денег; из промежутков складывается, сколько работа уже забрала.'

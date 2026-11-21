@@ -1,12 +1,7 @@
 /**
- * The agent's graph writes over MCP (owner's rule, 2026-11-13): the graph is written by plugins and by MCP writes only,
- * a write's source is the agent that made it, and every write names its evidence. The tools replace the authored
- * create/update/delete surface: `put_entity` states the agent's opinion of an entity's fields, `put_edge` its opinion of
- * an edge, and `retract` closes only this agent's own open opinions.
- *
- * The producer is `agent:<client>@<session>`: the client's own name from `initialize` (`clientInfo`) and this server
- * process's session. It is written like a plugin's producer, so on one field the agent's and the plugins' opinions
- * meet by decision 0036, section 2 — an agreed value stands, a disagreement is null and contested.
+ * Graph tools share the durable operation host. Writes require a principal provisioned by the host.
+ * Client initialization is display metadata, never authentication. The execution session is provenance;
+ * the producer and the transport operation identity remain stable across sessions.
  */
 import { randomUUID } from 'node:crypto';
 import { KnowledgeProduct } from '../knowledge/product.js';
@@ -15,125 +10,55 @@ import { serveUnitMcp } from '../fill/unit-mcp.js';
 import { runningVersion } from '../product/version.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { WriteRefusal, evidenceOf, type WriteSource } from '../graph/graph-writes.js';
+import type { ProducerBinding } from '../graph/producer-binding.js';
+import type { GraphContract } from '../graph/contract.js';
+import { catalogueRequests, readRequests, inputSchema, parseRequest, resolveDisputeRequest } from '../graph/door-contract.js';
+import { GraphRefusal } from '../graph/validation.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import type { McpToolDefinition, UnitToolAnswer } from './types.js';
 
-/** The producer a client's writes carry: `agent:<client>`, its session as the producer's version. */
-export function agentSource(client: string, session: string): WriteSource {
-  const name = client.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 64) || 'mcp-client';
-  return { producer: `agent:${name}`, version: session };
+/** Build host attribution; a client name alone grants no principal or write permission. */
+export function agentSource(client: string, session: string, principal?: WriteSource['principal']): WriteSource {
+  const allowed = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-';
+  let normalized = '';
+  for (const point of client) {
+    if (allowed.includes(point)) normalized += point;
+    else if (!normalized.endsWith('-')) normalized += '-';
+  }
+  let start = 0;
+  let end = normalized.length;
+  while (normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  const name = normalized.slice(start, end).slice(0, 64) || 'mcp-client';
+  return { producer: `agent:${principal?.identity ?? name}`, version: session, ...(principal === undefined ? {} : { principal }) };
 }
 
-const object = (properties: Record<string, unknown>, required: readonly string[]): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
-
-const EVIDENCE = {
-  type: 'array', minItems: 1,
-  description: 'What the write rests on, at least one: {type:"file", path, commit or blob, lineStart, lineEnd?, repository?}, {type:"conversation", id, at?, words} or {type:"url", url, at}.',
-  items: { type: 'object' },
+const TOOL_DESCRIPTIONS = {
+  graph_schema: 'Read the catalogue-generated GraphQL schema.',
+  graph_query: 'Run one GraphQL read against the published catalogue schema.',
+  render_diagram: 'Render one entity neighbourhood.',
+  put_entity: 'State an evidenced assertion using the generated kind contract.',
+  put_edge: 'State an evidenced edge using the generated edge contract.',
+  retract: 'Withdraw this source’s evidenced entity or edge assertions.',
+  graph_resolve_dispute: 'Record an authenticated person’s decision pinned to exact candidate assertions. Changed candidates are refused; operationKey replay returns the original receipt.',
 };
 
-const END = {
-  type: 'object', additionalProperties: false, required: ['kind'],
-  properties: { kind: { type: 'string', description: 'The kind of this end.' }, key: { type: 'object', description: 'The key fields of the entity.' }, id: { type: 'string', description: 'The stable uid, instead of a key.' } },
-};
-
-/** The read tools: the schema and one operation, through the same executor the wiki's POST /graphql runs. */
-const READ_TOOLS: readonly McpToolDefinition[] = [
-  {
-    name: 'graph_schema',
-    description: 'The product GraphQL schema (decision 0036): the SDL its published manifest derives, the same schema POST /graphql reads through. Reads the published manifest in a snapshot.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
-  },
-  {
-    name: 'graph_query',
-    description: 'Runs one GraphQL operation against the product graph through the same executor the wiki uses: an entity by id, a kind list filtered, ordered and paged, an edge both ways, backlinks, opinions, catalogue entities. Answers the GraphQL result, or its errors with their codes (LIMIT_DEPTH, LIMIT_NODES, LIMIT_ALIASES, TIMEOUT, TOO_LARGE).',
-    inputSchema: object({
-      query: { type: 'string', description: 'The GraphQL operation text; graph_schema gives the SDL it must satisfy.' },
-      variables: { type: 'object', description: 'The operation variables, keyed by name.' },
-      operationName: { type: 'string', description: 'Which operation to run when the text holds several.' },
-      lang: { type: 'string', description: 'The reader language for text fields.' },
-    }, ['query']),
-  },
-  {
-    name: 'render_diagram',
-    description: 'Renders one entity\'s diagram on the server, the same answer the wiki\'s page and GET /render/diagram get: the neighbourhood at a depth, an edge and its inverse drawn once, more than aggregateAbove neighbours of one kind folded into one node with the count. "likec4" answers the workspace and its laid-out model with each node\'s page; "mermaid" answers the flowchart source; "archify" answers its self-contained interactive HTML page.',
-    inputSchema: object({
-      entity: { type: 'string', description: 'The stable uid of the entity whose diagram is drawn.' },
-      format: { type: 'string', enum: ['likec4', 'mermaid', 'archify'], description: 'likec4 by default.' },
-      depth: { type: 'integer', enum: [1], description: 'One level from the entity; deeper neighbourhoods are not supported.' },
-      aggregateAbove: { type: 'integer', description: 'How many neighbours of one kind stand as one node; 12 by default.' },
-      lang: { type: 'string', description: 'The reader language for the labels.' },
-    }, ['entity']),
-  },
-];
-
-/** The write tools: the agent's opinions and retractions. */
-const WRITE_TOOLS: readonly McpToolDefinition[] = [
-  {
-    name: 'put_entity',
-    description: 'State the agent\'s opinion of the given fields of an entity of any kind of the published manifest, created when its key names none. Evidence is required. An unknown field is refused by name.',
-    inputSchema: object({
-      kind: { type: 'string', description: 'The kind of the published manifest, such as doc.term.' },
-      key: { type: 'object', description: 'The kind\'s key fields; omitted when id names the entity.' },
-      id: { type: 'string', description: 'The stable uid of an entity to write again; for a kind with no key it is also the uid its entity takes when it does not stand yet, so a write of the same uid twice states one entity.' },
-      values: { type: 'object', description: 'The field values the agent states.' },
-      evidence: EVIDENCE,
-      words: { type: 'string', description: 'The agent\'s exact words, kept in the journal.' },
-    }, ['kind', 'values', 'evidence']),
-  },
-  {
-    name: 'put_edge',
-    description: 'State the agent\'s opinion of an edge of a declared edge kind, with its attributes. Evidence is required; a repeating edge names its discriminator.',
-    inputSchema: object({
-      kind: { type: 'string', description: 'The edge kind of the published manifest.' },
-      from: END,
-      to: END,
-      discriminator: { type: 'string', description: 'What tells repeated edges between the same ends apart.' },
-      values: { type: 'object', description: 'The edge\'s attributes.' },
-      evidence: EVIDENCE,
-      words: { type: 'string' },
-    }, ['kind', 'from', 'to', 'evidence']),
-  },
-  {
-    name: 'retract',
-    description: 'Close only this agent\'s own open opinions: of one entity (all its fields, or the named fields), or of one edge.',
-    inputSchema: object({
-      entity: {
-        type: 'object', additionalProperties: false, required: ['kind'],
-        properties: { kind: { type: 'string' }, key: { type: 'object' }, id: { type: 'string' }, fields: { type: 'array', items: { type: 'string' }, description: 'The fields to retract; every field when left out.' } },
-      },
-      edge: {
-        type: 'object', additionalProperties: false, required: ['kind', 'from', 'to'],
-        properties: { kind: { type: 'string' }, from: END, to: END, discriminator: { type: 'string' } },
-      },
-      evidence: EVIDENCE,
-      words: { type: 'string' },
-    }, ['evidence']),
-  },
-];
-
-/** Every tool of the one product session: the schema, one query, and the agent's writes. */
-export const PRODUCT_TOOLS: readonly McpToolDefinition[] = [...READ_TOOLS, ...WRITE_TOOLS];
+/** Advertised and executed contracts are generated from the same published catalogue. */
+export function productTools(contract: GraphContract): readonly McpToolDefinition[] {
+  const requests = { ...readRequests, ...catalogueRequests(contract), graph_resolve_dispute: resolveDisputeRequest };
+  return Object.entries(TOOL_DESCRIPTIONS).map(([name, description]) => ({ name, description, inputSchema: inputSchema(requests[name as keyof typeof TOOL_DESCRIPTIONS]) }));
+}
 
 /** One tool call of the product session, its refusal answered as the tool's own content. */
-export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
+export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown, hostBinding?: ProducerBinding): Promise<UnitToolAnswer> {
   return await withSpan('mcp.product', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
     try {
-      if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
-      if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
-      const args = (input ?? {}) as Record<string, unknown>;
-      // The declared schema is the boundary: an argument no tool names is refused, and words is the agent's text.
-      const allowed: Record<string, readonly string[]> = {
-        graph_schema: [], graph_query: ['query', 'variables', 'operationName', 'lang'],
-        render_diagram: ['entity', 'format', 'depth', 'aggregateAbove', 'lang'],
-        put_entity: ['kind', 'key', 'id', 'values', 'evidence', 'words'],
-        put_edge: ['kind', 'from', 'to', 'discriminator', 'values', 'evidence', 'words'],
-        retract: ['entity', 'edge', 'evidence', 'words'],
-      };
-      const unknown = Object.keys(args).filter((key) => !(allowed[name] ?? []).includes(key));
-      if (unknown.length > 0) throw new WriteRefusal(`${JSON.stringify(unknown[0])} is not an argument of ${name}: its arguments are ${(allowed[name] ?? []).join(', ') || 'none'}`, unknown[0]);
-      if ('words' in args && typeof args['words'] !== 'string') throw new WriteRefusal('words is the agent\'s exact words, as text', 'words');
+      if (!Object.hasOwn(TOOL_DESCRIPTIONS, name)) throw new GraphRefusal('/tool', Object.keys(TOOL_DESCRIPTIONS).join(', '), name);
+      const requests = { ...(Object.hasOwn(readRequests, name) || name === 'graph_resolve_dispute' ? readRequests : catalogueRequests(await product.requestContract())), graph_resolve_dispute: resolveDisputeRequest };
+      const args = parseRequest(requests[name as keyof typeof requests], input) as Record<string, unknown>;
+      const contractVersion = args['contractVersion'] as string | undefined;
+      const checks = args.preconditions as { readonly uid: string; readonly recordedSequence: string }[] | undefined;
       if (name === 'graph_schema') return { answer: { schema: await product.graphqlSchema() }, isError: false };
       if (name === 'graph_query') {
         const query = args['query'];
@@ -169,15 +94,22 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         if ('html' in answer) return { answer: { format: 'archify', html: answer.html }, isError: false };
         return { answer: answer.body, isError: false };
       }
+      if (!hostBinding) throw new WriteRefusal('SOURCE_FORBIDDEN a retained host source grant is required');
+      if (name === 'graph_resolve_dispute') {
+        const request = args as unknown as { operationKey: string; questionUid: string; chosenAssertionUid: string; expectedCandidates: string[]; rationale: string; evidence: unknown };
+        const answer = await product.resolveDispute(source, { questionUid: request.questionUid, chosenAssertionUid: request.chosenAssertionUid, expectedCandidates: request.expectedCandidates, rationale: request.rationale, evidence: evidenceOf(request.evidence) }, request.operationKey, hostBinding!);
+        return { answer, isError: false };
+      }
       if (name === 'put_entity') {
         const answer = await product.putEntity(source, {
           kind: String(args['kind'] ?? ''),
           ...(args['key'] === undefined ? {} : { key: args['key'] }),
+          ...(args['keyEdges'] === undefined ? {} : { keyEdges: args['keyEdges'] }),
           ...(args['id'] === undefined ? {} : { id: String(args['id']) }),
           values: args['values'],
           evidence: args['evidence'],
           ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-        });
+        }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
         return { answer, isError: false };
       }
       if (name === 'put_edge') {
@@ -188,7 +120,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
           ...(args['values'] === undefined ? {} : { values: args['values'] }),
           evidence: args['evidence'],
           ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-        });
+        }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
         return { answer, isError: false };
       }
       const answer = await product.retract(source, {
@@ -196,10 +128,10 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         ...(args['edge'] === undefined ? {} : { edge: args['edge'] }),
         evidence: args['evidence'],
         ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
-      });
+      }, { preconditions: checks, contractVersion, hostBinding: hostBinding! });
       return { answer, isError: false };
     } catch (error) {
-      if (error instanceof WriteRefusal) return { answer: { error: { code: 'refused', message: error.message, ...(error.field === undefined ? {} : { field: error.field }) } }, isError: true };
+      if (error instanceof GraphRefusal) return { answer: { error: error.toJSON() }, isError: true };
       const message = error instanceof Error ? error.message : String(error);
       const named = /^\/.+:\d+:/u.test(message) ? message : `${import.meta.path}:1: ${message}`;
       return { answer: { error: { code: 'write-failed', message: named } }, isError: true };
@@ -210,6 +142,8 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
 /** Serves the product's graph writes over MCP: the agent's producer is its `clientInfo` name and this session. */
 export async function serveProductMcp(options: {
   productFolder: string; home?: string; env?: DraftEnv;
+  trustedPrincipal?: WriteSource['principal'];
+  resolverBinding?: ProducerBinding;
   input?: AsyncIterable<string | Uint8Array>; output?: { write(text: string): void };
 }): Promise<number> {
   const env = options.env ?? process.env;
@@ -217,11 +151,16 @@ export async function serveProductMcp(options: {
   const session = randomUUID();
   let client = 'mcp-client';
   try {
+    let agent: ProducerBinding | undefined;
+    const resolver = options.resolverBinding;
     await serveUnitMcp({
-      tools: PRODUCT_TOOLS,
+      tools: productTools(await product.requestContract()),
       info: { name: 'madarch', version: runningVersion() },
       onClientInfo: (info) => { client = info.name; },
-      call: (name, args) => callProductTool(product, agentSource(client, session), name, args),
+      call: async (name, args, requestId) => {
+        if (['put_entity', 'put_edge', 'retract'].includes(name)) agent ??= await product.provisionAgentBinding(session);
+        return await callProductTool(product, { ...agentSource(client, session, options.trustedPrincipal), operationId: requestId }, name, args, name === 'graph_resolve_dispute' ? resolver : agent);
+      },
       streams: { input: options.input ?? process.stdin, write: (text) => { (options.output ?? process.stdout).write(text); } },
     });
     return 0;

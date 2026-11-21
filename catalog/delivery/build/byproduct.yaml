@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A byproduct is output of a build that is not the artifact itself: a build log, a test report, a vulnerability scan or a package listing. It is kept because it explains and supports the artifact.'
   ru: 'Побочный результат — то, что сборка выдала помимо самого артефакта: журнал сборки, отчёт тестов, результат проверки уязвимостей или список пакетов. Его хранят, потому что он объясняет артефакт и подтверждает его.'
+derives-from:
+- build

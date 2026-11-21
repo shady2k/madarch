@@ -125,646 +125,6 @@
     "symbol": "readSources"
   },
   {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/contracts/code.channel.yaml",
-    "symbol": "definition"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/contracts/code.channel.yaml",
-    "symbol": "directions"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/contracts/code.contract.yaml",
-    "symbol": "definition"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/contracts/code.operation.yaml",
-    "symbol": "definition"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/structure/code.file.yaml",
-    "symbol": "languages"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/structure/code.file.yaml",
-    "symbol": "state_machines"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/structure/code.module.yaml",
-    "symbol": "state_machines"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/structure/code.service.yaml",
-    "symbol": "state_machines"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/code/structure/code.symbol.yaml",
-    "symbol": "state_machines"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/common/attachment/comment.yaml",
-    "symbol": "about"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/common/attachment/link.yaml",
-    "symbol": "relation"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/common/attachment/link.yaml",
-    "symbol": "source"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/common/attachment/link.yaml",
-    "symbol": "target"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/common/values/value-set-entry.yaml",
-    "symbol": "set"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/data/storage/code.column.yaml",
-    "symbol": "check"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/data/storage/code.index.yaml",
-    "symbol": "columns"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "findings"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "relates"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "sources"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "statements"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/administrator-guide.yaml",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/document.yaml",
-    "symbol": "anchors"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/document.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "findings"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "relates"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "sources"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "statements"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/document/user-guide.yaml",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/correction.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "findings"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "relates"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "sources"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "statements"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/enrichment.yaml",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/documentation/feedback/problem-dismissal.yaml",
-    "symbol": "by"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/rd/decision/doc.decision.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/requirements/statement/doc.requirement.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/requirements/statement/doc.rule.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/requirements/statement/doc.term.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/requirements/statement/doc.use-case.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/direction/principle.yaml",
-    "symbol": "examples"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/direction/principle.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "findings"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "relates"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "sources"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "statements"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/domain.yaml",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "findings"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "links"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "relates"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "sources"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "statements"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/strategy/product/product.yaml",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/testing/case/code.test-quarantine.yaml",
-    "symbol": "latest_result"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/testing/case/code.test-quarantine.yaml",
-    "symbol": "since"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/testing/case/code.test-quarantine.yaml",
-    "symbol": "task"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/testing/case/code.test-quarantine.yaml",
-    "symbol": "test"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/handoff.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/handoff.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/handoff.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/question.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/question.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/question.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/question.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/reservation.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/reservation.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/coordination/reservation.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/bug.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/lifecycle-step.yaml",
-    "symbol": "executor_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "front"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/task.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/time-cost.yaml",
-    "symbol": "entity"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/execution/time-cost.yaml",
-    "symbol": "executor_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/epic.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/feature.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/milestone.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "comments"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "dependencies"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "issue_type"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/planning/stage.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/evidence.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/evidence.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/evidence.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/merge.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/merge.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/merge.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/review-finding.yaml",
-    "symbol": "labels"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/review-finding.yaml",
-    "symbol": "priority"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/sync/review-finding.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/code-convention.yaml",
-    "symbol": "paths"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/code-convention.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/constitution.yaml",
-    "symbol": "precedence"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/constitution.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/practice.yaml",
-    "symbol": "applies_to"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/practice.yaml",
-    "symbol": "status"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/skill.yaml",
-    "symbol": "checks"
-  },
-  {
-    "rule": "catalogue-pointers",
-    "file": "catalog/work/ways/skill.yaml",
-    "symbol": "status"
-  },
-  {
     "rule": "extraction-boundary",
     "file": "src/adapters/database-owner.ts",
     "symbol": "exec()"
@@ -837,11 +197,6 @@
   {
     "rule": "extraction-boundary",
     "file": "src/fill/prime-runtime.ts",
-    "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
-    "file": "src/graph/product-templates.ts",
     "symbol": "node:fs"
   },
   {
@@ -1147,7 +502,7 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "1–2 / 2"
+    "symbol": "1\u20132 / 2"
   },
   {
     "rule": "i18n-text",
@@ -1163,146 +518,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "example.ts"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Card"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Choice"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Code"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Confirmation"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Icon"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Inline"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Progress"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Quote"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: RadioGroup"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Segmented"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Switch"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Text"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Toggle"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Badge / Alert / Card / Skeleton"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Button"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Checkbox / Radio / Switch / Toggle"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Dialog"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Disclosure / Figure / Contents"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Embedded"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: FilterBar"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Input / Textarea"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Menus"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Navigation"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Reading"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Search"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Table"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Tabs"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Typography"
   },
   {
     "rule": "no-kind-names",
@@ -1402,82 +617,12 @@
   {
     "rule": "no-kind-names",
     "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "code.task"
-  },
-  {
-    "rule": "no-kind-names",
-    "file": "src/knowledge/graph-verdict-rules.ts",
     "symbol": "code.test-case"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/agent-usage.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/authored-import.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/database-owner.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/prepare-store.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "table"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/schemas/graph.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/adapters/store-readiness.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp-choices.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "mode"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/acp.ts",
-    "symbol": "url"
   },
   {
     "rule": "no-product-data",
     "file": "src/fill/facts.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator-store.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/orchestrator.ts",
-    "symbol": "database"
   },
   {
     "rule": "no-product-data",
@@ -1497,32 +642,12 @@
   {
     "rule": "no-product-data",
     "file": "src/fill/plugin-turns.ts",
-    "symbol": "owner"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/plugin-turns.ts",
     "symbol": "product"
   },
   {
     "rule": "no-product-data",
     "file": "src/fill/read-record.ts",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/run-jobs.ts",
-    "symbol": "owner"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/run.ts",
-    "symbol": "database"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "product"
   },
   {
     "rule": "no-product-data",
@@ -1556,71 +681,6 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/fill/state-store.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/state-store.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/consistency.ts",
-    "symbol": "email"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/consistency.ts",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/consistency.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/contract.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-execute.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "removed_at"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "target"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/graph/manifest-contract.ts",
     "symbol": "workflow"
   },
@@ -1636,148 +696,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/graph/one-graph.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/one-graph.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/plugin-turns.ts",
-    "symbol": "code.file"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/plugin-turns.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/producer-outcomes.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/read-worker.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/graph/read-worker.ts",
     "symbol": "stage"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "algorithm"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "author_date"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "author_offset_min"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "bytes"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "change"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "commit_date"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "commit_hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "commit_offset_min"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "default_branch"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "form"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "history_shallow"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "languages"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "mode"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "other_repository"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/records.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/template-check.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graph/write.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graphql/schema.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/graphql/schema.ts",
-    "symbol": "producer"
   },
   {
     "rule": "no-product-data",
@@ -1786,93 +706,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/graphql/schema.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/history-assertions.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/agents.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/anchors.ts",
-    "symbol": "anchors"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/knowledge/catalog-starter.ts",
     "symbol": "document"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/catalog-starter.ts",
-    "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/fill-role.ts",
-    "symbol": "database"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/fill-run.ts",
-    "symbol": "owner"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "author_date"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "commit_date"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "default_branch"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "email"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "languages"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "merge"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "subject"
   },
   {
     "rule": "no-product-data",
@@ -1972,17 +807,7 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "code.task"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-verdict-rules.ts",
     "symbol": "code.test-case"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "database"
   },
   {
     "rule": "no-product-data",
@@ -1997,7 +822,7 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "target"
+    "symbol": "rpc"
   },
   {
     "rule": "no-product-data",
@@ -2007,37 +832,7 @@
   {
     "rule": "no-product-data",
     "file": "src/knowledge/graph-verdicts.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/graph-verdicts.ts",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/guide-outputs.ts",
-    "symbol": "administrator-guide"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/guide-outputs.ts",
-    "symbol": "user-guide"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/import-authored.ts",
-    "symbol": "front"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/import-authored.ts",
-    "symbol": "legacy_id"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/index/index.ts",
-    "symbol": "branch"
   },
   {
     "rule": "no-product-data",
@@ -2046,63 +841,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "body_line"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "digest"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "producer"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "relates"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "statements"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "ungrounded"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/markdown.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/product.ts",
-    "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/product.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/knowledge/product.ts",
     "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/reset.ts",
-    "symbol": "domain"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/reset.ts",
-    "symbol": "product"
   },
   {
     "rule": "no-product-data",
@@ -2111,143 +851,18 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/knowledge/semantics.ts",
-    "symbol": "actor"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/semantics.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/knowledge/sources.ts",
-    "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/entities.ts",
-    "symbol": "correction"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/entities.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "about"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "branch"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "by"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "closed_at"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "correction"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "dismissal_reason"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "email"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "front"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "identity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "place"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "problem-dismissal"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "producer"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/graph.ts",
-    "symbol": "slug"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/loop/graph.ts",
     "symbol": "why"
   },
   {
     "rule": "no-product-data",
-    "file": "src/loop/impact.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/loop/plan.ts",
     "symbol": "correction"
   },
   {
     "rule": "no-product-data",
-    "file": "src/loop/plan.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/problem-files.ts",
-    "symbol": "problem-dismissal"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/loop/views.ts",
     "symbol": "correction"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/loop/views.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/mcp/authored.ts",
-    "symbol": "entity"
   },
   {
     "rule": "no-product-data",
@@ -2256,143 +871,13 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/model/schema.ts",
-    "symbol": "domain"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/compose.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/compose.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "bytes"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "columns"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "component"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/schema.ts",
-    "symbol": "table"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/template.ts",
-    "symbol": "component"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/page-contract/template.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/agent.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "producer"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/authored-import-source.ts",
-    "symbol": "relates"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/cli.ts",
-    "symbol": "check"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/plugin/repository-input.ts",
     "symbol": "remote"
   },
   {
     "rule": "no-product-data",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/repository-snapshot.ts",
-    "symbol": "why"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/tools.ts",
-    "symbol": "bytes"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/plugin/wire.ts",
-    "symbol": "note"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "by"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/problems/code.ts",
     "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "code.cycle"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "code.debt"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "code.dependency"
   },
   {
     "rule": "no-product-data",
@@ -2417,17 +902,7 @@
   {
     "rule": "no-product-data",
     "file": "src/problems/code.ts",
-    "symbol": "code.operation"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
     "symbol": "code.package"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
-    "symbol": "code.route"
   },
   {
     "rule": "no-product-data",
@@ -2447,32 +922,7 @@
   {
     "rule": "no-product-data",
     "file": "src/problems/code.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/code.ts",
     "symbol": "test"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "bug"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "rule"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/index.ts",
-    "symbol": "subject"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/problems/types.ts",
-    "symbol": "bug"
   },
   {
     "rule": "no-product-data",
@@ -2481,36 +931,6 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "upgrade"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/cli.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/product/demo.ts",
     "symbol": "product"
   },
@@ -2518,11 +938,6 @@
     "rule": "no-product-data",
     "file": "src/product/demo.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/draft.ts",
-    "symbol": "model"
   },
   {
     "rule": "no-product-data",
@@ -2538,11 +953,6 @@
     "rule": "no-product-data",
     "file": "src/product/fill-stages.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/lifecycle.ts",
-    "symbol": "link"
   },
   {
     "rule": "no-product-data",
@@ -2566,18 +976,8 @@
   },
   {
     "rule": "no-product-data",
-    "file": "src/product/manifest.ts",
-    "symbol": "url"
-  },
-  {
-    "rule": "no-product-data",
     "file": "src/product/manifest/kinds.ts",
     "symbol": "document"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/manifest/kinds.ts",
-    "symbol": "markdown"
   },
   {
     "rule": "no-product-data",
@@ -2587,37 +987,7 @@
   {
     "rule": "no-product-data",
     "file": "src/product/own-wiki.ts",
-    "symbol": "merge"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/product/own-wiki.ts",
     "symbol": "remote"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/likec4.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/likec4.ts",
-    "symbol": "style"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/likec4.ts",
-    "symbol": "tag"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/likec4.ts",
-    "symbol": "technology"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/render/mermaid.ts",
-    "symbol": "class"
   },
   {
     "rule": "no-product-data",
@@ -2632,42 +1002,7 @@
   {
     "rule": "no-product-data",
     "file": "src/server/http.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/http.ts",
     "symbol": "protocol"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "markdown"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/server/knowledge.ts",
-    "symbol": "question"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/sql-driver.ts",
-    "symbol": "snapshot"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/writer/journal.ts",
-    "symbol": "statements"
   },
   {
     "rule": "no-product-data",
@@ -2696,63 +1031,13 @@
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/facts.tsx",
-    "symbol": "class"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/facts.tsx",
-    "symbol": "hash"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/facts.tsx",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/format.ts",
-    "symbol": "bytes"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/prepare.tsx",
     "symbol": "product"
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/settings.tsx",
-    "symbol": "model"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/table.tsx",
-    "symbol": "columns"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/table.tsx",
-    "symbol": "table"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/ui/breadcrumb.tsx",
     "symbol": "span"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/button.tsx",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "approval"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "wiki/app/src/page.tsx",
-    "symbol": "table"
   },
   {
     "rule": "no-regex",
@@ -2798,31 +1083,6 @@
     "rule": "no-regex",
     "file": "src/adapters/postgres-preparation-record.ts",
     "symbol": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/adapters/queue-definition.ts",
-    "symbol": "/^[\\w.\\-/]+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "/^-?\\d+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "/^[0-9a-f]{4,}$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/adapters/schemas/graph-contract.ts",
-    "symbol": "/^[a-z][a-z0-9_]*$/"
   },
   {
     "rule": "no-regex",
@@ -2886,11 +1146,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "src/fill/plugin-turns.ts",
-    "symbol": "/\\/$/"
-  },
-  {
-    "rule": "no-regex",
     "file": "src/fill/prime-runtime.ts",
     "symbol": "/\\s+/"
   },
@@ -2898,56 +1153,6 @@
     "rule": "no-regex",
     "file": "src/fill/stage.ts",
     "symbol": "/^[A-Za-z][A-Za-z0-9._-]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
-    "symbol": "/@[^@]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
-    "symbol": "/^-?\\d+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
-    "symbol": "/^[0-9a-f]+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
-    "symbol": "/^[1-9][0-9]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
-    "symbol": "/^field \"([^\"]+)\"/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/consistency.ts",
-    "symbol": "/\"/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/contract.ts",
-    "symbol": "/[^a-z0-9]+/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/contract.ts",
-    "symbol": "/^_+|_+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "/^-?\\d+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/graph-writes.ts",
-    "symbol": "/^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$/"
   },
   {
     "rule": "no-regex",
@@ -2972,16 +1177,6 @@
   {
     "rule": "no-regex",
     "file": "src/graph/graphql-read.ts",
-    "symbol": "/^(.*)Opinions$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/graphql-read.ts",
-    "symbol": "/^(.*)OpinionsCount$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/graphql-read.ts",
     "symbol": "/^[0-9a-f]{7,64}$/"
   },
   {
@@ -2996,36 +1191,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "/\\.[^.]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/product-templates.ts",
-    "symbol": "/\\.ya?ml$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/records.ts",
-    "symbol": "/(?:Z|[+-]\\d{2}:?\\d{2})$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/write.ts",
-    "symbol": "/^-?\\d+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/write.ts",
-    "symbol": "/^[a-z][a-z0-9_]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/write.ts",
-    "symbol": "/^\\d{4}-\\d{2}-\\d{2}T/"
-  },
-  {
-    "rule": "no-regex",
     "file": "src/graphql/names.ts",
     "symbol": "/[._-]/"
   },
@@ -3033,11 +1198,6 @@
     "rule": "no-regex",
     "file": "src/knowledge/catalog.ts",
     "symbol": "/\\s/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/knowledge/graph-read.ts",
-    "symbol": "/^[a-z][a-z0-9_]*$/"
   },
   {
     "rule": "no-regex",
@@ -3071,21 +1231,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "src/knowledge/relation-labels.ts",
-    "symbol": "/(?=[A-Z])/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/knowledge/relation-labels.ts",
-    "symbol": "/([a-z0-9])([A-Z])/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/knowledge/relation-labels.ts",
-    "symbol": "/[-_]+/"
-  },
-  {
-    "rule": "no-regex",
     "file": "src/knowledge/resolve.ts",
     "symbol": "/\\.(md|markdown)$/"
   },
@@ -3107,7 +1252,7 @@
   {
     "rule": "no-regex",
     "file": "src/loop/entities.ts",
-    "symbol": "/[.!?…]$/"
+    "symbol": "/[.!?\u2026]$/"
   },
   {
     "rule": "no-regex",
@@ -3133,26 +1278,6 @@
     "rule": "no-regex",
     "file": "src/loop/problem-files.ts",
     "symbol": "/^-|-$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/loop/views.ts",
-    "symbol": "/^(question|correction):/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/loop/views.ts",
-    "symbol": "/^repos\\/([^/]+)\\/(.+)$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/mcp/authored.ts",
-    "symbol": "/[^A-Za-z0-9._-]+/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/mcp/authored.ts",
-    "symbol": "/^-+|-+$/"
   },
   {
     "rule": "no-regex",
@@ -3213,11 +1338,6 @@
     "rule": "no-regex",
     "file": "src/page-contract/validate.ts",
     "symbol": "new RegExp"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/plugin/agent.ts",
-    "symbol": "/\\/$/"
   },
   {
     "rule": "no-regex",
@@ -3288,11 +1408,6 @@
     "rule": "no-regex",
     "file": "src/plugin/lock.ts",
     "symbol": "/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/plugin/product-files.ts",
-    "symbol": "/\\/+$/"
   },
   {
     "rule": "no-regex",
@@ -3567,11 +1682,6 @@
   {
     "rule": "no-regex",
     "file": "src/product/manifest/kinds.ts",
-    "symbol": "/^[A-Za-z][A-Za-z0-9_.-]*$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/product/manifest/kinds.ts",
     "symbol": "/^[A-Za-z_][\\w.-]*$/"
   },
   {
@@ -3796,36 +1906,6 @@
   },
   {
     "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_chain"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_run"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_transition"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_unit"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_unit_generation"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/graph.ts",
-    "symbol": "a table named by a statement built across literals"
-  },
-  {
-    "rule": "one-table-source",
     "file": "src/adapters/schemas/history.ts",
     "symbol": "assertions"
   },
@@ -3838,51 +1918,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/history.ts",
     "symbol": "source_registry"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_end"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_event"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_publication"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_run_configuration"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_run_stage"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_plan"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_read"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_split"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/queue.ts",
-    "symbol": "a table named by a statement built across literals"
   },
   {
     "rule": "route-aliases",
@@ -3936,32 +1971,7 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/orchestrator-store.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/orchestrator-store.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/fill/orchestrator.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/orchestrator.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/state-store.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/state-store.ts",
     "symbol": "src/sql-driver.ts"
   },
   {

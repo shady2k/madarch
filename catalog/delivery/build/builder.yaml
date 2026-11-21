@@ -24,3 +24,5 @@ labels:
 description:
   en: A builder is the account, the worker or the image the build platform used to execute a build, such as a service account or a builder image version. Recording it shows which rights and which tools the build had.
   ru: 'Сборщик — учётная запись, работник или образ, которыми платформа сборки выполняла сборку: служебная учётная запись или версия образа сборщика. Его запись показывает, какие права и какие инструменты были у сборки.'
+derives-from:
+- build-platform

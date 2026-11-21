@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A mitigation is a control the team puts in place against one threat: validating input, limiting access, encrypting data, adding a check. It is chosen because it lowers either the chance of the attack or the harm it would do.'
   ru: 'Смягчение — мера, которую команда ставит против одной угрозы: проверка входных данных, ограничение доступа, шифрование, добавочная проверка. Её выбирают потому, что она снижает либо вероятность атаки, либо её вред.'
+derives-from:
+- threat

@@ -1,0 +1,106 @@
+name: Single-file evidence
+
+# Temporary workflow (madarch-64o5.74), outside the S6 stack: the slow-test gate
+# requires one alone-run row per test file changed since the merge base, and this
+# workflow measures the 74 files it names, in four lanes of the same tree.
+# Every row comes from scripts/run-tests.ts, which writes a row only for exit 0.
+on:
+  push:
+    branches:
+      - 'evidence/**'
+
+# A push keeps its own run: a later push cannot cancel evidence a reader still needs.
+concurrency:
+  group: single-file-evidence-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: evidence lane ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    # 74 files at up to two runs each; 19 files fit in 45 minutes with room to spare.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lane boundaries are fixed here and read by sed below; the four lanes
+        # cover lines 1-19, 20-38, 39-57 and 58-74 of .github/evidence-paths.txt.
+        include:
+          - lane: 1
+            first: 1
+            last: 14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # The PostgreSQL server madarch installs lives in the runner's home; the cache
+      # is the one test-shard and slow-tests use.
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      # The plugin sandbox bounds a plugin's process tree in a cgroup it can only
+      # enter from inside the delegated subtree; the same step CI runs.
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      # One file at a time, in the lane's own order, and a red file never stops the
+      # loop: exits.txt carries each run's status. A row over 30000 ms is a speed
+      # claim that needs the second run the gate asks for before it judges slowness;
+      # both numbers reach exits.txt, and the row itself is the second run's measure.
+      - name: Run each file of the lane alone, again when a run passes 30 s
+        run: |
+          set +e
+          set -u
+          timings=.github/workflows/single-file-timings.json
+          sed -n '${{ matrix.first }},${{ matrix.last }}p' .github/evidence-paths.txt > lane-paths.txt
+          : > exits.txt
+          fails=0
+          while IFS= read -r p; do
+            scripts/plugin-sandbox-cgroup.sh bun run test --only "$p" --timings="$timings" --update-timings
+            status=$?
+            echo "$p exit=$status" >> exits.txt
+            if [ "$status" -ne 0 ]; then fails=$((fails + 1)); fi
+            milliseconds=$(bun -e 'const t = JSON.parse(await Bun.file(process.argv[1]).text()); const v = t.files?.[process.argv[2]]; console.log(Number.isFinite(v) ? v : "")' "$timings" "$p")
+            if [ "$status" -eq 0 ] && [ -n "$milliseconds" ] && [ "$milliseconds" -gt 30000 ]; then
+              echo "$p first=$milliseconds second-run-needed" >> exits.txt
+              scripts/plugin-sandbox-cgroup.sh bun run test --only "$p" --timings="$timings" --update-timings
+              status=$?
+              echo "$p exit=$status" >> exits.txt
+              if [ "$status" -ne 0 ]; then fails=$((fails + 1)); fi
+              second=$(bun -e 'const t = JSON.parse(await Bun.file(process.argv[1]).text()); const v = t.files?.[process.argv[2]]; console.log(Number.isFinite(v) ? v : "")' "$timings" "$p")
+              echo "$p second=$second" >> exits.txt
+            fi
+          done < lane-paths.txt
+          echo "lane ${{ matrix.lane }}: $(wc -l < lane-paths.txt) files, $fails nonzero exits"
+          [ "$fails" -eq 0 ]
+      # The checkout's timings file keeps the committed rows and gains this lane's;
+      # the artifact carries this lane's rows alone, so four artifacts never
+      # disagree about a row they do not own.
+      - name: Keep only this lane's timing rows
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          cp exits.txt "$RUNNER_TEMP/evidence/exits.txt"
+          bun -e '
+          const [lane, source, out] = process.argv.slice(1);
+          const lanePaths = new Set((await Bun.file(lane).text()).split("\n").filter(line => line !== ""));
+          const timings = JSON.parse(await Bun.file(source).text());
+          const files = {};
+          for (const [path, milliseconds] of Object.entries(timings.files ?? {})) if (lanePaths.has(path)) files[path] = milliseconds;
+          await Bun.write(out, JSON.stringify({ ...timings, files }, null, 2) + "\n");
+          console.log("lane rows: " + Object.keys(files).length + " of " + lanePaths.size + " paths");
+          ' lane-paths.txt .github/workflows/single-file-timings.json "$RUNNER_TEMP/evidence/single-file-timings.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: evidence-${{ matrix.lane }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error

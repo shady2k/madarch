@@ -24,3 +24,5 @@ labels:
 description:
   en: Personal data is any information that relates to a person who is identified or can be identified, such as a name, an address, a phone number or an online identifier. The GDPR sets the rules for handling it.
   ru: 'Персональные данные — любые сведения, которые относятся к определённому или определимому человеку: имя, адрес, номер телефона, сетевой идентификатор. Правила обращения с ними задаёт GDPR.'
+derives-from:
+- information-category

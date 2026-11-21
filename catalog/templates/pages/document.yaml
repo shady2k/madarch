@@ -3,7 +3,7 @@
 # page draws no copy of its own (madarch-64o5.134).
 template: document
 extends: text
-records: [practice.document]
+records: [document]
 sections:
   - id: header
     replace: true
@@ -15,9 +15,8 @@ sections:
       label
       template
       origin
-      repository
+      documentRepository(first: 1) { edges { node { node { id label } } } }
       path
-      commit
       trail {
         id
         kind
@@ -27,13 +26,13 @@ sections:
       titlePath: label
       kindPath: kind
       provenancePath: origin
-      trail: { repository: repository, path: path }
+      trail: { repository: documentRepository.edges.0.node.node.label, path: path }
   - id: body
     replace: true
     component: text
     after: details
     title: { en: Text, ru: Текст }
     query: |
-      markdown
+      content
     params:
-      path: markdown
+      path: content

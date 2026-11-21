@@ -25,3 +25,15 @@ labels:
 description:
   en: 'A model is the result of training: a set of learned parameters that turns an input into a prediction, a classification or generated text. It is kept with the data and the code that produced it, so the same result can be rebuilt and checked.'
   ru: 'Модель — результат обучения: набор выученных параметров, который превращает входные данные в предсказание, классификацию или сгенерированный текст. Её хранят вместе с данными и кодом, которые её создали, чтобы результат можно было повторить и проверить.'
+derives-from:
+- ai-system
+- product-profile
+- training-run
+applicability:
+  dependencies: []
+  markers:
+  - '**/*.onnx'
+  - '**/*.ipynb'
+  - '**/MLmodel'
+  profile: ml
+source: graph

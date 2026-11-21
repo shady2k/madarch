@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - configures
+  - partOf
   in:
   - configures
 template-policy: page
@@ -16,8 +17,27 @@ source: graph
 details:
 - library
 - model
-- service
 - json
+fields:
+- name: library
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: format
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: json
+  type: boolean
+  nullable: true
+  producers:
+  - operations
+key: []
+derives-from:
+- code.file
+- code.service
 labels:
   en:
     one: Logger
@@ -28,3 +48,11 @@ labels:
 description:
   en: 'A logger is the configuration and the object through which a service writes log records: its level, its format, its destination and its context. It decides what the service tells about itself.'
   ru: 'Логгер — настройка и объект, через которые сервис пишет записи журнала: уровень, формат, назначение и контекст. Он решает, что сервис рассказывает о себе.'
+
+key-edges:
+- role: code.logger-service
+  edge: code.logger-service
+  side: from
+- role: code.logger-file
+  edge: code.logger-file
+  side: from

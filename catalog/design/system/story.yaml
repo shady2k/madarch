@@ -24,3 +24,5 @@ labels:
 description:
   en: A story shows one component in one state — empty, loading, in error, with long text — together with the data the state needs, so a person can see and test it alone. Storybook's Component Story Format is a common way to declare one.
   ru: История компонента показывает один компонент в одном состоянии — пустом, загружающемся, с ошибкой, с длинным текстом — вместе с нужными для этого данными, чтобы человек мог увидеть и проверить его отдельно. Component Story Format в Storybook — распространённый способ объявить такую историю.
+derives-from:
+- ui-component

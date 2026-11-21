@@ -24,3 +24,7 @@ labels:
 description:
   en: An IAM grant states that one subject — a person, a role or a service — may perform one action on one resource, such as read a bucket or start an instance. Grants are the smallest pieces from which a policy is built.
   ru: 'Разрешение IAM говорит, что один субъект — человек, роль или сервис — может выполнить одно действие с одним ресурсом: прочитать бакет или запустить экземпляр. Из таких разрешений строится политика.'
+derives-from:
+- cloud-resource
+- iam-account
+- iam-policy

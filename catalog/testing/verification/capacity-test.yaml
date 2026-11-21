@@ -24,3 +24,5 @@ labels:
 description:
   en: A capacity test raises the load step by step until response times or errors cross an agreed limit, and records where that happened. The result says how many users, requests or messages the current setup can carry.
   ru: Тест ёмкости поднимает нагрузку шаг за шагом, пока время ответа или ошибки не перейдут согласованный предел, и записывает, где это случилось. Результат говорит, сколько пользователей, запросов или сообщений выдерживает нынешняя установка.
+derives-from:
+- performance-test

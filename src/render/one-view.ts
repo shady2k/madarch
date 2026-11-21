@@ -69,7 +69,7 @@ export async function renderAsyncOneViewMermaid(engine: AsyncQueryEngine, model:
   return engine.withSnapshot(async (snapshot) => {
     const { view, errors } = await askedAsync(request, snapshot, model, at);
     if (view === undefined) return { errors };
-    const scope = view.scope === undefined ? undefined : view.elements.find((element) => element.id === view.scope && element.place === 'scope');
+    const scope = view.scope === undefined ? undefined : view.elements.find((element) => element.id === view.scope && element.place === 'focus');
     if (view.scope !== undefined && scope === undefined) return { errors: [{ message: `the view of "${view.scope}" does not show "${view.scope}" itself as its scope`, element: view.scope }] };
     return { page: renderPageBody(view, scope), errors: [] };
   });

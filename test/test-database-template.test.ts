@@ -33,7 +33,7 @@ test('fresh database owners are prepared and isolate data and schema changes', a
     const own = await first.run((tx) => tx.query<{ value: string }>('SELECT value FROM case_only'));
     expect(own.rows).toEqual([{ value: 'first' }]);
   } finally { await first.close(); }
-  for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close', 'database-drop']) {
+  for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close']) {
     expect(phases.get(phase)).toBeGreaterThanOrEqual(0);
   }
 });

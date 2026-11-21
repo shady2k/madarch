@@ -6,6 +6,7 @@
  */
 import type { GraphReader, GraphEntity, NeighborEdge, RelationEdge, SourceSpan } from '../src/knowledge/graph-read.js';
 import { byCodePoint } from '../src/model/order.js';
+import { keyUid } from '../src/graph/uid.js';
 
 interface FakeNode {
   readonly key: string;
@@ -54,7 +55,7 @@ class FakeReader {
 
   private entity(node: FakeNode): GraphEntity {
     const span = (node.properties['span'] as SourceSpan | undefined);
-    return { key: node.key, kind: node.kind, label: node.label, properties: node.properties, nodeIds: [node.key], scope: node.scope, ...(span === undefined ? {} : { span }) };
+    return { uid: keyUid('fixture-node', [node.scope, node.kind, node.key]), key: node.key, kind: node.kind, label: node.label, properties: node.properties, nodeIds: [node.key], scope: node.scope, ...(span === undefined ? {} : { span }) };
   }
 
   private ofKind(kind: string): GraphEntity[] {
@@ -128,7 +129,7 @@ class FakeReader {
     const rows = all.flatMap((edge) => {
       const from = this.graph.node(edge.from);
       const to = this.graph.node(edge.to);
-      return from === undefined || to === undefined ? [] : [{ discriminator: edge.discriminator, from: { key: from.key, kind: from.kind, label: from.label }, to: { key: to.key, kind: to.kind, label: to.label }, properties: edge.properties }];
+      return from === undefined || to === undefined ? [] : [{ discriminator: edge.discriminator, from: { uid: keyUid('fixture-node', [from.scope, from.kind, from.key]), key: from.key, kind: from.kind, label: from.label }, to: { uid: keyUid('fixture-node', [to.scope, to.kind, to.key]), key: to.key, kind: to.kind, label: to.label }, properties: edge.properties }];
     });
     return { total: rows.length, rows: rows.slice(0, limit) };
   }

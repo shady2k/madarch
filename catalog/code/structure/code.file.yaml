@@ -14,43 +14,55 @@ audience: [developer, architect]
 facts:
 # Every fact counts the current tree by default: a file that left it stays an entity with a removal, and is not a file.
 - id: count
-  labels: { en: Files, ru: Файлы }
+  labels:
+    en: Files
+    ru: Файлы
   measure: count
   display: number
-  where: { removed_at: null }
+  where:
+    removed_at: null
 - id: by-language
-  labels: { en: By language, ru: По языку }
+  labels:
+    en: By language
+    ru: По языку
   measure: group-by
   field: language
   display: bar
-  where: { removed_at: null }
-- id: by-folder
-  labels: { en: By folder, ru: По папке }
-  measure: group-by
-  field: directory
-  display: treemap
-  where: { removed_at: null }
+  where:
+    removed_at: null
 - id: age
-  labels: { en: Time since last change, ru: Время с последнего изменения }
+  labels:
+    en: Time since last change
+    ru: Время с последнего изменения
   measure: histogram
   field: last_change
-  buckets: [30, 90, 365]
+  buckets:
+  - 30
+  - 90
+  - 365
   display: timeline
-  where: { removed_at: null }
+  where:
+    removed_at: null
 - id: largest
-  labels: { en: Largest files in bytes, ru: Самые большие файлы в байтах }
+  labels:
+    en: Largest files in bytes
+    ru: Самые большие файлы в байтах
   measure: top-n
   field: bytes
   limit: 10
   display: bar
-  where: { removed_at: null }
+  where:
+    removed_at: null
 - id: most-changed
-  labels: { en: "Most changed files (commits, merge commits included)", ru: "Чаще изменяемые файлы (коммиты, включая слияния)" }
+  labels:
+    en: Most changed files (commits, merge commits included)
+    ru: Чаще изменяемые файлы (коммиты, включая слияния)
   measure: top-n
   field: commit_count
   limit: 10
   display: bar
-  where: { removed_at: null }
+  where:
+    removed_at: null
 template-policy: page
 source: graph
 # The paths this kind leaves out: a product's own declaration, so no engine list decides what a repository's
@@ -61,20 +73,8 @@ exclude:
   - "**/node_modules/**"
   - "**/.git/**"
 fields:
-- name: state_machines
-  type: json
-  nullable: true
-  labels: { en: State machines, ru: Машины состояний }
-  binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
-- name: repository
-  type: text
-  producers:
-  - disk
-  - git
 - name: path
-  type: text
+  type: path
   producers:
   - disk
   - git
@@ -110,16 +110,15 @@ fields:
   - disk
 - name: languages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   producers:
   - disk
 - name: class
   type: text
   nullable: true
-  producers:
-  - disk
-- name: directory
-  type: text
   producers:
   - disk
 - name: last_change
@@ -137,30 +136,17 @@ fields:
   nullable: true
   producers:
   - git
-- name: added_in
-  type: text
-  nullable: true
-  producers:
-  - git
 - name: removed_at
   type: timestamp
   nullable: true
   producers:
   - git
-- name: removed_in
-  type: text
-  nullable: true
-  producers:
-  - git
-# The kind's own declaration of a file's read (decision 0037): the entity names its repository and path, and the blob is
-# the bytes git serves for them. The engine reads a file's text by these roles, never by a field name of its own.
+# The file text is read by its repository edge, path and immutable blob (decision 0037).
 file-text:
-  repository: repository
+  repository: code.file-repository
   path: path
   blob: blob
-
 key:
-- repository
 - path
 classes:
 - name: dependency
@@ -228,8 +214,6 @@ classes:
 - name: code
   default: true
 history: path
-views:
-- state
 details:
 - mode
 - blob
@@ -252,5 +236,9 @@ description:
   en: 'A file is a named unit of content in a repository: for example a source file, a configuration file, a document or an image. Its path places it in a folder, and its content is what a person or a program reads or runs.'
   ru: 'Файл — именованная единица содержимого в репозитории: например, исходный код, настройки, документ или изображение. Путь указывает его место в папках, а содержимое читает человек или программа.'
 derives-from:
-- code.repository
 - code.directory
+
+key-edges:
+- role: code.file-repository
+  edge: code.file-repository
+  side: from

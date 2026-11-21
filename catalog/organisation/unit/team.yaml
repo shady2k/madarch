@@ -26,3 +26,5 @@ labels:
 description:
   en: A team is a group of people who plan and do work together and share responsibility for the outcome. It usually has a name and an area of responsibility, and its members may also belong to other groups such as departments or professional communities.
   ru: Команда — небольшая группа людей, которые вместе работают над общей целью и отвечают за результат. У команды есть название и круг ответственности, а её участники могут входить и в другие объединения, например в подразделения или профессиональные сообщества.
+derives-from:
+- organization

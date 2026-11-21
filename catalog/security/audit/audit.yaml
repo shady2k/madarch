@@ -24,3 +24,5 @@ labels:
 description:
   en: An audit compares what the organisation does with what a standard, a law or its own policy requires, by reading records and asking people. Its findings and evidence are kept so a later reader can see how the conclusion was reached.
   ru: Аудит сравнивает, что организация делает, с тем, что требует стандарт, закон или её собственное правило, по записям и разговорам с людьми. Его находки и доказательства хранят, чтобы позднее было видно, как пришли к выводу.
+derives-from:
+- policy

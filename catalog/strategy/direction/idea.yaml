@@ -1,0 +1,54 @@
+id: practice.idea
+purpose: understand
+audience:
+- product
+- architect
+- developer
+definition: An idea is a proposed product direction that can develop, die or become another idea.
+sources:
+- https://www.omg.org/spec/BMM/
+acquisition:
+- conversation
+- document
+- agent-from-graph
+relation-constraints:
+  out:
+  - idea.evolved-into
+  in:
+  - idea.evolved-into
+template-policy: page
+source: graph
+fields:
+- name: identifier
+  type: text
+  binding:
+    agent: The stable identifier of this idea within the product, independent of its title.
+- name: title
+  type: text
+  binding:
+    agent: The proposed direction in one sentence.
+- name: status
+  type: text
+  binding:
+    agent: 'The stated life-cycle state: proposed, exploring, developing, dead or transformed.'
+- name: death_reason
+  type: text
+  nullable: true
+  binding:
+    agent: Why the idea was abandoned; required when its state is dead.
+key:
+- identifier
+derives-from:
+- system.product
+labels:
+  en:
+    one: Idea
+    many: Ideas
+  ru:
+    one: Идея
+    many: Идеи
+description:
+  en: An idea states what might be worth creating and why. It can develop through research and design, die with a stated reason,
+    or grow into another idea in the same product.
+  ru: Идея говорит, что стоит создать и зачем. Она развивается через исследование и проектирование, умирает с указанной причиной
+    или перерастает в другую идею того же продукта.

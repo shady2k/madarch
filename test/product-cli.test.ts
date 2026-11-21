@@ -27,7 +27,7 @@ import { stopDaemon } from '../src/product/daemon.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { commitProduct } from './knowledge-fixture.js';
 
-import { CLI, builtApp, cleanTestScratch, freePort, printedLiveFacts, realGit, runCommand, runningChildren, scratchFolder, SEALED_GIT, serveNew, shQuote, startedHomes } from './product-cli-helpers.js';
+import { CLI, builtApp, cleanTestScratch, freePort, printedLiveFacts, realGit, runCommand, runningChildren, scratchFolder, SEALED_GIT, serveNew, shQuote, startedHomes, withoutStartProgress } from './product-cli-helpers.js';
 
 // This file registers the helpers' cleanup for each of its own cases: the helper
 // module is cached across the files of one bun test run, so it registers no hook.
@@ -45,6 +45,48 @@ function todayName(): string {
 }
 
 describe('the single start command', () => {
+  test('init --json keeps slow-start diagnostics out of its JSON stdout', () => {
+    const base = scratchFolder('madarch-init-slow-');
+    const home = join(base, 'products');
+    const preload = join(base, 'slow-start.ts');
+    writeFileSync(preload, `if (process.argv.includes('daemon-serve')) await Bun.sleep(3000);
+`);
+    startedHomes.push(home);
+    const run = runCommand(['init', '--home', home, '--port', '0', '--json', '--no-open'], {
+      MADARCH_APP: builtApp(base), BUN_OPTIONS: `--preload ${preload}`,
+    }, base);
+    expect(run.status, run.stderr).toBe(0);
+    const facts = JSON.parse(run.stdout) as { url: string; pid: number };
+    expect(facts.url).toContain('/products/');
+    expect(facts.pid).toBeGreaterThan(0);
+    expect(run.stdout.trim().split('\n')).toHaveLength(1);
+    expect(run.stderr).toContain('starting (pid ');
+  }, 30_000);
+
+  test('init continues and logs inaccessible start-progress files', () => {
+    const base = scratchFolder('madarch-init-progress-fault-');
+    const home = join(base, 'products');
+    const preload = join(base, 'progress-fault.ts');
+    writeFileSync(preload, `import { mkdirSync } from 'node:fs';
+if (process.argv.includes('daemon-serve')) {
+  const home = process.argv[process.argv.indexOf('--home') + 1];
+  const file = home + '/.madarch-daemon-start-' + process.env.MADARCH_DAEMON_TOKEN + '.json';
+  mkdirSync(file, { recursive: true });
+  mkdirSync(file + '.tmp', { recursive: true });
+}
+`);
+    startedHomes.push(home);
+    const run = runCommand(['init', '--home', home, '--port', '0', '--json', '--no-open'], {
+      MADARCH_APP: builtApp(base), BUN_OPTIONS: `--preload ${preload}`,
+    }, base);
+    expect(run.status, run.stderr).toBe(0);
+    expect((JSON.parse(run.stdout) as { pid: number }).pid).toBeGreaterThan(0);
+    const log = readFileSync(join(home, '.madarch-daemon.log'), 'utf8');
+    expect(log).toContain('could not write start progress');
+    expect(log).toContain('could not clear start progress');
+    expect(log).toContain('EISDIR');
+  }, 30_000);
+
   test('a live rename republishes every catalogue kind', async () => {
     const base = scratchFolder('madarch-live-rename-');
     const home = join(base, 'products');
@@ -101,7 +143,7 @@ describe('the single start command', () => {
         try {
           const run = runCommand(['init', work, '--home', home, '--port', '0', '--json', '--no-open', ...(template === undefined ? [] : ['--template', template])], { MADARCH_APP: builtApp(base) }, base);
           expect(run.status).toBe(0);
-          expect(run.stderr).toBe('');
+          expect(withoutStartProgress(run.stderr)).toBe('');
           const facts = JSON.parse(run.stdout) as { folder: string; url: string; template: string };
           expect(facts.template).toBe(template ?? 'none');
           for (const file of ['catalog.yaml', 'kinds', 'workflows.yaml']) expect(existsSync(join(facts.folder, 'madarch', file))).toBe(template !== undefined);
@@ -285,7 +327,7 @@ describe('madarch init', () => {
     try {
       const run = runCommand(['init', '--port', '0', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
       expect(run.status).toBe(0);
-      expect(run.stderr).toBe('');
+      expect(withoutStartProgress(run.stderr)).toBe('');
       // One JSON line, no human summary beside it.
       const facts = JSON.parse(run.stdout) as { folder: string; id: string; name: string; url: string; pid: number; port: number; reused: boolean; requestedPort?: number; portNote?: string };
       expect(facts.folder).toBe(join(home, 'products', `idea-${todayName()}`));
@@ -609,7 +651,7 @@ describe('madarch init', () => {
     const run = runCommand(['init', '--home', home, '--port', '0', '--json', '--no-open'], { MADARCH_APP: builtApp(base) }, work);
     try {
       expect(run.status).toBe(0);
-      expect(run.stderr).toBe('');
+      expect(withoutStartProgress(run.stderr)).toBe('');
       const facts = JSON.parse(run.stdout) as { folder: string; url: string; template: string };
       expect(facts.template).toBe('none');
       expect(existsSync(join(facts.folder, 'madarch', 'kinds.yaml'))).toBeFalse();

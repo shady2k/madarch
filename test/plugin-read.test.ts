@@ -17,7 +17,7 @@ test('the host reads a blob through the plugin, line ranges included', async () 
   writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: 'reader', version: '1.0.0', outputs, rights: { network: 'none' } }));
   writeFileSync(join(root, 'entry.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
 const lines = ['# Notes', '', 'The first line.', 'The second line.'];
-await definePlugin({name:'reader',version:'1.0.0',contract:${JSON.stringify(outputs)},
+await definePlugin({readOnly:true,name:'reader',version:'1.0.0',contract:${JSON.stringify(outputs)},
   read: (request) => {
     const from = request.from ?? 1;
     const to = request.to ?? lines.length;
@@ -45,7 +45,7 @@ test('a plugin that declares no read answers the host by name', async () => {
   writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'plain', version: '1.0.0', entry: 'entry.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'item', fields: '*', partition: 'key' }] }));
   writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: 'plain', version: '1.0.0', outputs, rights: { network: 'none' } }));
   writeFileSync(join(root, 'entry.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
-await definePlugin({name:'plain',version:'1.0.0',contract:${JSON.stringify(outputs)},extract:()=>({end:{state:'complete'}})});`);
+await definePlugin({readOnly:true,name:'plain',version:'1.0.0',contract:${JSON.stringify(outputs)},extract:()=>({end:{state:'complete'}})});`);
   let session: Awaited<ReturnType<PluginHost['open']>> | undefined;
   try {
     session = await new PluginHost({ pluginFolder: root, repository: root, workRoot: join(root, 'work'), trust: 'validation', env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' } }).open();

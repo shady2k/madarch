@@ -15,7 +15,32 @@ template-policy: page
 source: graph
 details:
 - name
-- 'on'
+- on
+fields:
+- name: path
+  type: path
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: name
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: "on"
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.ci-workflow-on:v1
+  nullable: true
+  producers:
+  - operations
+key:
+- path
+derives-from:
+- code.file
 labels:
   en:
     one: CI workflow
@@ -26,3 +51,8 @@ labels:
 description:
   en: 'A CI workflow declares what runs when a change arrives: which jobs, in what order, on which events such as a push or a pull request. It is defined in a file in the repository, so the checks live with the code.'
   ru: 'Процесс CI объявляет, что запускается при появлении изменения: какие задачи, в каком порядке и на какие события — push или запрос на слияние. Он задан файлом в репозитории, поэтому проверки живут вместе с кодом.'
+
+key-edges:
+- role: code.ci-workflow-repository
+  edge: code.ci-workflow-repository
+  side: from

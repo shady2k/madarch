@@ -1,0 +1,60 @@
+id: bpmn.event
+purpose: structure
+audience: [analyst, architect, platform-devops]
+definition: 'A process event is a point in a business process where something starts, happens or ends: a start event, an intermediate event or an end event.'
+sources:
+- https://www.omg.org/spec/BPMN/
+acquisition:
+- document
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - partOf
+  - triggers
+  in:
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the process gives the event, such as Order received.
+- name: type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Whether the event starts the process, happens inside it or ends it: start,
+      intermediate or end.'
+- name: trigger
+  type: text
+  nullable: true
+  binding:
+    agent: What causes the event, from the event's own declaration in the graph.
+key:
+- name
+derives-from:
+- business-process
+member:
+  relation: partOf
+  direction: out
+  parentKind: business-process
+labels:
+  en:
+    one: Process event
+    many: Process events
+  ru:
+    one: Событие процесса
+    many: События процесса
+description:
+  en: 'A process event marks a moment in a business process: the message or the time that starts it, something that happens while it runs, or the outcome that ends it. The sequence flow between the steps leaves from and reaches these events.'
+  ru: 'Событие процесса отмечает момент в бизнес-процессе: сообщение или время, которое его запускает, происшествие во время него или результат, которым он заканчивается. Поток между шагами выходит из таких событий и приходит в них.'
+
+key-edges:
+- role: process-event-process
+  edge: process-event-process
+  side: from

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * The imports plugin (decision 0035, items 3, 8, 15 and 24; task madarch-o0eq.6): it reads the TypeScript and JavaScript
  * files the graph holds and states which file imports which — `code.imports` between two files of the repository — and
@@ -10,8 +11,7 @@
  * (madarch-mwhd.3: no regular expression over source text, and it recovers from a file that is not valid as a whole), and
  * a specifier is resolved by the repository's own rules over the graph's file list and the tsconfig nearest the
  * importing file (`./resolve.js`), the package.json of a folder included. A relative specifier that names no file is
- * stated as an edge to the path it names, which no vertex holds: the graph records the unresolved reference with the
- * import's place, so the problem is reported, never dropped. A file the parser refuses, or whose content the graph does
+ * reported as a problem at the import's place. It never produces a dangling edge (0039 item 1). A file the parser refuses, or whose content the graph does
  * not hold, is a problem with its place in the unit's answer; the other files are still read, and the host records the
  * problems beside the values.
  */
@@ -34,6 +34,7 @@ interface WantedFile {
   readonly path: string;
   readonly kind: string;
   readonly key: import('madarch-plugin-sdk').KeyValues;
+  readonly keyEdges?: import('madarch-plugin-sdk').EntityRef['keyEdges'];
 }
 
 /** The place an import was read at, as the edge's discriminator: the same place is one reading, never two. */
@@ -53,8 +54,8 @@ function valuesOf(record: { readonly line: number; readonly column: number; read
 }
 
 /** The evidence one edge stands on: the file, its blob, and the lines the import stands on. */
-function evidenceOf(repository: string, path: string, line: number, lineEnd: number, blob: string | undefined): { repository: string; path: string; lineStart: number; lineEnd: number; commitOrDigest?: string } {
-  return { repository, path, lineStart: line, lineEnd, ...(blob === undefined ? {} : { commitOrDigest: blob }) };
+function evidenceOf(repository: string, path: string, line: number, lineEnd: number, blob: string | undefined): { target: { kind: string; key: { name: string } }; path: string; lineStart: number; lineEnd: number; digest?: string } {
+  return { target: { kind: 'code.repository', key: { name: repository } }, path, lineStart: line, lineEnd, ...(blob === undefined ? {} : { digest: blob }) };
 }
 
 /** One repository's answer, as the reader gives it, with the record's file and blob set. */
@@ -73,12 +74,12 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
   const paths = new Map<string, Set<string>>();
   const wanted = new Map<string, WantedFile>();
   for (const file of all) {
-    const repository = String(file.key['repository'] ?? '');
+    const repository = String(file.keyEdges?.['code.file-repository']?.key['name'] ?? '');
     const path = String(file.key['path'] ?? '');
     const held = paths.get(repository) ?? new Set<string>();
     held.add(path);
     paths.set(repository, held);
-    if (sourceExtensionOf(path) !== undefined) wanted.set(`${repository}\u0000${path}`, { repository, path, kind: file.kind, key: file.key });
+    if (sourceExtensionOf(path) !== undefined) wanted.set(`${repository}\u0000${path}`, { repository, path, kind: file.kind, key: file.key, keyEdges: file.keyEdges });
   }
   // A tsconfig and a package.json are not sources the plugin parses, but their texts are what the repository's aliases
   // and a folder's entry are read from: every one the graph holds is read beside the sources, and the reader uses it
@@ -87,7 +88,7 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
     for (const path of paths.get(repository) ?? []) {
       const name = path.slice(path.lastIndexOf('/') + 1);
       if (!((name.startsWith('tsconfig') && name.endsWith('.json')) || name === 'package.json')) continue;
-      wanted.set(`${repository}\u0000${path}`, { repository, path, kind: 'code.file', key: { repository, path } });
+      wanted.set(`${repository}\u0000${path}`, { repository, path, kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: repository } } } });
     }
   }
   const files = [...wanted.values()].sort((left, right) => (left.repository < right.repository ? -1 : left.repository > right.repository ? 1 : left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
@@ -104,7 +105,7 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
       const file = files[index]!;
       // The file's text is the blob the graph names, read through the host (decision 0037): the plugin holds no
       // environment, and the host routes the read to the core plugin that owns git's store (decision 0038).
-      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob');
+      const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
       let read: { readonly text: string; readonly binary: boolean } | undefined;
       try {
         read = typeof blob === 'string' && blob !== '' ? await context.read({ repository: file.repository, blob }) : undefined;
@@ -144,9 +145,9 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
   for (const answer of answers) {
     for (const record of answer.records) {
       const blob = blobs.get(record.repository)?.get(record.from);
-      const from = { kind: 'code.file', key: { repository: record.repository, path: record.from } };
+      const from = { kind: 'code.file', key: { path: record.from }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: record.repository } } } };
       const edge = record.to.kind === 'file'
-        ? { kind: IMPORT_KIND, from, to: { kind: 'code.file', key: { repository: record.repository, path: record.to.path } } }
+        ? { kind: IMPORT_KIND, from, to: { kind: 'code.file', key: { path: record.to.path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: record.repository } } } } }
         : { kind: PACKAGE_IMPORT_KIND, from, to: { kind: PACKAGE_KIND, key: { ecosystem: 'node', name: record.to.name } } };
       edges.push({ ...edge, discriminator: placeOf(record), values: valuesOf(record), evidence: evidenceOf(record.repository, record.from, record.line, record.lineEnd, blob) });
     }
@@ -157,23 +158,20 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
     }
   }
   const vertices = [...packages.values()];
-  const problems = answers.flatMap((answer) => answer.problems);
-  for (const problem of problems) {
-    // A relative specifier that names no file is an edge to the file it names: the host resolves both ends, finds no
-    // vertex for this one, and records an unresolved reference with the edge and the place — a problem, never a silence.
-    if (problem.target === undefined || problem.target === '') continue;
-    edges.push({
-      kind: IMPORT_KIND,
-      from: { kind: 'code.file', key: { repository: problem.repository, path: problem.path } },
-      to: { kind: 'code.file', key: { repository: problem.repository, path: problem.target } },
-      discriminator: placeOf(problem),
-      values: valuesOf(problem),
-      evidence: evidenceOf(problem.repository, problem.path, problem.line, problem.lineEnd, blobs.get(problem.repository)?.get(problem.path)),
-    });
+  const snapshots = files.flatMap(file => {
+    const content = texts.get(file.repository)?.get(file.path);
+    return content === undefined ? [] : [{ digest: createHash('sha256').update(content).digest('hex'), content, about: [{ kind: file.kind, key: file.key, ...(file.keyEdges === undefined ? {} : { keyEdges: file.keyEdges }) }] }];
+  });
+  for (const fact of [...vertices, ...edges]) if (fact.evidence !== undefined) {
+    const source = files.find(file => file.repository === fact.evidence!.target.key['name'] && file.path === fact.evidence!.path);
+    const content = source === undefined ? undefined : texts.get(source.repository)?.get(source.path);
+    if (content === undefined) throw new Error('import evidence source content is missing');
+    Object.assign(fact, { evidence: { ...fact.evidence, target: { kind: 'code.blob', key: { digest: createHash('sha256').update(content).digest('hex') } }, digest: createHash('sha256').update(content).digest('hex') } });
   }
+  const problems = answers.flatMap((answer) => answer.problems);
   return {
-    vertices,
-    edges,
+    vertices: [...new Map(snapshots.map(snapshot => [snapshot.digest, { kind: 'code.blob', key: { digest: snapshot.digest }, values: { content: snapshot.content } }])).values(), ...vertices],
+    edges: [...snapshots.flatMap(snapshot => snapshot.about.map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to }))), ...edges],
     // One file the parser refuses, or whose content the graph does not hold, is a problem with its place: the rest of
     // the repository is still answered, and the host records these beside the unit's values.
     problems: problems.map((problem) => ({

@@ -73,9 +73,9 @@ test('POST /graphql answers the product graph through the one executor', async (
   const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
   expect(catalogue.status).toBe(200);
   expect(catalogue.body.errors).toBeUndefined();
-  // Every catalogue kind: 526 and the page-template kind the decision of 2026-11-15 added, which keeps its place beside
-  // the engine's own `PageTemplate` type (src/graphql/names.ts).
-  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(527);
+  const read = readKinds(product);
+  if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: the fixture product holds no manifest`);
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(read.manifest.catalog!.kinds.size);
 });
 
 test('POST /graphql refuses a query deeper than six levels', async () => {
@@ -87,7 +87,7 @@ test('POST /graphql refuses a query deeper than six levels', async () => {
 test('POST /graphql refuses a body that is not an operation', async () => {
   const answer = await post({ nope: true });
   expect(answer.status).toBe(400);
-  expect(answer.body.error.field).toBe('query');
+  expect(answer.body.error).toMatchObject({ code: 'SCHEMA_INVALID', path: '/nope', actual: true, retryable: false });
 });
 
 /** A file of a folder tree, by its name. */

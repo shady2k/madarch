@@ -24,3 +24,5 @@ labels:
 description:
   en: An API reference lists the operations an interface offers — their names, parameters, answers and errors — so a developer can call them correctly. Much of it is generated from the interface definition and should stay in step with it.
   ru: 'Справочник API перечисляет операции, которые даёт интерфейс: их имена, параметры, ответы и ошибки, — чтобы разработчик мог вызывать их правильно. Большая часть справочника строится по описанию интерфейса и должна с ним совпадать.'
+derives-from:
+- code.contract

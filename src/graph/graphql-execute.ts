@@ -5,7 +5,8 @@ import { withSpan } from '../obs/trace.js';
  * deeper than MAX_DEPTH before any read; each request has its own configurable deadline (30 seconds by default).
  * A refused or stopped query returns no data and one error whose `extensions.code` names the limit.
  */
-import { buildSchema, execute, getNamedType, GraphQLError, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
+import { GraphRefusal, type GraphRefusalBody } from './validation.js';
+import { buildSchema, execute, getNamedType, getVariableValues, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { sha256Hex } from './digest.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
@@ -69,7 +70,7 @@ export interface GraphqlAnswer {
 /** The GraphQL response shape: `data` only on success, one error on a refusal. */
 export interface MessageBody {
   readonly data?: unknown;
-  readonly errors?: readonly { message: string; extensions?: { code: string } }[];
+  readonly errors?: readonly { message: string; extensions?: { code: string } | GraphRefusalBody }[];
 }
 
 /** The schemas derived so far, by their SDL: one build per manifest revision. */
@@ -243,7 +244,11 @@ function prepare(manifest: KindsManifest, document: DocumentNode, operation: Gra
   const sdl = graphqlSchemaOf(published);
   const schema = schemaOf(sdl);
   const invalid = validate(schema, document);
-  if (invalid.length > 0) throw new GraphqlRefusal('INVALID_QUERY', invalid.map((error) => error.message).join('; '), 400);
+  if (invalid.length > 0) throw new GraphRefusal('/query', 'operation using declared fields and typed arguments', operation.query);
+  const selected = selectedOperation(document, operation.operationName);
+  if (selected === undefined) throw new GraphRefusal('/operationName', 'one selected operation', operation.operationName ?? null);
+  const variables = getVariableValues(schema, selected.variableDefinitions ?? [], operation.variables ?? {});
+  if (variables.errors !== undefined) throw new GraphRefusal('/variables', 'values matching the operation variable definitions', operation.variables ?? {});
   const cost = queryCost(document, schema, operation.variables, operation.operationName);
   if (cost > MAX_NODES) throw new GraphqlRefusal('LIMIT_NODES', `the query costs ${String(cost)} nodes; the limit is ${String(MAX_NODES)}`);
   return { manifest, published, sdl, schema };
@@ -256,7 +261,8 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   try {
     document = parse(operation.query);
   } catch (error) {
-    return { status: 400, body: { errors: [{ message: error instanceof GraphQLError ? error.message : String(error) }] } };
+    const refusal = new GraphRefusal('/query', 'GraphQL operation text', operation.query);
+    return { status: 400, body: { errors: [{ message: refusal.message, extensions: refusal.toJSON() }] } };
   }
   const depth = queryDepth(document, operation.operationName);
   if (depth > MAX_DEPTH) {
@@ -273,6 +279,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     try {
       prepared = prepare(product.manifest, document, operation);
     } catch (error) {
+      if (error instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: error.message, extensions: error.toJSON() }] } };
       if (error instanceof GraphqlRefusal) return { status: error.status, body: { errors: [{ message: error.message, extensions: { code: error.code } }] } };
       if (error instanceof SchemaRefusal) return { status: 400, body: { errors: [{ message: error.message }] } };
       throw error;
@@ -358,6 +365,8 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   try {
     const result = await Promise.race([work, deadline]);
     if (result.errors !== undefined && result.errors.length > 0) {
+      const refusal = result.errors.find(error => error.originalError instanceof GraphRefusal)?.originalError;
+      if (refusal instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: refusal.message, extensions: refusal.toJSON() }] } };
       return {
         status: 200,
         body: boundResponse({
@@ -368,6 +377,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     }
     return { status: 200, body: boundResponse({ data: result.data }) };
   } catch (error) {
+    if (error instanceof GraphRefusal) return { status: 400, body: { errors: [{ message: error.message, extensions: error.toJSON() }] } };
     if (error instanceof GraphqlRefusal) {
       if (expired) {
         if (backend !== undefined) await owner.run(async (tx) => { await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {

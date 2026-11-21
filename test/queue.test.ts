@@ -12,12 +12,30 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Clock, type CompiledElement, type CompiledModel } from './api.js';
+import { databaseOwnerOf } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { QUEUE_SCENARIO_CHECKS } from './queue-expectations.js';
 import { runQueueScenario, SCENARIO_QUEUES } from './queue-scenario.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
+
+
+test('repeated queue create/stop cycles leave no attached work on one owner', async () => {
+  const shared = await createTestDatabaseOwner();
+  try {
+    await prepareStore(shared, { queue: { schema: 'close_cycles', declarations: [] } });
+    const databaseOwner = await shared.run(async (executor) => databaseOwnerOf(executor));
+    // Inspect the retained callbacks, not just their effects: an idempotent stop can hide a retained queue.
+    const { attached } = (databaseOwner as unknown as { inner: { attached: unknown[] } }).inner;
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      const queue = await createPgBossQueue({ owner: shared, schema: 'close_cycles', supervise: false });
+      expect(attached).toHaveLength(1);
+      await Promise.all([queue.stop(), queue.stop()]);
+      expect(attached).toHaveLength(0);
+    }
+  } finally { await shared.close(); }
+}, 60_000);
 
 const DAY = (day: number) => Date.UTC(2026, 9, day); // October 2026
 
@@ -72,9 +90,10 @@ test('the queue holds its tables in the owner’s one database, in the schema it
   // The scenario's jobs answer from the owner's own connection, which is what
   // "one database" means: a second database would answer nothing here.
   expect(jobs[0]?.count).toBeGreaterThan(0);
-  // The places the enqueues took live in the schema the queue was given too.
-  const stamps = await owner.run(async (transaction) => (await transaction.query<{ count: number }>(`SELECT count(*)::int AS count FROM ${SCHEMA}.madarch_enqueue_stamp`)).rows);
-  expect(stamps[0]?.count).toBeGreaterThan(0);
+  const machinery = await owner.run(async (transaction) => (await transaction.query<{ name: string }>(
+    'SELECT tablename AS name FROM pg_tables WHERE schemaname = $1 AND tablename = $2', [SCHEMA, 'madarch_enqueue_stamp'],
+  )).rows);
+  expect(machinery).toEqual([]);
   const schemas = await owner.run(async (transaction) => (await transaction.query<{ nspname: string }>('SELECT nspname FROM pg_namespace ORDER BY nspname')).rows.map((row) => row.nspname));
   expect(schemas).toContain(SCHEMA);
 }, 60_000);
@@ -201,6 +220,28 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
   } finally {
     await queue.stop();
     await alone.close();
+  }
+}, 60_000);
+
+test('the queue stops with the owner that lent it: no pass of it asks a closed owner', async () => {
+  // The client's own supervision is a timer (decision 0027's recovery pass). A
+  // process that closes a case's database while the timer still runs gets a line
+  // per interval — the shape that flooded a shard after a case was abandoned —
+  // so the client stops with the owner instead of outliving it.
+  const alone = await createTestDatabaseOwner();
+  await prepareStore(alone, { queue: { schema: 'owner_lifetime', declarations: [{ name: 'supervised', leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false }] } });
+  const logged: string[] = [];
+  const queue = await createPgBossQueue({ owner: alone, schema: 'owner_lifetime', supervise: true, superviseIntervalSeconds: 1, log: (line) => { logged.push(line); } });
+  try {
+    await queue.declare({ name: 'supervised', leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
+    await alone.close();
+    // Two passes of the one-second supervision fall inside this wait. A client
+    // that outlived the owner would ask it and log the refusal at each pass.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(logged).toEqual([]);
+  } finally {
+    await queue.stop().catch(() => undefined);
+    await alone.close().catch(() => undefined);
   }
 }, 60_000);
 

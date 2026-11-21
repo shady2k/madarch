@@ -1,6 +1,7 @@
 /** Source citations and the source template read the graph's pinned file text, never the raw HTTP source endpoint. */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+import { decodeCitation } from '../../../../src/page-contract/citation.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { Card, CardHeader, CardContent } from './ui/card.js';
@@ -82,17 +83,17 @@ function useSource(base: string, repository: unknown, path: unknown, from: numbe
 export function SourceSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
   const evidence = at(context.data, context.section.params['path']);
-  const held = typeof evidence === 'object' && evidence !== null ? evidence as Record<string, unknown> : {};
-  const repository = held['repository'];
-  const path = held['path'];
-  const start = typeof held['lineStart'] === 'number' ? held['lineStart'] : 1;
-  const end = typeof held['lineEnd'] === 'number' ? held['lineEnd'] : undefined;
+  const held = evidence === null || evidence === undefined ? null : decodeCitation(evidence, 'wiki/app/src/components/source.tsx:88');
+  const repository = held?.repository;
+  const path = held?.path;
+  const start = held?.lineStart ?? 1;
+  const end = held?.lineEnd ?? undefined;
   const { answer, failure, lines } = useSource(context.base, repository, path, start, end);
   if (typeof path !== 'string' || typeof repository !== 'string') return <Metadata>{t('knowledge.source.missing')}</Metadata>;
   const href = `${context.base}${answer?.fileId === undefined || answer.fileKind === undefined ? sourceAddress(repository, path, start) : `${entityAddress(answer.fileKind, answer.fileId)}#L${String(start)}`}`;
   const location = `${repository}: ${path}:${String(start)}${end === undefined || end === start ? '' : `-${String(end)}`}`;
   let web: URL | null = null;
-  const url = at(held, context.section.params['urlPath']);
+  const url = at(evidence, context.section.params['urlPath']);
   if (typeof url === 'string') {
     try { const candidate = new URL(url); if (candidate.protocol === 'https:' || candidate.protocol === 'http:') web = candidate; } catch { /* An invalid graph URL is not a link. */ }
   }

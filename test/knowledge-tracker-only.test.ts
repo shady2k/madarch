@@ -1,8 +1,10 @@
 import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { personBinding } from '../src/graph/system-installation.js';
 import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
+import { assertionValueTableName } from '../src/graph/contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 /**
  * A product that is only a tracker (decision 0034, item 14): its manifest declares two person-authored kinds
@@ -94,7 +96,9 @@ describe('a product that is only a tracker', () => {
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'catalog.yaml'));
-      const unopened = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ entity(id: "idea:00000000-0000-4000-8000-000000000001") { id } }' }) });
+      // `entity(id:)` takes a UUID, not a key: an entity the graph does not hold is answered `null`.
+      const unopened = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ entity(id: "00000000-0000-4000-8000-00000000dead") { id } }' }) });
+      expect(unopened.status).toBe(200);
       expect((await unopened.json() as { data: { entity: unknown } }).data.entity).toBeNull();
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
@@ -110,9 +114,10 @@ describe('a product that is only a tracker', () => {
       expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       const manifest = readKinds(product);
       if (!manifest.present) throw new Error('the tracker manifest is absent');
+      const person = await personBinding(owner, graphContractOf(manifest.manifest));
       const made = await owner.transaction('write', async (tx) => {
-        const idea = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
-        const task = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
+        const idea = await authoredEntity(tx, manifest.manifest, 'tracker', person, 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
+        const task = await authoredEntity(tx, manifest.manifest, 'tracker', person, 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
         return { idea: idea.entity!, task: task.entity! };
       });
       expect(made.idea.values).toEqual({ title: 'One idea' });
@@ -136,9 +141,9 @@ describe('a product that is only a tracker', () => {
       for (const kind of ['idea', 'task']) {
         const declared = contract.vertex.find((vertex) => vertex.name === kind);
         expect(declared).toBeDefined();
-        expect(names).toContain(declared!.table);
+        expect(names).toContain(assertionValueTableName(kind, 'vertex', 'title'));
       }
-      expect(names.filter((name) => name.startsWith('k_manifest_'))).toHaveLength(6);
+      expect(names.filter((name) => name.startsWith('k_manifest_'))).toEqual([]);
       expect(names.filter((name) => name.startsWith('d_path_'))).toEqual([]);
       expect(names.filter((name) => name.startsWith('d_blob_'))).toEqual([]);
       // No code kind is declared: only the tracker's own opinion tables stand.
@@ -148,7 +153,7 @@ describe('a product that is only a tracker', () => {
       for (const absent of ['file_entry', 'repository', 'directory', 'file', 'gitlink', 'commit', 'signature', 'blob', 'path', 'language', 'touched', 'history', 'parent_position', 'authored', 'lifecycle', 'responsibility', 'work_span']) {
         expect({ table: absent, present: names.includes(absent) }).toEqual({ table: absent, present: false });
       }
-      for (const present of ['entity', 'node', 'edge', 'context', 'operation']) {
+      for (const present of ['entity', 'node', 'edge', 'context', 'assertion', 'assertion_vertex_subject', 'assertion_edge_subject']) {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 

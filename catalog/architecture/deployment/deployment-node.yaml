@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A deployment node is a piece of infrastructure on which running software executes: a physical server, a virtual machine, a container, a cluster or an execution environment such as a database server. Nodes nest, so a container may run on a virtual machine that itself runs in a cluster.'
   ru: 'Узел развёртывания — часть инфраструктуры, на которой работает программа: физический сервер, виртуальная машина, контейнер, кластер или среда выполнения вроде сервера баз данных. Узлы вкладываются друг в друга: контейнер может работать на виртуальной машине, а та — в кластере.'
+derives-from:
+- deployment-environment

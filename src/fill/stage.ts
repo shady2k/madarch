@@ -1,28 +1,6 @@
-/**
- * The fill's stage contract (decision 0027): what one stage of the fill
- * declares, and the shape madarch calls it through. A stage is one module
- * plus registration in the registry (`src/fill/registry.ts`): it declares
- * its id and version, the capabilities it consumes (required ones gate the
- * stage graph, optional ones are read when present), the fact kinds it
- * produces with schema version and ownership scope, an optional ordering
- * beside the capability-derived edges, a configuration schema with its
- * defaults (enabled, concurrency, the bounded unit limits, and the stage's own
- * default configuration), a `plan` that
- * reads the graph to name its units, an `execute` that runs one unit and
- * returns a draft, a split or a block, and a `validate` that judges a
- * draft before publication.
- *
- * The context a stage runs in gives it tracked graph reads, private draft
- * writes, progress and cancellation — never a database. Every declaration
- * here is pure data: nothing reads the clock, the file system or the
- * network, so the registry can derive the stage graph and a run can
- * snapshot the resolved configuration from these values alone.
- */
+/** Fill stage contracts: declared work, tracked reads, trusted immediate operations and outcomes. */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
-import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
-import type { ProducerOutcomeDraft } from './producer-outcomes.js';
-
 
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -139,39 +117,6 @@ export interface StageGraphReader {
 }
 
 
-/**
- * One write a unit's answer holds, through the one writer (decision 0039, item
- * 13): every write cites what it stands on, and the graph drafts carry the fact
- * the writer applies — a plugin's vertex with its claims, an edge, or the removal
- * of one the producer no longer holds. A `producer-outcome` is what the producer
- * answered of its kind, recorded on the generation; a `journal` names the unit's
- * author and, under the debug setting, its requests. Neither is a graph row of its
- * own.
- */
-export type StageWrite =
-  | { kind: 'producer-outcome'; evidence: string; value: ProducerOutcomeDraft }
-  | { kind: 'vertex'; evidence: string; value: VertexDraft }
-  | { kind: 'edge'; evidence: string; value: EdgeDraft }
-  /** One entity the producer no longer holds: its claims are withdrawn and it leaves the reads. */
-  | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft }
-  /** One edge the producer no longer holds: its ends by kind and key, and its discriminator. */
-  | { kind: 'edge-removal'; evidence: string; value: EdgeRemovalDraft }
-  /** The unit's own entry: its author, and the requests it made (under the debug setting). */
-  | { kind: 'journal'; evidence: string; value: { readonly author: string; readonly reads?: readonly { readonly method: string; readonly size: number }[] } };
-
-/** The writes a unit's answer collects while it runs. */
-export interface StageWriteSet {
-  writes: readonly StageWrite[];
-}
-
-/** The writes a unit makes: collected while the stage runs, applied through the one writer when it answers. */
-export interface StageWriteSink {
-  /** Records one write into the unit's answer. */
-  write(entry: StageWrite): void;
-  /** The writes recorded so far, in the order they were made. */
-  writes(): StageWriteSet;
-}
-
 /** How a stage reports its progress while a unit runs. */
 interface StageProgress {
   (note: string, fraction?: number): void;
@@ -250,6 +195,10 @@ export interface StageUnitTools {
 
 /** What a stage's `execute` runs in: never a database, never a file path. */
 export interface StageContext {
+  readonly completeOutcome?: (outcome:import('./producer-outcomes.js').ProducerOutcomeDraft)=>void;
+  readonly operationSourceUid?: string;
+  readonly operationUnitUid?: string;
+  readonly executeOperation?: <Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>Promise<Result>;
   /** The run owning this attempt; omitted only by standalone stage callers. */
   readonly runId?: string;
   /** The unit being run. */
@@ -265,8 +214,6 @@ export interface StageContext {
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
   graph: StageGraphReader;
-  /** The unit's writes: applied through the one writer when the stage answers. */
-  writes: StageWriteSink;
   /** Progress the run's view shows. */
   progress: StageProgress;
   /** Cancelled when the run or the unit is cancelled. */
@@ -283,9 +230,9 @@ export interface StageContext {
   readonly sealedChildren?: readonly StageSealedChild[];
 }
 
-/** How `execute` ends: the writes it answered, a split into children, or a block. */
+/** How `execute` ends: a draft to publish, a split into children, or a block. */
 export type StageExecutionResult =
-  | { outcome: 'writes' }
+  | { outcome: 'draft' }
   | { outcome: 'split'; children: readonly StageUnitScope[] }
   | { outcome: 'blocked'; reason: string };
 
@@ -338,6 +285,6 @@ export interface FillStage {
   cacheVersions?(): Readonly<Record<string, string>>;
   /** Names the stage's units from the graph, without running anything. */
   plan(graph: StageGraphReader): Promise<StagePlan> | StagePlan;
-  /** Runs one unit and answers its outcome; its writes went through the context. */
+  /** Runs one unit and returns its outcome; the draft writes went through the context. */
   execute(unit: StageUnit, context: StageContext): Promise<StageExecutionResult> | StageExecutionResult;
 }

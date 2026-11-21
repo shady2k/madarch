@@ -24,3 +24,7 @@ labels:
 description:
   en: A processing activity describes one thing an organisation does with personal data, such as keeping customer records or sending a newsletter. For each activity the record names the purpose, the categories of data and people, the recipients, transfers to other countries and how long the data is kept, as data protection law requires.
   ru: 'Действие обработки описывает одно действие организации с персональными данными: например, ведение картотеки клиентов или рассылку новостей. Для каждого действия запись называет цель, категории данных и людей, получателей, передачу в другие страны и срок хранения — так, как этого требует закон о защите данных.'
+derives-from:
+- data-subject-category
+- personal-data-category
+- purpose

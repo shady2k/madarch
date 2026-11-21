@@ -24,3 +24,6 @@ labels:
 description:
   en: A value stream stage is one link in the chain that turns a need into something a customer values, such as take the order, assemble it and deliver it. Capabilities enable the stage, and each stage passes its result to the next.
   ru: 'Этап потока ценности — одно звено в цепочке, которая превращает потребность в то, что ценно для клиента: принять заказ, собрать и доставить. Способности делают этап возможным, и каждый этап передаёт результат следующему.'
+derives-from:
+- business-capability
+- value-stream

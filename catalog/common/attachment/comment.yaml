@@ -6,28 +6,24 @@ sources:
 - https://support.atlassian.com/jira-software-cloud/docs/watch-share-and-comment-on-a-work-item/
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
+  - appliesTo
   - partOf
   in:
   - partOf
 template-policy: page
 source: graph
+origin: person
+details:
+- body
+- created_at
+- edited_at
 fields:
-- name: author
-  type: text
-  producers:
-  - person
 - name: body
   type: text
-  producers:
-  - person
-- name: about
-  type: json
-  nullable: true
   producers:
   - person
 - name: created_at
@@ -39,15 +35,7 @@ fields:
   nullable: true
   producers:
   - person
-key: []
-origin: person
 nav: own-page
-details:
-- author
-- body
-- about
-- created_at
-- edited_at
 labels:
   en:
     one: Comment
@@ -58,3 +46,6 @@ labels:
 description:
   en: 'A comment is a short remark someone attaches to an entity: a question, a warning, an explanation or a note for later. It keeps the author and the time, so a reader knows who said it and when.'
   ru: 'Комментарий — короткое замечание, которое человек или агент прикрепляет к сущности: вопрос, предупреждение, пояснение или заметку на будущее. В нём остаются автор и время, чтобы читатель знал, кто и когда это сказал.'
+derives-from:
+- person
+- system.product

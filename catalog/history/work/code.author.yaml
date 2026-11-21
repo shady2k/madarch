@@ -15,11 +15,11 @@ template-policy: page
 source: graph
 fields:
 - name: name
-  type: text
+  type: recorded-identity
   producers:
   - git
 - name: email
-  type: text
+  type: recorded-identity
   producers:
   - git
 key:

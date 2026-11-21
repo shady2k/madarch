@@ -24,3 +24,6 @@ labels:
 description:
   en: A provider verification replays the expectations consumers published against the provider's current version and reports which still hold. It is the provider's half of contract testing.
   ru: Проверка поставщика повторяет ожидания, опубликованные потребителями, на текущей версии поставщика и сообщает, какие из них ещё выполняются. Это половина проверки контрактов, которая приходится на поставщика.
+derives-from:
+- contract-test
+- test-run

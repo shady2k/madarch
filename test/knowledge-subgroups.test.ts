@@ -118,7 +118,10 @@ describe('sub-areas read from the manifest', () => {
     expect(CATALOG_KINDS.find((kind) => kind.name === 'value-set-entry')?.nav).toBe('loop');
     expect(byName.get('code.cycle')).toBe('code.analysis');
     expect(byName.get('code.env-var')).toBe('operations.configuration');
-    expect(byName.get('code.dependency')).toBe('operations.dependencies');
+    // A declared dependency is an edge of the graph, not a kind (madarch-64o5.109): the lockfile and the manifest are.
+    expect(byName.get('code.lockfile')).toBe('operations.dependencies');
+    expect(byName.get('code.manifest')).toBe('operations.dependencies');
+    expect(byName.has('code.dependency')).toBe(false);
     expect(byName.get('code.dockerfile')).toBe('delivery.build');
     expect(byName.get('code.ci-workflow')).toBe('delivery.pipeline');
     expect(byName.get('code.process')).toBe('infrastructure.compute');

@@ -24,3 +24,6 @@ labels:
 description:
   en: An SFTP endpoint is a server and a folder reached over SSH's file transfer protocol, where a service puts files for a partner or collects files from it. It carries a host, a port, a user and the credentials the service signs in with.
   ru: Конечная точка SFTP — сервер и папка, доступные по протоколу передачи файлов SSH, куда сервис кладёт файлы для партнёра или забирает их от него. У неё есть хост, порт, пользователь и учётные данные, под которыми сервис входит.
+derives-from:
+- code.service
+- product-profile

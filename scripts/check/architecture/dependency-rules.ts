@@ -25,7 +25,7 @@ interface DependencyRuleSet {
 }
 
 /** The rules this check knows how to name. A rule of another name is a defect of the configuration. */
-const RULE_NAMES: readonly ArchitectureRule[] = ['graph-single-writer', 'no-retired-surfaces', 'sql-only-in-storage-layer'];
+const RULE_NAMES: readonly ArchitectureRule[] = ['graph-single-writer', 'no-retired-surfaces', 'read-no-judgements', 'sql-only-in-storage-layer'];
 
 /** Reads the committed configuration of the repository this check belongs to. */
 async function readDependencyRuleSet(): Promise<DependencyRuleSet> {

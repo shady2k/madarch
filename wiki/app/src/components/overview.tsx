@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
-import { InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
+import { INLINE_ALIGN, InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
 import {
   readProblemsCount, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillStatusAnswer, type ProblemsCount,
@@ -72,7 +72,7 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
           <Stack>
             {/* The product's own page is written by an agent or a person; until then the home says so rather than nothing. */}
             <Paragraph data-testid="overview-description">{t('overview.description')}</Paragraph>
-            <InlineGroup align="baseline">
+            <InlineGroup align={INLINE_ALIGN.baseline}>
               <TextLink href={context.base + '/p/problems'} onClick={(event) => { event.preventDefault(); context.open('/p/problems'); }} data-testid="overview-problems">
                 {problemsText}
               </TextLink>

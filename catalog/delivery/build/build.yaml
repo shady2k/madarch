@@ -25,3 +25,6 @@ labels:
 description:
   en: A build takes one revision of the code, the definition of how to assemble it and the dependencies it resolved, and produces artifacts. Its record says what went in and what came out, so the result can be repeated and checked.
   ru: Сборка берёт одну ревизию кода, описание того, как его собрать, и разрешённые зависимости, а на выходе даёт артефакты. В её записи сказано, что вошло и что вышло, чтобы результат можно было повторить и проверить.
+derives-from:
+- code.commit
+- pipeline-run

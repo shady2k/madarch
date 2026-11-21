@@ -11,6 +11,9 @@ relation-constraints:
   - contains
   in:
   - partOf
+evidence:
+  immutable: true
+  digestField: hash
 template-policy: page
 source: graph
 fields:
@@ -71,5 +74,5 @@ description:
   en: 'A commit records one change to the files of a repository: who made it, when, what changed and usually why, in the commit message. Git identifies each commit by a hash and lets a reader see the state of the whole repository at that moment.'
   ru: 'Коммит фиксирует одно изменение файлов репозитория: кто и когда его сделал, что изменилось и обычно почему — в сообщении коммита. Git обозначает каждый коммит хешем и позволяет увидеть состояние всего репозитория на этот момент.'
 derives-from:
-- code.repository
 - code.file
+- code.repository

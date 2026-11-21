@@ -21,8 +21,27 @@
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import type { GraphContract } from '../src/graph/contract.js';
-import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
+const schemaOwners = new WeakMap<DatabaseOwner,DatabaseOwner>();
+/** Forgets the write capability a fixture owner took, for a store that was reset under it. */
+const capabilityForgetters = new WeakMap<DatabaseOwner,() => void>();
+/** Prepare schema before fixture source operations, through the unbound owner. */
+export async function prepareTestStore(owner:DatabaseOwner,options:Parameters<typeof prepareStore>[1]={}) {
+  // A reset drops the graph the capability's identities stand in: the next write transaction takes them again.
+  if (options.reset === true) capabilityForgetters.get(owner)?.();
+  const result = await prepareStore(schemaOwners.get(owner)??owner,options);
+  if (options.contract !== undefined) Object.assign(owner, { graphContract: withAssertionContract(options.contract) });
+  return result;
+}
+
+import { EMPTY_CONTRACT, type GraphContract } from '../src/graph/contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import type { FillStateDatabase } from '../src/graph/fill-state.js';
+export type TestDatabaseOwner = DatabaseOwner & FillStateDatabase;
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { bindWriteCapability, type WriteCapability } from '../src/graph/write.js';
+import { clusterEndpoint, clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
+import { graphSchemaStamp, SCHEMA_REVISION } from '../src/adapters/schemas/graph-definition.js';
+import { hasSchema } from '../src/adapters/store-readiness.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { sha256Hex } from '../src/graph/digest.js';
@@ -39,8 +58,31 @@ function historyDatabaseOf(stem: string, namespace?: string): string {
 /** The variable naming the run server's socket folder; `run-postgres.ts` sets it before any test file loads. */
 export const TEST_SERVER_VARIABLE = 'MADARCH_TEST_PG_SOCKET';
 
-/** One prepared database on the run's server, never opened by a case. */
-const TEST_DATABASE_TEMPLATE = 'template_madarch_test';
+/** The run's template of one graph contract, never opened by a case. */
+const CONTRACT_TEMPLATE_PREFIX = 'template_madarch_';
+
+/** One prepared template per contract of the run, by the server's socket folder and the template's name. */
+const contractTemplates = new Map<string, Promise<void>>();
+
+/**
+ * A failure a case injects into the next preparation of a contract template,
+ * once, after the template's database is made and before its schema is
+ * installed (`test-database-template-readiness.test.ts`): the shape of a
+ * transient SQL failure halfway through a preparation. Never set outside a test.
+ */
+let templateFailure: Error | undefined;
+
+/** Makes the next contract template preparation fail after its database exists, once. */
+export function failNextContractTemplatePreparation(error: Error): void {
+  templateFailure = error;
+}
+
+/** Throws the case's injected failure, if it stands, at the point of preparation after the database is made. */
+function throwInjectedTemplateFailure(): void {
+  const held = templateFailure;
+  templateFailure = undefined;
+  if (held !== undefined) throw held;
+}
 let templateReady: Promise<void> | undefined;
 
 /** How many databases this process has made, so two cases of one file never share a name. */
@@ -52,29 +94,168 @@ function quotedDatabase(name: string): string {
 }
 
 /**
- * Prepares the run's empty-contract store before test cases load. Closing the
- * owner's pool is part of readiness: PostgreSQL cannot clone a connected database.
- * Children on this server reuse the prepared template instead of preparing it again.
+ * How the run names the template of one contract (ALX-105 variant 4): the
+ * contract's own schema stamp, twelve hex characters of it, so a schema change
+ * names a new template and a case of a changed contract never clones the old
+ * schema. PostgreSQL truncates identifiers past 63 bytes; this name stays short.
  */
-export async function prepareTestDatabaseTemplate(timing?: TestDatabaseOptions['timing']): Promise<void> {
+function contractTemplateName(stamp: string): string {
+  return `${CONTRACT_TEMPLATE_PREFIX}${stamp.slice(0, 12)}`;
+}
+
+/** The schema stamp the store of a case would write for the contract the case declares. */
+function contractStamp(declared: GraphContract | undefined): string {
+  return graphSchemaStamp(withAssertionContract(declared ?? EMPTY_CONTRACT));
+}
+
+/** The run server's cluster, for the statements no transaction may hold: `CREATE DATABASE` and a session lock. */
+function runCluster(socketDir: string): { socketDir: string; dataDir: string; port: number; user: string; bin: string; stop: () => Promise<void> } {
+  return { socketDir, dataDir: socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+}
+
+/** The key of one template's creation lock, derived from the template's name so every process of a run agrees. */
+function templateLockKey(name: string): string {
+  return BigInt(`0x${sha256Hex(new TextEncoder().encode(`madarch:test-template:${name}`)).slice(0, 15)}`).toString();
+}
+
+/**
+ * Runs `work` under a session advisory lock of the run's server. `CREATE DATABASE`
+ * may not run inside a transaction, so the transaction-scoped lock the store's
+ * own schema uses cannot hold it: the lock is taken by a connection of its own
+ * and given back when the work is done, whichever way it ended. A process killed
+ * holding it releases it with its connection, so a crashed run never leaves a
+ * template locked.
+ */
+async function withServerLock(socketDir: string, key: string, work: () => Promise<void>): Promise<void> {
+  const { Client } = await import('pg');
+  const client = new Client({ ...clusterEndpoint(socketDir), user: 'postgres', database: 'postgres' });
+  await client.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock($1::bigint)', [key]);
+    await work();
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1::bigint)', [key]).catch(() => undefined);
+    await client.end().catch(() => undefined);
+  }
+}
+
+/**
+ * The store schemas a prepared template holds, by the names `prepareStore`
+ * stamps them under: the graph's own stamp is the contract's, the others stand
+ * once the module or queue preparation finished.
+ */
+const TEMPLATE_SCHEMAS = ['one-graph', 'one-graph-revision', 'history', 'queue:pgboss', 'agent-usage'] as const;
+
+/**
+ * Whether a database holds a finished preparation of one contract. A row in
+ * `pg_database` proves nothing about it (ALX-134): a preparation interrupted
+ * after the database was made leaves a database without schema, and cloning it
+ * would hand the case an owner that cannot read its store.
+ */
+async function templateHoldsPreparation(socketDir: string, name: string, stamp: string): Promise<boolean> {
+  const owner = await createDatabaseOwner({ cluster: { socketDir }, database: name, connectOnly: true });
+  try {
+    for (const schema of TEMPLATE_SCHEMAS) {
+      const expected = schema === 'one-graph' ? stamp : schema === 'one-graph-revision' ? String(SCHEMA_REVISION) : undefined;
+      if (!await hasSchema(owner, schema, expected)) return false;
+    }
+    return true;
+  } finally {
+    await owner.close().catch(() => undefined);
+  }
+}
+
+/** The name one preparation of a template builds under, before it earns the template's own name. */
+function buildingTemplateName(name: string): string {
+  made += 1;
+  return `${name}_building_${String(process.pid)}_${String(made)}`;
+}
+
+/** Removes a database of the run's server, refusing to pretend it happened: a template's own removal must not be silent. */
+async function dropTemplateDatabase(socketDir: string, database: string): Promise<void> {
+  await clusterQuery(runCluster(socketDir), 'postgres', `DROP DATABASE IF EXISTS ${quotedDatabase(database)} WITH (FORCE)`);
+}
+
+/**
+ * Makes the run's template of one contract once, under the server's advisory lock
+ * for that template, and answers whether it was there already. A case with an
+ * explicit contract clones this template instead of installing the schema: the
+ * installation is thousands of statements and a checkpoint-free copy is one
+ * (ALX-105, C and H). Closing the owner's pool is part of the preparation —
+ * PostgreSQL cannot clone a database another session is connected to.
+ *
+ * Readiness is not the database's existence (ALX-134). A database under the
+ * template's name is cloned only when it holds every schema the preparation
+ * stamps; one that does not is a leftover of a failed preparation and is
+ * dropped. A preparation builds under a name of its own and is renamed to the
+ * template's name only after `prepareStore` succeeded — `ALTER DATABASE ...
+ * RENAME` is atomic — so a later attempt, in this process or another, never
+ * finds a half-built database under the name it would clone.
+ */
+async function prepareContractTemplate(declared: GraphContract | undefined, socketDir: string): Promise<{ name: string; reused: boolean; existing?: boolean; incomplete?: boolean; preparationMs?: number }> {
+  const stamp = contractStamp(declared);
+  const name = contractTemplateName(stamp);
+  const key = `${socketDir}\n${name}`;
+  const existing = contractTemplates.get(key);
+  if (existing !== undefined) {
+    await existing;
+    return { name, reused: true };
+  }
+  let reused = false;
+  let existingTemplate = false;
+  let incomplete = false;
+  let preparationMs: number | undefined;
+  const work = (async () => {
+    await withServerLock(socketDir, templateLockKey(name), async () => {
+      const held = await clusterQuery(runCluster(socketDir), 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+      if (held.length !== 0) {
+        if (await templateHoldsPreparation(socketDir, name, stamp)) {
+          reused = true;
+          existingTemplate = true;
+          return;
+        }
+        // A name without a finished preparation is a leftover, not a template: a preparation that failed, or one this
+        // build cannot read, is dropped and made again rather than cloned.
+        incomplete = true;
+        await dropTemplateDatabase(socketDir, name);
+      }
+      const preparationStart = performance.now();
+      const building = buildingTemplateName(name);
+      const owner = await createDatabaseOwner({ cluster: { socketDir }, database: building });
+      let failure: unknown;
+      try {
+        throwInjectedTemplateFailure();
+        await prepareStore(owner, declared === undefined ? {} : { contract: declared });
+      } catch (error) {
+        failure = error;
+      } finally {
+        // The pool must be closed before the rename: PostgreSQL renames no database a session is connected to.
+        await owner.close().catch((error: unknown) => { if (failure === undefined) throw error; });
+        preparationMs = performance.now() - preparationStart;
+      }
+      if (failure !== undefined) {
+        // The caller sees the original error; the half-built database never takes the template's name.
+        await dropTemplateDatabase(socketDir, building).catch(() => undefined);
+        throw failure;
+      }
+      await clusterQuery(runCluster(socketDir), 'postgres', `ALTER DATABASE ${quotedDatabase(building)} RENAME TO ${quotedDatabase(name)}`);
+    });
+  })();
+  contractTemplates.set(key, work);
+  // A preparation that failed is not kept: the next case of the contract tries again instead of inheriting the failure.
+  void work.catch(() => { if (contractTemplates.get(key) === work) contractTemplates.delete(key); });
+  await work;
+  return { name, reused, existing: existingTemplate, incomplete, ...(preparationMs === undefined ? {} : { preparationMs }) };
+}
+
+/**
+ * Prepares the run's empty-contract template before test cases load. Children on
+ * this server reuse the prepared template instead of preparing it again.
+ */
+export async function prepareTestDatabaseTemplate(): Promise<void> {
   templateReady ??= (async () => {
     await ensureRunPostgres();
-    const socketDir = testServerSocket();
-    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-    const held = await clusterQuery(cluster, 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DATABASE_TEMPLATE]);
-    if (held.length !== 0) {
-      timing?.('template-already-exists', 0);
-      return;
-    }
-    const preparationStart = performance.now();
-    timing?.('template-preparation-start', 0);
-    const owner = await createDatabaseOwner({ cluster: { socketDir }, database: TEST_DATABASE_TEMPLATE });
-    try {
-      await prepareStore(owner);
-    } finally {
-      await owner.close();
-      timing?.('template-preparation', performance.now() - preparationStart);
-    }
+    await prepareContractTemplate(undefined, testServerSocket());
   })();
   await templateReady;
 }
@@ -127,9 +308,11 @@ export async function testStoreServer(): Promise<{ readonly socketDir: string; r
 
 /** What a case asks the run's server for: a fresh database, or a store folder's own cluster. */
 export interface TestDatabaseOptions {
-  /** Optional diagnostics for a case investigating setup cost. Times are wall-clock milliseconds. */
+  /** Synchronous diagnostics on the case path only. Times are wall-clock milliseconds. */
   readonly timing?: (phase: string, elapsedMs: number) => void;
   readonly graphContract?: GraphContract;
+  /** Disable fixture authentication when testing the untrusted write boundary. */
+  readonly authenticated?: boolean;
   /** Opens `btree_gist`, which the temporal graph's no-overlap constraints need. */
   readonly btreeGist?: boolean;
   /** A store folder of the case's own: its cluster is opened and stopped with the owner. */
@@ -140,102 +323,211 @@ export interface TestDatabaseOptions {
   readonly socket?: string;
 }
 
-/** A fresh database the run's server holds for one case, dropped when its owner closes. */
+/**
+ * Removes one database from a server, and does not return before PostgreSQL has
+ * dropped it (ALX-186). `DROP DATABASE` forces a checkpoint of the whole cluster
+ * and flushes every dirty buffer before it removes the directory, so its cost is
+ * the cluster's flush, not the database's size. The run's server is started
+ * without `fsync`, `full_page_writes` and `synchronous_commit` (`test/run-postgres.ts`),
+ * which leaves the flush with no disk sync: measured 35 ms on a quiet cluster and
+ * 115 ms with 240 MB of dirty pages, against 1.2 s and 8.4 s on a durable one
+ * (ALX-119, ALX-186).
+ */
 async function dropDatabase(socketDir: string, database: string): Promise<void> {
-  const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-  await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${database.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
+  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+  await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS ${quotedDatabase(database)} WITH (FORCE)`);
 }
+
+/** A DROP the server refused: the database by name and the server's own words, so neither is lost (ALX-186, C3). */
+function dropFailure(database: string, error: unknown): Error {
+  return new Error(`test/test-database.ts:1: the database "${database}" was not dropped: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+}
+
+/** Diagnostics belong to the case, and must finish synchronously on its path. */
+function emitTiming(timing: TestDatabaseOptions['timing'], phase: string, elapsedMs: number): void {
+  const result: unknown = timing?.(phase, elapsedMs);
+  if (result !== null && (typeof result === 'object' || typeof result === 'function') && 'then' in result && typeof result.then === 'function') {
+    void Promise.resolve(result).catch(() => undefined);
+    throw new TypeError(`Timing callback for ${phase} must be synchronous`);
+  }
+}
+
 
 /**
  * The owner a case's store work is given: a fresh, empty database on the run's
  * server, or the store folder the case names. Nothing a case writes outlives it.
  */
-export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<DatabaseOwner> {
+export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<TestDatabaseOwner> {
+  const graphContract = withAssertionContract(options.graphContract ?? EMPTY_CONTRACT);
   // A store of the case's own opens its own cluster and needs no run server: a compiled driver (`queue-binary-driver.ts`,
   // `fill-crash-driver.ts`) is no test run at all.
   if (options.store !== undefined) {
     const owner = await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }) });
     await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
-    return owner;
+    return Object.assign(owner, { graphContract });
   }
   // Also support drivers that open a database without the suite's preload.
   const serverStart = performance.now();
-  options.timing?.('server-ready-start', 0);
+  emitTiming(options.timing, 'server-ready-start', 0);
   await ensureRunPostgres();
-  options.timing?.('server-ready', performance.now() - serverStart);
+  emitTiming(options.timing, 'server-ready', performance.now() - serverStart);
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
   // A database the case names is the case's (a store's history database it reopens across seams); one it does not name is
   // this owner's own fresh one, dropped when the owner closes.
   const database = options.database ?? `t_${String(process.pid)}_${String(made)}`;
   const own = options.database === undefined;
-  const clone = options.graphContract === undefined && options.socket === undefined && own;
-  if (clone) {
-    const templateStart = performance.now();
-    const templateWasRequested = templateReady !== undefined;
-    options.timing?.('template-ready-start', 0);
-    await prepareTestDatabaseTemplate(options.timing);
-    options.timing?.(templateWasRequested ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
-    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-    const cloneStart = performance.now();
-    options.timing?.('database-clone-start', 0);
-    try {
-      await clusterQuery(cluster, 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(TEST_DATABASE_TEMPLATE)}`);
-    } finally {
-      options.timing?.('database-clone', performance.now() - cloneStart);
+  // A fresh database of the case's own on the run's server clones the run's template of the contract the case
+  // declares (ALX-105 variant 4): the schema is installed once per contract and a case pays a copy of it. A
+  // database the case names, and a server it names, are not the run's to template.
+  const clone = own && options.socket === undefined;
+  let owner: DatabaseOwner | undefined;
+  let created = false;
+  try {
+    if (clone) {
+      const templateStart = performance.now();
+      emitTiming(options.timing, 'template-ready-start', 0);
+      const template = await prepareContractTemplate(options.graphContract, socketDir);
+      if (template.existing) emitTiming(options.timing, 'template-already-exists', 0);
+      else if (template.reused) emitTiming(options.timing, 'contract-template-reused', 0);
+      if (template.incomplete) emitTiming(options.timing, 'template-incomplete', 0);
+      if (template.preparationMs !== undefined) {
+        emitTiming(options.timing, 'contract-template-preparation-start', 0);
+        emitTiming(options.timing, 'contract-template-preparation', template.preparationMs);
+      }
+      emitTiming(options.timing, template.reused ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
+      const cloneStart = performance.now();
+      emitTiming(options.timing, 'database-clone-start', 0);
+      await clusterQuery(runCluster(socketDir), 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(template.name)}`);
+      created = true;
+      emitTiming(options.timing, 'database-clone', performance.now() - cloneStart);
     }
+    const ownerStart = performance.now();
+    emitTiming(options.timing, 'database-owner-open-start', 0);
+    owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+    emitTiming(options.timing, 'database-owner-open', performance.now() - ownerStart);
+    if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
+  } catch (error) {
+    if (owner !== undefined) await owner.close().catch(() => undefined);
+    // The database is dropped here, not queued: the run has no queue any more (ALX-186), and a case's failure must not
+    // leave its database to a step that may never run. The failure is the one to report; a drop that cannot follow it is
+    // attached as its cause and never replaces it (C4).
+    if (own && (created || owner !== undefined)) {
+      try {
+        await dropDatabase(socketDir, database);
+      } catch (dropError) {
+        if (error instanceof Error && error.cause === undefined) (error as Error & { cause?: unknown }).cause = dropFailure(database, dropError);
+      }
+    }
+    throw error;
   }
-  const ownerStart = performance.now();
-  options.timing?.('database-owner-open-start', 0);
-  const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
-  options.timing?.('database-owner-open', performance.now() - ownerStart);
-  if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
-  let closed: Promise<void> | undefined;
-  return {
-    location: owner.location,
-    ready: owner.ready,
-    allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-    hasVector: owner.hasVector,
-    transaction: (kind, work) => owner.transaction(kind, work),
-    run: (work) => owner.run(work),
-    exec: (text) => owner.exec(text),
-    close: () => {
-      closed ??= (async () => {
-        const closeStart = performance.now();
-        await owner.close();
-        options.timing?.('database-owner-close', performance.now() - closeStart);
-        if (own) {
-          const dropStart = performance.now();
-          options.timing?.('database-drop-start', 0);
-          try {
-            await dropDatabase(socketDir, database);
-          } finally {
-            options.timing?.('database-drop', performance.now() - dropStart);
-          }
-        }
+  const openedOwner = owner;
+  let closeInFlight: Promise<void> | undefined;
+  let settledClose: Promise<void> | undefined;
+  let poolClosed = false;
+  let dropped = false;
+  /** Drops this case's own database on the case path, and does not resolve before the server did it (C2, C3, C5). */
+  const dropOwnDatabase = async (): Promise<void> => {
+    if (dropped) return;
+    const dropStart = performance.now();
+    emitTiming(options.timing, 'database-drop-start', 0);
+    try {
+      await dropDatabase(socketDir, database);
+    } catch (error) {
+      throw dropFailure(database, error);
+    }
+    // Before the callback: a callback that throws for `database-drop` must not make the next close() drop again (C5).
+    dropped = true;
+    emitTiming(options.timing, 'database-drop', performance.now() - dropStart);
+  };
+  /** One close attempt: the pool once, then this case's own database, and no earlier. */
+  const closeAttempt = async (): Promise<void> => {
+    const closeStart = performance.now();
+    if (!poolClosed) {
+      await openedOwner.close();
+      poolClosed = true;
+      emitTiming(options.timing, 'database-owner-close', performance.now() - closeStart);
+    }
+    if (own) await dropOwnDatabase();
+  };
+  /**
+   * The case's write capability. The fixture is the store's host, as `madarch serve` is: its identity is installed once,
+   * in a transaction of its own that commits before the case's transaction, so the rows are the store's, never pending
+   * trigger events of the transaction that runs the case. A capability written inside the case's transaction left
+   * deferred `graph_relations` events on `node`, `edge`, `assertion` and `context`, and the schema preparation of the
+   * same transaction was then refused (`CREATE INDEX ... pending trigger events`, SQLSTATE 55006, ALX-464 root R4). The
+   * product prepares a store's schema before any capability stands; the fixture now takes one lazily, at the store's
+   * first write transaction, and every later write transaction installs it without a statement of its own.
+   */
+  let capability: Promise<WriteCapability> | undefined;
+  const writeCapability = async (): Promise<WriteCapability> => {
+    if (capability === undefined) {
+      const made = (async (): Promise<WriteCapability> => {
+        let held: WriteCapability | undefined;
+        await openedOwner.transaction('write', async tx => { held = await bindTestWriteCapability(tx, options.graphContract ?? EMPTY_CONTRACT); });
+        if (held === undefined) throw new Error(`test/test-database.ts:1: the fixture's write capability was not taken for ${openedOwner.location}`);
+        return held;
       })();
-      // A close a case provokes on purpose (from inside the owner's own
-      // transaction, say) rejects; this handler keeps that rejection from
-      // becoming an unhandled one, and the caller still sees it.
-      closed.catch(() => { closed = undefined; });
-      return closed;
+      capability = made;
+      // A capability that failed is not kept: the next write transaction tries again instead of inheriting the failure.
+      void made.catch(() => { if (capability === made) capability = undefined; });
+    }
+    return await capability;
+  };
+  const fixtureOwner:TestDatabaseOwner = {
+    graphContract,
+    location: openedOwner.location,
+    ready: openedOwner.ready,
+    allowConcurrentSnapshots: openedOwner.allowConcurrentSnapshots,
+    hasVector: openedOwner.hasVector,
+    transaction: async (kind, work) => {
+      if (kind !== 'write' || options.authenticated === false) return await openedOwner.transaction(kind, work);
+      const held = await writeCapability();
+      return await openedOwner.transaction(kind, async tx => {
+        bindWriteCapability(tx, held);
+        return await work(tx);
+      });
+    },
+    run: (work) => openedOwner.run(work),
+    exec: (text) => openedOwner.exec(text),
+    onClose: (work) => openedOwner.onClose(work),
+    close: () => {
+      // Settled once and the same promise after: a close that succeeded is never retried, and one that failed retries
+      // only the work it did not finish — a closed pool is not closed again, and a dropped database is not dropped
+      // again, so a second close() after a failed DROP retries the DROP alone (C3).
+      if (settledClose !== undefined) return settledClose;
+      if (closeInFlight !== undefined) return closeInFlight;
+      const attempt = closeAttempt();
+      closeInFlight = attempt;
+      // A close a case provokes on purpose (from inside the owner's own transaction, say) rejects: this handler keeps
+      // that rejection from becoming an unhandled one, and the caller still sees it through the returned promise.
+      void attempt.then(
+        () => { settledClose = attempt; closeInFlight = undefined; },
+        () => { closeInFlight = undefined; },
+      );
+      return attempt;
     },
   };
+  schemaOwners.set(fixtureOwner,openedOwner);
+  capabilityForgetters.set(fixtureOwner,() => { capability = undefined; });
+  return fixtureOwner;
 }
 
 /**
  * A history store on a fresh database of the run's server, dropped when it
  * closes: the shape `createHistoryStore({ clock })` had when a store was a
- * database of its own, without a cluster per case.
+ * database of its own, without a cluster per case. Plain SQL temporal history
+ * needs no graph write capability (0039 item 26); graph fixtures use
+ * createTestDatabaseOwner and keep its authenticated write path.
  */
 export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string; readonly timing?: TestDatabaseOptions['timing'] }): Promise<HistoryStore> {
   if (options.store !== undefined) {
     // A history of a store of its own: it opens and closes the store, and names it in the errors it reports.
-    const owner = await createTestDatabaseOwner({ store: options.store });
+    const owner = await createTestDatabaseOwner({ store: options.store, authenticated: false });
     const held = createHistoryStore({ owner, clock: options.clock });
     return { ...held, close: async () => { try { await held.close(); } finally { await owner.close(); } } };
   }
-  const owner = await createTestDatabaseOwner(options.timing === undefined ? {} : { timing: options.timing });
+  const owner = await createTestDatabaseOwner({ authenticated: false, ...(options.timing === undefined ? {} : { timing: options.timing }) });
   const history = createHistoryStore({ owner, clock: options.clock });
   return {
     ...history,

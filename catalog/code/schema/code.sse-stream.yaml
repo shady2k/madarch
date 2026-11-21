@@ -24,3 +24,6 @@ labels:
 description:
   en: A server-sent event stream is one HTTP response the server keeps open and writes events into, so a browser receives updates without asking again. It goes one way, from the service to the client.
   ru: 'Поток SSE — один HTTP-ответ, который сервер держит открытым и пишет в него события, чтобы браузер получал обновления, не спрашивая снова. Он идёт в одну сторону: от сервиса к клиенту.'
+derives-from:
+- code.operation
+- code.service

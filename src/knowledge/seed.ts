@@ -6,9 +6,11 @@ import { stringify } from 'yaml';
 import { parseCatalogYaml } from '../product/manifest/kinds.js';
 import { CATALOG_FILES } from './catalog-assets.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
-import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
+import { DEFAULT_STARTER_TEMPLATE, kindClosure, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
+import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
+import { withAssertionContract } from '../graph/system-contract.js';
 
 /**
  * The starter set `madarch init --template everything` writes into a product (decision 0029): the
@@ -35,7 +37,8 @@ interface CatalogMetadata {
   groups: Record<string, { parent?: string }>;
   roles: Record<string, { lead: string[]; open: string[] }>;
   documents: { expect: string[] };
-  edges?: { from: string[]; to: string[] }[];
+  edges?: { name: string; from: string[]; to: string[] }[];
+  'semantic-bindings'?: Record<string, { kind: string; edges?: Record<string, { kind: string; direction: 'from' | 'to' }> }>;
 }
 
 const CATALOG_METADATA = parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as CatalogMetadata;
@@ -57,6 +60,19 @@ function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Re
     };
     return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
   }));
+  // Protected graph kinds exist independently of the product's catalogue selection.
+  const endpoints = new Set([...names, ...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), ...withAssertionContract({ vertex: [], edge: [], dictionary: [] }).vertex.map((kind) => kind.name)]);
+  // A partial product declares only its retained relation endpoints, including the kinds its semantic roles name.
+  const edges = CATALOG_METADATA.edges?.map((edge) => ({
+    ...edge,
+    from: edge.from.filter((name) => name === 'any' || endpoints.has(name)),
+    to: edge.to.filter((name) => name === 'any' || endpoints.has(name)),
+  })).filter((edge) => edge.from.length > 0 && edge.to.length > 0);
+  const semanticBindings = Object.fromEntries(Object.entries(CATALOG_METADATA['semantic-bindings'] ?? {})
+    .filter(([, binding]) => names.has(binding.kind) && Object.values(binding.edges ?? {}).every((role) => {
+      const edge = edges?.find((edge) => edge.name === role.kind);
+      return edge?.[role.direction].some((name) => name === 'any' || name === binding.kind) === true;
+    })));
   return stringify({
     ...CATALOG_METADATA,
     groups: Object.fromEntries(Object.entries(CATALOG_METADATA.groups).filter(([name]) => used.has(name))),
@@ -64,8 +80,8 @@ function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Re
     roles: Object.fromEntries(Object.entries(CATALOG_METADATA.roles)
       .map(([name, role]) => [name, { ...role, lead: role.lead.filter((group) => used.has(group)) }] as const)
       .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
-    // An edge with an `any` end stands on every entity, so the starter set keeps it whatever kinds it holds.
-    edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => name === 'any' || names.has(name))),
+    edges,
+    'semantic-bindings': semanticBindings,
     ...(values === undefined || Object.keys(values).length === 0 ? {} : { values }),
   });
 }
@@ -162,7 +178,11 @@ export function starterKindNames(template: StarterTemplate): readonly string[] {
     if (matches.length === 0) throw new Error(`catalog/templates/${template.id}.yaml:1: unknown kind or folder ${JSON.stringify(selector)}`);
     for (const kind of matches) names.add(kind.name);
   }
-  return CATALOG_KINDS.filter((kind) => names.has(kind.name)).map((kind) => kind.name);
+  // A template that names kinds names what they rest on too: a manifest that declares code.repository without
+  // product-profile would refuse its own derives-from.
+  const derivesFrom = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.derivesFrom ?? []]));
+  const needed = new Set(kindClosure(names, (name) => derivesFrom.get(name)));
+  return CATALOG_KINDS.filter((kind) => needed.has(kind.name)).map((kind) => kind.name);
 }
 
 /** The kinds one template's manifest shows as pages: the catalogue kinds whose template policy is not `none`. */

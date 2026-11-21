@@ -24,3 +24,6 @@ labels:
 description:
   en: An accessibility evaluation is one check of a screen, a component or a document against one criterion, made by a person or by a tool. It records whether the criterion passed, the evidence seen and what has to change.
   ru: Оценка доступности — одна проверка экрана, компонента или документа по одному критерию, сделанная человеком или инструментом. В ней записано, пройден ли критерий, какие доказательства видели и что нужно исправить.
+derives-from:
+- accessibility-rule
+- screen
