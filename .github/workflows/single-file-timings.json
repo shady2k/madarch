@@ -374,6 +374,8 @@
     "test/writer-set-based.test.ts": 4349,
     "test/yaml-position.test.ts": 6700,
     "test/owner-stop.test.ts": 11280,
-    "test/owner-daemon-stop.test.ts": 84352
+    "test/owner-daemon-stop.test.ts": 84352,
+    "test/assertion-selection-plan.test.ts": 16551,
+    "test/assertion-selection-equivalence.test.ts": 17896
   }
 }

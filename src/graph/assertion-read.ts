@@ -48,34 +48,52 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
   const fences = parameter
     ? `NOT EXISTS(SELECT 1 FROM jsonb_to_recordset(${parameter(JSON.stringify(cutoffs))}::jsonb) fence(context bigint,sequence bigint) WHERE fence.context=r.context_id AND r.recorded_sequence::bigint>fence.sequence)`
     : cutoffs.map(fence => `(r.context_id<>${fence.context} OR r.recorded_sequence::bigint<=${fence.sequence})`).join(' AND ') || 'TRUE';
+  // Keep raw columns in a composite so window bookkeeping never changes the public row.
+  // Candidate flags partition each rank; key-wide flags preserve identity semantics for repeated raw rows.
   return `WITH RECURSIVE context_path AS (
     SELECT id,parent,parent_recorded_seq,0 AS layer,NULL::bigint AS cutoff FROM context WHERE id=${bind(contexts[0])}
     UNION ALL SELECT c.id,c.parent,c.parent_recorded_seq,p.layer+1,least(p.cutoff,p.parent_recorded_seq)
     FROM context c JOIN context_path p ON c.id=p.parent
   ), raw AS MATERIALIZED (${raw}), eligible AS (
-    SELECT r.request_index,r.subject_id,${selector.projectMergedSubjects ? 'r.original_subject_id' : 'r.subject_id'} AS original_subject_id,r.property,r.language,r.source,r.id,r.operation,r.valid_from,r.valid_to,r.recorded_sequence,p.layer
-    FROM raw r JOIN context_path p ON p.id=r.context_id
-    WHERE ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(${array(selector.unitUids,'uuid')}))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(${array(selector.sourceUids,'text')})`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences}
+    SELECT r AS raw_row,${selector.projectMergedSubjects ? 'r.original_subject_id' : 'r.subject_id'} AS stream_subject_id,p.layer,
+      coalesce(p.id IS NOT NULL AND ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(${array(selector.unitUids,'uuid')}))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(${array(selector.sourceUids,'text')})`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences},false) AS eligible
+    FROM raw r LEFT JOIN context_path p ON p.id=r.context_id
   ), layers AS (
-    SELECT eligible.*,min(layer) OVER (PARTITION BY request_index,original_subject_id,property,language,source) AS nearest FROM eligible
+    SELECT eligible.*,min(layer) FILTER (WHERE eligible) OVER (
+      PARTITION BY (raw_row).request_index,stream_subject_id,(raw_row).property,(raw_row).language,(raw_row).source) AS nearest
+    FROM eligible
+  ), candidates AS (
+    SELECT layers.*,coalesce(eligible AND layer=nearest AND (raw_row).valid_from<=${valid}
+      AND ((raw_row).valid_to IS NULL OR (raw_row).valid_to>${valid}),false) AS stream_candidate FROM layers
   ), streams AS (
-    SELECT DISTINCT ON (request_index,original_subject_id,property,language,source) * FROM layers
-    WHERE layer=nearest AND valid_from<=${valid} AND (valid_to IS NULL OR valid_to>${valid})
-    ORDER BY request_index,original_subject_id,property,language,source,recorded_sequence::bigint DESC,id COLLATE "C" DESC
+    SELECT candidates.*,stream_candidate AND row_number() OVER (
+      PARTITION BY (raw_row).request_index,stream_subject_id,(raw_row).property,(raw_row).language,(raw_row).source,stream_candidate
+      ORDER BY (raw_row).recorded_sequence::bigint DESC,(raw_row).id COLLATE "C" DESC)=1 AS stream_pick
+    FROM candidates
+  ), active AS (
+    SELECT streams.*,stream_pick AND (raw_row).operation='assert' AS active_pick FROM streams
   ), selected AS (
-    SELECT DISTINCT ON (request_index,subject_id,property,language) * FROM streams WHERE operation='assert'
-    ORDER BY request_index,subject_id,property,language,(id=ANY(${array(selector.resolvedAssertionIds ?? [],'text')})) DESC,valid_from DESC,recorded_sequence::bigint DESC,id COLLATE "C" DESC
-  ) SELECT raw.*,active_stream.id IS NOT NULL AS active,selected_stream.id IS NOT NULL AS selected${selector.diagnostics ? `,
-      EXISTS(SELECT 1 FROM context_path p WHERE p.id=raw.context_id) AS diagnostic_context,
-      raw.recorded_at<=${recorded} AS diagnostic_recorded,
-      raw.valid_from<=${valid} AND (raw.valid_to IS NULL OR raw.valid_to>${valid}) AS diagnostic_valid,
-      raw.valid_from>${valid} AS diagnostic_valid_before,
-      raw.valid_to IS NOT NULL AND raw.valid_to<=${valid} AS diagnostic_valid_after,
-      EXISTS(SELECT 1 FROM eligible e WHERE e.request_index=raw.request_index AND e.id=raw.id) AS diagnostic_eligible,
-      EXISTS(SELECT 1 FROM streams s WHERE s.request_index=raw.request_index AND s.id=raw.id) AS diagnostic_stream` : ''}
-    FROM raw
-    LEFT JOIN streams active_stream ON active_stream.request_index=raw.request_index AND active_stream.id=raw.id AND active_stream.operation='assert'
-    LEFT JOIN selected selected_stream ON selected_stream.request_index=raw.request_index AND selected_stream.id=raw.id`;
+    SELECT active.*,active_pick AND row_number() OVER (
+      PARTITION BY (raw_row).request_index,(raw_row).subject_id,(raw_row).property,(raw_row).language,active_pick
+      ORDER BY ((raw_row).id=ANY(${array(selector.resolvedAssertionIds ?? [],'text')})) DESC,
+        (raw_row).valid_from DESC,(raw_row).recorded_sequence::bigint DESC,(raw_row).id COLLATE "C" DESC)=1 AS selection_pick
+    FROM active
+  ), flags AS (
+    SELECT selected.*,
+      bool_or(active_pick) OVER identity AS active_flag,
+      bool_or(selection_pick) OVER identity AS selected_flag,
+      bool_or(eligible) OVER identity AS eligible_flag,
+      bool_or(stream_pick) OVER identity AS stream_flag
+    FROM selected WINDOW identity AS (PARTITION BY (raw_row).request_index,(raw_row).id)
+  ) SELECT (raw_row).*,active_flag AS active,selected_flag AS selected${selector.diagnostics ? `,
+      layer IS NOT NULL AS diagnostic_context,
+      (raw_row).recorded_at<=${recorded} AS diagnostic_recorded,
+      (raw_row).valid_from<=${valid} AND ((raw_row).valid_to IS NULL OR (raw_row).valid_to>${valid}) AS diagnostic_valid,
+      (raw_row).valid_from>${valid} AS diagnostic_valid_before,
+      (raw_row).valid_to IS NOT NULL AND (raw_row).valid_to<=${valid} AS diagnostic_valid_after,
+      eligible_flag AS diagnostic_eligible,
+      stream_flag AS diagnostic_stream` : ''}
+    FROM flags`;
 }
 
 
