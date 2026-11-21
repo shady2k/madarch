@@ -15,13 +15,16 @@ import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { advanceUnitIn, edgeRowsIn, readRunNodeIn, readUnitsIn } from '../src/graph/fill-state.js';
 import { byCodePoint } from '../src/model/order.js';
 
+type Retraction = { kind: string; fromKind: string; fromKey: Record<string, unknown>; toKind: string; toKey: Record<string, unknown> };
+
 async function fixture(work: (held: {
   fill: (id: string) => Promise<void>;
-  counts: (id: string, after?: string) => Promise<{ unit: string; kind: string; operations: number; retractions: number; edgeRetractions: number }[]>;
+  counts: (id: string, after?: string) => Promise<{ unit: string; kind: string; operations: number; retractions: number; edgeRetractions: number; edges: Retraction[] }[]>;
   retained: () => Promise<() => void>;
   sequence: () => Promise<string>;
   invalidate: () => Promise<void>;
   change: () => void;
+  about: () => Promise<Retraction[]>;
 }) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'madarch-disk-support-'));
   const owner = await createTestDatabaseOwner({ btreeGist: true });
@@ -95,7 +98,19 @@ async function fixture(work: (held: {
             LEFT JOIN assertion a ON a.assertion_id=ao.from_node AND a.recorded_sequence>$2::bigint
             LEFT JOIN assertion_edge_subject aes ON aes.assertion_id=a.assertion_id
             WHERE a.assertion_id IS NOT NULL`, [unit.uid, after])).rows[0]!;
-          result.push({ unit: name, kind, operations: Number(row.operations),
+          const edges = (await tx.query<Retraction>(`
+            SELECT ek.name AS kind, fk.name AS "fromKind", fn.key AS "fromKey", tk.name AS "toKind", tn.key AS "toKey"
+            FROM assertion a
+            JOIN edge ao ON ao.from_node=a.assertion_id AND ao.entity_id=(SELECT id FROM entity WHERE name='system.assertion-operation')
+            JOIN edge ou ON ou.from_node=ao.to_node AND ou.entity_id=(SELECT id FROM entity WHERE name='system.operation-unit')
+            JOIN node u ON u.id=ou.to_node AND u.uid=$1::uuid
+            JOIN assertion_edge_subject aes ON aes.assertion_id=a.assertion_id
+            JOIN edge e ON e.id=aes.edge_id JOIN entity ek ON ek.id=e.entity_id
+            JOIN node fn ON fn.id=e.from_node JOIN entity fk ON fk.id=fn.entity_id
+            JOIN node tn ON tn.id=e.to_node JOIN entity tk ON tk.id=tn.entity_id
+            WHERE a.operation='retract' AND a.recorded_sequence>$2::bigint
+            ORDER BY a.recorded_sequence`, [unit.uid, after])).rows;
+          result.push({ unit: name, kind, edges, operations: Number(row.operations),
             retractions: Number(row.retractions), edgeRetractions: Number(row.edge_retractions) });
         }
         expect([...new Set(result.map(row => row.kind))].sort(byCodePoint)).toEqual(
@@ -111,9 +126,12 @@ async function fixture(work: (held: {
       const blobs = await owner.run(tx => readKindAssertions(tx, 'vertex', 'code.blob', ['digest', 'content'], { contract }));
       const fileIds = new Set(files.map(file => file.id));
       const blobIds = new Set(blobs.map(blob => blob.id));
+      const repositoryAbout = about.filter(edge => !fileIds.has(edge.to!));
       const fileAbout = about.filter(edge => fileIds.has(edge.to!));
       console.log('disk support retained', JSON.stringify({ files: files.length, fileBlobAbout: fileAbout.length, gitlinks: gitlinks.length }));
       return () => {
+        expect(repositoryAbout).toHaveLength(2);
+        expect(new Set(repositoryAbout.map(edge => edge.to)).size).toBe(2);
         expect(gitlinks).toHaveLength(0);
         expect(files.length).toBeGreaterThanOrEqual(3);
         expect(fileAbout).toHaveLength(files.length);
@@ -143,7 +161,19 @@ async function fixture(work: (held: {
       git('add', '-A');
       git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Change a');
     };
-    await work({ fill, counts, retained, sequence, invalidate, change });
+    const about = async () => await owner.run(async tx => {
+      const edges = await readKindAssertions(tx, 'edge', 'code.blob-about', [], { contract });
+      const result: Retraction[] = [];
+      for (const edge of edges) {
+        const ends = (await tx.query<{ id: string; kind: string; key: Record<string, unknown> }>(
+          'SELECT n.id::text AS id,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])', [[edge.from!, edge.to!]])).rows;
+        const from = ends.find(end => Number(end.id) === edge.from)!;
+        const to = ends.find(end => Number(end.id) === edge.to)!;
+        result.push({ kind: 'code.blob-about', fromKind: from.kind, fromKey: from.key, toKind: to.kind, toKey: to.key });
+      }
+      return result;
+    });
+    await work({ fill, counts, retained, sequence, invalidate, change, about });
   } finally {
     await owner.close();
     rmSync(root, { recursive: true, force: true });
@@ -186,9 +216,10 @@ test('an unchanged second real disk fill retracts nothing in every disk unit', a
   });
 }, 300_000);
 
-test('an edited committed file retracts exactly its old blob-about in code.file', async () => {
+test('an edited committed file retracts exactly its old file and repository inventory blob-about pairs', async () => {
   await fixture(async held => {
     await held.fill('disk-support-edit-before');
+    const before = await held.about();
     const after = await held.sequence();
     held.change();
     await held.invalidate();
@@ -197,7 +228,20 @@ test('an edited committed file retracts exactly its old blob-about in code.file'
     console.log('disk edited-fill graph operations', JSON.stringify(counts));
     expect(counts.filter(row => row.kind === 'code.file').reduce((sum, row) => sum + row.retractions, 0)).toBe(1);
     expect(counts.filter(row => row.kind === 'code.file').reduce((sum, row) => sum + row.edgeRetractions, 0)).toBe(1);
-    for (const row of counts.filter(row => row.kind !== 'code.file')) expect(row.retractions).toBe(0);
+    const fileEdges = counts.filter(row => row.kind === 'code.file').flatMap(row => row.edges);
+    expect(fileEdges).toEqual([before.find(edge => edge.toKind === 'code.file' && edge.toKey['path'] === 'src/a.ts')!]);
+    const repositories = counts.filter(row => row.kind === 'code.repository');
+    expect(repositories.reduce((sum, row) => sum + row.retractions, 0)).toBe(1);
+    const repositoryEdges = repositories.flatMap(row => row.edges);
+    expect(repositoryEdges).toHaveLength(1);
+    expect(repositoryEdges[0]!.kind).toBe('code.blob-about');
+    expect(repositoryEdges[0]!.fromKind).toBe('code.blob');
+    expect(repositoryEdges[0]!.toKind).toBe('code.repository');
+    expect(before).toContainEqual(repositoryEdges[0]!);
+    for (const row of counts.filter(row => row.kind === 'code.directory' || row.kind === 'code.gitlink')) expect(row.retractions).toBe(0);
+    const activeRepositoryEdges = (await held.about()).filter(edge => edge.toKind === 'code.repository');
+    expect(activeRepositoryEdges).toHaveLength(2);
+    expect(new Set(activeRepositoryEdges.map(edge => edge.toKey['name'])).size).toBe(2);
     (await held.retained())();
   });
 }, 300_000);

@@ -94,8 +94,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const support = blobs
     ? snapshots.filter(snapshot => selectedVertices.some(vertex => vertex.evidence?.target.key['digest'] === snapshot.digest) || selectedEdges.some(edge => edge.evidence?.target.key['digest'] === snapshot.digest))
     : [];
+  // The repository owner republishes this pair; non-owners must not publish partial inventories.
   const supportEdges = declaredEdges.has('code.blob-about')
-    ? support.flatMap(snapshot => snapshot.about.map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to })))
+    ? support.flatMap(snapshot => snapshot.about.filter(to => to.kind !== 'code.repository' || unit.kind === 'code.repository').map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to })))
     : [];
   // A parent role is the product's declaration too: after 0039 the reference is a key edge, and a narrowed product that
   // holds no such edge publishes an entity keyed by its own fields alone.
