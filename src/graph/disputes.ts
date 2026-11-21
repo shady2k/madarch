@@ -66,10 +66,10 @@ async function reconciliationSnapshot(tx:SqlExecutor,rows:readonly StoredAsserti
  WHERE ($2::uuid IS NULL AND k.name IN ('system.dispute-anchor','system.dispute-candidate') AND target.uid=ANY($1::uuid[])) OR q.uid=$2::uuid
  ), resolutions AS (
  SELECT DISTINCT r.id,r.uid FROM questions q JOIN edge e ON e.from_node=q.id JOIN entity k ON k.id=e.entity_id AND k.name='system.dispute-question-resolution' JOIN node r ON r.id=e.to_node
- ) SELECT id,uid::text,'question'::text AS kind FROM questions UNION ALL SELECT id,uid::text,'resolution'::text AS kind FROM resolutions`,[rows.map(row=>row.id),questionUid??null])).rows;
+ ) SELECT id,uid::text,'system.dispute-question'::text AS kind FROM questions UNION ALL SELECT id,uid::text,'resolution'::text AS kind FROM resolutions`,[rows.map(row=>row.id),questionUid??null])).rows;
  const lineage=(await tx.query<{origin:string;uid:string;id:number;kind:string}>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) AND origin.id=ANY($2::bigint[]) AND (k.name<>'system.resolution-assertion' OR target.uid=ANY($3::uuid[])) ORDER BY target.uid::text COLLATE "C"`,[linkKinds,scope.map(node=>Number(node.id)),rows.map(row=>row.id)])).rows;
  const batches=await loadAssertionsBatch(tx,[
-  {sort:'vertex',kind:'system.dispute-question',properties:['segment_from','segment_to','state'],subjectIds:scope.filter(node=>node.kind==='question').map(node=>Number(node.id))},
+  {sort:'vertex',kind:'system.dispute-question',properties:['segment_from','segment_to','state'],subjectIds:scope.filter(node=>node.kind==='system.dispute-question').map(node=>Number(node.id))},
   {sort:'vertex',kind:'system.dispute-resolution',properties:['segment_from','segment_to','rationale'],subjectIds:scope.filter(node=>node.kind==='resolution').map(node=>Number(node.id))},
   ...linkKinds.map(kind=>({sort:'edge' as const,kind,properties:['$exists'],subjectIds:lineage.filter(link=>link.kind===kind).map(link=>Number(link.id))})),
  ]);
