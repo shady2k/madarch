@@ -9,6 +9,7 @@ import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAsser
 import {newUid} from '../src/graph/uid.js';
 import {loadAssertions} from '../src/graph/assertion-read.js';
 import {reconcileDisputes} from '../src/graph/disputes.js';
+import {startupBinding} from '../src/graph/manifest-publication.js';
 import {readDispute} from '../src/graph/dispute-read.js';
 import type {SqlExecutor} from '../src/sql-driver.js';
 
@@ -87,34 +88,47 @@ test('reconciliation matches frozen reader JSON across temporal segments and can
  });
 },120000);
 
-async function measure(count:number,reconcile:Reconcile){
- const f=await fixture(count,true);
+async function measure(count:number,reconcile:Reconcile,changing=false,catalog=count){
+ const f=await fixture(catalog,!changing);
  try{return await f.owner.transaction('write',async tx=>{
   f.bind(tx,f.a);
-  const counts={total:0,reads:0,clocks:0,dataReads:0,typedReads:0};
+  await startupBinding(tx,contract,'system.disputes');
+  const counts={total:0,rows:0,clocks:0};
+  const statements:string[]=[];
   const query=tx.query.bind(tx);
   tx.query=async<Row extends object=Record<string,unknown>>(sql:string,values?:readonly unknown[]):Promise<{rows:Row[]}>=>{
-   counts.total++;
-   const text=sql.trimStart().toUpperCase();
-   if(text.startsWith('SELECT')||text.startsWith('WITH')){
-    counts.reads++;
-    if(sql.includes('clock_timestamp()'))counts.clocks++;else counts.dataReads++;
-    if(sql.includes(') batches ORDER BY request_index'))counts.typedReads++;
-   }
-   const result=await query(sql,values);
+   counts.total++;statements.push(sql);
+   if(sql.includes('clock_timestamp()'))counts.clocks++;
+   const result=await query(sql,values);counts.rows+=result.rows.length;
    return result as {rows:Row[]};
   };
-  try{await reconcile(tx,contract,f.slots,false);}finally{tx.query=query;}
-  return counts;
+  try{await reconcile(tx,contract,f.slots.slice(0,count),false);}finally{tx.query=query;}
+  return {...counts,statements};
  });}finally{await f.owner.close();}
 }
-test('10/200 stable affected slots keep metadata reads constant, exposing every residual clock read',async()=>{
- const small=await measure(10,reconcileDisputes),large=await measure(200,reconcileDisputes);
- console.log('stable reconciliation statements',JSON.stringify({small,large}));
- expect(large.typedReads).toBe(small.typedReads);
- expect(large.dataReads).toBe(small.dataReads);
- expect(large.clocks).toBeGreaterThan(small.clocks);
- expect(large.reads-small.reads).toBe(large.clocks-small.clocks);
- expect(large.total-small.total).toBe(large.clocks-small.clocks);
-},240000);
-
+test('stable affected slots bound every SQL statement by writes',async()=>{
+ const small=await measure(10,reconcileDisputes);
+ console.log('stable small',JSON.stringify({...small,statements:undefined}));
+ // Before the fix each slot has two instants: 10 -> 200 adds 380 clocks.
+ expect(small.clocks).toBe(3);
+ const large=await measure(200,reconcileDisputes);
+ console.log('stable large',JSON.stringify({...large,statements:undefined}));
+ expect(large.statements.map(sql=>sql.replace(/source.to_node=\d+::bigint/g,'source.to_node=<identity>::bigint'))).toEqual(small.statements.map(sql=>sql.replace(/source.to_node=\d+::bigint/g,'source.to_node=<identity>::bigint')));
+ expect(large.rows-small.rows).toBe(190*13);
+},60000);
+test('unrelated question catalog does not enlarge the reconciliation snapshot',async()=>{
+ const small=await measure(10,reconcileDisputes,false,10);
+ const large=await measure(10,reconcileDisputes,false,200);
+ console.log('catalog',JSON.stringify({small:{...small,statements:undefined},large:{...large,statements:undefined}}));
+ expect(large.total).toBe(small.total);
+ expect(large.rows).toBe(small.rows);
+},60000);
+test('opening questions reads the same statements and rows per change',async()=>{
+ const small=await measure(10,reconcileDisputes,true);
+ console.log('changing small',JSON.stringify({...small,statements:undefined}));
+ expect(small.clocks).toBe(13);
+ const large=await measure(200,reconcileDisputes,true);
+ console.log('changing large',JSON.stringify({...large,statements:undefined}));
+ expect((large.total-26)/200).toBe((small.total-26)/10);
+ expect((large.rows-small.rows)/190).toBe((small.rows-41)/10);
+},60000);

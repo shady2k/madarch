@@ -48,31 +48,48 @@ async function records(tx:SqlExecutor,kind:string,selectors:Selectors):Promise<M
  });
 }
 interface ReconciliationSnapshot {
+ at:string;
+ fields:Map<string,Map<string,StoredAssertion[]>>;
+ linked:Map<string,{origin:string;uid:string;id:number;kind:string}[]>;
+ existence:Map<number,StoredAssertion[]>;
+ decisionIds:Set<string>;
  records(kind:string,selectors:Selectors):Map<string,Record<string,unknown>>;
  links(uid:string,kind:string,selectors:Selectors):string[];
  producerRows(rows:readonly StoredAssertion[]):StoredAssertion[];
 }
-async function reconciliationSnapshot(tx:SqlExecutor):Promise<ReconciliationSnapshot>{
+async function reconciliationSnapshot(tx:SqlExecutor,rows:readonly StoredAssertion[],questionUid?:string,previous?:ReconciliationSnapshot):Promise<ReconciliationSnapshot>{
  return await withSpan('graph.dispute.reconciliation-snapshot',{},async()=>{
  const linkKinds=['system.dispute-anchor','system.dispute-candidate','system.dispute-question-resolution','system.resolution-judged','system.dispute-chosen','system.resolution-assertion'];
- const lineage=(await tx.query<{origin:string;uid:string;id:number;kind:string}>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) ORDER BY target.uid::text COLLATE "C"`,[linkKinds])).rows;
+ const at=(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+ const scope=(await tx.query<{id:number;uid:string;kind:string}>(`WITH questions AS (
+ SELECT DISTINCT q.id,q.uid FROM node q JOIN edge e ON e.from_node=q.id JOIN entity k ON k.id=e.entity_id JOIN node target ON target.id=e.to_node
+ WHERE ($2::uuid IS NULL AND k.name IN ('system.dispute-anchor','system.dispute-candidate') AND target.uid=ANY($1::uuid[])) OR q.uid=$2::uuid
+ ), resolutions AS (
+ SELECT DISTINCT r.id,r.uid FROM questions q JOIN edge e ON e.from_node=q.id JOIN entity k ON k.id=e.entity_id AND k.name='system.dispute-question-resolution' JOIN node r ON r.id=e.to_node
+ ) SELECT id,uid::text,'question'::text AS kind FROM questions UNION ALL SELECT id,uid::text,'resolution'::text AS kind FROM resolutions`,[rows.map(row=>row.id),questionUid??null])).rows;
+ const lineage=(await tx.query<{origin:string;uid:string;id:number;kind:string}>(`SELECT origin.uid::text AS origin,target.uid::text AS uid,e.id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node origin ON origin.id=e.from_node JOIN node target ON target.id=e.to_node WHERE k.name=ANY($1::text[]) AND origin.id=ANY($2::bigint[]) AND (k.name<>'system.resolution-assertion' OR target.uid=ANY($3::uuid[])) ORDER BY target.uid::text COLLATE "C"`,[linkKinds,scope.map(node=>Number(node.id)),rows.map(row=>row.id)])).rows;
  const batches=await loadAssertionsBatch(tx,[
-  {sort:'vertex',kind:'system.dispute-question',properties:['segment_from','segment_to','state']},
-  {sort:'vertex',kind:'system.dispute-resolution',properties:['segment_from','segment_to','rationale']},
+  {sort:'vertex',kind:'system.dispute-question',properties:['segment_from','segment_to','state'],subjectIds:scope.filter(node=>node.kind==='question').map(node=>Number(node.id))},
+  {sort:'vertex',kind:'system.dispute-resolution',properties:['segment_from','segment_to','rationale'],subjectIds:scope.filter(node=>node.kind==='resolution').map(node=>Number(node.id))},
   ...linkKinds.map(kind=>({sort:'edge' as const,kind,properties:['$exists'],subjectIds:lineage.filter(link=>link.kind===kind).map(link=>Number(link.id))})),
  ]);
- const fields=new Map<string,Map<string,StoredAssertion[]>>();
+ const fields=previous?.fields??new Map<string,Map<string,StoredAssertion[]>>();
  for(const [index,kind] of ['system.dispute-question','system.dispute-resolution'].entries()){
   const grouped=new Map<string,StoredAssertion[]>();
   for(const row of batches[index]!){const uid=subject(row);const values=grouped.get(uid)??[];values.push(row);grouped.set(uid,values);}
-  fields.set(kind,grouped);
+  const retained=fields.get(kind)??new Map<string,StoredAssertion[]>();
+  for(const [uid,values] of grouped)retained.set(uid,values);
+  fields.set(kind,retained);
  }
- const linked=new Map<string,typeof lineage>();
+ const linked=previous?.linked??new Map<string,typeof lineage>();
+ for(const node of scope)for(const kind of linkKinds)linked.delete(JSON.stringify([node.uid,kind]));
  for(const link of lineage){const key=JSON.stringify([link.origin,link.kind]);const values=linked.get(key)??[];values.push(link);linked.set(key,values);}
- const existence=new Map<number,StoredAssertion[]>();
+ const existence=previous?.existence??new Map<number,StoredAssertion[]>();
+ for(const link of lineage)existence.delete(Number(link.id));
  for(const row of batches.slice(2).flat()){const values=existence.get(row.subjectId)??[];values.push(row);existence.set(row.subjectId,values);}
- const decisionIds=new Set(lineage.filter(link=>link.kind==='system.resolution-assertion').map(link=>link.uid));
- return {
+ const decisionIds=previous?.decisionIds??new Set<string>();
+ for(const uid of new Set(lineage.filter(link=>link.kind==='system.resolution-assertion').map(link=>link.uid)))decisionIds.add(uid);
+ return {at,fields,linked,existence,decisionIds,
   records(kind,selectors){
    const result=new Map<string,Record<string,unknown>>();
    for(const [uid,rows] of fields.get(kind)??[]){
@@ -158,7 +175,7 @@ async function judgeDispute(tx:SqlExecutor,contract:GraphContract,rows:readonly 
   for(const resolution of history){
    const pin=rows.filter(row=>snapshot.links(resolution,'system.resolution-judged',selectors).includes(row.id));const current=selected.candidates;
    const metadata=resolutions.get(resolution)!;const scope={from:String(metadata['segment_from']),to:metadata['segment_to']===null?null:String(metadata['segment_to'])};
-   const evidenceAt=(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
+   const evidenceAt=snapshot.at;
    const evidenceValid=await resolutionEvidenceValid(tx,contract,resolution,{...selectors,validAt:evidenceAt});
    if(pin.length&&resolutionMatches(pin.map(row=>candidateFingerprint(row,scope)),current.map(row=>candidateFingerprint(row,segment)),evidenceValid)){
     const chosenId=snapshot.links(resolution,'system.dispute-chosen',selectors)[0];const original=rows.find(row=>row.id===chosenId);
@@ -216,7 +233,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
  const touched=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,coalesce(subject.id,edge_subject.id) AS subject_id,a.property,a.language FROM assertion a JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE op.uid=$1::uuid`,[operationUid])).rows;
  const relevant=affected??touched.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}));
  // Existing question anchors are the reverse-dependency set for justification withdrawal.
- const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id)`,[selectors.contexts[0],selectors.validAt,selectors.recordedAt])).rows;
+ const anchors=(await tx.query<{sort:'vertex'|'edge';kind:string;subject_id:number;property:string;language:string|null}>(`SELECT CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AS sort,k.name AS kind,CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AS subject_id,a.property,a.language FROM edge anchor JOIN entity ak ON ak.id=anchor.entity_id AND ak.name='system.dispute-anchor' JOIN assertion a ON a.assertion_id=anchor.to_node LEFT JOIN assertion_vertex_subject vertex ON vertex.assertion_id=a.assertion_id LEFT JOIN edge attachment ON attachment.id=vertex.subject_edge_id LEFT JOIN node subject ON subject.id=attachment.to_node LEFT JOIN assertion_edge_subject edge_attachment ON edge_attachment.assertion_id=a.assertion_id LEFT JOIN edge edge_subject ON edge_subject.id=edge_attachment.edge_id JOIN entity k ON k.id=coalesce(subject.entity_id,edge_subject.entity_id) WHERE $4::jsonb IS NULL OR EXISTS(SELECT 1 FROM jsonb_to_recordset($4::jsonb) slot(sort text,kind text,"subjectId" bigint,property text,language text) WHERE slot.sort=CASE WHEN vertex.assertion_id IS NOT NULL THEN 'vertex' ELSE 'edge' END AND slot.kind=k.name AND slot."subjectId"=CASE WHEN subject.id IS NOT NULL THEN graph_assertion_target(subject.id,a.assertion_id,$1::bigint,$2::timestamptz,$3::timestamptz) ELSE edge_subject.id END AND slot.property=a.property AND slot.language IS NOT DISTINCT FROM a.language)`,[selectors.contexts[0],selectors.validAt,selectors.recordedAt,affected===undefined||affected.length===0?null:JSON.stringify(affected)])).rows;
  const affectedSlots=[...relevant,...anchors.map(row=>({sort:row.sort,kind:row.kind,subjectId:Number(row.subject_id),property:row.property,language:row.language}))];
  const slots=new Map<string,StoredAssertion[]>();
  for(const sort of ['vertex','edge'] as const)for(const kind of contract[sort]){
@@ -231,10 +248,10 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
   // One source cannot disagree with itself; anchored slots still need evidence revalidation.
   if(!anchoredSlots.has(JSON.stringify([row.subject.type,row.subjectId,row.property,row.language]))&&new Set(rows.filter(row=>row.operation==='assert').map(row=>row.source)).size<=1)slots.delete(key);
  }
- if(slots.size>0)await internal(tx,contract,async()=>{let snapshot=await reconciliationSnapshot(tx);for(const rows of slots.values()){
+ if(slots.size>0)await internal(tx,contract,async()=>{let snapshot=await reconciliationSnapshot(tx,[...slots.values()].flat());for(const rows of slots.values()){
   const instants=[...new Set([now,...rows.flatMap(row=>[row.validFrom,...(row.validTo===null?[]:[row.validTo])])])];
   for(const validAt of instants){
-  const segmentSelectors={...selectors,validAt,recordedAt:(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now};
+  const segmentSelectors={...selectors,validAt,recordedAt:snapshot.at};
   const candidateRows=snapshot.producerRows(rows);
   const selection=selectAssertions(candidateRows,segmentSelectors);
   const existing=await judgeDispute(tx,contract,candidateRows,segmentSelectors,snapshot);
@@ -259,7 +276,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
      if(edge)await writeAssertion(tx,contract,{sort:'edge',kind:'system.dispute-candidate',subjectId:edge.id,property:'$exists',operation:'retract',validFrom:'0001-01-01T00:00:00.000Z'},binding.context);
     }
     await recordQuestionState(tx,contract,existing.id,desired,selection.candidates.filter(row=>!oldCandidates.includes(row.id)).map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),segmentAt(candidateRows,validAt));
-    snapshot=await reconciliationSnapshot(tx);
+    snapshot=await reconciliationSnapshot(tx,rows,existing.id,snapshot);
    }
    continue;
   }
@@ -269,7 +286,7 @@ export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,af
    {kind:'system.dispute-anchor',target:rows[0]!.id,targetKind:'system.assertion'},
    ...selection.candidates.map(row=>({kind:'system.dispute-candidate',target:row.id,targetKind:'system.assertion'})),
   ],undefined,segment);
-  snapshot=await reconciliationSnapshot(tx);
+  snapshot=await reconciliationSnapshot(tx,rows,uid,snapshot);
  }}});
  if(propagate){
   const children=(await tx.query<{id:string}>(`WITH RECURSIVE children AS (SELECT id FROM context WHERE parent=$1::bigint AND parent_recorded_seq IS NULL UNION ALL SELECT c.id FROM context c JOIN children p ON c.parent=p.id WHERE c.parent_recorded_seq IS NULL) SELECT id::text AS id FROM children`,[binding.context])).rows;
