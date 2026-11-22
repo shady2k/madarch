@@ -78,17 +78,17 @@ async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000))
      const started=await startRun(orchestrator,{runId});
      expect(started.ok).toBe(true);
      const planned=await planRun(orchestrator,{runId});
-     if(planned.outcome==='refused')throw new Error(`${import.meta.path}:207: planning refused: ${JSON.stringify(planned)}`);
+     if(planned.outcome==='refused')throw new Error(`${import.meta.path}:81: planning refused: ${JSON.stringify(planned)}`);
      let state='running';
      for(let pass=0;pass<30;pass++){
       const scheduled=await schedulerPass(orchestrator,{runId});state=scheduled.run.state;
       if(['succeeded','failed','blocked','cancelled'].includes(state))break;
       // The production driver calls workers sequentially; this fixture drives two real workers concurrently.
       const outcomes=await Promise.all([workOnce(orchestrator,{worker:'parallel-1'}),workOnce(orchestrator,{worker:'parallel-2'})]);
-      if(outcomes.some(outcome=>outcome.result!==undefined&&['failed','retried','refused'].includes(outcome.result)))throw new Error(`${import.meta.path}:214: parallel fill failed: ${JSON.stringify(outcomes)}`);
-      if(!scheduled.moved&&outcomes.every(outcome=>!outcome.claimed))throw new Error(`${import.meta.path}:215: parallel fill stalled: ${JSON.stringify(scheduled)}`);
+      if(outcomes.some(outcome=>outcome.result!==undefined&&['failed','retried','refused'].includes(outcome.result)))throw new Error(`${import.meta.path}:88: parallel fill failed: ${JSON.stringify(outcomes)}`);
+      if(!scheduled.moved&&outcomes.every(outcome=>!outcome.claimed))throw new Error(`${import.meta.path}:89: parallel fill stalled: ${JSON.stringify(scheduled)}`);
      }
-     if(state!=='succeeded')throw new Error(`${import.meta.path}:217: parallel fill did not succeed: ${JSON.stringify({state,progress:await readProgress(owner,runId)})}`);
+     if(state!=='succeeded')throw new Error(`${import.meta.path}:91: parallel fill did not succeed: ${JSON.stringify({state,progress:await readProgress(owner,runId)})}`);
      expect(state).toBe('succeeded');
     }finally{stopHeartbeat(orchestrator);await queue.stop();}
     for(const event of await readProgress(owner,runId)){
