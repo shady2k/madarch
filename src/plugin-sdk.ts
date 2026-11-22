@@ -163,8 +163,10 @@ function presentValues(values: Readonly<Record<string, unknown>> | undefined): R
  * Decision 0039 items 18 and 26: reconcile only this source, never sweep an
  * incomplete scan. Evidence changes alone do not turn equal values into updates.
  */
-export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: ReconciliationScope): ReconciliationWrite[] {
+export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: ReconciliationScope, ownership?: { readonly kind: string; readonly keys: readonly KeyValues[] }): ReconciliationWrite[] {
   const writes: ReconciliationWrite[] = [];
+  const selected = ownership === undefined ? undefined : new Set(ownership.keys.map(key => canonical(key)));
+  const support = (fact: VertexResult | EdgeResult): boolean => ownership !== undefined && 'key' in fact && fact.kind === ownership.kind && !selected!.has(canonical(fact.key));
   if (scope.repository !== undefined && scope.parent === undefined) throw new Error(`${import.meta.filename}:1: repository reconciliation requires an explicit parent identity`);
   const underParent = (ref: EntityRef): boolean => canonical(ref) === canonical(scope.parent) || Object.values(ref.keyEdges ?? {}).some(underParent);
   const covered = (fact: VertexResult | EdgeResult): boolean => scope.parent === undefined || ('key' in fact ? underParent(fact) : underParent(fact.from) || underParent(fact.to));
@@ -184,6 +186,7 @@ export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: Rec
     for (const key of [...after.keys()].sort(codePointOrder)) {
       const fact = after.get(key)!;
       const previous = before.get(key);
+      if (previous !== undefined && support(fact)) continue;
       if (previous !== undefined && canonical(presentValues(previous.values)) === canonical(presentValues(fact.values))) continue;
       writes.push({ operation: previous === undefined ? 'add' : 'update', [type]: fact, ...(fact.evidence === undefined ? {} : { evidence: fact.evidence }) });
     }
@@ -191,6 +194,7 @@ export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: Rec
     for (const key of [...before.keys()].sort(codePointOrder)) {
       if (!after.has(key)) {
         const fact = before.get(key)!;
+        if (support(fact)) continue;
         const evidence = fact.evidence;
         writes.push({ operation: 'remove', [type]: fact, ...(evidence === undefined ? {} : { evidence }) });
       }
@@ -225,6 +229,24 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
   writes.forEach((write, index) => {
     if (write.vertex !== undefined) (write.operation === 'remove' ? removals : additions).set(identity(write.vertex), index);
   });
+  const keys = (unit.inputs as { keys?: readonly KeyValues[] } | undefined)?.keys;
+  if (keys !== undefined) {
+    const selected = new Set(keys.map(key => canonical(key)));
+    const witnesses = new Map<string, number>();
+    const candidates = writes.map((write, index) => ({ write, index })).filter(({ write }) => write.operation === 'add' && write.edge !== undefined && write.edge.from.kind === unit.kind && selected.has(canonical(write.edge.from.key)) && write.edge.to.kind === unit.kind)
+      .sort((a, b) => codePointOrder(canonical([a.write.edge!.kind, a.write.edge!.from, a.write.edge!.to, a.write.edge!.discriminator ?? '']), canonical([b.write.edge!.kind, b.write.edge!.from, b.write.edge!.to, b.write.edge!.discriminator ?? ''])));
+    for (const { write, index } of candidates) {
+      const key = identity(write.edge!.to);
+      if (!witnesses.has(key)) witnesses.set(key, index);
+    }
+    writes.forEach((write, index) => {
+      if (write.operation !== 'add' || write.vertex === undefined || write.vertex.kind !== unit.kind || selected.has(canonical(write.vertex.key))) return;
+      const key = identity(write.vertex);
+      const witness = witnesses.get(key);
+      if (witness === undefined) throw new Error(`${import.meta.filename}:246: reconciliation unit ${unit.unitId} support ${key} has no added edge from a selected key`);
+      join(index, witness);
+    });
+  }
   const constrained = new Map<string, number>();
   writes.forEach((write, index) => {
     if (write.vertex !== undefined) {
@@ -646,16 +668,18 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         const edgeIdentity = (edge: EdgeResult): string => canonical([edge.kind, edge.from, edge.to, edge.discriminator ?? '']);
         const appliedVertices = new Set<string>();
         const appliedEdges = new Set<string>();
+        const keys = (unit.inputs as { keys?: readonly KeyValues[] } | undefined)?.keys;
+        const ownership = keys === undefined ? undefined : { kind: unit.kind, keys };
         const reconcile = async (source: UnitResult, scope: ReconciliationScope, retainApplied = false): Promise<void> => {
           const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
           // Discard the result intentionally: validate duplicates and scope before merging retained facts.
-          if (retainApplied) reconcileFacts(source, { vertices: [], edges: [] }, scope);
+          if (retainApplied) reconcileFacts(source, { vertices: [], edges: [] }, scope, ownership);
           const desired = retainApplied ? {
             ...source,
             vertices: [...new Map([...current.vertices.filter(vertex => appliedVertices.has(vertexIdentity(vertex))), ...(source.vertices ?? [])].map(vertex => [vertexIdentity(vertex), vertex])).values()],
             edges: [...new Map([...current.edges.filter(edge => appliedEdges.has(edgeIdentity(edge))), ...(source.edges ?? [])].map(edge => [edgeIdentity(edge), edge])).values()],
           } : source;
-          for (const operation of reconciliationBatches(reconcileFacts(desired, current, scope), definition.contract, unit)) {
+          for (const operation of reconciliationBatches(reconcileFacts(desired, current, scope, ownership), definition.contract, unit)) {
             if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
             const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
             await askHost('facts.apply', { unitId: unit.unitId, key, operation });
