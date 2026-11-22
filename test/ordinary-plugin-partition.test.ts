@@ -149,16 +149,17 @@ import {single} from './scenario.js';
 const output=partitioned(async()=>(${JSON.stringify(commitFixture(true))}));
 await definePlugin({name:'git',version:'1.0.0',contract:${JSON.stringify(outputs)},
 async planOutput(unit,context,cursor){const page=await output.planOutput(unit,context,cursor);return {...page,partitions:single?page.partitions.flatMap(part=>part.keys.map(key=>({keys:[key]}))):page.partitions};},
-// Repeat full facts intentionally: support permission requires its connecting edge in the same operation.
-async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000));const result=await output.extract(unit,context);await context.facts.apply('partition',{vertices:result.vertices,edges:result.edges});return {end:result.end};}});`);
+// Use the SDK automatic reconciliation path, as bundled plugins do.
+async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000));return await output.extract(unit,context);}});`);
    writeFolderManifest(product,stringify({language:'en',kinds:{'code.commit':{source:'graph',key:['hash'],fields:['hash','message'].map(name=>({name,type:'text'})),evidence:{immutable:true,digestField:'hash'}}},edges:[{name:'code.parent',from:['code.commit'],to:['code.commit'],cardinality:{from:{min:0,max:null},to:{min:0,max:null}},labels:outputs.edges[0]!.labels}],plugins:[{id:'git',version:1,path:'plugins/git',inputs:[],outputs:['code.commit'],closure:['plugins/git/plugin.json','plugins/git/contract.json','plugins/git/main.ts','plugins/git/partition.ts','plugins/git/scenario.js']}]}));
-   for(const single of [false,true]){
+   let previousOpen=new Map<string,string>();
+   for(const [runIndex,single] of [false,true,true].entries()){
     writeFileSync(join(plugin,'scenario.js'),`export const single=${single};`);
     const closure=closureOf(plugin).hash;
     writeFileSync(join(product,'madarch/plugins.lock'),stringify({plugins:[{id:'git',path:'plugins/git',version:'1.0.0',closure}]}));
-    gitCommand(product,'add','-A');gitCommand(product,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm',`groups-${single}`);
+    if(runIndex<2){gitCommand(product,'add','-A');gitCommand(product,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm',`groups-${runIndex}`);}
     const active=new Set<string>();let peak=0;
-    const runId=`groups-${single}`;
+    const runId=`groups-${runIndex}`;
     const fill=await createStagesFill({product,database:owner,runId,store:home,releaseHashes:[closure],targets:{kinds:['code.commit']},prepareContract:async contract=>{await prepareTestStore(owner,{contract});}});
     const queue=await createPgBossQueue({owner,supervise:false});
     const queueName='fill-units';
@@ -184,7 +185,7 @@ async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000))
      if(state!=='succeeded')throw new Error(`${import.meta.path}: parallel fill did not succeed: ${JSON.stringify({state,progress:await readProgress(owner,runId)})}`);
      expect(state).toBe('succeeded');
     }finally{stopHeartbeat(orchestrator);await queue.stop();}
-    for(const event of await readProgress(owner,`groups-${single}`)){
+    for(const event of await readProgress(owner,runId)){
      if(!event.unitId.includes('git:code.commit#'))continue;
      if(event.kind==='unit-started')active.add(event.unitId);
      if(event.kind==='unit-published'||event.kind==='unit-failed')active.delete(event.unitId);
@@ -192,9 +193,9 @@ async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000))
     }
     console.info(JSON.stringify({helper:name,runId,peak}));
     expect(peak).toBeGreaterThanOrEqual(2);
-    await assertOpinions(runId);
+    await assertOpinions(runId,runIndex);
    }
-   async function assertOpinions(runId:string){
+   async function assertOpinions(runId:string,runIndex:number){
    const contract=await readPinnedGraphContract(product);
    await owner.transaction('snapshot',async tx=>{
     const commits=await readKindAssertions(tx,'vertex','code.commit',['message'],{contract});
@@ -206,12 +207,31 @@ async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000))
     const assertions=await loadAssertions(tx,'vertex','code.commit',['$exists','hash','message']);
     expect(assertions.length).toBeGreaterThan(0);
     expect(assertions.filter(row=>row.operation==='retract')).toEqual([]);
+    const currentOpen=new Map<string,string>();
     for(const commit of commits)for(const property of ['$exists','hash','message']){
      const open=assertions.filter(row=>row.subjectId===commit.id&&row.property===property&&row.validTo===null);
      expect(open).toHaveLength(1);
      expect(open[0]!.source).toBe(gitSource);
+     const slot=`${commit.key['hash']}:${property}`;
+     currentOpen.set(slot,open[0]!.id);
+     if(runIndex>0)expect(open[0]!.id).toEqual(previousOpen.get(slot)!);
      console.info(JSON.stringify({helper:name,runId,hash:commit.key['hash'],property,open:open.length,source:open[0]!.source,gitSource}));
     }
+    previousOpen=currentOpen;
+    const runs=await readKindAssertions(tx,'vertex','system.run',['run_name'],{contract});
+    const run=runs.find(row=>row.values['run_name']===runId)!;
+    const units=await readKindAssertions(tx,'vertex','system.unit',['unit_name','committed_operations','outcome'],{contract});
+    const operations=await readKindAssertions(tx,'vertex','system.operation',['key','canonical_request'],{contract});
+    const links=(await tx.query<{operation:string;unit:string}>(`SELECT o.uid::text AS operation,u.uid::text AS unit FROM edge ou JOIN entity ouk ON ouk.id=ou.entity_id JOIN node o ON o.id=ou.from_node JOIN node u ON u.id=ou.to_node JOIN edge ur ON ur.from_node=u.id JOIN entity urk ON urk.id=ur.entity_id JOIN node r ON r.id=ur.to_node WHERE ouk.name='system.operation-unit' AND urk.name='system.unit-run' AND r.uid=$1::uuid`,[run.uid])).rows;
+    const summaries=units.filter(unit=>String(unit.values['unit_name']).includes('git:code.commit#')&&links.some(link=>link.unit===unit.uid)).map(unit=>{
+     const own=operations.filter(operation=>links.some(link=>link.unit===unit.uid&&link.operation===operation.uid));
+     const applies=own.filter(operation=>{const request=JSON.parse(String(operation.values['canonical_request'])).request as Record<string,unknown>;return ['vertices','edges','removals','edgeRemovals'].some(field=>Array.isArray(request[field]));});
+     return {unit:unit.values['unit_name'],committed:unit.values['committed_operations'],operations:own.length,applies:applies.length,keys:own.map(operation=>operation.values['key']),outcome:unit.values['outcome'],requests:applies.map(operation=>{const request=JSON.parse(String(operation.values['canonical_request'])).request;return {vertices:request.vertices?.map((vertex:{kind:string;key:unknown})=>({kind:vertex.kind,key:vertex.key})),edges:request.edges?.length,removals:request.removals?.length};})};
+    });
+    console.info(JSON.stringify({helper:name,runId,operationSummary:summaries}));
+    expect(summaries.length).toBeGreaterThan(1);
+    if(runIndex===0)expect(summaries.reduce((sum,row)=>sum+row.applies,0)).toBeGreaterThan(0);
+    if(runIndex===1||runIndex===2)for(const summary of summaries){expect(summary.applies).toBe(0);expect(summary.outcome).toBe('unchanged');}
     const questions=await readKindAssertions(tx,'vertex','system.dispute-question',['state'],{contract});
     expect(questions).toEqual([]);
    });
