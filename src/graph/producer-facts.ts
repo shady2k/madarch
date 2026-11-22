@@ -11,9 +11,15 @@ import { referencesOf, sdkReference } from './plugin-turns.js';
 type Identity = { id: number; key?: PluginKeyValues; from_node?: number; to_node?: number; discriminator?: string };
 type EvidenceLink = { origin: string; id: number; kind: string; discriminator: string };
 
+/** The matching unit endpoint anchors scope; foreign pairs use their target. */
+export function reconciliationEndpoint<T extends { readonly kind: string }>(kind: string, from: T, to: T): T {
+  return from.kind === kind ? from : to;
+}
+
 /** The argument is the host-issued source uid, never a producer display name. */
 export async function producerFacts(owner: DatabaseOwner, contract: GraphContract, sourceUid: string, kinds: readonly string[], edgeKinds: readonly string[], scope?: {
   readonly kind: string;
+  readonly ownedEdges?: readonly { readonly kind: string; readonly from: string; readonly to: string }[];
   readonly keys?: readonly PluginKeyValues[];
   readonly paths?: readonly string[];
 }): Promise<{ vertices: PluginVertexResult[]; edges: PluginEdgeResult[] }> {
@@ -57,9 +63,17 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const keys = scope?.keys === undefined ? undefined : new Set(scope.keys.map(canonicalKey));
     const selected = held.filter(item => {
       if (scope === undefined) return true;
-      const end = item.sort === 'vertex' ? { kind: item.name, key: item.row.key! }
-        : byEnd.get(Number(item.row.from_node))?.kind === scope.kind ? byEnd.get(Number(item.row.from_node)) : byEnd.get(Number(item.row.to_node));
-      if (end === undefined) throw new Error(`${import.meta.path}:1: reconciliation edge has a missing endpoint`);
+      let end;
+      if (item.sort === 'vertex') {
+        if (item.name !== scope.kind) return false;
+        end = { kind: item.name, key: item.row.key! };
+      } else {
+        const from = byEnd.get(Number(item.row.from_node));
+        const to = byEnd.get(Number(item.row.to_node));
+        if (from === undefined || to === undefined) throw new Error(`${import.meta.path}:1: reconciliation edge has a missing endpoint`);
+        if (!scope.ownedEdges?.some(edge => edge.kind === item.name && edge.from === from.kind && edge.to === to.kind)) return false;
+        end = reconciliationEndpoint(scope.kind, from, to);
+      }
       if (keys !== undefined && !keys.has(canonicalKey(end.key))) return false;
       const locator = item.link === undefined ? undefined : (JSON.parse(item.link.discriminator) as { locator: Record<string, unknown> }).locator;
       const path = locator?.['path'] ?? end.key['path'];

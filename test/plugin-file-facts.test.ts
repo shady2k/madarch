@@ -69,9 +69,14 @@ test('disk publishes repository parents and directory edges, never relation fiel
     }
     const blobs=(result.vertices??[]).filter(vertex=>vertex.kind==='code.blob');
     expect(blobs).toHaveLength(3);
+    const repositoryResult = await diskExtract({ ...unit(root, pin, diskContract.outputs), kind: 'code.repository' }, context());
+    expect(result.edges?.filter(edge => edge.kind === 'code.blob-about' && edge.to.kind === 'code.repository')).toHaveLength(0);
     for(const blob of blobs){
       expect(blob.key['digest']).toBe(createHash('sha256').update(String(blob.values?.['content'])).digest('hex'));
-      expect(result.edges?.filter(edge=>edge.kind==='code.blob-about'&&edge.from.key['digest']===blob.key['digest'])).toHaveLength(1);
+      const fileContent = (result.vertices ?? []).some(vertex => vertex.kind === 'code.file' && vertex.evidence?.target.key['digest'] === blob.key['digest']);
+      // The graph-level repository owner publishes the inventory pair.
+      const publisher = fileContent ? result : repositoryResult;
+      expect(publisher.edges?.filter(edge=>edge.kind==='code.blob-about'&&edge.from.key['digest']===blob.key['digest'])).toHaveLength(1);
     }
     expect(result.edges?.filter(edge=>edge.kind==='code.file-directory').map(edge => [edge.kind, edge.from.key['path'], edge.to.key['path']])).toEqual([
       ['code.file-directory', 'src/nested/file.txt', 'src/nested'],
