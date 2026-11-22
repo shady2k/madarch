@@ -17,6 +17,10 @@ const vertex={...ref('parent'),values:{message:'parent'}};
 const connecting={kind:'code.parent',from:ref('selected'),to:ref('parent')};
 const foreign={kind:'foreign',key:{id:'outside'},values:{message:'foreign'}};
 const cases=[
+ {name:'permits an ordinary add inside selected partition key',immutable:false,support:false,vertices:[{...ref('selected'),values:{message:'selected'}}],edges:[],allowed:true},
+ {name:'permits an ordinary removal inside selected partition key',immutable:false,support:false,vertices:[],edges:[],removals:[ref('selected')],allowed:true},
+ {name:'refuses reverse witness from support into selected key',immutable:true,support:true,vertices:[vertex],edges:[{...connecting,from:ref('parent'),to:ref('selected')}],allowed:false},
+ {name:'refuses mutable own-kind support after an immutable foreign contract',immutable:false,support:true,foreign:true,foreignSupport:false,firstForeign:true,vertices:[vertex],edges:[connecting],allowed:false},
  {name:'refuses foreign vertex outside partition without support declaration',immutable:true,support:true,foreign:true,foreignSupport:false,vertices:[foreign],edges:[],allowed:false},
  {name:'permits declared foreign support',immutable:true,support:true,foreign:true,foreignSupport:true,vertices:[foreign],edges:[],allowed:true},
  {name:'refuses foreign witness instead of selected source',immutable:true,support:true,foreign:true,foreignSupport:true,vertices:[vertex],edges:[{kind:'foreign-parent',from:{kind:'foreign',key:{id:'witness'}},to:ref('parent')}],allowed:false},
@@ -37,6 +41,7 @@ for(const scenario of cases)test(scenario.name,async()=>{
   const labels={en:{out:'parent',in:'child'},ru:{out:'parent',in:'child'}};
   const outputs={vertices:[{kind:'code.commit',key:['hash'],fields,evidence:{immutable:true,digestField:'hash'}}],edges:[{kind:'code.parent',from:'code.commit',to:'code.commit',cardinality:{from:'many',to:'many'},labels}]};
   if('foreign' in scenario){outputs.vertices.push({kind:'foreign',key:['id'],fields:[{name:'id',type:'text',meaning:'id',example:'outside',required:true},{name:'message',type:'text',meaning:'message',example:'foreign',required:true}],evidence:{immutable:true,digestField:'id'}});outputs.edges.push({kind:'foreign-parent',from:'foreign',to:'code.commit',cardinality:{from:'many',to:'many'},labels});}
+  if('firstForeign' in scenario)outputs.vertices.reverse();
   writeFileSync(join(plugin,'plugin.json'),JSON.stringify({name:'history',version:'1.0.0',entry:'main.ts',runtime:{name:'bun',version:Bun.version},produces:[...('foreign' in scenario?[{kind:'foreign',fields:'*',reads:[]}]:[]),{kind:'code.commit',fields:'*',reads:[],partition:'key',...(scenario.support?{support:{vertices:['code.commit',...('foreignSupport' in scenario&&scenario.foreignSupport?['foreign']:[])],edges:('foreignSupport' in scenario&&scenario.foreignSupport?['foreign-parent']:[])}}:{})}]}));
   writeFileSync(join(plugin,'contract.json'),JSON.stringify({id:'history',version:'1.0.0',outputs,rights:{network:'none',graph:true,graphReads:['files','value','ownFacts']}}));
   const operation={vertices:scenario.vertices,edges:scenario.edges,...('removals' in scenario?{removals:scenario.removals}:{})};
@@ -47,13 +52,13 @@ for(const scenario of cases)test(scenario.name,async()=>{
   const read=readKinds(root);if(!read.present)throw new Error(`${root}/madarch/catalog.yaml:1: manifest missing`);
   if(read.manifest.findings.length)throw new Error(JSON.stringify(read.manifest.findings));
   if(!scenario.immutable){
-   const output=read.manifest.plugins!.get('history')!.contract!.vertices[0]!;
+   const output=read.manifest.plugins!.get('history')!.contract!.vertices.find(vertex=>vertex.kind==='code.commit')!;
    delete (output as {evidence?:unknown}).evidence;
   }
   let admitted=0;
   const run=runPluginTurn({productFolder:root,manifest:read.manifest,locks:new Map([['history',{id:'history',path:'plugins/history',version:'1.0.0',closure,line:1}]]),owner,snapshots:{pins:async()=>[],open:async()=>{throw new Error('no repository access expected');}},contract:graphContractOf(read.manifest),releaseHashes:[closure],sourceUid:'fixture',executeOperation:async(_unit,key)=>{if(key==='facts')admitted++;return {} as never;}},'history:code.commit',()=>{},undefined,undefined,{files:async()=>[],value:async()=>undefined},undefined,{keys:[{hash:'selected'}]});
   if(scenario.allowed){await run;expect(admitted).toBe(1);}
-  else{await expect(run).rejects.toThrow('foreignSupport' in scenario&&!scenario.foreignSupport?/plugins\/history\/plugin.json:\d+: vertices\[0\]\.kind: vertices\[0\]\.kind: the plugin declares no vertex kind "foreign"; it declares code\.commit/:/plugins\/history\/plugin.json:\d+: operation writes outside selected partition keys/);expect(admitted).toBe(0);}
+  else{await expect(run).rejects.toThrow('foreignSupport' in scenario&&!scenario.foreignSupport&&scenario.vertices.some(vertex=>vertex.kind==='foreign')?/plugins\/history\/plugin.json:\d+: vertices\[0\]\.kind: vertices\[0\]\.kind: the plugin declares no vertex kind "foreign"; it declares code\.commit/:/plugins\/history\/plugin.json:\d+: operation writes outside selected partition keys/);expect(admitted).toBe(0);}
  }finally{await owner.close();rmSync(root,{recursive:true,force:true});}
 },20_000);
 
