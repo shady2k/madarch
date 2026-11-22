@@ -528,8 +528,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       };
       const edges = facts.edges.filter((edge) => ownsEdge(edge) && inScope(reconciliationEndpoint(unit.kind.name, edge.from, edge.to), edge.evidence));
       const supportKeys = new Set<string>();
-      if (support.ownKindSupport && partitionKeys !== undefined) for (const edge of edges) {
-        if (edge.from.kind === unit.kind.name && edge.to.kind === unit.kind.name && partitionKeys.has(canonicalKey(edge.from.key))) supportKeys.add(canonicalEntity(edge.to));
+      if (support.ownKindSupport && partitionKeys !== undefined) {
+        const selectedVertices = facts.vertices.filter(vertex => inScope(vertex, vertex.evidence));
+        for (const fact of [...selectedVertices, ...edges]) {
+          if (fact.evidence?.target.kind === unit.kind.name) supportKeys.add(canonicalEntity(fact.evidence.target));
+        }
+        for (const edge of edges) {
+          if (edge.from.kind === unit.kind.name && edge.to.kind === unit.kind.name && partitionKeys.has(canonicalKey(edge.from.key))) supportKeys.add(canonicalEntity(edge.to));
+        }
       }
       const scoped = {
         vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence, vertex.kind === unit.kind.name && supportKeys.has(canonicalEntity(vertex)))),

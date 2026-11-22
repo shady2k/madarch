@@ -83,6 +83,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const scoped = held.filter(item => inScope(item));
     const supportIds = new Set<number>();
     if (scope?.supportKeys === true && keys !== undefined) for (const item of scoped) {
+      if (item.link?.kind === scope.kind) supportIds.add(Number(item.link.id));
       if (item.sort !== 'edge') continue;
       const from = byEnd.get(Number(item.row.from_node))!;
       const to = byEnd.get(Number(item.row.to_node))!;
