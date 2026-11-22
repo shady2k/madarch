@@ -1,4 +1,22 @@
 import {expect,test} from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { stringify } from 'yaml';
+import { makeProduct } from './knowledge-fixture.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { closureOf } from '../src/plugin/closure.js';
+import { createStagesFill } from '../src/product/fill-stages.js';
+import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
+import { createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, planRun, schedulerPass, startRun, stopHeartbeat, workOnce } from '../src/fill/orchestrator.js';
+import { readKindAssertions } from '../src/graph/records.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
+
 import type {KeyValues} from 'madarch-plugin-sdk';
 import {partitioned as disk} from '../plugins/disk/partition.js';
 import {partitioned as git} from '../plugins/git/partition.js';
@@ -81,4 +99,123 @@ for(const [name,partitioned] of [['disk',disk],['git',git]] as const){
   expect(actual).toEqual(greedy(vertices,sizeOf));
   expect(actual.find(group=>group.some(key=>key.path==='k10'))).toEqual([{path:'k10'}]);
  });
+
+ const commit=(hash:string)=>({kind:'code.commit',key:{hash}});
+ const commitUnit={...unit,kind:'code.commit',unitId:'commits'};
+ const commitFixture=(cycle:boolean)=>({
+  end:{state:'complete' as const},
+  vertices:['10','30','20','40'].map(hash=>({...commit(hash),values:{message:hash.repeat(170000)}})),
+  edges:[{kind:'code.parent',from:commit('20'),to:commit('30')},{kind:'code.parent',from:commit('30'),to:commit('10')},...(cycle?[{kind:'code.parent',from:commit('10'),to:commit('20')}]:[])],
+ });
+ for(const cycle of [false,true]) test(`${name} closes every hash-ordered group over ${cycle?'the G0-G1 cycle':'a non-hash-ordered ancestry chain'}`,async()=>{
+  const output=partitioned(async()=>commitFixture(cycle));
+  const groups:KeyValues[][]=[];
+  let cursor:string|undefined;
+  do{
+   const page=await output.planOutput(commitUnit,context,cursor);
+   groups.push(...page.partitions.map(partition=>partition.keys));
+   cursor=page.next;
+  }while(cursor!==undefined);
+  expect(groups.length).toBeGreaterThanOrEqual(2);
+  for(const keys of groups){
+   const selected=await output.extract({...commitUnit,inputs:{keys}},context);
+   const present=new Set(selected.vertices?.filter(vertex=>vertex.kind==='code.commit').map(vertex=>JSON.stringify(vertex.key)));
+   for(const edge of selected.edges??[])for(const endpoint of [edge.from,edge.to]){
+    if(endpoint.kind==='code.commit')expect(present.has(JSON.stringify(endpoint.key))).toBe(true);
+   }
+  }
+ });
+
+ test(`${name} fills the same commits across changed group boundaries without retractions or disputes`,async()=>{
+  const root=mkdtempSync(join(tmpdir(),'madarch-commit-regroup-'));
+  const owner=await createTestDatabaseOwner({btreeGist:true});
+  const gitCommand=(folder:string,...args:string[])=>execFileSync('git',['-C',folder,...args],{stdio:'pipe'});
+  try{
+   const repo=join(root,'repo');mkdirSync(repo);
+   writeFileSync(join(repo,'source.txt'),'source');
+   gitCommand(repo,'init','-q','-b','main');gitCommand(repo,'add','-A');
+   gitCommand(repo,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm','source');
+   const home=join(root,'home');mkdirSync(home);
+   const product=makeProduct(home,'regroup',repo,'repo');seedStarterSet(product);
+   const plugin=join(product,'plugins/git');mkdirSync(plugin,{recursive:true});
+   const field=(name:string)=>({name,type:'text',meaning:name,example:name,required:true});
+   const outputs={vertices:[{kind:'code.commit',key:['hash'],fields:['hash','message'].map(field),evidence:{immutable:true,digestField:'hash'}}],edges:[{kind:'code.parent',from:'code.commit',to:'code.commit',cardinality:{from:'many',to:'many'},labels:{en:{out:'parent',in:'child'},ru:{out:'parent',in:'child'}}}]};
+   writeFileSync(join(plugin,'plugin.json'),JSON.stringify({name:'git',version:'1.0.0',entry:'main.ts',concurrency:2,runtime:{name:'bun',version:Bun.version},produces:[{kind:'code.commit',fields:'*',reads:[],partition:'key',support:{vertices:['code.commit'],edges:[]}}]}));
+   writeFileSync(join(plugin,'contract.json'),JSON.stringify({id:'git',version:'1.0.0',outputs,rights:{network:'none',graph:true,graphReads:['files','value','ownFacts']}}));
+   copyFileSync(join(import.meta.dir,`../plugins/${name}/partition.ts`),join(plugin,'partition.ts'));
+   writeFileSync(join(plugin,'main.ts'),`import {definePlugin} from 'madarch-plugin-sdk';
+import {partitioned} from './partition.ts';
+import {single} from './scenario.js';
+const output=partitioned(async()=>(${JSON.stringify(commitFixture(true))}));
+await definePlugin({name:'git',version:'1.0.0',contract:${JSON.stringify(outputs)},
+async planOutput(unit,context,cursor){const page=await output.planOutput(unit,context,cursor);return {...page,partitions:single?page.partitions.flatMap(part=>part.keys.map(key=>({keys:[key]}))):page.partitions};},
+// Repeat full facts intentionally: support permission requires its connecting edge in the same operation.
+async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000));const result=await output.extract(unit,context);await context.facts.apply('partition',{vertices:result.vertices,edges:result.edges});return {end:result.end};}});`);
+   writeFolderManifest(product,stringify({language:'en',kinds:{'code.commit':{source:'graph',key:['hash'],fields:['hash','message'].map(name=>({name,type:'text'})),evidence:{immutable:true,digestField:'hash'}}},edges:[{name:'code.parent',from:['code.commit'],to:['code.commit'],cardinality:{from:{min:0,max:null},to:{min:0,max:null}},labels:outputs.edges[0]!.labels}],plugins:[{id:'git',version:1,path:'plugins/git',inputs:[],outputs:['code.commit'],closure:['plugins/git/plugin.json','plugins/git/contract.json','plugins/git/main.ts','plugins/git/partition.ts','plugins/git/scenario.js']}]}));
+   for(const single of [false,true]){
+    writeFileSync(join(plugin,'scenario.js'),`export const single=${single};`);
+    const closure=closureOf(plugin).hash;
+    writeFileSync(join(product,'madarch/plugins.lock'),stringify({plugins:[{id:'git',path:'plugins/git',version:'1.0.0',closure}]}));
+    gitCommand(product,'add','-A');gitCommand(product,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm',`groups-${single}`);
+    const active=new Set<string>();let peak=0;
+    const runId=`groups-${single}`;
+    const fill=await createStagesFill({product,database:owner,runId,store:home,releaseHashes:[closure],targets:{kinds:['code.commit']},prepareContract:async contract=>{await prepareTestStore(owner,{contract});}});
+    const queue=await createPgBossQueue({owner,supervise:false});
+    const queueName='fill-units';
+    await queue.declare({name:queueName,leaseSeconds:DEFAULT_ORCHESTRATOR_LIMITS.attemptSeconds,heartbeatSeconds:DEFAULT_ORCHESTRATOR_LIMITS.heartbeatSeconds,retries:0,retryDelaySeconds:0,retryBackoff:false,singletons:true});
+    const wiring=fill.wiring;
+    const orchestrator=createOrchestrator({database:{transaction:owner.transaction.bind(owner),graphContract:wiring.graphContract},registry:fill.registry,queue,queueName,product:fill.product.name,
+     configuration:async()=>{const held=await wiring.configuration();if(held!==undefined&&!held.ok)return held;return {ok:true,file:held?.file??product,lines:held?.lines??{},stages:Object.fromEntries(fill.registry.all().map(stage=>[stage.id,{...(held?.stages[stage.id] as Record<string,unknown>??{}),enabled:stage.id==='plugin-turns'}]))};},
+     snapshot:()=>wiring.snapshot(),graph:(ref,tx)=>wiring.graph(ref,tx),inputs:ref=>wiring.inputs(ref),operations:wiring.operations,limits:{retries:0}});
+    try{
+     const started=await startRun(orchestrator,{runId});
+     expect(started.ok).toBe(true);
+     const planned=await planRun(orchestrator,{runId});
+     if(planned.outcome==='refused')throw new Error(`${import.meta.path}: planning refused: ${JSON.stringify(planned)}`);
+     let state='running';
+     for(let pass=0;pass<30;pass++){
+      const scheduled=await schedulerPass(orchestrator,{runId});state=scheduled.run.state;
+      if(['succeeded','failed','blocked','cancelled'].includes(state))break;
+      // The production driver calls workers sequentially; this fixture drives two real workers concurrently.
+      const outcomes=await Promise.all([workOnce(orchestrator,{worker:'parallel-1'}),workOnce(orchestrator,{worker:'parallel-2'})]);
+      if(outcomes.some(outcome=>outcome.result!==undefined&&['failed','retried','refused'].includes(outcome.result)))throw new Error(`${import.meta.path}: parallel fill failed: ${JSON.stringify(outcomes)}`);
+      if(!scheduled.moved&&outcomes.every(outcome=>!outcome.claimed))throw new Error(`${import.meta.path}: parallel fill stalled: ${JSON.stringify(scheduled)}`);
+     }
+     if(state!=='succeeded')throw new Error(`${import.meta.path}: parallel fill did not succeed: ${JSON.stringify({state,progress:await readProgress(owner,runId)})}`);
+     expect(state).toBe('succeeded');
+    }finally{stopHeartbeat(orchestrator);await queue.stop();}
+    for(const event of await readProgress(owner,`groups-${single}`)){
+     if(!event.unitId.includes('git:code.commit#'))continue;
+     if(event.kind==='unit-started')active.add(event.unitId);
+     if(event.kind==='unit-published'||event.kind==='unit-failed')active.delete(event.unitId);
+     peak=Math.max(peak,active.size);
+    }
+    console.info(JSON.stringify({helper:name,runId,peak}));
+    expect(peak).toBeGreaterThanOrEqual(2);
+    await assertOpinions(runId);
+   }
+   async function assertOpinions(runId:string){
+   const contract=await readPinnedGraphContract(product);
+   await owner.transaction('snapshot',async tx=>{
+    const commits=await readKindAssertions(tx,'vertex','code.commit',['message'],{contract});
+    expect(commits.map(row=>row.key['hash']).sort()).toEqual(['10','20','30','40']);
+    const sources=await readKindAssertions(tx,'vertex','plugin',['installation'],{contract});
+    const gitSources=sources.filter(source=>source.values['installation']===JSON.stringify(['system-engine','git']));
+    expect(gitSources).toHaveLength(1);
+    const gitSource=gitSources[0]!.uid;
+    const assertions=await loadAssertions(tx,'vertex','code.commit',['$exists','hash','message']);
+    expect(assertions.length).toBeGreaterThan(0);
+    expect(assertions.filter(row=>row.operation==='retract')).toEqual([]);
+    for(const commit of commits)for(const property of ['$exists','hash','message']){
+     const open=assertions.filter(row=>row.subjectId===commit.id&&row.property===property&&row.validTo===null);
+     expect(open).toHaveLength(1);
+     expect(open[0]!.source).toBe(gitSource);
+     console.info(JSON.stringify({helper:name,runId,hash:commit.key['hash'],property,open:open.length,source:open[0]!.source,gitSource}));
+    }
+    const questions=await readKindAssertions(tx,'vertex','system.dispute-question',['state'],{contract});
+    expect(questions).toEqual([]);
+   });
+   }
+  }finally{await owner.close();rmSync(root,{recursive:true,force:true});}
+ },120_000);
 }
