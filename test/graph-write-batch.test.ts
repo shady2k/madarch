@@ -49,9 +49,13 @@ test('ALX-117: 10 and 100 evidenced files have constant publication statements, 
  // edge insert/read (2), endpoint activity (1), scope (1), streams (1), immutable
  // values/content (1), assertion CTE (1), seven typed value tables (7), repeat
  // lineage (1), evidence/mentions insert (1). Total 21; no array slicing allowance.
+ // ALX-117 holds that the count is independent of the file count (10 and 100 agree) and
+ // that a repeat adds no statements beyond the first publication. That the assertion-insert
+ // CTE is skipped entirely on empty fresh rows is checked by test/empty-publication-phases.test.ts.
  expect(ten.first).toBeLessThanOrEqual(21);
  expect(hundred.first).toBe(ten.first);
- expect(hundred.repeat).toBe(hundred.first);
+ expect(hundred.repeat).toBe(ten.repeat);
+ expect(hundred.repeat).toBeLessThanOrEqual(hundred.first);
  expect(hundred.added).toBe(0);
 },120000);
 
@@ -108,7 +112,10 @@ async function measureStore(size:number,scoped:boolean){
 for(const scoped of [false,true])test(`ALX-142: store reads stay equal for 50 and 500 files, scoped=${scoped}`,async()=>{
  const small=await measureStore(50,scoped),large=await measureStore(500,scoped);
  console.log('ALX-142 store counters',JSON.stringify({scoped,small,large}));
- expect(small.statements).toBeGreaterThanOrEqual(15);expect(large.statements).toBeGreaterThanOrEqual(15);
+ // Unscoped publication skips the scope phase (binding.scope===binding.productUid,
+ // src/graph/write.ts:478), so it costs 14 statements; a scoped publication costs one more.
+ if(scoped){const unscoped=await measureStore(50,false);console.log('ALX-142 unscoped baseline',JSON.stringify(unscoped));expect(unscoped.statements).toBeGreaterThanOrEqual(14);expect(small.statements).toBe(unscoped.statements+1);expect(large.statements).toBe(unscoped.statements+1);}
+ else {expect(small.statements).toBeGreaterThanOrEqual(14);expect(large.statements).toBeGreaterThanOrEqual(14);}
  // Ten fresh files: existence, path, text, size, parent and related edge.
  expect(small.inserted).toBe(60);expect(large.inserted).toBe(60);
  expect(large.statements).toBe(small.statements);expect(large.reads).toBe(small.reads);
