@@ -46,7 +46,7 @@ for (const bytes of [false, true]) test(`ALX1114 automatic reconciliation persis
         try {
           await owner.transaction('write', async tx => {
             await bindTestWriteCapability(tx, contract);
-            await applyPluginFacts(tx, contract, { vertices: (operation.vertices ?? []).map(vertex => ({ ...vertex, producer: 'reader', producerVersion: '1.0.0' })), edges: (operation.edges ?? []).map(edge => ({ ...edge, producer: 'reader', producerVersion: '1.0.0' })), removals: [] }, 1);
+            await applyPluginFacts(tx, contract, { vertices: (operation.vertices ?? []).map(({ kind, key, keyEdges, values }) => ({ kind, key, keyEdges, values, producer: 'reader', producerVersion: '1.0.0' })), edges: (operation.edges ?? []).map(({ kind, from, to, discriminator, values }) => ({ kind, from, to, discriminator, values, producer: 'reader', producerVersion: '1.0.0' })), removals: [] }, 1);
           });
           log.outcome = 'accepted';
           return { accepted: true };
