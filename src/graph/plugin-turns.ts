@@ -121,20 +121,29 @@ export async function graphFiles(owner: DatabaseOwner, contract: GraphContract):
     const files = await readKindAssertions(tx, 'vertex', fileRole.kind, fieldsOf(fileRole.kind, pathField), { contract });
     const repositories = await readKindAssertions(tx, 'vertex', repositoryRole.kind, fieldsOf(repositoryRole.kind, nameField), { contract });
     const links = await readKindAssertions(tx, 'edge', parent.kind, [], { contract });
-    const rows: GraphFileRow[] = [];
+    const linksByFile = new Map<number, import('./records.js').AssertionRecord[]>();
+    for (const edge of links) {
+      const fileId = parent.direction === 'from' ? edge.from : edge.to;
+      if (fileId === undefined) continue;
+      const held = linksByFile.get(fileId);
+      if (held === undefined) linksByFile.set(fileId, [edge]); else held.push(edge);
+    }
+    const repositoriesById = new Map(repositories.map(row => [row.id, row]));
+    const scalar = (row: import('./records.js').AssertionRecord, field: string): unknown => Object.hasOwn(row.key, field) ? row.key[field] : row.values[field];
+    const listed: { file: import('./records.js').AssertionRecord; path: string; name: string }[] = [];
     for (const file of files) {
-      const linksOfFile = links.filter(edge => (parent.direction === 'from' ? edge.from : edge.to) === file.id);
+      const linksOfFile = linksByFile.get(file.id) ?? [];
       if (linksOfFile.length === 0) continue;
       if (linksOfFile.length !== 1) throw new Error(`${manifest.file}:${parent.line}: file ${file.uid} has ambiguous repository membership`);
-      const repositoryId = parent.direction === 'from' ? linksOfFile[0]!.to : linksOfFile[0]!.from;
-      const repository = repositories.find(row => row.id === repositoryId);
+      const repositoryId = (parent.direction === 'from' ? linksOfFile[0]!.to : linksOfFile[0]!.from)!;
+      const repository = repositoriesById.get(repositoryId);
       if (repository === undefined) throw new Error(`${manifest.file}:${parent.line}: file ${file.uid} repository endpoint is not an active ${repositoryRole.kind}`);
-      const reference = await referenceOf(tx, contract, fileRole.kind, file.id);
-      const scalar = (row: import('./records.js').AssertionRecord, field: string): unknown => Object.hasOwn(row.key, field) ? row.key[field] : row.values[field];
       const path = scalar(file, pathField), name = scalar(repository, nameField);
       if (typeof path !== 'string' || typeof name !== 'string') throw new Error(`${manifest.file}:${fileRole.line}: file path and repository name bindings require text values`);
-      rows.push({ repository: name, path, keyEdges: sdkReference(reference).keyEdges ?? {} });
+      listed.push({ file, path, name });
     }
+    const references = await referencesOf(tx, contract, fileRole.kind, listed.map(entry => entry.file.id));
+    const rows: GraphFileRow[] = listed.map(entry => ({ repository: entry.name, path: entry.path, keyEdges: sdkReference(references.get(entry.file.id)!).keyEdges ?? {} }));
     return rows.sort((a,b)=>a.repository<b.repository?-1:a.repository>b.repository?1:a.path<b.path?-1:a.path>b.path?1:0);
   }));
 }
