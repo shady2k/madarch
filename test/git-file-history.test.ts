@@ -229,6 +229,7 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
     const listed = await new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, graphContract)
       .list('code.file', {limit:100});
     expect(listed.rows.filter(row=>row.properties['repositoryName']==='fixture').map(row=>row.properties['path']).sort()).toEqual(['gone.txt','kept.txt']);
+    // fileFacts projects current tree paths; deleted paths retain the identities and periods asserted above.
     for (const path of current()) {
       const facts = await fileFacts(owner, 'fixture', path);
       expect(facts).toMatchObject({ commitCount: 2, authors: ['Author One', 'Author Two'] });
