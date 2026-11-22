@@ -17,6 +17,8 @@
     "test/architecture-read-judgements.test.ts": 1823,
     "test/architecture-schema-preparation.test.ts": 6900,
     "test/assertion-read-batch.test.ts": 4777,
+    "test/assertion-selection-equivalence.test.ts": 17896,
+    "test/assertion-selection-plan.test.ts": 16551,
     "test/assertion-selection.test.ts": 1372,
     "test/authored-http.test.ts": 52100,
     "test/authored-import.test.ts": 10407,
@@ -217,7 +219,9 @@
     "test/ordinary-plugin-partition.test.ts": 1994,
     "test/own-wiki-start.test.ts": 29500,
     "test/own-wiki.test.ts": 29900,
+    "test/owner-daemon-stop.test.ts": 84352,
     "test/owner-fill-path.test.ts": 24100,
+    "test/owner-stop.test.ts": 11280,
     "test/page-contract-command.test.ts": 7100,
     "test/page-contract.test.ts": 17200,
     "test/pinned-plugin-installations.test.ts": 4729,
@@ -252,6 +256,7 @@
     "test/plugin-retraction-identities.test.ts": 6007,
     "test/plugin-snapshot-time.test.ts": 4072,
     "test/plugin-source-binding.test.ts": 5031,
+    "test/plugin-turn-exclusions.test.ts": 11537,
     "test/plugin-turn-pattern.test.ts": 9600,
     "test/postgres-cleanup.test.ts": 3129,
     "test/postgres-cluster-owner.test.ts": 89800,
@@ -372,10 +377,6 @@
     "test/writer-journal.test.ts": 5800,
     "test/writer-russian.test.ts": 8400,
     "test/writer-set-based.test.ts": 4349,
-    "test/yaml-position.test.ts": 6700,
-    "test/owner-stop.test.ts": 11280,
-    "test/owner-daemon-stop.test.ts": 84352,
-    "test/assertion-selection-plan.test.ts": 16551,
-    "test/assertion-selection-equivalence.test.ts": 17896
+    "test/yaml-position.test.ts": 6700
   }
 }

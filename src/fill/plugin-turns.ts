@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
-import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
+import { fileTextKind, kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
 import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome, sdkReference } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
@@ -172,6 +172,29 @@ function outputKindsOf(manifest: KindsManifest, plugin: PluginDecl): KindDecl[] 
   const rank = new Map(kindsInDependencyOrder(manifest).map((name, at) => [name, at] as const));
   return [...manifest.kinds.values()].filter((kind) => fills(plugin, kind))
     .sort((left, right) => (rank.get(left.name) ?? 0) - (rank.get(right.name) ?? 0) || byCodePoint(left.name, right.name));
+}
+
+/**
+ * The paths a unit's answer leaves out: the ones its own kind declares, and the ones the kinds its edges end at declare.
+ * A path the product excludes has no vertex, because no producer publishes it (madarch-64o5.83), so an edge that names
+ * one is a reference the publication cannot answer: the unit that writes the edge has to know the exclusions of the
+ * kind at its end (madarch-64o5.74). Only a path places an endpoint's entities, which its key says by naming the role
+ * the catalogue calls a file's path; an exclusion a kind keyed otherwise declares names no path of these edges.
+ */
+function exclusionsOf(unit: KindDecl, edgeOutputs: readonly { readonly from: string; readonly to: string }[], manifest: KindsManifest): readonly string[] | undefined {
+  const pathRole = fileTextKind(manifest)?.fileText?.['path'];
+  const patterns: string[] = [];
+  const add = (decl: KindDecl | undefined): void => {
+    for (const pattern of decl?.exclude ?? []) if (!patterns.includes(pattern)) patterns.push(pattern);
+  };
+  add(unit);
+  for (const edge of edgeOutputs) for (const end of new Set([edge.from, edge.to])) {
+    if (end === unit.name) continue;
+    const kind = manifest.kinds.get(end);
+    if (kind === undefined || pathRole === undefined || kind.key?.includes(pathRole) !== true) continue;
+    add(kind);
+  }
+  return patterns.length === 0 ? undefined : patterns;
 }
 
 /** One unit's id: its plugin and its kind, so a worker of any process derives it again. */
@@ -444,6 +467,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
     return fromKinds.flatMap((from) => toKinds.filter((to) => support.edges.has(edge.kind) || edgeOwner(from, to) === unit.kind.name)
       .map((to) => ({ kind: edge.kind, from, to })));
   });
+  const exclude = exclusionsOf(unit.kind, edgeOutputs, wiring.manifest);
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
     edgeOutputs.some((held) => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
   const unitEdges = new Set(edgeOutputs.map((edge) => edge.kind));
@@ -600,7 +624,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : catalogueAgent
         ? agentTaskOf(unit.kind, outputs)
         : { contract: outputs, kinds: [unit.kind], kind: unit.kind, files: [] };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(exclude === undefined ? {} : { exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();
