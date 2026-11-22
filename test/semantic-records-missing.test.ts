@@ -1,8 +1,16 @@
 import {expect,test} from 'bun:test';
 import type {DatabaseOwner} from '../src/adapters/database-owner.js';
+import {assertionValueTableName} from '../src/graph/contract.js';
 import type {SqlExecutor} from '../src/sql-driver.js';
 import {commitFacts,fileFacts,listFiles,repositoryFacts} from '../src/graph/records.js';
 import {repositoryManifest} from './repository-contract-fixture.js';
+
+// The published manifest is also a typed assertion read. It is recognised by the frame
+// assertionSelectionSql gives it, its typed attachment table, and the generated value table of
+// manifest.catalogue.declaration (decision 0039, item 25); no alias or join order is part of it.
+const typedManifestRead=(sql:string):boolean=>
+ sql.includes('WITH RECURSIVE context_path')&&sql.includes('assertion_vertex_subject')&&
+ sql.includes(`"${assertionValueTableName('manifest.catalogue','vertex','declaration')}"`);
 
 function encode(value:unknown):unknown {
  if(value instanceof Map)return {$map:[...value].map(([key,held])=>[key,encode(held)])};
@@ -24,7 +32,7 @@ function missingParentOwner(role:'repository'|'commit'):DatabaseOwner {
   if(sql==='SELECT transaction_timestamp() AS now')return {rows:[{now}]};
   if(parameters?.[0]!=='manifest.catalogue')return {rows:[]};
   if(sql.includes('FROM node n'))return {rows:[{request_index:0,id:1,uid,key:{name:'product'},read_at:now}]};
-  if(sql.includes('FROM assertion a'))return {rows:[['$exists',true],['declaration',declaration]].map(([property,value],index)=>({
+  if(typedManifestRead(sql))return {rows:[['$exists',true],['declaration',declaration]].map(([property,value],index)=>({
    request_index:0,id:`00000000-0000-4000-8000-${String(index+2).padStart(12,'0')}`,
    subject_id:1,subject_uid:uid,property,value,value_type:typeof value==='boolean'?'boolean':'text',
    context_id:1,language:null,source:uid,author:uid,unit:null,operation_uid:uid,evidence:[],
