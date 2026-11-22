@@ -24,3 +24,5 @@ labels:
 description:
   en: A context map places the bounded contexts of a domain side by side and draws the relationships between them, as domain-driven design recommends. It shows where the model changes meaning and which teams must agree.
   ru: Карта контекстов располагает ограниченные контексты предметной области рядом и показывает связи между ними, как советует предметно-ориентированное проектирование. По ней видно, где модель меняет смысл и каким командам нужно договариваться.
+derives-from:
+- bounded-context

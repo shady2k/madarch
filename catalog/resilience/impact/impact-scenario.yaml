@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An impact scenario follows one outage through time: what fails first, what the effect is after an hour, a day or a week, and when the loss becomes unacceptable. It turns a vague worry into a threshold the plan can aim at.'
   ru: 'Сценарий последствий прослеживает один простой во времени: что отказывает первым, каков эффект через час, день или неделю и когда ущерб становится недопустимым. Он превращает смутную тревогу в порог, на который может ориентироваться план.'
+derives-from:
+- business-impact-analysis

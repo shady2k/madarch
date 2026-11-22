@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A test procedure sets the sequence of test cases and the preparation they need: which environment, which data, which steps before the first case. It makes a run repeatable by the same person or another.'
   ru: 'Процедура тестирования задаёт порядок тестов и подготовку к ним: какая среда, какие данные, какие шаги до первого теста. Она делает запуск повторимым тем же человеком или другим.'
+derives-from:
+- test-suite

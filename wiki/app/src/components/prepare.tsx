@@ -20,7 +20,7 @@ import { ChoiceMenu } from './ui/choice-menu.js';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 
 import { Skeleton } from './ui/skeleton.js';
-import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
+import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, STACK_LAYOUT, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
 import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
@@ -178,7 +178,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
     ? t('prepare.estimate', { minutes, tokens: new Intl.NumberFormat(language).format(spendCap) })
     : t('prepare.estimateTime', { minutes });
   return (
-    <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
+    <Stack layout={STACK_LAYOUT.reading} className="grid gap-5" data-testid="prepare-panel">
       {wizard && !inline ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro')}</AlertDescription></Alert> : null}
       {isolation !== null && !isolation.capable ? (
         unconfined === null ? (
@@ -246,8 +246,8 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
               return (
                 <ListItem key={kind} className="border-b border-line py-2 last:border-b-0" data-testid="prepare-kind">
                   <Stack className="flex flex-wrap items-baseline gap-x-2">
-                    <Text className="font-medium">{at + 1}. {labelOf(navigation, kind)}</Text>
-                    {needed === undefined ? null : <Text className="text-small text-muted">· {t('prepare.neededFor', { kind: labelOf(navigation, needed) })}</Text>}
+                    <Text className="font-medium">{at + 1}{t('common.numberSuffix')}{labelOf(navigation, kind)}</Text>
+                    {needed === undefined ? null : <Text className="text-small text-muted">{t('common.separator').trimStart()}{t('prepare.neededFor', { kind: labelOf(navigation, needed) })}</Text>}
                   </Stack>
                   {filled.plugins.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-plugins">{t('prepare.pluginsLine')} <PluginNames names={filled.plugins} plan={plan} language={language} /></Paragraph>}
                   {filled.agent.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-agent-fields">{t('prepare.agentLine', { fields: filled.agent.map((field) => fieldLabel(plan, kind, field, language)).join(', ') })}</Paragraph>}
@@ -262,7 +262,14 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
               <PlainList className="m-0 list-none p-0">
                 {skipped.map((entry) => (
                   <ListItem key={`${entry.kind}:${entry.fields.join(',')}`} className="text-small text-muted">
-                    {labelOf(navigation, entry.kind)} · {entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason}
+                    <Text className="font-medium">{labelOf(navigation, entry.kind)}</Text>{t('common.separator')}
+                    {entry.applicability === undefined ? (entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason) : (
+                      <>
+                        <Text>{t(`applicability.state.${entry.applicability.state}`)}</Text>
+                        <Paragraph className="m-0">{t('applicability.reason', { reason: entry.applicability.reason })}</Paragraph>
+                        {entry.applicability.ancestor === undefined ? null : <Paragraph className="m-0">{t('applicability.ancestor', { kind: labelOf(navigation, entry.applicability.ancestor) })}</Paragraph>}
+                      </>
+                    )}
                   </ListItem>
                 ))}
               </PlainList>

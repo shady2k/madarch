@@ -114,10 +114,10 @@ export async function entityCommand(args: readonly string[], options: {
         const field = schema.fields.find((held) => held.name === name);
         if (field === undefined) throw new Error(`field ${JSON.stringify(name)}: not declared by this kind`);
         if (field.type !== 'text' && field.nullable === true && raw === 'null') values[name] = null;
-        else if (field.reference === undefined && ['text', 'timestamp', 'bigint'].includes(field.type)) values[name] = raw;
+        else if (['text', 'timestamp', 'bigint'].includes(field.type)) values[name] = raw;
         else {
           try { values[name] = JSON.parse(raw); }
-          catch { throw new Error(`field ${JSON.stringify(name)}: expected ${field.reference === undefined ? field.type : `a reference to ${field.reference}`}`); }
+          catch { throw new Error(`field ${JSON.stringify(name)}: expected ${field.type}`); }
         }
       }
     }

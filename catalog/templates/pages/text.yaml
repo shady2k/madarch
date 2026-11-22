@@ -3,7 +3,7 @@
 # `body` section's query.
 template: text
 extends: entity
-records: [practice.admin-guide, practice.user-guide, practice.bug, practice.business-rule, practice.comment, practice.constitution, practice.correction, practice.decision, practice.enrichment, practice.epic, practice.feature, practice.glossary-term, practice.milestone, practice.product, practice.product-task, practice.question, practice.stage, practice.use-case, iso29148.requirement, backstage.domain]
+records: [comment, constitution, page.template]
 sections:
   - id: body
     component: text

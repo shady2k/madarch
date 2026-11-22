@@ -12,8 +12,10 @@ relation-constraints:
   out:
   - hasPart
   - hasMember
+  - organization.contains
   in:
   - memberOf
+  - organization.contains
 template-policy: none
 labels:
   en:
@@ -25,3 +27,5 @@ labels:
 description:
   en: An organisation is a group of people working towards a common purpose under a name, with its units, roles and members. A company, a public body or a non-profit is an organisation, as W3C ORG defines it.
   ru: Организация — объединение людей с общей целью и названием, у которого есть подразделения, роли и участники. Компания, государственный орган или некоммерческое объединение — всё это организации, как определяет W3C ORG.
+derives-from:
+- system.product

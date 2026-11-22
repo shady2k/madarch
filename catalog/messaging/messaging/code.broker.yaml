@@ -17,6 +17,32 @@ details:
 - technology
 - source
 - addresses
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: technology
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: addresses
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.service
+- product-profile
 labels:
   en:
     one: Message broker
@@ -27,3 +53,10 @@ labels:
 description:
   en: 'A message broker receives messages from sending programs and delivers each one to the programs that asked for its topic or queue. It decouples the two sides: a sender does not need to know who reads a message or whether that reader is running at the moment.'
   ru: 'Брокер сообщений принимает сообщения от отправляющих программ и доставляет каждое тем программам, которые подписались на соответствующую тему или очередь. Он развязывает две стороны: отправителю не нужно знать, кто прочитает сообщение и работает ли этот получатель прямо сейчас.'
+applicability:
+  dependencies: []
+  markers:
+  - '**/rabbitmq.conf'
+  - '**/kafka.properties'
+  - '**/server.properties'
+  profile: messaging

@@ -24,3 +24,5 @@ labels:
 description:
   en: A subcontractor does part of a supplier's work, for example hosting or support, so the product depends on it as well. The product should know who they are, because their failures and their security become the product's risk.
   ru: Субподрядчик выполняет часть работы поставщика, например размещение или поддержку, и потому продукт зависит и от него. Продукту важно знать, кто это, ведь их сбои и их безопасность становятся его риском.
+derives-from:
+- supplier

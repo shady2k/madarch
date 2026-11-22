@@ -9,6 +9,7 @@ import { lstatSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:
 import { join, resolve, sep } from 'node:path';
 import { renderCorrection, renderQuestion } from '../loop/entities.js';
 import { graphQuestions, graphCorrections, type LoopGraph } from '../loop/graph.js';
+import { semanticBinding } from './semantic-bindings.js';
 import { graphKnowledgePages } from './index/index.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { byCodePoint } from '../model/order.js';
@@ -80,8 +81,10 @@ export async function planReset(productFolder: string, storeFolder: string, grap
   const files = new Map<string, string>(); const edits = new Map<string, string>(); const removed = new Set<string>();
   const { pages, findings } = await graphKnowledgePages(graph, manifest);
   if (findings.length) throw failure(productFolder, findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+  // Every page opinion the graph holds is a page of the product: the kinds that can hold one are the kinds that declare a
+  // body, which is how the page reader found them. The engine names no kind (madarch-64o5.109: the product's Markdown
+  // page kinds are gone, and a product that declares one still resets it).
   for (const page of pages) {
-    if (page.kind !== 'product' && page.kind !== 'domain') continue;
     const relative = page.file;
     const path = join(productFolder, relative);
     files.set(relative, fingerprint(productFolder, path));
@@ -89,8 +92,8 @@ export async function planReset(productFolder: string, storeFolder: string, grap
       plan.agentPages.push(relative); removed.add(page.id);
     } else plan.keptPages.push(relative);
   }
-  const questions = await graphQuestions(graph);
-  const corrections = await graphCorrections(graph);
+  const questions = await graphQuestions(graph, manifest);
+  const corrections = await graphCorrections(graph, manifest);
   for (const item of [...questions, ...corrections]) {
     const relative = item.file;
     const path = join(productFolder, relative);
@@ -104,8 +107,8 @@ export async function planReset(productFolder: string, storeFolder: string, grap
     if (remaining.length !== item.resolvedBy.length) {
       const updated = { ...item, resolvedBy: remaining, resolvedAt: remaining.length === 0 ? null : item.resolvedAt };
       edits.set(relative, question
-        ? renderQuestion(updated as typeof questions[number])
-        : renderCorrection({ ...updated, status: 'open' } as typeof corrections[number]));
+        ? renderQuestion(updated as typeof questions[number], { kind: semanticBinding(manifest, 'question').kind, id: item.id })
+        : renderCorrection({ ...updated, status: 'open' } as typeof corrections[number], { kind: semanticBinding(manifest, 'correction').kind, id: item.id }));
     }
   }
   for (const paths of [plan.agentPages, plan.keptPages, plan.unansweredQuestions, plan.keptAnswers]) paths.sort(byCodePoint);

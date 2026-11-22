@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An integration is the working connection between the product and another system: which protocol is used, which address, which credentials and which data crosses. It is the concrete arrangement behind an external interface.'
   ru: 'Интеграция — работающее соединение продукта с другой системой: какой протокол, какой адрес, какие учётные данные и какие данные через него идут. Это конкретное устройство за внешним интерфейсом.'
+derives-from:
+- code.service
+- external-interface

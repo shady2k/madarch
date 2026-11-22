@@ -26,3 +26,6 @@ labels:
 description:
   en: A goal states a state the organisation wants to be in, such as lower cost per order or coverage of a new country, without saying how to reach it. Objectives break it into measurable steps, and a course of action says what will be done.
   ru: 'Цель называет состояние, в котором организация хочет оказаться: ниже стоимость заказа или присутствие в новой стране, — и не говорит, как этого достичь. Задачи делят её на измеримые шаги, а курс действий говорит, что будет делаться.'
+derives-from:
+- driver
+- vision

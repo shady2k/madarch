@@ -24,3 +24,6 @@ labels:
 description:
   en: An object store keeps files as objects, each reached by a key inside a bucket, and scales to a very large number of them. Objects are written and read whole, and the store usually keeps several copies for durability.
   ru: Объектное хранилище держит файлы как объекты, каждый из которых доступен по ключу внутри бакета, и выдерживает очень большое их число. Объекты записывают и читают целиком, а хранилище обычно держит несколько копий для сохранности.
+derives-from:
+- code.service
+- product-profile

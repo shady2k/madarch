@@ -13,6 +13,8 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
+import { parse, stringify } from 'yaml';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-catalog.ts');
 const MANIFEST = starterManifestText();
@@ -74,6 +76,7 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
     `  ${kind}:`,
     `    id: ${row.id}`,
     `    group: ${row.group}`,
+    '    purpose: understand',
     '    definition: "A kind the check is asked about."',
     '    sources: ["https://example.test/kind"]',
     `    acquisition: ${row.acquisition}`,
@@ -89,13 +92,25 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
   ].join('\n');
 }
 
+/** One edge kind's `labels` block removed, leaving the edge without words. */
+function edgeWithoutLabels(manifest: string, edge: string): string {
+  const fixture = parse(manifest);
+  const declaration = fixture.edges.find((row: { name: string }) => row.name === edge);
+  if (!declaration) throw new Error(`the starter set declares no edge ${edge}`);
+  delete declaration.labels;
+  return stringify(fixture, { lineWidth: 0 });
+}
+
 describe('the catalog check over the starter set', () => {
   test('the starter set `madarch init` writes passes, and the run names the counts it read', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    // 527 kinds and 84 with a page of their own: the page-template kind the decision of 2026-11-15 added to the catalogue.
-    expect(done.out).toContain('catalog: 28 areas, 107 subgroups, 527 kinds (84 with a page of their own or a member\'s row)');
+    expect(done.out).toContain(`catalog: 28 areas, 106 subgroups, ${CATALOG_KINDS.length} kinds (${CATALOG_KINDS.filter((kind) => kind.policy !== 'none').length} with a page of their own or a member's row)`);
+    expect(done.out).toContain('catalog: 5 edges waiting for a page kind');
+    for (const name of ['architecture.serves-domain', 'data-catalog.contains', 'organization.contains', 'software-system.contains', 'token-group.contains']) {
+      expect(done.out).toContain(`edge "${name}": waiting for a page kind`);
+    }
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 
@@ -109,15 +124,23 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
-    const manifest = editField(MANIFEST, 'code.service', 'definition', null);
+    const manifest = editField(appended(MANIFEST, 'probe.catalogue', { id: 'practice.probe-catalogue', group: 'code.schema', acquisition: '[conversation]' }), 'probe.catalogue', 'definition', null);
     const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
-    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "probe.catalogue": "definition" is one sentence saying what the kind is, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
-    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "probe.catalogue": "definition" is one sentence saying what the kind is, got undefined']);
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
-    expect(read.catalog!.kinds.has('code.service')).toBe(false);
-    expect(read.kinds.has('code.service')).toBe(false);
+    expect(read.catalog!.kinds.has('probe.catalogue')).toBe(false);
+    expect(read.kinds.has('probe.catalogue')).toBe(false);
     expect(read.catalog!.kinds.has('code.file')).toBe(true);
+  }, 30_000);
+
+  test('an edge kind without both languages of words is refused, naming the file, the line and the edge', () => {
+    const folder = product(edgeWithoutLabels(MANIFEST, 'domain.covers'));
+    const done = run(folder);
+    expect(done.code).toBe(1);
+    expect(done.err).toContain('edge "domain.covers": "labels" names the words the edge reads as at each end');
+    expect(done.err).toMatch(/madarch\/catalog\.yaml:\d+: edge "domain\.covers"/u);
   }, 30_000);
 
   test('a subgroup above its bound is refused, naming the subgroup and the kinds it holds', () => {

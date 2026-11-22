@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An indicator is a concrete sign that may mean an attack is present or was present: an address, a domain, a file hash, a command line. It is useful only with its context, because the same sign can be innocent.'
   ru: 'Индикатор — конкретный признак, который может означать, что атака идёт или шла: адрес, домен, хеш файла, командная строка. Он полезен только с контекстом, потому что тот же признак может быть безобидным.'
+derives-from:
+- threat-intelligence

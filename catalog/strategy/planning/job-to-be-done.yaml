@@ -24,3 +24,5 @@ labels:
 description:
   en: A job to be done describes what a person is trying to get done in their life or work — send money to a friend, prove a payment — and why, without naming a product feature. Products are chosen because they do that job better than the alternatives.
   ru: 'Работа, для которой берут продукт, описывает, что человек пытается сделать в своей жизни или работе: перевести деньги другу, подтвердить платёж, — и зачем, не называя функции продукта. Продукт выбирают потому, что он делает эту работу лучше других вариантов.'
+derives-from:
+- stakeholder

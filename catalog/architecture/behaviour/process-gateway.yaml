@@ -7,13 +7,41 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   in:
-  - partOf
-template-policy: none
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the process gives this branch point, such as Amount within the
+      limit.
+- name: type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Which kind of gateway it is: exclusive, parallel, inclusive or event-based,
+      as the process states it.'
+- name: condition
+  type: text
+  nullable: true
+  binding:
+    agent: The condition that decides which way the process goes, where the gateway
+      states one.
+key:
+- name
+member:
+  relation: partOf
+  direction: out
+  parentKind: business-process
 labels:
   en:
     one: Process gateway
@@ -24,3 +52,10 @@ labels:
 description:
   en: 'A process gateway is a decision point in a BPMN process: the flow either splits into paths chosen by conditions, or several paths meet and continue as one. It shows where the process can go differently.'
   ru: 'Шлюз процесса — точка решения в процессе BPMN: поток либо разделяется на пути по условиям, либо несколько путей сходятся и продолжаются одним. Он показывает, где процесс может пойти по-разному.'
+
+key-edges:
+- role: process-gateway-process
+  edge: process-gateway-process
+  side: from
+derives-from:
+- business-process

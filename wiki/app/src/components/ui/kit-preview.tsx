@@ -42,4 +42,3 @@ export function KitNarrow({ children, className }: { children: ReactNode; classN
 export function KitFigureState({ label, children }: { label: string; children: ReactNode }) {
   return <KitState label={label} className="w-full">{children}</KitState>;
 }
-

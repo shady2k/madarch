@@ -24,12 +24,18 @@ import { fillIsolation } from '../plugin/sandbox-probe.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
-import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
+import { failRequestedFill, readProgress, writeFillEnd } from '../graph/fill-orchestration.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
-import { advanceRun, createRun, readChain, readRun } from '../fill/state-store.js';
+import { advanceRun, createRun, readChain, readRun } from '../graph/fill-state.js';
 import { TERMINAL_RUN_STATES } from '../fill/orchestrator.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
+import { readPinnedGraphContract } from '../product/preparation-contract.js';
+import { withAssertionContract } from '../graph/system-contract.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
 import { readProduct } from '../product/manifest.js';
+
+/** A run that failed before its host began is ended where the run's end lives (`graph/fill-orchestration.ts`). */
+export { failRequestedFill };
 
 
 /**
@@ -38,16 +44,6 @@ import { readProduct } from '../product/manifest.js';
  * the chain has no transition from what the chain stands in — the same thing read one step later, which is how the
  * reader used to meet `fill-chain/no-transition`. A fill of this product runs one at a time (decision 0027).
  */
-/** Settle only a request that failed before its host began; never overwrite an existing active or terminal run. */
-export async function failRequestedFill(database: import('../fill/state-store.js').FillStateDatabase, runId: string, message: string): Promise<boolean> {
-  const run = await readRun(database, runId);
-  if (run?.state !== 'created') return false;
-  const failed = await advanceRun(database, { runId, expectedState: 'created', event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
-  if (!failed.ok) return false;
-  await writeFillEnd(database, { runId, state: 'failed', message });
-  return true;
-}
-
 const ALREADY_RUNNING = ['fill-orchestrator/chain-active', 'fill-orchestrator/chain-held'];
 
 /** Whether one refusal means a fill of this product is already running. */
@@ -96,7 +92,7 @@ export interface KnowledgeFillOptions {
    * item 12). `madarch --role fill` claims it before starting the run and settles it after; a run a person's own
    * process drives claims none.
    */
-  readonly claim?: import('../fill/orchestrator.js').RunClaim;
+  readonly claim?: { readonly queue: string; readonly job: NonNullable<Awaited<ReturnType<typeof import('../fill/run-jobs.js').claimFillRun>>> };
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
@@ -234,6 +230,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   withSpanSync('fs.mkdir', { 'file.path': options.storeFolder }, () => mkdirSync(options.storeFolder, { recursive: true }));
   const owner = options.database;
   await owner.ready;
+  const database:FillStateDatabase={transaction:owner.transaction.bind(owner),graphContract:withAssertionContract(await readPinnedGraphContract(options.productFolder))};
   let service: FillOrchestratorService | undefined;
   let recordEnd = true;
   /** When a reader was last told the run published, and the least time between two notices. */
@@ -301,7 +298,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         });
         if (!result.ok) {
           const message = await refusalWords(owner, options.productFolder, result);
-          await failRequestedFill(owner, options.runId, message);
+          await failRequestedFill(database, options.runId, message);
           recordEnd = false;
           return { ok: false, state: 'failed', refused: true, message, units: 0 };
         }
@@ -333,13 +330,13 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         const message = error instanceof Error ? error.message : String(error);
         if (await readRun(owner, options.runId) === null) {
           const identity = readProduct(options.productFolder);
-          await createRun(owner, { runId: options.runId, product: identity.ok ? identity.product.name : basename(options.productFolder), at: Date.now() });
-          const failed = await advanceRun(owner, { runId: options.runId, event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
+          await createRun(database, { runId: options.runId, product: identity.ok ? identity.product.name : basename(options.productFolder), at: Date.now() });
+          const failed = await advanceRun(database, { runId: options.runId, event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
           if (!failed.ok) throw new Error(failed.refusal.reason);
         } else if (service === undefined) {
           // A request is persisted before dispatch; an initialization failure must end that created row too.
           // Repeated requests for a run already begun must not replace its existing end.
-          await failRequestedFill(owner, options.runId, message);
+          await failRequestedFill(database, options.runId, message);
           recordEnd = false;
         }
         return { ok: false, state: 'failed', message, units: 0 };
@@ -357,7 +354,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     const done = (async (): Promise<KnowledgeFillResult> => {
       try {
         const answer = await fillTheStore();
-        if (recordEnd) await writeFillEnd(owner, {
+        if (recordEnd) await writeFillEnd(database, {
           runId: options.runId, state: answer.state,
           ...(answer.message === undefined ? {} : { message: answer.message }),
           ...(answer.unread === undefined ? {} : { unread: answer.unread }),

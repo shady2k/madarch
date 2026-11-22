@@ -12,11 +12,14 @@ import { join } from 'node:path';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { commitProduct, generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] === '1';
+
+/** A valid UUID no record of the fixture holds: `entity(id:)` answers it `null`, a key is another root (`entityByKey`). */
+const ABSENT_UID = '00000000-0000-4000-8000-00000000dead';
 
 let endOwner!: () => void;
 let ownerDone: Promise<void>;
@@ -105,7 +108,9 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // The wiki is open before the press, as a reader's browser has it: the graph answers, with nothing of the fill yet.
     expect((await fetch(`${base(api[0]!)}/api/status`)).status).toBe(200);
     expect((await graphql(api[0]!, '{ allCodeFile(first: 100) { totalCount } }')).status).toBe(200);
-    expect((await graphql(api[0]!, `{ entity(id: ${JSON.stringify(PAY)}) { id } }`)).status).toBe(200);
+    const absent = await graphql(api[0]!, `{ entity(id: "${ABSENT_UID}") { id } }`);
+    expect(absent.status).toBe(200);
+    expect(await absent.json()).toEqual({ data: { entity: null } });
     // The press goes to the first api instance; the fill is claimed by one of the two fill processes.
     const press = await fetch(`${base(api[0]!)}/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);

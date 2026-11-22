@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A pull-request review records what one or more reviewers thought of a proposed change: their comments on the code, their questions and the verdict to approve, request changes or comment. It is the conversation a change goes through before it is merged.'
   ru: 'Просмотр запроса на слияние фиксирует, что один или несколько проверяющих думают о предложенном изменении: замечания к коду, вопросы и решение одобрить, потребовать изменений или просто высказаться. Это разговор, через который проходит изменение до слияния.'
+derives-from:
+- pull-request
+- review-checklist

@@ -57,6 +57,9 @@ describe('a fill writes its trace beside the store', () => {
       expect(names.has('fill.run')).toBe(true);
       expect(names.has('fill.step')).toBe(true);
       expect(names.has('fill.unit')).toBe(true);
+      for (const unit of spans.filter(span => span.name === 'fill.unit')) {
+        expect(typeof unit.attributes['madarch.retriesLeft']).toBe('number');
+      }
       expect(names.has('attempt.execute')).toBe(true);
       expect(names.has('db.transaction')).toBe(true);
       expect(names.has('process.git')).toBe(true);

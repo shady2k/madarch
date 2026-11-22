@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An accountability is the part of the work that a role owns and answers for, such as the product owner''s care for the product''s value. The Scrum Guide names three on a Scrum team: the product owner, the developers and the scrum master.'
   ru: 'Ответственность — то, за что роль держит ответ: например, владелец продукта отвечает за ценность продукта. Scrum Guide называет три такие роли в команде Scrum: владелец продукта, разработчики и скрам-мастер.'
+derives-from:
+- role

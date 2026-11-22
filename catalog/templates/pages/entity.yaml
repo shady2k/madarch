@@ -35,19 +35,15 @@ sections:
         key
         value
         contested
-        opinions {
-          producer
-          version
-          statedAt
+        assertions {
+          id
+          source { id kind label }
+          author { id kind label }
+          recordedAt
+          validFrom
+          selected
           value
-          evidence {
-            type
-            repository
-            path
-            lineStart
-            lineEnd
-            url
-          }
+          evidence { target { id kind label } relation locator }
         }
       }
     params:

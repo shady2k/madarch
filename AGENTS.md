@@ -70,7 +70,11 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   the wiki app's `bunfig.toml` shares it, and CI snapshots the home and the
   temporary folder before and after the suites with
   `.shady2k/run-scratch-check.mjs`. A leftover run folder in the temp folder
-  therefore means a run was killed; the next run sweeps it.
+  therefore means a run was killed; the next run sweeps it. The run's PostgreSQL
+  server is non-durable (`fsync`, `full_page_writes` and `synchronous_commit`
+  off), because the checkpoint a `DROP DATABASE` forces is an `fsync` of every
+  dirty page — 1.2 s and 8.4 s per ALX-119 — and that server is deleted with the
+  scratch folder.
 - A test that names no bound of its own is meant to run under a ten-second
   default rather than Bun's five (madarch-tzte.36): `setDefaultTimeout` in
   `test/deadline.ts`, which both `bunfig.toml` files preload — not bunfig's

@@ -7,13 +7,40 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasPart
+  - defines
   in:
   - defines
-template-policy: none
+  - partOf
+  - constrains
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code or the document gives this machine, such as FillRun or Task life cycle; it is the machine's key.
+- name: lifecycle_of
+  type: text
+  nullable: true
+  binding:
+    agent: The name of the kind whose entities this machine gives the life cycle of, where the machine is a kind's workflow rather than one entity's states.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the machine holds and what it governs, in one or two sentences, from
+      the states and transitions it has in the graph.
+key:
+- name
+derives-from:
+- domain-entity
 labels:
   en:
     one: State machine

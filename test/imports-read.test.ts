@@ -108,7 +108,7 @@ describe('the imports reader', () => {
       { ecosystem: 'node', name: 'graphql' },
       { ecosystem: 'node', name: 'node:fs' },
     ]);
-    expect(read.packages.every((one) => one.evidence.repository === 'app' && one.evidence.commitOrDigest?.startsWith('blob-'))).toBe(true);
+    expect(read.packages.every((one) => one.evidence.target.key['name'] === 'app' && one.evidence.digest?.startsWith('blob-'))).toBe(true);
   });
 
   test('an unresolvable relative specifier is a problem with its place, and the other imports of the file are still read', async () => {

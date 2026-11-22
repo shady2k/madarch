@@ -24,3 +24,5 @@ labels:
 description:
   en: A troubleshooting guide starts from what a person sees — an error, a stalled screen, a wrong number — and leads to the cause and the fix. It is organised by symptom, because that is what the person has.
   ru: 'Руководство по устранению неполадок начинает с того, что человек видит: ошибку, зависший экран, неверное число, — и ведёт к причине и исправлению. Оно устроено по признакам, потому что у человека есть именно признак.'
+derives-from:
+- known-issue

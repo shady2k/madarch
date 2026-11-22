@@ -1,0 +1,2163 @@
+{
+  "temporal-withdrawal": {
+    "opened": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4262",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 3,
+          "operation": "assert",
+          "validFrom": "2021-01-01T00:00:00.000Z",
+          "validTo": "2022-01-01T00:00:00.000Z",
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    },
+    "withdrawn": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "DISMISSED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "DISMISSED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "DISMISSED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [],
+            "selectedAssertionUid": null
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4262",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 3,
+          "operation": "assert",
+          "validFrom": "2021-01-01T00:00:00.000Z",
+          "validTo": "2022-01-01T00:00:00.000Z",
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f426c",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4270",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "0001-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4271",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "DISMISSED",
+          "operation": "assert",
+          "validFrom": "2022-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4272",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "0001-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4273",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "DISMISSED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": "2021-01-01T00:00:00.000Z",
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4274",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "0001-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4275",
+          "source": "019a0000-0000-7000-8000-0000000f4263",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "DISMISSED",
+          "operation": "assert",
+          "validFrom": "2021-01-01T00:00:00.000Z",
+          "validTo": "2022-01-01T00:00:00.000Z",
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    }
+  },
+  "invalid-evidence": {
+    "resolved": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4271",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "justifies",
+            "from": "0a9bbaf1-ff17-588f-b117-9e8248b8856d",
+            "to": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4272",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4274",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4275",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4276",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4286",
+          "source": "019a0000-0000-7000-8000-0000000f427d",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    },
+    "reopened": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4271",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "justifies",
+            "from": "0a9bbaf1-ff17-588f-b117-9e8248b8856d",
+            "to": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4272",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4274",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4275",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4276",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4286",
+          "source": "019a0000-0000-7000-8000-0000000f427d",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4287",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "justifies",
+            "from": "0a9bbaf1-ff17-588f-b117-9e8248b8856d",
+            "to": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "$exists",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f428b",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f428c",
+          "source": "019a0000-0000-7000-8000-0000000f427d",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    },
+    "historical": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4272"
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4271",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "justifies",
+            "from": "0a9bbaf1-ff17-588f-b117-9e8248b8856d",
+            "to": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4272",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4274",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4275",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4276",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4286",
+          "source": "019a0000-0000-7000-8000-0000000f427d",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4287",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "justifies",
+            "from": "0a9bbaf1-ff17-588f-b117-9e8248b8856d",
+            "to": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "$exists",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f428b",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f428c",
+          "source": "019a0000-0000-7000-8000-0000000f427d",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    }
+  },
+  "outside-pin-source": {
+    "resolved": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4265",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4267",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4268",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4269",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4279",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    },
+    "reopened": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256",
+              "019a0000-0000-7000-8000-0000000f427a"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256",
+              "019a0000-0000-7000-8000-0000000f427a"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "OPEN",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256",
+              "019a0000-0000-7000-8000-0000000f427a"
+            ],
+            "resolution": null,
+            "supersededResolutions": [
+              "019a0000-0000-7000-8000-0000000dbba1"
+            ],
+            "selectedAssertionUid": null
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4265",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4267",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4268",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4269",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4279",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427a",
+          "source": "019a0000-0000-7000-8000-0000000dbba3",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 3,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427e",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427f",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f427a"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "0001-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4280",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    },
+    "historical": {
+      "questions": [
+        {
+          "subjectId": 19,
+          "at": "2020-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2021-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        },
+        {
+          "subjectId": 19,
+          "at": "2023-06-01T00:00:00Z",
+          "question": {
+            "id": "019a0000-0000-7000-8000-0000000f4257",
+            "state": "RESOLVED",
+            "candidates": [
+              "019a0000-0000-7000-8000-0000000f4253",
+              "019a0000-0000-7000-8000-0000000f4256"
+            ],
+            "resolution": "019a0000-0000-7000-8000-0000000dbba1",
+            "supersededResolutions": [],
+            "selectedAssertionUid": "019a0000-0000-7000-8000-0000000f4265"
+          }
+        }
+      ],
+      "writes": [
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4253",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 1,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4256",
+          "source": "019a0000-0000-7000-8000-0000000f4243",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425b",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425c",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425d",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f425f",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4253"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4260",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f4256"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4265",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 2,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4267",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_from",
+          "value": "2020-01-01T00:00:00.000Z",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4268",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "segment_to",
+          "value": null,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4269",
+          "source": "019a0000-0000-7000-8000-0000000f4242",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000dbba1"
+          },
+          "property": "rationale",
+          "value": "Checked evidence",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4279",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "RESOLVED",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427a",
+          "source": "019a0000-0000-7000-8000-0000000dbba3",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": 3,
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427e",
+          "source": "019a0000-0000-7000-8000-0000000dbba2",
+          "subject": {
+            "type": "vertex",
+            "uid": "5c84c38d-d870-5649-aaab-0123539e50ad"
+          },
+          "property": "amount",
+          "value": null,
+          "operation": "retract",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f427f",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "edge",
+            "kind": "system.dispute-candidate",
+            "from": "019a0000-0000-7000-8000-0000000f4257",
+            "to": "019a0000-0000-7000-8000-0000000f427a"
+          },
+          "property": "$exists",
+          "value": true,
+          "operation": "assert",
+          "validFrom": "0001-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        },
+        {
+          "id": "019a0000-0000-7000-8000-0000000f4280",
+          "source": "019a0000-0000-7000-8000-0000000f4270",
+          "subject": {
+            "type": "vertex",
+            "uid": "019a0000-0000-7000-8000-0000000f4257"
+          },
+          "property": "state",
+          "value": "OPEN",
+          "operation": "assert",
+          "validFrom": "2020-01-01T00:00:00.000Z",
+          "validTo": null,
+          "recordedAt": "<recorded clock>",
+          "recordedSequence": "<recorded sequence>"
+        }
+      ]
+    }
+  }
+}

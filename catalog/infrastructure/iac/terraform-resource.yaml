@@ -24,3 +24,6 @@ labels:
 description:
   en: A Terraform resource is one declared object in a provider's catalogue, such as a virtual network or a bucket, with the attributes the definition sets. Terraform compares the declared state with the recorded state and changes the real object to match.
   ru: 'Ресурс Terraform — один объявленный объект из набора провайдера: виртуальная сеть или бакет, — с атрибутами, которые задаёт описание. Terraform сравнивает объявленное состояние с записанным и приводит настоящий объект к нужному.'
+derives-from:
+- product-profile
+- terraform-module

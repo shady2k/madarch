@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A data-quality measurement records one number about a dataset at one time: how many rows are complete, how many values are unique, how far the data is from its expected shape. Comparing measurements shows whether quality is improving.'
   ru: 'Измерение качества данных фиксирует одно число о наборе в один момент: сколько строк полны, сколько значений уникальны, насколько данные отличаются от ожидаемой формы. Сравнение измерений показывает, улучшается ли качество.'
+derives-from:
+- data-check
+- data-job-run
+- product-profile

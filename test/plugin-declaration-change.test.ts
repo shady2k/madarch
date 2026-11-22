@@ -1,3 +1,8 @@
+import { readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import type { GraphContract } from '../src/graph/contract.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { requestStorePreparation } from '../src/product/store-preparation.js';
 /**
@@ -48,7 +53,7 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 
 let work: string;
 let closePreparation: (() => Promise<void>) | undefined;
-const opened: DatabaseOwner[] = [];
+const opened: (DatabaseOwner & { readonly graphContract: GraphContract })[] = [];
 
 /** One draft product with a code repository and its glossary documents; answers its folder and its store root. */
 function product(name: string): { folder: string; storeRoot: string } {
@@ -82,7 +87,9 @@ function commit(folder: string, message: string): void {
 async function fill(folder: string, storeRoot: string): Promise<FillRunAnswer & { ok: true }> {
   await activateTestProduct(folder, join(storeRoot, '..'), storeRoot);
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), connectOnly: true });
-  opened.push(owner);
+  const manifest = await owner.run(tx => readPublishedManifest(tx));
+  if (manifest === undefined) throw new Error('prepared fixture manifest missing');
+  opened.push({ ...owner, transaction: owner.transaction.bind(owner), graphContract: withAssertionContract(withManifestContract(graphContractOf(manifest))) });
   const answer = await runFill({ product: folder, database: owner, home: storeRoot, store: storeRoot, workers: 4, prepareContract: async (contract) => { await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, storeRoot)), contract); } });
   if (!answer.ok) throw new Error(`the fill was refused: ${answer.code}: ${answer.reason}`);
   return answer;

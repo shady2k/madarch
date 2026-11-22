@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An alert rule states when an alert should fire: for example, error rate above one percent for five minutes. The condition and its duration decide whether the alert is worth waking someone for.'
   ru: 'Правило оповещения говорит, когда поднимать оповещение: например, доля ошибок выше процента в течение пяти минут. Условие и его длительность решают, стоит ли будить кого-то из-за этого оповещения.'
+derives-from:
+- code.metric
+- slo

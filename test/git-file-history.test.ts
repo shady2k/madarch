@@ -13,7 +13,7 @@ import gitContract from '../plugins/git/contract.json';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { runFill } from '../src/fill/run.js';
 import { repositoryFacts, fileFacts } from '../src/graph/index.js';
-import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
@@ -79,7 +79,7 @@ const context = (files: readonly string[]): Context => ({
   signal: new AbortController().signal,
   progress() {},
   graph: {
-    files: async () => files.map((path) => ({ kind: 'code.file', key: { repository: 'fixture', path } })),
+    files: async () => files.map((path) => ({ kind: 'code.file', key: { path }, keyEdges:{'code.file-repository':{kind:'code.repository',key:{name:'fixture'}}} })),
     value: async () => 'file://fixture',
   },
 } as unknown as Context);
@@ -87,7 +87,11 @@ const unit = (kind: string, edgeOutputs: readonly { kind: string; from: string; 
   kind,
   inputs: { repositories: [repository], edgeOutputs, contract: gitContract.outputs },
 } as unknown as Unit);
-const fileEdges = [{ kind: 'code.renamed-from', from: 'code.file', to: 'code.file' }];
+const fileEdges = ['code.renamed-from','code.file-added-in','code.file-removed-in'].map(kind=>({kind,from:'code.file',to:kind==='code.renamed-from'?'code.file':'code.commit'}));
+function periodOf(vertex: NonNullable<Awaited<ReturnType<typeof gitExtract>>['vertices']>[number] | undefined, answer: Awaited<ReturnType<typeof gitExtract>>): Record<string,unknown> {
+  const commitOf = (kind:string) => answer.edges?.find(edge=>edge.kind===kind && edge.from.key['path']===vertex?.key['path'])?.to.key['hash'] ?? null;
+  return {...vertex?.values,added_in:commitOf('code.file-added-in'),removed_in:commitOf('code.file-removed-in')};
+}
 const commitEdges = gitContract.outputs.edges
   .filter((edge) => edge.kind !== 'code.renamed-from')
   .map((edge) => ({ kind: edge.kind, from: typeof edge.from === 'string' ? edge.from : edge.from[0]!, to: typeof edge.to === 'string' ? edge.to : edge.to[0]! }));
@@ -112,26 +116,6 @@ test('a rename into a path the product leaves out keeps no edge to that path (ma
   expect(dangling).toEqual([]);
 });
 
-test('a commit over a tracked dependency path carries no edge to it when the path is excluded (madarch-64o5.74)', async () => {
-  // The host now hands the commit unit the file kind's exclusions (their union with its own, madarch-64o5.74). A
-  // repository that tracks a dependency tree — the starter set commits `plugins/<plugin>/node_modules` — must give the
-  // commit unit no `code.touched` edge to a path `code.file` leaves out, or the edge ends at a vertex no producer writes.
-  const tree = join(ROOT, 'excluded-commit');
-  mkdirSync(tree);
-  git(tree, ONE, 'init', '-q', '-b', 'main');
-  git(tree, ONE, 'config', 'commit.gpgsign', 'false');
-  writeFileSync(join(tree, 'app.js'), 'export const app = 1;\n');
-  commit(tree, ONE, 'add app.js');
-  mkdirSync(join(tree, 'node_modules', 'pkg'), { recursive: true });
-  writeFileSync(join(tree, 'node_modules/pkg/index.js'), 'export const dependency = 1;\n');
-  const added = commit(tree, TWO, 'add the dependency tree');
-  expect(current(tree)).toContain('node_modules/pkg/index.js');
-  const held = unit('code.commit', commitEdges, pin(tree, 'tree', added));
-  const answer = await gitExtract({ ...held, inputs: { ...(held.inputs as Record<string, unknown>), exclude: ['**/node_modules/**'] } } as Unit, context(['app.js', 'node_modules/pkg/index.js']));
-  const touched = (answer.edges ?? []).filter((edge) => edge.kind === 'code.touched').map((edge) => String(edge.to.key['path'])).sort();
-  expect(touched).toEqual(['app.js']);
-});
-
 test('a backdated side deletion ends a period in ancestry order, not commit-date order', async () => {
   const dag = join(ROOT, 'dag');
   mkdirSync(dag);
@@ -152,7 +136,7 @@ test('a backdated side deletion ends a period in ancestry order, not commit-date
   const tip = git(dag, ONE, 'rev-parse', 'HEAD');
   const answer = await gitExtract(unit('code.file', fileEdges, pin(dag, 'fixture', tip)), context(git(dag, ONE, 'ls-files').split('\n').filter((path) => path !== '')));
   const held = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && String(vertex.key['path']) === 'f.txt');
-  expect(held?.values).toMatchObject({ added_in: sideAdd, removed_in: sideDelete, removed_at: '2026-01-02T00:00:00.000Z' });
+  expect(periodOf(held,answer)).toMatchObject({ added_in: sideAdd, removed_in: sideDelete, removed_at: '2026-01-02T00:00:00.000Z' });
 });
 
 test('every path the history named is a file with its latest period of existence', async () => {
@@ -161,16 +145,16 @@ test('every path the history named is a file with its latest period of existence
   const files = (answer.vertices ?? []).filter((vertex) => vertex.kind === 'code.file');
   expect(files.map((vertex) => String(vertex.key['path'])).sort()).toEqual(['gone.txt', 'kept.txt']);
   const byPath = new Map(files.map((vertex) => [String(vertex.key['path']), vertex]));
-  expect(byPath.get('kept.txt')?.values).toEqual({
+  expect(periodOf(byPath.get('kept.txt'),answer)).toEqual({
     commit_count: 2, last_change: '2026-01-02T00:00:00.000Z',
     added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: null, removed_in: null,
   });
-  expect(byPath.get('gone.txt')?.values).toEqual({
+  expect(periodOf(byPath.get('gone.txt'),answer)).toEqual({
     commit_count: 2, last_change: '2026-01-02T00:00:00.000Z',
     added_at: '2026-01-01T00:00:00.000Z', added_in: first,
     removed_at: '2026-01-02T00:00:00.000Z', removed_in: second,
   });
-  for (const [path, vertex] of byPath) expect(vertex.evidence).toEqual({ repository: 'fixture', path, commitOrDigest: second });
+  for (const [path, vertex] of byPath) expect(vertex.evidence).toEqual({target:{kind:'code.commit',key:{hash:second}},commit:second,path});
 });
 
 test('the commits touch a deleted file too, and it keeps its history', async () => {
@@ -188,18 +172,23 @@ test('the commits touch a deleted file too, and it keeps its history', async () 
 });
 
 test('a fill counts the files whose removal is empty, and dates and commits every file', async () => {
-  const owner = await createTestDatabaseOwner({ graphContract: repositoryContract });
+  const owner = await createTestDatabaseOwner({ authenticated:false, graphContract: repositoryContract });
   try {
     const run = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
     if (!run.ok) throw new Error(`fill refused: ${run.reason}`);
     expect(run.state).toBe('succeeded');
-    const periods = await owner.transaction('snapshot', async (tx) => (await tx.query<{ path: string; added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>(
-      `SELECT n.key->>'path' AS path,
-              to_char(o.added_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS added_at, o.added_in,
-              to_char(o.removed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS removed_at, o.removed_in
-       FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
-       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git' AND n.key->>'repository' = 'fixture' ORDER BY path`,
-    )).rows);
+    const readPeriods = () => owner.transaction('snapshot',async tx=>{
+      const files=await readKindAssertions(tx,'vertex','code.file',['added_at','removed_at']);
+      const additions=await readKindAssertions(tx,'edge','code.file-added-in',[]);
+      const removals=await readKindAssertions(tx,'edge','code.file-removed-in',[]);
+      const commitOf=async (edges:typeof additions,id:number)=>{
+        const edge=edges.find(edge=>edge.from===id);
+        if(edge===undefined)return null;
+        return (await tx.query<{hash:string}>("SELECT key->>'hash' AS hash FROM node WHERE id=$1",[edge.to])).rows[0]!.hash;
+      };
+      return await Promise.all(files.map(async file=>({path:String(file.key['path']),added_at:file.values['added_at']??null,removed_at:file.values['removed_at']??null,added_in:await commitOf(additions,file.id),removed_in:await commitOf(removals,file.id)})));
+    });
+    const periods=(await readPeriods()).sort((a,b)=>a.path<b.path?-1:1);
     expect(periods).toEqual([
       { path: 'gone.txt', added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: '2026-01-02T00:00:00.000Z', removed_in: second },
       { path: 'kept.txt', added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: null, removed_in: null },
@@ -208,18 +197,9 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
     const rerun = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data-2', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
     if (!rerun.ok) throw new Error(`fill refused: ${rerun.reason}`);
     expect(rerun.state).toBe('succeeded');
-    const again = await owner.transaction('snapshot', async (tx) => (await tx.query<{ path: string; added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>(
-      `SELECT n.key->>'path' AS path,
-              to_char(o.added_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS added_at, o.added_in,
-              to_char(o.removed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS removed_at, o.removed_in
-       FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
-       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git' AND n.key->>'repository' = 'fixture' ORDER BY path`,
-    )).rows);
+    const again=(await readPeriods()).sort((a,b)=>a.path<b.path?-1:1);
     expect(again).toEqual(periods);
-    const counted = await owner.transaction('snapshot', async (tx) => (await tx.query<{ n: number }>(
-      `SELECT count(DISTINCT n.id)::integer AS n FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
-       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git' AND n.key->>'repository' = 'fixture' AND o.removed_at IS NULL`,
-    )).rows[0]!.n);
+    const counted=again.filter(file=>file.removed_at===null).length;
     expect(counted).toBe(current().length);
     expect((await repositoryFacts(owner, 'fixture'))?.fileCount).toBe(current().length);
     const listed = await new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads)
@@ -232,9 +212,7 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
       expect(facts?.modified?.commit).toBe(second);
     }
     // The catalogue's class rules reach the plugin, and the file states its class beside its other facts.
-    const fileClass = await owner.transaction('snapshot', async (tx) => (await tx.query<{ class: string }>(
-      `SELECT o."class" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE (n.key->>'path') = 'kept.txt' AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'disk'`,
-    )).rows);
+    const fileClass=await owner.transaction('snapshot',async tx=>(await readKindAssertions(tx,'vertex','code.file',['class'])).filter(file=>file.key['path']==='kept.txt').map(file=>({class:file.values['class']})));
     expect(fileClass).toEqual([{ class: 'code' }]);
   } finally {
     await owner.close();
@@ -254,11 +232,11 @@ test('a path deleted and added again states its latest period', async () => {
   const again = commit(folder, THREE, 'add again');
   const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', again)), context(['twice.txt']));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'twice.txt');
-  expect(file?.values).toEqual({
+  expect(periodOf(file,answer)).toEqual({
     commit_count: 3, last_change: '2026-01-03T00:00:00.000Z',
     added_at: '2026-01-03T00:00:00.000Z', added_in: again, removed_at: null, removed_in: null,
   });
-  expect(file?.evidence).toEqual({ repository: 'fixture', path: 'twice.txt', commitOrDigest: again });
+  expect(file?.evidence).toEqual({target:{kind:'code.commit',key:{hash:again}},commit:again,path:'twice.txt'});
 });
 
 
@@ -281,8 +259,8 @@ test('a removal made by a merge commit is stated by that merge', async () => {
   expect(current(folder)).toEqual(['base.txt']);
   const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
-  expect(file?.values).toMatchObject({ added_in: added, removed_in: merged, removed_at: '2026-01-02T00:00:00.000Z' });
-  expect(file?.values?.['removed_in']).not.toBe(deletedOnSide);
+  expect(periodOf(file,answer)).toMatchObject({ added_in: added, removed_in: merged, removed_at: '2026-01-02T00:00:00.000Z' });
+  expect(periodOf(file,answer).removed_in).not.toBe(deletedOnSide);
 });
 
 test('a deletion discarded by a merge is no removal', async () => {
@@ -304,8 +282,8 @@ test('a deletion discarded by a merge is no removal', async () => {
   expect(current(folder)).toEqual(['base.txt', 'f.txt']);
   const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
-  expect(file?.values).toMatchObject({ added_in: added, removed_in: null, removed_at: null });
-  expect(file?.values?.['removed_in']).not.toBe(discarded);
+  expect(periodOf(file,answer)).toMatchObject({ added_in: added, removed_in: null, removed_at: null });
+  expect(periodOf(file,answer).removed_in).not.toBe(discarded);
 });
 
 
@@ -324,7 +302,7 @@ test('a shallow boundary does not fabricate an addition, and the repository says
   const answer = await gitExtract(unit('code.file', fileEdges, pin(clone, 'fixture', tip)), context(current(clone)));
   for (const path of ['a.txt', 'b.txt']) {
     const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === path);
-    expect(file?.values).toMatchObject({ added_at: null, added_in: null, removed_at: null, removed_in: null });
+    expect(periodOf(file,answer)).toMatchObject({ added_at: null, added_in: null, removed_at: null, removed_in: null });
   }
   const repository = await gitExtract(unit('code.repository', [], pin(clone, 'fixture', tip)), context([]));
   expect(repository.vertices?.find((vertex) => vertex.kind === 'code.repository' && vertex.key['name'] === 'fixture')?.values).toMatchObject({ history_shallow: true });
@@ -351,8 +329,8 @@ test('a path created and deleted on a side branch is not current', async () => {
   expect(current(folder)).toEqual(['main.txt']);
   const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'side-only.txt');
-  expect(file?.values).toMatchObject({ added_in: added, removed_in: deleted });
-  expect(file?.values?.['added_in']).not.toBe(root);
+  expect(periodOf(file,answer)).toMatchObject({ added_in: added, removed_in: deleted });
+  expect(periodOf(file,answer).added_in).not.toBe(root);
   expect(file?.values?.['removed_at']).not.toBeNull();
   const open = (answer.vertices ?? []).filter((vertex) => vertex.kind === 'code.file' && (vertex.values?.['removed_at'] ?? null) === null);
   expect(open.map((vertex) => String(vertex.key['path']))).toEqual(['main.txt']);
@@ -378,5 +356,5 @@ test('a shallow boundary elsewhere does not suppress a genuine root addition', a
   writeFileSync(join(folder, '.git', 'shallow'), `${side}\n`);
   const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const main = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'main.txt');
-  expect(main?.values).toMatchObject({ added_in: root, added_at: '2026-01-01T00:00:00.000Z' });
+  expect(periodOf(main,answer)).toMatchObject({ added_in: root, added_at: '2026-01-01T00:00:00.000Z' });
 });

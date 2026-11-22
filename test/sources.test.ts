@@ -1,6 +1,6 @@
 
 /**
- * The Sources listing (the frame's Sources page): a document is an entity of a kind that declares `markdown`, grouped by
+ * The Sources listing (the frame's Sources page): a document is projected by its explicit semantic role, grouped by
  * the repository it was read from; its entity page is addressed by the uid the graph read gives it.
  */
 import { describe, expect, test } from 'bun:test';
@@ -9,6 +9,11 @@ import type { GraphReader } from '../src/knowledge/graph-read.js';
 import { sourcesListing } from '../src/knowledge/sources.js';
 
 const manifest = {
+  file: '/product/catalog.yaml',
+  semanticBindings: new Map([
+    ['document', { kind: 'demo.doc', line: 1, fields: { path: 'path', content: 'markdown', anchors: 'sections' }, edges: { repository: { kind: 'in-vault', direction: 'from', line: 1 } } }],
+    ['repository', { kind: 'vault', line: 1, fields: { name: 'name' } }],
+  ]),
   kinds: new Map([
     ['demo.doc', { name: 'demo.doc', fields: [{ name: 'markdown' }, { name: 'path' }], key: ['repository', 'path'] }],
     ['demo.other', { name: 'demo.other', fields: [{ name: 'name' }], key: ['name'] }],
@@ -16,12 +21,14 @@ const manifest = {
 } as unknown as KindsManifest;
 
 const graph = {
+  async relationEdges() { return { rows: [{ from: { uid: 'uid-2' }, to: { uid: 'repo' } }], total: 1 }; },
   async list(kind: string) {
+    if (kind === 'vault') return { rows: [{ uid: 'repo', key: 'repository', properties: { name: 'app' } }], next: null };
     if (kind !== 'demo.doc') return { rows: [], next: null, total: 0 };
     return {
       rows: [
-        { key: 'demo.doc:/docs/guide.md', uid: 'uid-1', kind: 'demo.doc', label: 'Guide', properties: { repository: null, path: 'docs/guide.md', markdown: '# Guide' }, nodeIds: ['1'], scope: '' },
-        { key: 'demo.doc:app/README.md', uid: 'uid-2', kind: 'demo.doc', label: 'README', properties: { repository: 'app', path: 'README.md', markdown: '# README' }, nodeIds: ['2'], scope: '' },
+        { key: 'demo.doc:/docs/guide.md', uid: 'uid-1', kind: 'demo.doc', label: 'Guide', properties: { repository: null, path: 'docs/guide.md', markdown: '# Guide', sections: {} }, nodeIds: ['1'], scope: '' },
+        { key: 'demo.doc:app/README.md', uid: 'uid-2', kind: 'demo.doc', label: 'README', properties: { repository: 'app', path: 'README.md', markdown: '# README', sections: {} }, nodeIds: ['2'], scope: '' },
       ],
       next: null,
       total: 2,

@@ -28,17 +28,9 @@
       {
         "kind": "code.file",
         "key": [
-          "repository",
           "path"
         ],
         "fields": [
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "The repository read from the pinned repository.",
-            "example": "example",
-            "required": true
-          },
           {
             "name": "path",
             "type": "text",
@@ -68,25 +60,19 @@
             "required": false
           },
           {
-            "name": "added_in",
-            "type": "text",
-            "meaning": "The commit that began the latest period of this path's existence.",
-            "example": "0123456789abcdef0123456789abcdef01234567",
-            "required": false
-          },
-          {
             "name": "removed_at",
             "type": "timestamp",
             "meaning": "When the latest period of this path's existence ended: the committer date of the commit that deleted or renamed it away; empty while the path stands in the current tree.",
             "example": "2026-01-02T00:00:00.000Z",
             "required": false
-          },
+          }
+        ],
+        "keyEdges": [
           {
-            "name": "removed_in",
-            "type": "text",
-            "meaning": "The commit that ended the latest period of this path's existence; empty while the path stands in the current tree.",
-            "example": "0123456789abcdef0123456789abcdef01234567",
-            "required": false
+            "role": "code.file-repository",
+            "edge": "code.file-repository",
+            "direction": "from",
+            "onDelete": "restrict"
           }
         ]
       },
@@ -145,7 +131,11 @@
             "example": 1,
             "required": false
           }
-        ]
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "hash"
+        }
       },
       {
         "kind": "code.author",
@@ -175,7 +165,21 @@
       {
         "kind": "code.as-is",
         "from": "code.repository",
-        "to": "code.commit"
+        "to": "code.commit",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.as-is",
+            "in": "code.as-is"
+          },
+          "ru": {
+            "out": "code.as-is",
+            "in": "code.as-is"
+          }
+        }
       },
       {
         "kind": "code.history",
@@ -189,7 +193,21 @@
             "example": 1,
             "required": false
           }
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.history",
+            "in": "code.history"
+          },
+          "ru": {
+            "out": "code.history",
+            "in": "code.history"
+          }
+        }
       },
       {
         "kind": "code.parent",
@@ -203,12 +221,40 @@
             "example": 1,
             "required": false
           }
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.parent",
+            "in": "code.parent"
+          },
+          "ru": {
+            "out": "code.parent",
+            "in": "code.parent"
+          }
+        }
       },
       {
         "kind": "code.authored",
         "from": "code.author",
-        "to": "code.commit"
+        "to": "code.commit",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.authored",
+            "in": "code.authored"
+          },
+          "ru": {
+            "out": "code.authored",
+            "in": "code.authored"
+          }
+        }
       },
       {
         "kind": "code.touched",
@@ -236,18 +282,108 @@
             "example": 1,
             "required": false
           }
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.touched",
+            "in": "code.touched"
+          },
+          "ru": {
+            "out": "code.touched",
+            "in": "code.touched"
+          }
+        }
       },
       {
         "kind": "code.renamed-from",
         "from": "code.file",
-        "to": "code.file"
+        "to": "code.file",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.renamed-from",
+            "in": "code.renamed-from"
+          },
+          "ru": {
+            "out": "code.renamed-from",
+            "in": "code.renamed-from"
+          }
+        }
+      },
+      {
+        "kind": "code.file-repository",
+        "from": "code.file",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.file-added-in",
+        "from": "code.file",
+        "to": "code.commit",
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.file-removed-in",
+        "from": "code.file",
+        "to": "code.commit",
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
       }
     ]
   },
   "rights": {
     "network": "none",
     "filesystem": true,
-    "graph": true
+    "graph": true,
+    "graphReads": [
+      "files",
+      "value",
+      "ownFacts"
+    ]
   }
 }

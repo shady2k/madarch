@@ -29,23 +29,22 @@
             "meaning": "The default branch read from the pinned repository.",
             "example": "example",
             "required": false
+          },
+          {
+            "name": "tree_snapshot",
+            "type": "text",
+            "meaning": "SHA256 of the complete repository inventory as sorted path and content digest pairs.",
+            "example": "abc123",
+            "required": false
           }
         ]
       },
       {
         "kind": "code.directory",
         "key": [
-          "repository",
           "path"
         ],
         "fields": [
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "The repository read from the pinned repository.",
-            "example": "example",
-            "required": true
-          },
           {
             "name": "path",
             "type": "text",
@@ -53,22 +52,22 @@
             "example": "example",
             "required": true
           }
+        ],
+        "keyEdges": [
+          {
+            "role": "code.directory-repository",
+            "edge": "code.directory-repository",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
         ]
       },
       {
         "kind": "code.file",
         "key": [
-          "repository",
           "path"
         ],
         "fields": [
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "The repository read from the pinned repository.",
-            "example": "example",
-            "required": true
-          },
           {
             "name": "path",
             "type": "text",
@@ -123,7 +122,14 @@
             "type": "json",
             "meaning": "The languages read from the pinned repository.",
             "example": [],
-            "required": false
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           {
             "name": "class",
@@ -131,30 +137,23 @@
             "meaning": "The class the catalogue's rules give the file: code, test, documentation, dependency or generated.",
             "example": "code",
             "required": false
-          },
+          }
+        ],
+        "keyEdges": [
           {
-            "name": "directory",
-            "type": "text",
-            "meaning": "The parent directory of the pinned file path, or . for a root file.",
-            "example": "src",
-            "required": false
+            "role": "code.file-repository",
+            "edge": "code.file-repository",
+            "direction": "from",
+            "onDelete": "restrict"
           }
         ]
       },
       {
         "kind": "code.gitlink",
         "key": [
-          "repository",
           "path"
         ],
         "fields": [
-          {
-            "name": "repository",
-            "type": "text",
-            "meaning": "The repository read from the pinned repository.",
-            "example": "example",
-            "required": true
-          },
           {
             "name": "path",
             "type": "text",
@@ -163,20 +162,49 @@
             "required": true
           },
           {
-            "name": "other_repository",
-            "type": "text",
-            "meaning": "The other repository read from the pinned repository.",
-            "example": "example",
-            "required": false
-          },
-          {
             "name": "commit_hash",
             "type": "text",
             "meaning": "The commit hash read from the pinned repository.",
             "example": "example",
             "required": false
           }
+        ],
+        "keyEdges": [
+          {
+            "role": "code.gitlink-repository",
+            "edge": "code.gitlink-repository",
+            "direction": "from",
+            "onDelete": "restrict"
+          }
         ]
+      },
+      {
+        "kind": "code.blob",
+        "key": [
+          "digest"
+        ],
+        "fields": [
+          {
+            "name": "digest",
+            "type": "text",
+            "meaning": "SHA-256 of the exact UTF-8 content.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "required": true
+          },
+          {
+            "name": "content",
+            "type": "text",
+            "meaning": "The immutable source text.",
+            "example": "source",
+            "required": true
+          }
+        ],
+        "evidence": {
+          "immutable": true,
+          "digestField": "digest",
+          "contentField": "content",
+          "digestAlgorithm": "sha256"
+        }
       }
     ],
     "edges": [
@@ -190,12 +218,148 @@
           "code.directory",
           "code.file",
           "code.gitlink"
-        ]
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "code.contains",
+            "in": "code.contains"
+          },
+          "ru": {
+            "out": "code.contains",
+            "in": "code.contains"
+          }
+        }
+      },
+      {
+        "kind": "code.file-repository",
+        "from": "code.file",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.directory-repository",
+        "from": "code.directory",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.gitlink-repository",
+        "from": "code.gitlink",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.file-directory",
+        "from": "code.file",
+        "to": "code.directory",
+        "cardinality": {
+          "from": "many",
+          "to": "optional"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.gitlink-other-repository",
+        "from": "code.gitlink",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "labels": {
+          "en": {
+            "out": "belongs to",
+            "in": "contains"
+          },
+          "ru": {
+            "out": "принадлежит",
+            "in": "содержит"
+          }
+        }
+      },
+      {
+        "kind": "code.blob-about",
+        "from": "code.blob",
+        "to": [
+          "code.file",
+          "code.repository"
+        ],
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "captures",
+            "in": "captured by"
+          },
+          "ru": {
+            "out": "снимок",
+            "in": "снят в"
+          }
+        },
+        "fields": []
       }
     ]
   },
   "rights": {
     "network": "none",
-    "filesystem": true
+    "filesystem": true,
+    "graph": true,
+    "graphReads": [
+      "ownFacts"
+    ]
   }
 }

@@ -59,7 +59,7 @@ async function call(started: StartedServer, path: string): Promise<{ status: num
 function row(overrides: Partial<AgentUsageRecord> = {}): AgentUsageRecord {
   return {
     run: 'fill-1', unit: 'glossary:doc.term', plugin: 'glossary', pluginVersion: '1.0.0', kind: 'doc.term', field: 'definition',
-    model: 'sonnet', inputTokens: 800, outputTokens: 200, totalTokens: 1000, cost: { amount: 0.02, currency: 'USD' },
+    model: 'sonnet', inputTokens: 800, outputTokens: 200, cachedWriteTokens: 50, cachedReadTokens: 4_000, totalTokens: 1000, cost: { amount: 0.02, currency: 'USD' },
     turns: 1, reported: true, stopped: null, ...overrides,
   };
 }
@@ -70,7 +70,7 @@ describe('what the agent spent on a kind, over the API the page reads', () => {
     try {
       const empty = await call(started, '/api/kind-usage?kind=doc.term');
       expect(empty.status).toBe(200);
-      expect(empty.body.usage).toEqual({ kind: 'doc.term', runs: [], moreRuns: false, total: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: [], runs: 0 } });
+      expect(empty.body.usage).toEqual({ kind: 'doc.term', runs: [], moreRuns: false, total: { inputTokens: 0, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 0, cost: [], runs: 0 } });
       const missing = await call(started, '/api/kind-usage');
       expect(missing.status).toBe(400);
       expect(missing.body.error.field).toBe('kind');
@@ -97,7 +97,7 @@ describe('what the agent spent on a kind, over the API the page reads', () => {
       expect(answered.status).toBe(200);
       const usage = answered.body.usage;
       expect(usage.runs.map((run: { run: string }) => run.run)).toEqual(['fill-2', 'fill-1']);
-      expect(usage.total).toEqual({ inputTokens: 2800, outputTokens: 700, totalTokens: 3500, cost: [{ amount: 0.02, currency: 'USD' }], runs: 2 });
+      expect(usage.total).toEqual({ inputTokens: 2800, outputTokens: 700, cachedWriteTokens: 100, cachedReadTokens: 8000, totalTokens: 3500, cost: [{ amount: 0.02, currency: 'USD' }], runs: 2 });
       expect(usage.runs[0].rows[0]).toMatchObject({ plugin: 'sections', field: 'definition', model: null, stopped: 'tokens' });
       // The code.file row is another kind's spend: it never leaks into the term page.
       expect(usage.runs.flatMap((run: { rows: { kind: string }[] }) => run.rows).every((line: { kind: string }) => line.kind === 'doc.term')).toBe(true);

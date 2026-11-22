@@ -12,9 +12,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { graphReadsOf, PluginContractFile, PluginProtocolMessage, type PluginContractDeclaration } from '../src/plugin/protocol.js';
+import { graphReadsOf, PluginContractFile, PluginProtocolMessage, PluginUnitResult, PluginEvidence, PluginContractDeclaration } from '../src/plugin/protocol.js';
 import { canonicalKey, validateUnitResult } from '../src/plugin/results.js';
-import { closureHashOf, closureOf, interpreterPinProblem, readPluginManifest, sdkClosureFiles, ClosureRefusal } from '../src/plugin/closure.js';
+import { closureHashOf, closureOf, interpreterPinProblem, readPluginManifest, parsePluginManifest, sdkClosureFiles, ClosureRefusal } from '../src/plugin/closure.js';
 import { closureTrustProblem, isReleaseClosure, snapshotClosure } from '../src/plugin/snapshot.js';
 import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 import { bundledClosureHashes } from '../src/plugin/bundled.js';
@@ -42,7 +42,7 @@ const CONTRACT: PluginContractDeclaration = {
     { kind: 'probe', key: ['id'], fields: [{ name: 'size', type: 'integer', meaning: 'the size', example: 1, required: false }, { name: 'language', type: 'text', meaning: 'the language', example: 'ts', required: false }] },
     { kind: 'other', key: ['name'] },
   ],
-  edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
+  edges: [{ kind: 'probe-link', from: 'probe', to: 'probe', cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'links', in: 'linked by' }, ru: { out: 'ссылается', in: 'ссылка от' } } }],
 };
 
 /** One complete answer with the fields the contract declares. */
@@ -70,13 +70,13 @@ test('a malformed known graph method names its own field instead of another meth
 describe('the graph reads a contract declares', () => {
   test('a graph right with no named reads is files and value, and a named read is what the contract grants', () => {
     expect(graphReadsOf({ network: 'none', graph: true })).toEqual(['files', 'value']);
-    expect(graphReadsOf({ network: 'none', graph: true, graphReads: ['unresolved', 'removedEnds', 'unevidenced'] })).toEqual(['unresolved', 'removedEnds', 'unevidenced']);
+    expect(graphReadsOf({ network: 'none', graph: true, graphReads: ['removedEnds', 'unevidenced'] })).toEqual(['removedEnds', 'unevidenced']);
     expect(graphReadsOf({ network: 'none' })).toEqual([]);
     expect(graphReadsOf(undefined)).toEqual([]);
   });
 
   test('a contract declares its reads, and an unknown read is refused', () => {
-    const contract = { id: 'g', version: '1.0.0', reads: 'whole-graph', outputs: CONTRACT, rights: { network: 'none', graph: true, graphReads: ['unresolved', 'removedEnds', 'unevidenced'] } };
+    const contract = { id: 'g', version: '1.0.0', reads: 'whole-graph', outputs: CONTRACT, rights: { network: 'none', graph: true, graphReads: ['removedEnds', 'unevidenced'] } };
     expect(Value.Check(PluginContractFile, contract)).toBe(true);
     expect(Value.Check(PluginContractFile, { ...contract, reads: 'everything' })).toBe(false);
     expect(Value.Check(PluginContractFile, { ...contract, rights: { ...contract.rights, graphReads: ['unresolved', 'everything'] } })).toBe(false);
@@ -441,3 +441,63 @@ describe('the wire', () => {
 });
 
 void REPO;
+
+test('facts.apply is an immediate bounded operation request and retired chunks are refused', () => {
+  const request = { jsonrpc: '2.0', id: 1, method: 'facts.apply', params: { unitId: 'unit', key: 'logical-key', operation: { vertices: [{ kind: 'item', key: { name: 'x' } }] } } };
+  expect(Value.Check(PluginProtocolMessage, request)).toBe(true);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, operation: { arbitrary: [] } } })).toBe(false);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, key: '' } })).toBe(false);
+  expect(Value.Check(PluginProtocolMessage, { jsonrpc: '2.0', method: 'unit.resultChunk', params: { unitId: 'unit', sequence: 0, data: 'e30=' } })).toBe(false);
+});
+
+test('unit completion is terminal status only, never a delayed facts transport', () => {
+  const completed = { unitId: 'unit', end: { state: 'complete' } };
+  expect(Value.Check(PluginUnitResult, completed)).toBe(true);
+  for (const retired of ['vertices', 'edges', 'removals', 'chunkCount']) expect(Value.Check(PluginUnitResult, { ...completed, [retired]: retired === 'chunkCount' ? 0 : [] })).toBe(false);
+});
+
+test('facts.apply revision preconditions are closed request metadata, not graph facts', () => {
+  const request = { jsonrpc: '2.0', id: 1, method: 'facts.apply', params: { unitId: 'unit', key: 'logical', operation: {}, preconditions: [{ uid: 'entity', recordedSequence: '4' }], contractVersion: 'version' } };
+  expect(Value.Check(PluginProtocolMessage, request)).toBe(true);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, preconditions: [{ uid: 'entity', recordedSequence: -1 }] } })).toBe(false);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, operation: { preconditions: [] } } })).toBe(false);
+});
+
+test('evidence names its actual entity target including recursive key edges, never a repository alias', () => {
+  const target = { kind: 'code.file', key: { path: 'src/a.ts' }, keyEdges: { repository: { kind: 'code.repository', key: { name: 'sample' } } } };
+  expect(Value.Check(PluginEvidence, { target, digest: 'sha256:value', path: 'src/a.ts', lineStart: 1, lineEnd: 2 })).toBe(true);
+  expect(Value.Check(PluginEvidence, { repository: 'sample', digest: 'sha256:value' })).toBe(false);
+  expect(Value.Check(PluginEvidence, { target, repository: 'sample', digest: 'sha256:value' })).toBe(false);
+  expect(Value.Check(PluginEvidence, { target })).toBe(true);
+  expect(Value.Check(PluginEvidence, { target, commit: 'commit', digest: 'digest' })).toBe(true);
+});
+
+test('result evidence is one full evidence object, not a map of per-field locators', () => {
+  const contract = { vertices: [{ kind: 'sample', key: ['id'], fields: [] }], edges: [] };
+  const evidence = { target: { kind: 'snapshot', key: { digest: 'actual-content-digest' } }, path: 'a.ts', lineStart: 1, lineEnd: 2 };
+  const result = { unitId: 'unit', vertices: [{ kind: 'sample', key: { id: 'a' }, evidence }], end: { state: 'complete' as const } };
+  expect(validateUnitResult(contract, result).ok).toBe(true);
+  expect(validateUnitResult(contract, { ...result, vertices: [{ ...result.vertices[0]!, evidence: { ...evidence, lineEnd: 0 } }] }).ok).toBe(false);
+  expect(validateUnitResult(contract, { ...result, vertices: [{ ...result.vertices[0]!, evidence: { ...evidence, lineStart: 3 } }] }).ok).toBe(false);
+});
+
+test('facts.apply accepts ordinary blob facts and refuses a privileged snapshot side channel', () => {
+  const request = { jsonrpc: '2.0', id: 1, method: 'facts.apply', params: { unitId: 'unit', key: 'logical', operation: { vertices: [{ kind: 'code.blob', key: { hash: 'actual-content-hash' }, values: { content: 'source text' } }] } } };
+  expect(Value.Check(PluginProtocolMessage, request)).toBe(true);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, operation: { snapshots: [] } } })).toBe(false);
+});
+
+test('evidence declarations require explicit sha256 only when content is declared', () => {
+  const base = { kind: 'blob', key: ['digest'], fields: [{ name: 'digest', type: 'text', meaning: 'Digest.', example: 'hash', required: true }, { name: 'content', type: 'text', meaning: 'Content.', example: 'text', required: false }] };
+  const contract = (evidence: unknown) => ({ vertices: [{ ...base, evidence }], edges: [] });
+  expect(Value.Check(PluginContractDeclaration, contract({ immutable: true, digestField: 'digest' }))).toBe(true);
+  expect(Value.Check(PluginContractDeclaration, contract({ immutable: true, digestField: 'digest', contentField: 'content', digestAlgorithm: 'sha256' }))).toBe(true);
+  expect(Value.Check(PluginContractDeclaration, contract({ immutable: true, digestField: 'digest', contentField: 'content' }))).toBe(false);
+  expect(Value.Check(PluginContractDeclaration, contract({ immutable: true, digestAlgorithm: 'sha256' }))).toBe(false);
+});
+
+test('plugin selected outputs declare a closed ordinary support closure explicitly', () => {
+  const base = { name: 'example', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'file', fields: '*', support: { vertices: ['blob'], edges: ['blob-about'] } }] };
+  expect(parsePluginManifest(JSON.stringify(base), '/plugin/plugin.json').produces[0]?.support).toEqual({ vertices: ['blob'], edges: ['blob-about'] });
+  expect(() => parsePluginManifest(JSON.stringify({ ...base, produces: [{ ...base.produces[0], support: { vertices: ['blob'], edges: [], snapshots: true } }] }), '/plugin/plugin.json')).toThrow();
+});

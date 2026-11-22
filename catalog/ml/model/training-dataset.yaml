@@ -24,3 +24,7 @@ labels:
 description:
   en: A training dataset is the collection of examples a model learned from, with where the data came from, how it was prepared and under which licence it may be used. What the data contains decides what the model can learn and which biases it inherits.
   ru: Обучающий набор — совокупность примеров, на которых училась модель, вместе с происхождением данных, способом их подготовки и лицензией, по которой их можно использовать. От того, что в нём есть, зависит, чему модель научится и какие предубеждения унаследует.
+derives-from:
+- dataset
+- license
+- product-profile

@@ -24,3 +24,6 @@ labels:
 description:
   en: A feature flag decides at run time whether a feature is on or off, or which version of it a caller gets. Teams use it to release code before showing it, to turn a feature off in an incident or to try a change on a small group.
   ru: Флаг функции решает во время работы, включена возможность или нет и какой её вариант получит вызывающий. Команды используют его, чтобы выпустить код раньше показа, отключить возможность при сбое или проверить изменение на небольшой группе.
+derives-from:
+- feature
+- flag-set

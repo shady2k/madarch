@@ -22,11 +22,11 @@ export async function graphKnowledgePages(graph: Pick<GraphReader, 'list'>, mani
 
 function writtenAt(value: unknown, id: string): WrittenAt[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error(`src/knowledge/index/index.ts: ${id}.written-at: expected a list of structured opinions`);
+  if (!Array.isArray(value)) throw new Error(`${import.meta.path}:25: ${id}.written-at: expected a list of structured opinions`);
   return value.map((entry: unknown) => {
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`src/knowledge/index/index.ts: ${id}.written-at: expected a repository and commit`);
-    const record = entry as Record<string, unknown>;
-    if (typeof record['repository'] !== 'string' || typeof record['commit'] !== 'string' || (record['branch'] !== undefined && typeof record['branch'] !== 'string') || (record['origin'] !== undefined && typeof record['origin'] !== 'string')) throw new Error(`src/knowledge/index/index.ts: ${id}.written-at: expected repository, commit and optional branch/origin texts`);
-    return record as unknown as WrittenAt;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`${import.meta.path}:25: ${id}.written-at: expected a repository and commit`);
+    const record = entry as { readonly [Field in keyof WrittenAt]?: unknown };
+    if (typeof record['repository'] !== 'string' || typeof record['commit'] !== 'string' || (record['branch'] !== undefined && typeof record['branch'] !== 'string') || (record['origin'] !== undefined && typeof record['origin'] !== 'string')) throw new Error(`${import.meta.path}:25: ${id}.written-at: expected repository, commit and optional branch/origin texts`);
+    return { repository: record.repository, commit: record.commit, ...(record.branch === undefined ? {} : { branch: record.branch }), ...(record.origin === undefined ? {} : { origin: record.origin }) };
   });
 }

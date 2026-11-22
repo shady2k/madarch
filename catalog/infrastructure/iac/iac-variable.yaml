@@ -24,3 +24,6 @@ labels:
 description:
   en: An infrastructure variable is a placeholder in a definition of infrastructure whose value comes from a file, a command line or the environment, such as a region, a size or an account. Values that differ between environments stay out of the definition and are supplied when it is applied.
   ru: 'Переменная IaC — место в описании инфраструктуры, значение которого берут из файла, командной строки или окружения: регион, размер или учётная запись. То, что различается между средами, не входит в описание, а задаётся при его применении.'
+derives-from:
+- product-profile
+- terraform-module

@@ -24,3 +24,6 @@ labels:
 description:
   en: A business impact analysis asks, for each process and system, what stops when it fails, what that costs per hour or per day, and which recovery time and data loss the business can bear. Its answers set the recovery objectives.
   ru: Анализ влияния на бизнес выясняет по каждому процессу и системе, что останавливается при их отказе, во что это обходится за час или за день и какое время восстановления и какую потерю данных бизнес может вынести. Его ответы задают цели восстановления.
+derives-from:
+- business-process
+- software-system

@@ -49,6 +49,8 @@ export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAncho
 }
 
 /** Shared semantic layout for reading pages and form fields. */
+export const STACK_LAYOUT = { reading: 'reading', navigation: 'navigation', shell: 'shell' } as const;
+export const INLINE_ALIGN = { baseline: 'baseline' } as const;
 const stackLayouts = {
   // A command page's sections: one column, a gap between the cards.
   page: 'grid min-w-0 gap-4',

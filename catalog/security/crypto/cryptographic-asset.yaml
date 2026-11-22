@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A cryptographic asset is anything the product''s protection rests on: an algorithm, a key, a certificate, a protocol. It is described by strength, lifetime, ownership and the rules that govern its use.'
   ru: 'Криптографический актив — всё, на чём держится защита продукта: алгоритм, ключ, сертификат, протокол. Его описывают стойкость, срок жизни, владелец и правила использования.'
+derives-from:
+- code.service
+- crypto-algorithm

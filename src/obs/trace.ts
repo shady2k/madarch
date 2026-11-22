@@ -17,9 +17,10 @@
  * again when it ends.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { errorText } from '../model/error-text.js';
 import { appendFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { DEFAULT_RAW_DAYS, sweepRawTelemetry, type RawRetention } from './retention.js';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, type Attributes, type AttributeValue, type Span } from '@opentelemetry/api';
 import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
@@ -43,6 +44,11 @@ export interface TraceRun {
   readonly store: string;
   readonly file: string;
   readonly logFile: string;
+  /** Optional outside evidence, independent of the store's retention and lifetime. */
+  readonly outputFile?: string;
+  readonly outputLogFile?: string;
+  /** Finished database statements belonging to this run, including failed statements. */
+  statements: number;
   /** The process's memory over the run, one reading every `MEMORY_SAMPLE_MS`: what a span's peak is read from. */
   readonly samples: MemorySample[];
   /** The sampler, while the run is open. */
@@ -161,6 +167,9 @@ function flushRun(run: TraceRun): void {
   const text = run.buffer.join('');
   run.buffer = [];
   try { appendFileSync(run.file, text, 'utf8'); } catch { /* the trace is evidence, not the work: a full disk must not fail a fill */ }
+  if (run.outputFile !== undefined) {
+    try { appendFileSync(run.outputFile, text, 'utf8'); } catch { /* outside evidence must not fail the work */ }
+  }
 }
 
 function otlpValue(value: AttributeValue): Record<string, unknown> {
@@ -212,6 +221,7 @@ class JsonlSpanProcessor implements SpanProcessor {
   onEnd(span: ReadableSpan): void {
     const run = spanRuns.get(span as unknown as object) ?? runStorage.getStore() ?? latest;
     if (run === undefined || run.closed) return;
+    if (span.name === 'db.statement') run.statements += 1;
     const started = spanStartMemory.get(span as unknown as object);
     // The span's own window, read from the run's samples: a span whose start this processor never saw
     // (a library's) states the reading at its end alone.
@@ -264,9 +274,27 @@ export function openTrace(options: { readonly store: string; readonly runId: str
   try {
     sweepRawTelemetry(options.store, { days: options.retention?.days ?? DEFAULT_RAW_DAYS, bytes: options.retention?.bytes ?? null, runs: options.retention?.runs ?? 20 });
   } catch { /* the raw record is evidence, not the work: a retention that cannot run fails no fill */ }
+  const output = process.env['MADARCH_TRACE_OUTPUT'];
+  let outputFile: string | undefined;
+  let outputLogFile: string | undefined;
+  if (enabled && output !== undefined && output !== '') {
+    try {
+      mkdirSync(output, { recursive: true });
+      const target = join(output, traceFileName(options.runId));
+      const targetLog = join(output, `${traceStem(options.runId)}.log.jsonl`);
+      // Pointing at the store's own trace directory must not double every record.
+      if (resolve(target) !== resolve(file)) {
+        writeFileSync(target, '', 'utf8');
+        writeFileSync(targetLog, '', 'utf8');
+        outputFile = target;
+        outputLogFile = targetLog;
+      }
+    } catch { /* outside evidence must not fail the work */ }
+  }
   const run: TraceRun = {
     runId: options.runId, store: options.store, file, logFile, startedAt: Date.now(), console: options.console === true,
-    buffer: [], lines: 0, closed: !enabled, samples: [],
+    buffer: [], lines: 0, closed: !enabled, samples: [], statements: 0,
+    ...(outputFile === undefined ? {} : { outputFile, outputLogFile }),
   };
   if (enabled) {
     // The run samples the process's memory as it goes: a span's peak is the highest reading of its
@@ -288,6 +316,11 @@ export function runInTrace<T>(run: TraceRun, work: () => Promise<T>): Promise<T>
 
 /** Ends a run's trace: what is buffered is written, and later spans of the run are dropped rather than written after its end. */
 export function closeTrace(run: TraceRun): void {
+  if (run.closed) return;
+  runStorage.run(run, () => withSpanSync('trace.summary', {
+    'madarch.elapsed_ms': Date.now() - run.startedAt,
+    'db.statement.count': run.statements,
+  }, () => {}));
   if (run.timer !== undefined) { clearInterval(run.timer); run.timer = undefined; }
   if (run.flushTimer !== undefined) { clearInterval(run.flushTimer); run.flushTimer = undefined; }
   if (run.flushSoon !== undefined) { clearTimeout(run.flushSoon); run.flushSoon = undefined; }
@@ -324,7 +357,7 @@ export async function withSpan<T>(name: string, attributes: SpanAttributes, work
   try {
     return await spanStorage.run(span, () => work(span));
   } catch (error) {
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: errorText(error).slice(0, 200) });
     throw error;
   } finally {
     span.end();
@@ -354,7 +387,7 @@ export function withSpanSync<T>(name: string, attributes: SpanAttributes, work: 
   try {
     return spanStorage.run(span, () => work(span));
   } catch (error) {
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: errorText(error).slice(0, 200) });
     throw error;
   } finally {
     span.end();

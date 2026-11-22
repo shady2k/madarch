@@ -6,6 +6,7 @@ sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
 - https://glossary.istqb.org/en_US/term/review
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -21,52 +22,26 @@ relation-constraints:
   - evidences
 template-policy: none
 fields:
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
+- name: severity
   type: text
   nullable: true
-  producers:
-  - person
-- name: owner
+  binding:
+    agent: How serious the finding is, in the words the review grades its findings
+      by.
+- name: text
+  type: text
+  binding:
+    agent: What the review says is wrong, in its own words.
+- name: line
+  type: integer
+  nullable: true
+  binding:
+    agent: The line the finding stands on.
+- name: resolution
   type: text
   nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: 'What was done about it: fixed, argued down or left open.'
 labels:
   en:
     one: Review finding
@@ -77,3 +52,6 @@ labels:
 description:
   en: 'A review finding names one problem that a reviewer saw in a change: what is wrong, how serious it is and where. It ends as fixed, or as declined with the reason the team accepted.'
   ru: 'Находка ревью называет одну проблему, которую проверяющий увидел в изменении: что не так, насколько это серьёзно и где. Она заканчивается исправлением или отказом с причиной, которую команда приняла.'
+derives-from:
+- code.file
+- pull-request-review

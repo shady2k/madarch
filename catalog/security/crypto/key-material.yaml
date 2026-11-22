@@ -24,3 +24,5 @@ labels:
 description:
   en: Key material is the actual secret the product uses in cryptography, such as a signing key or a shared secret. Its record says where it is stored, who may use it and when it must be rotated.
   ru: 'Ключевой материал — сам секрет, которым продукт пользуется в криптографии: ключ подписи или общий секрет. В записи сказано, где он хранится, кто может им пользоваться и когда его нужно сменить.'
+derives-from:
+- cryptographic-asset

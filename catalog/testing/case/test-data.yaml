@@ -24,3 +24,5 @@ labels:
 description:
   en: 'Test data is the input and the starting state a test needs: records, accounts, files, messages. Keeping it separate from the code makes the test easier to read and to run on another machine.'
   ru: 'Тестовые данные — входные данные и начальное состояние, нужные тесту: записи, учётные записи, файлы, сообщения. Хранение отдельно от кода делает тест понятнее и позволяет запускать его на другой машине.'
+derives-from:
+- test-condition
