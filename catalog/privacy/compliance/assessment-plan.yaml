@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An assessment plan sets out the checks a system will undergo: which controls are examined, which methods are used, who carries them out and when. It is the agreement that makes an assessment repeatable and comparable.'
   ru: 'План оценки задаёт проверки, которые пройдёт система: какие контроли рассматривают, какими методами, кто их выполняет и когда. Это договорённость, благодаря которой оценка становится повторимой и сравнимой.'
+derives-from:
+- system-security-plan

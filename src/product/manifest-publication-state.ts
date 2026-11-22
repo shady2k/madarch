@@ -47,7 +47,7 @@ export function waitForManifestPublication(folder: string, signal?: AbortSignal)
     };
     const abort = () => {
       cleanup();
-      reject(new Error('the wiki is shutting down'));
+      reject(signal!.reason);
     };
     if (signal?.aborted) { abort(); return; }
     waiting.add(settle);

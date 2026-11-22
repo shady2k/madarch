@@ -5,6 +5,7 @@ definition: A drill is a planned exercise in which a disruption is simulated and
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -13,7 +14,36 @@ relation-constraints:
   - verifies
   in:
   - verifies
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What the drill practises, in one line; it is the drill's key.
+- name: objectives_met
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Which objectives the drill reached, as the record states them.
+- name: duration
+  type: duration-seconds
+  nullable: true
+  binding:
+    agent: How long the drill took, in seconds.
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the drill ran.
+key:
+- name
 labels:
   en:
     one: Drill
@@ -24,3 +54,5 @@ labels:
 description:
   en: A drill simulates a failure — a lost region, a broken database, an unavailable team — and makes the people follow their plan as if it were real. It shows whether the plan works under pressure before a real disruption does.
   ru: Учение имитирует сбой — потерянный регион, отказавшую базу данных, недоступную команду — и заставляет людей действовать по плану, как будто всё по-настоящему. Оно показывает, работает ли план под давлением, раньше настоящего сбоя.
+derives-from:
+- exercise-scenario

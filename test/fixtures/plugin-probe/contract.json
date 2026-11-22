@@ -30,12 +30,28 @@
       {
         "kind": "probe-link",
         "from": "probe",
-        "to": "probe"
+        "to": "probe",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "references",
+            "in": "referenced by"
+          },
+          "ru": {
+            "out": "\u0441\u0441\u044b\u043b\u0430\u0435\u0442\u0441\u044f \u043d\u0430",
+            "in": "\u0438\u043c\u0435\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0443"
+          }
+        }
       }
     ]
   },
   "rights": {
     "network": "none",
-    "filesystem": true
+    "filesystem": true,
+    "graph": true,
+    "graphReads": ["files", "value", "ownFacts"]
   }
 }

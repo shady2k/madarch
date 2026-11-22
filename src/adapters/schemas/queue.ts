@@ -1,19 +1,19 @@
 /** Queue installation. Only central store preparation calls prepareQueueSchema. */
 import { withSpan } from '../../obs/trace.js';
+import { UNIT_JOB_ATTEMPT_SECONDS, RUN_JOB_HEARTBEAT_SECONDS } from '../../fill/queue-limits.js';
 import { PgBoss } from 'pg-boss';
 import type { DatabaseOwner } from '../database-owner.js';
 import type { QueueDeclaration } from '../../fill/queue.js';
 import { createSchemaOnce } from '../schema-stamp.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../schema-lock.js';
-import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ENQUEUE_STAMP_TABLE, ownerDatabase, QUEUE_SCHEMA_PARTS, queueOptions } from '../queue-definition.js';
+import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, MANUAL_GRAPH_QUEUE, ownerDatabase, QUEUE_SCHEMA_PARTS, queueOptions } from '../queue-definition.js';
 
 /** Queue declarations installed by store preparation. Clients may update their mutable settings. */
 const FILL_QUEUES: readonly QueueDeclaration[] = [
-  { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
-  { name: 'fill-units', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
-  // A page's read of a file's text (madarch-u3vw.16): the fill role claims it, reads the blob through the git plugin and
-  // settles the job with the bytes. It is the same queue, the same adapter and the same prepared schema as the fills.
+  MANUAL_GRAPH_QUEUE,
   { name: 'file-texts', leaseSeconds: 120, retries: 1, retryDelaySeconds: 1, retryBackoff: false },
+  { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
+  { name: 'fill-units', leaseSeconds: UNIT_JOB_ATTEMPT_SECONDS, heartbeatSeconds: RUN_JOB_HEARTBEAT_SECONDS, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
 ];
 
 export interface QueueSchemaOptions {
@@ -47,13 +47,7 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
   let release!: (prepared: boolean) => void;
   const finished = new Promise<boolean>((resolve) => { release = resolve; });
   const holding = owner.transaction('write', async (transaction) => {
-    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = SCHEMA_LOCK_SQL;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await transaction.query(sql, [storeSchemaLockKey()]);
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
-    });
+    await withSpan('db.queue.prepareQueueSchema', { 'db.system': 'postgres' }, async () => await transaction.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]));
     acquired();
     if (await finished) {
       await createSchemaOnce({ transaction: async (_kind, work) => await work(transaction) }, {
@@ -79,15 +73,6 @@ export async function prepareQueueSchema(owner: DatabaseOwner, options: QueueSch
           throw new Error(`the queue "${declaration.name}" has a different singleton rule in ${owner.location}: prepare a queue of its own name rather than changing its policy`);
         }
       }
-      await owner.run(async (executor) => await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await executor.query(
-              sql,
-            );
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      }));
       prepared = true;
     } finally {
       await boss.stop({ graceful: false });

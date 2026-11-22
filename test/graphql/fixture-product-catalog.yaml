@@ -1,41 +1,221 @@
-# The metadata of the fixture product the GraphQL executor's integration tests read (decision 0036).
 language: en
 purposes:
-  structure: { labels: { en: Structure, ru: Структура }, order: 10 }
+  structure:
+    labels:
+      en: Structure
+      ru: Структура
+    order: 10
 groups:
-  demo: { en: Demo, ru: Демо, short: { en: Demo, ru: Демо }, open: true }
-  demo.core: { en: Core, ru: Ядро, parent: demo, short: { en: Core, ru: Ядро } }
+  demo:
+    en: Demo
+    ru: Демо
+    short:
+      en: Demo
+      ru: Демо
+    open: true
+  demo.core:
+    en: Core
+    ru: Ядро
+    parent: demo
+    short:
+      en: Core
+      ru: Ядро
 catalog:
   subgroup-kind-bound: 12
-  attributes: [version]
-  origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
+  attributes:
+  - version
+  origin-marks:
+  - document
+  - conversation
+  - agent-from-graph
+  - live-system
+  - not-implemented
   extractor-mark: extractor
-  template-policies: [page, member, none]
-  relations: { contains: null }
+  template-policies:
+  - page
+  - member
+  - none
+  relations:
+    contains: null
 edges:
-  - name: demo.contains
-    from: [demo.repository]
-    to: [demo.file]
-    fields:
-      - { name: position, type: integer, nullable: true, producers: [agent] }
-  - name: demo.touched
-    from: [demo.file]
-    to: [demo.file]
-    repeats: true
-    discriminator: path
-    fields:
-      - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
-      - { name: weight, type: bigint, nullable: true, producers: [agent] }
-  - name: demo.related
-    from: [demo.file]
-    to: [demo.file]
-  - name: mentions
-    from: [any]
-    to: [any]
-    repeats: true
-    discriminator: place
-  - name: demo.sized
-    from: [demo.repository]
-    to: [demo.file]
-    fields:
-      - { name: weight, type: integer, producers: [agent] }
+- name: demo.contains
+  from:
+  - demo.repository
+  to:
+  - demo.file
+  labels:
+    en:
+      out: contains
+      in: contained in
+    ru:
+      out: содержит
+      in: содержится в
+  fields:
+  - name: position
+    type: integer
+    nullable: true
+    producers:
+    - agent
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: demo.touched
+  from:
+  - demo.file
+  to:
+  - demo.file
+  repeats: true
+  discriminator: path
+  labels:
+    en:
+      out: touched
+      in: changed by
+    ru:
+      out: затронул
+      in: изменён коммитами
+  fields:
+  - name: changed_at
+    type: timestamp
+    nullable: true
+    producers:
+    - agent
+  - name: weight
+    type: bigint
+    nullable: true
+    producers:
+    - agent
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: demo.related
+  from:
+  - demo.file
+  to:
+  - demo.file
+  labels:
+    en:
+      out: relates to
+      in: relates to
+    ru:
+      out: связано с
+      in: связано с
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: mentions
+  from:
+  - demo.file
+  - demo.repository
+  to:
+  - demo.file
+  - demo.repository
+  repeats: true
+  discriminator: place
+  labels:
+    en:
+      out: mentions
+      in: mentioned by
+    ru:
+      out: упоминает
+      in: упомянут в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: demo.sized
+  from:
+  - demo.repository
+  to:
+  - demo.file
+  labels:
+    en:
+      out: has size
+      in: size of
+    ru:
+      out: имеет размер
+      in: размер чего
+  fields:
+  - name: weight
+    type: integer
+    producers:
+    - agent
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: demo.file-repository
+  from:
+  - demo.file
+  to:
+  - demo.repository
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  labels:
+    en:
+      out: belongs to
+      in: files
+    ru:
+      out: принадлежит
+      in: файлы
+  on-parent-delete: restrict
+- name: demo.file-primary
+  from:
+  - demo.file
+  to:
+  - demo.repository
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: 1
+  labels:
+    en:
+      out: primary
+      in: primary files
+    ru:
+      out: primary
+      in: primary файлы
+- name: demo.file-preferred
+  from:
+  - demo.file
+  to:
+  - demo.repository
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: 1
+  labels:
+    en:
+      out: preferred
+      in: preferred files
+    ru:
+      out: preferred
+      in: preferred файлы

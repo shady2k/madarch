@@ -2,8 +2,9 @@ name: Single-file evidence
 
 # Temporary workflow (madarch-64o5.74), outside the S6 stack: the slow-test gate
 # requires one alone-run row per test file changed since the merge base, and this
-# workflow measures the 74 files it names, in four lanes of the same tree.
-# Every row comes from scripts/run-tests.ts, which writes a row only for exit 0.
+# workflow measures the two files ALX-1021 names, one per lane, of the tree this
+# branch carries as a snapshot. Every row comes from scripts/run-tests.ts, which
+# writes a row only for exit 0.
 on:
   push:
     branches:
@@ -33,9 +34,11 @@ jobs:
             first: 2
             last: 2
     steps:
+      # The branch carries the tree under measurement as its own snapshot commit
+      # (its tree is 4b21a1ce43f5c77cd33f6127b83366494c2a7d88's), because GitHub
+      # serves no object it cannot reach from a ref: actions/checkout cannot fetch
+      # a commit that only a local bundle holds ("upload-pack: not our ref").
       - uses: actions/checkout@v7
-        with:
-          ref: 4b21a1ce43f5c77cd33f6127b83366494c2a7d88
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2

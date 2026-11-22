@@ -27,18 +27,28 @@
  * the server read it through the statement's own cast, which is what the store's
  * SQL is written for.
  */
+import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { types } from 'pg';
+import { Client, types } from 'pg';
+import { loadModule, scanSync } from 'libpg-query';
 import { withSpan, withSpanSync } from '../obs/trace.js';
+import { GRAPH_CHECK_STATS, GRAPH_CHECK_DIAGNOSTIC_SCHEMA } from './schemas/graph-definition.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
-import type { SqlTransactionKind } from '../sql-driver.js';
+import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
 import { clusterEndpoint, clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
+
+const EXECUTOR_OWNER = new WeakMap<object, DatabaseOwner>();
+
+/** The host owner of an executor; arbitrary query objects carry no write authority. */
+export function databaseOwnerOf(executor: SqlExecutor): DatabaseOwner | undefined {
+  return EXECUTOR_OWNER.get(executor);
+}
 
 /**
  * A `bigint` column read as a number. The store's bigint columns are epoch
@@ -96,10 +106,47 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
   return answer;
 }
 
+/** Opt-in diagnostics: capture deferred function counters before COMMIT resets transaction statistics. */
+const graphDiagnosticClients = new WeakSet<Client>();
+type GraphCheckStats = Record<string, { calls: number; total_ms: number; self_ms: number }>;
+
+async function prepareGraphDiagnostics(client: Client): Promise<void> {
+  if (graphDiagnosticClients.has(client)) return;
+  // Session-local objects, created outside the business transaction. The last queued row samples the graph's
+  // completed deferred triggers while their transaction counters still exist; no graph constraint is fired early.
+  await withSpan('db.diagnostic.setup', { 'db.system': 'postgres', 'db.diagnostic.statements': 3 }, async () => {
+    await loadModule();
+    await client.query(GRAPH_CHECK_DIAGNOSTIC_SCHEMA);
+  });
+  graphDiagnosticClients.add(client);
+}
+
+/** PostgreSQL's lexer recognizes comments and whitespace without a second SQL grammar. */
+function setsConstraints(sql: string): boolean {
+  try {
+    const tokens = (scanSync(sql).tokens ?? []).filter(token => token.tokenName !== 'C_COMMENT' && token.tokenName !== 'SQL_COMMENT');
+    return tokens[0]?.text.toUpperCase() === 'SET' && tokens[1]?.text.toUpperCase() === 'CONSTRAINTS';
+  } catch { return false; } // Let PostgreSQL report malformed SQL through the normal statement path.
+}
+
+function graphCheckAttributes(before: GraphCheckStats, after: GraphCheckStats): Record<string, number> {
+  const attributes: Record<string, number> = {};
+  for (const name of ['graph_relations_check', 'graph_checks_pass']) {
+    for (const field of ['calls', 'total_ms', 'self_ms'] as const) {
+      attributes[`db.${name}.${field}`] = (after[name]?.[field] ?? 0) - (before[name]?.[field] ?? 0);
+    }
+  }
+  return attributes;
+}
+
 /**
  * The database one process owns, opened once and lent to every adapter that
  * keeps data in it.
  */
+export interface TransactionOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface DatabaseOwner {
   /** Where the database is, for error messages: a PostgreSQL `host:port/database` description that never carries credentials. */
   readonly location: string;
@@ -124,7 +171,7 @@ export interface DatabaseOwner {
    * to any operation of an adapter lent this owner, which then runs its own
    * statements inside it.
    */
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T>;
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options?: TransactionOptions): Promise<T>;
   /**
    * Runs `work` on the database with no transaction boundary of its own, for a
    * single statement.
@@ -139,6 +186,15 @@ export interface DatabaseOwner {
    * have nowhere else to run.
    */
   exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]>;
+  /**
+   * Registers work that runs when this owner closes, before its pool is given up:
+   * an adapter that keeps background passes of its own on the owner's database —
+   * the queue's supervision timer — stops them here, so nothing keeps asking a
+   * database the process has closed (madarch-64o5.74). A failure of the work is
+   * reported with the close once the pool is given up, never instead of it.
+   * Returns an idempotent removal function for an adapter that stops before the owner.
+   */
+  onClose(work: () => Promise<void> | void): () => void;
   /**
    * Stops accepting work, releases the pool and gives up this owner's hold of the store's server: the server stops only
    * when no process of the binary uses it any more, and keeps answering for the ones that do.
@@ -197,6 +253,9 @@ function postgresLocation(options: PoolConfig): string {
   return `postgres://${host}:${port}/${database}`;
 }
 
+/** An owner called from inside its own transaction: nothing it was asked to close was closed. */
+class OwnWorkError extends Error {}
+
 class PostgresOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = true;
   readonly hasVector: boolean;
@@ -206,8 +265,10 @@ class PostgresOwner implements DatabaseOwner {
   private readonly ownWork = new AsyncLocalStorage<true>();
   private closing = false;
   private closePromise: Promise<void> | undefined;
+  /** Work a lent adapter stops with this owner, in registration order (`onClose`). */
+  private readonly attached: (() => Promise<void> | void)[] = [];
 
-  constructor(private readonly pool: Pool, options: PoolConfig, hasVector = true, store?: string) {
+  constructor(private readonly pool: Pool, private readonly options: PoolConfig, hasVector = true, store?: string) {
     this.location = store === undefined ? postgresLocation(options) : `${store} (${postgresLocation(options)})`;
     // pg removes failed idle clients before emitting this event. An unobserved event would crash the process.
     this.pool.on('error', (error) => console.error(`PostgreSQL pool "${this.location}": ${errorMessage(error)}`));
@@ -235,8 +296,8 @@ class PostgresOwner implements DatabaseOwner {
     }
   }
 
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.transactionWork(kind, work);
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
+    return this.transactionWork(kind, work, options.signal);
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
@@ -245,6 +306,14 @@ class PostgresOwner implements DatabaseOwner {
 
   exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
     return this.execWork<Row>(text);
+  }
+
+  onClose(work: () => Promise<void> | void): () => void {
+    this.attached.push(work);
+    return () => {
+      const index = this.attached.indexOf(work);
+      if (index !== -1) this.attached.splice(index, 1);
+    };
   }
 
   private ensureOpen(): void {
@@ -259,11 +328,12 @@ class PostgresOwner implements DatabaseOwner {
    */
   private ensureOutsideOwnWork(): void {
     if (this.ownWork.getStore() === true) {
-      throw new Error(`the database owner "${this.location}" was called from inside its own transaction; pass that transaction to the operation instead of opening another, or its statements would run outside it and commit separately`);
+      throw new OwnWorkError(`the database owner "${this.location}" was called from inside its own transaction; pass that transaction to the operation instead of opening another, or its statements would run outside it and commit separately`);
     }
   }
 
-  private async transactionWork<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
+  private async transactionWork<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
     this.ensureOpen();
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
@@ -271,31 +341,126 @@ class PostgresOwner implements DatabaseOwner {
       return await this.named(async () => await this.pool.connect());
     });
     let releaseError: Error | undefined;
+    let activeStatement = false;
+    let cancellation: Promise<void> | undefined;
+    let cancel: (() => void) | undefined;
+    const query = async <Row extends object = Record<string, unknown>>(sql: string, parameters?: unknown[]): Promise<{ rows: Row[] }> => {
+      signal?.throwIfAborted();
+      activeStatement = true;
+      try { return await this.named(async () => await client.query<Row>(parameters?.length ? queryConfig(client, sql, parameters) : sql)); }
+      finally { activeStatement = false; }
+    };
     try {
+      signal?.throwIfAborted();
+      if (signal !== undefined) {
+        const pid = (await query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        cancel = () => {
+          if (!activeStatement || cancellation !== undefined) return;
+          cancellation = (async () => {
+            const control = new Client(this.options);
+            try {
+              await control.connect();
+              const answer = await control.query<{ cancelled: boolean }>('SELECT pg_cancel_backend($1) AS cancelled', [pid]);
+              if (answer.rows[0]?.cancelled !== true) throw new Error(`${import.meta.path}:300: PostgreSQL refused cancellation of this transaction`);
+            } finally { await control.end(); }
+          })();
+          // The transaction observes this failure after its work drains.
+          void cancellation.catch(() => undefined);
+        };
+        signal.addEventListener('abort', cancel, { once: true });
+        signal.throwIfAborted();
+      }
+      const graphDiagnostics = kind === 'write' && process.env['MADARCH_TRACE_GRAPH_CHECKS'] === '1';
+      if (graphDiagnostics) await this.named(async () => await prepareGraphDiagnostics(client));
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
-      await this.named(async () => await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(begin) }, async (span) => {
-        const answer = await client.query(begin);
+      await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(begin) }, async (span) => {
+        const answer = await query(begin);
         span.setAttribute('db.rows', answer.rows.length);
         return answer;
-      }));
+      });
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
+        let diagnosticStatements = 0;
+        const readGraphStats = async (): Promise<GraphCheckStats> => {
+          diagnosticStatements += 1;
+          return (await query<{ stats: GraphCheckStats }>(GRAPH_CHECK_STATS)).rows[0]!.stats;
+        };
+        if (graphDiagnostics) {
+          diagnosticStatements += 1;
+          await query("SET LOCAL track_functions = 'pl'");
+          diagnosticStatements += 1;
+          await query('DELETE FROM pg_temp.madarch_graph_check_trace');
+        }
         let statements = 0;
         let rows = 0;
         const counts: StatementCounts = { select: 0, insert: 0, update: 0, delete: 0, other: 0, rows: 0 };
+        let tail: Promise<void> = Promise.resolve();
+        let accepting = true;
+        const committed: (() => void)[] = [];
         const counted: OuterTransaction = {
-          query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
-            statements += 1;
-            const answer = (await spannedStatement(sql, async () => await this.named(async () => await client.query(sql, values === undefined ? undefined : [...values])) as { rows: unknown[] }, counts)) as { rows: Row[] };
-            rows += answer.rows.length;
+          afterCommit: work => { committed.push(work); },
+          query: <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+            if (!accepting) return Promise.reject(new Error(`the database owner "${this.location}" transaction has ended`));
+            if (signal?.aborted === true) return Promise.reject(signal.reason);
+            const parameters = values === undefined ? undefined : [...values];
+            const answer = tail.then(async () => {
+              signal?.throwIfAborted();
+              statements += 1;
+              const result = graphDiagnostics && setsConstraints(sql)
+                ? await withSpan('db.constraints', { 'db.system': 'postgres' }, async (constraintSpan) => {
+                  const before = await readGraphStats();
+                  try { return await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts); }
+                  finally {
+                    // A refused constraint aborts the transaction; its counters cannot then be queried.
+                    // Keep the original failure rather than replacing it with the diagnostic query's failure.
+                    try { constraintSpan.setAttributes(graphCheckAttributes(before, await readGraphStats())); }
+                    catch (error) { constraintSpan.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
+                  }
+                })
+                : await spannedStatement(sql, async () => await query<Row>(sql, parameters), counts);
+              rows += result.rows.length;
+              return result;
+            });
+            tail = answer.then(() => undefined, () => undefined);
             return answer;
           },
         };
-        const held = await this.ownWork.run(true, () => work(counted));
-        if (kind === 'write') await refuseAborted(client, this.location);
-        await this.named(async () => await client.query('COMMIT'));
+        EXECUTOR_OWNER.set(counted, this);
+        let held: T;
+        try {
+          held = await this.ownWork.run(true, () => work(counted));
+        } finally {
+          accepting = false;
+          await tail;
+        }
+        signal?.throwIfAborted();
+        if (kind === 'write') await refuseAborted({ query }, this.location);
+        signal?.throwIfAborted();
+        // COMMIT dispatch is the boundary: after it the server may already have kept the write.
+        if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
+        await withSpan('db.commit', { 'db.system': 'postgres' }, async (commitSpan) => {
+          if (!graphDiagnostics) { await this.named(async () => await client.query('COMMIT')); return; }
+          const before = await readGraphStats();
+          // Last INSERT means the diagnostic trigger follows all graph events already queued by the work.
+          diagnosticStatements += 1;
+          await query('INSERT INTO pg_temp.madarch_graph_check_trace VALUES (NULL)');
+          await this.named(async () => await client.query('COMMIT'));
+          diagnosticStatements += 1;
+          try {
+            const measured = (await client.query<{ stats: GraphCheckStats }>('SELECT stats FROM pg_temp.madarch_graph_check_trace')).rows[0]?.stats;
+            if (measured === undefined || measured === null) throw new Error('PostgreSQL did not report deferred graph check diagnostics');
+            commitSpan.setAttributes(graphCheckAttributes(before, measured));
+          } catch (error) {
+            // COMMIT already kept the work: missing evidence must not suppress publication callbacks or report rollback.
+            commitSpan.recordException(error instanceof Error ? error : new Error(errorMessage(error)));
+          }
+        });
+        for (const publish of committed) {
+          try { publish(); } catch (error) { span.recordException(error instanceof Error ? error : new Error(errorMessage(error))); }
+        }
         span.setAttribute('db.statements', statements);
+        if (graphDiagnostics) span.setAttribute('db.diagnostic.statements', diagnosticStatements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);
         span.setAttribute('db.inserts', counts.insert);
@@ -306,6 +471,12 @@ class PostgresOwner implements DatabaseOwner {
       });
       return value;
     } catch (error) {
+      // A late cancellation must never reach ROLLBACK or a subsequent pool borrower.
+      if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
+      if (cancellation !== undefined) {
+        try { await cancellation; }
+        catch (cancelError) { releaseError = cancelError instanceof Error ? cancelError : new Error(errorMessage(cancelError)); }
+      }
       try {
         await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ROLLBACK') }, async (span) => {
           const answer = await client.query('ROLLBACK');
@@ -315,8 +486,13 @@ class PostgresOwner implements DatabaseOwner {
       } catch (rollbackError) {
         releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
       }
-      throw error;
+      throw signal?.aborted === true ? signal.reason : error;
     } finally {
+      if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
+      if (cancellation !== undefined) {
+        try { await cancellation; }
+        catch (cancelError) { releaseError ??= cancelError instanceof Error ? cancelError : new Error(errorMessage(cancelError)); }
+      }
       client.release(releaseError);
     }
   }
@@ -327,10 +503,15 @@ class PostgresOwner implements DatabaseOwner {
     await this.ready;
     const executor: OuterTransaction = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        const result = await spannedStatement(sql, async () => await this.named(async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values])));
+        const result = await spannedStatement(sql, async () => await this.named(async () => {
+          const client = await this.pool.connect();
+          try { return await client.query(values?.length ? queryConfig(client, sql, values) : sql); }
+          finally { client.release(); }
+        }));
         return { rows: result.rows as Row[] };
       },
     };
+    EXECUTOR_OWNER.set(executor, this);
     return await withSpan('db.run', { 'db.system': 'postgres' }, async () => await this.ownWork.run(true, () => work(executor)));
   }
 
@@ -378,9 +559,38 @@ class PostgresOwner implements DatabaseOwner {
     this.ensureOutsideOwnWork();
     if (this.closePromise !== undefined) return this.closePromise;
     this.closing = true;
-    this.closePromise = this.pool.end();
-    return this.closePromise;
+    const work = (async () => {
+      // The work lent adapters stop with this owner runs first, while their
+      // statements can still reach the pool, and every piece of it runs even
+      // when an earlier one failed: the pool is given up either way, and the
+      // first failure is the one the close reports.
+      let failure: unknown;
+      for (const stop of this.attached.splice(0)) {
+        try { await stop(); }
+        catch (error) { failure ??= error; }
+      }
+      await this.pool.end();
+      if (failure !== undefined) throw failure;
+    })();
+    this.closePromise = work;
+    return work;
   }
+}
+
+/** Bound prepared statement storage per connection; PostgreSQL chooses custom or generic plans. */
+const preparedQueries = new WeakMap<Client, Map<string, string>>();
+const MAX_PREPARED_QUERIES = 512;
+function queryConfig(client: Client, text: string, values?: readonly unknown[]): { text: string; values?: unknown[]; name?: string } {
+  const config = { text, ...(values === undefined ? {} : { values: [...values] }) };
+  if (!values?.length) return config;
+  let known = preparedQueries.get(client);
+  if (known === undefined) { known = new Map(); preparedQueries.set(client, known); }
+  let name = known.get(text);
+  if (name === undefined && known.size < MAX_PREPARED_QUERIES) {
+    name = 'madarch_' + createHash('sha256').update(text).digest('hex').slice(0, 40);
+    known.set(text, name);
+  }
+  return { ...config, ...(name === undefined ? {} : { name }) };
 }
 
 /** Opens the process's PostgreSQL pool once; every adapter lent it shares this pool. */
@@ -438,12 +648,18 @@ class ServerStoreOwner implements DatabaseOwner {
     this.ready = inner.ready;
   }
 
-  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.inner.transaction<T>(kind, work);
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>, options?: TransactionOptions): Promise<T> {
+    return this.inner.transaction<T>(kind, async tx => {
+      EXECUTOR_OWNER.set(tx, this);
+      return await work(tx);
+    }, options);
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.inner.run(work);
+    return this.inner.run(async tx => {
+      EXECUTOR_OWNER.set(tx, this);
+      return await work(tx);
+    });
   }
 
   async exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]> {
@@ -454,15 +670,27 @@ class ServerStoreOwner implements DatabaseOwner {
     });
   }
 
+  onClose(work: () => Promise<void> | void): () => void {
+    return this.inner.onClose(work);
+  }
+
   close(): Promise<void> {
     if (this.closePromise !== undefined) return this.closePromise;
     const work = (async () => {
-      // The server is given up only when the pool really closed: a close the
-      // owner refused (one called from inside the owner's own transaction)
-      // leaves the pool and its connections in use, and a process that still
-      // holds connections is a process that still uses the server — giving the
-      // hold up here would let another process stop the server under it.
-      await this.inner.close();
+      try {
+        await this.inner.close();
+      } catch (error) {
+        // A close the owner refused (one called from inside the owner's own
+        // transaction) closed nothing: the pool and its connections are in use,
+        // and giving the server hold up would let another process stop the
+        // server under them.
+        if (error instanceof OwnWorkError) throw error;
+        // Everything else came after the borrows were given up — the pool asked
+        // to end, or a client attached to it failed to stop on the way — and this
+        // owner's hold of the server is still its own to give up.
+        await this.release();
+        throw error;
+      }
       await this.release();
     })();
     // A close the owner refused closed nothing: the next close asks again rather

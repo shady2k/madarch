@@ -24,3 +24,5 @@ labels:
 description:
   en: An OpenSSF Scorecard check examines one practice of an open-source repository, such as code review, signed releases or a security policy, and scores it from zero to ten. Its record explains what evidence it read and what would raise the score.
   ru: 'Проверка Scorecard рассматривает одну практику открытого репозитория: просмотр кода, подписанные выпуски или политику безопасности, — и оценивает её от нуля до десяти. В её записи сказано, какие доказательства прочитали и что подняло бы оценку.'
+derives-from:
+- code.repository

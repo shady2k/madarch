@@ -22,25 +22,58 @@
       "kind": "code.repository",
       "fields": [
         "url",
-        "default_branch"
+        "default_branch",
+        "tree_snapshot"
       ],
-      "reads": []
+      "reads": [],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.directory",
       "fields": "*",
-      "reads": []
+      "reads": [],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.file",
       "fields": "*",
       "reads": [],
-      "partition": "key"
+      "partition": "key",
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     },
     {
       "kind": "code.gitlink",
       "fields": "*",
-      "reads": []
+      "reads": [],
+      "support": {
+        "vertices": [
+          "code.blob"
+        ],
+        "edges": [
+          "code.blob-about"
+        ]
+      }
     }
   ],
   "concurrency": 1,

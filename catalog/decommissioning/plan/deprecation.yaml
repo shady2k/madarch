@@ -24,3 +24,5 @@ labels:
 description:
   en: A deprecation announces that a part of the product will stop being available, and says what replaces it and from when. It gives users time to move to the replacement and states what still works during the transition.
   ru: Прекращение поддержки — объявление о том, что часть продукта перестанет работать, что придёт ей на замену и с какого времени. Оно даёт пользователям время перейти на замену и говорит, что продолжает работать в переходный период.
+derives-from:
+- decommission-plan

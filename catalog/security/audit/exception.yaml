@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An exception allows a named case to break a security rule for a stated time: the rule, the case, the reason, who accepted the risk and when it ends. When it expires, the rule applies again.'
   ru: 'Исключение разрешает названному случаю нарушать правило безопасности в течение определённого срока: правило, случай, причину, кто принял риск и когда срок кончается. После срока правило снова действует.'
+derives-from:
+- audit-finding

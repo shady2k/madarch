@@ -25,3 +25,5 @@ labels:
 description:
   en: A software bill of materials records every component that goes into a product — libraries, bases, tools — with its version, its supplier and its licence, and how the pieces depend on each other. It lets someone answer which products carry a newly found weakness.
   ru: 'Ведомость состава программы записывает каждый компонент, из которого собран продукт: библиотеки, основы, инструменты, — с версией, поставщиком и лицензией, а также связи между частями. По ней можно ответить, в каких продуктах есть только что найденная слабость.'
+derives-from:
+- build-artifact

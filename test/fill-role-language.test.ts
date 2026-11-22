@@ -6,22 +6,35 @@
  */
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { afterAll, expect, test } from 'bun:test';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createTestDatabaseOwner } from './test-database.js';
 import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
-import { createRun } from '../src/fill/state-store.js';
+import { readFillEnd, writeFillEnd } from '../src/graph/fill-orchestration.js';
+import { createRun } from '../src/graph/fill-state.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { execFileSync } from 'node:child_process';
 
 const work = mkdtempSync(join(tmpdir(), 'madarch-fill-language-'));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+/**
+ * The owners a case opened. A case stopped at its deadline runs no `finally`,
+ * and the queue a store carries keeps asking its closed owner on a timer, so the
+ * file's teardown closes them (madarch-64o5.74).
+ */
+const openOwners: { close(): Promise<void> }[] = [];
+function tracked<T extends { close(): Promise<void> }>(owner: T): T { openOwners.push(owner); return owner; }
+afterEach(async () => {
+  while (openOwners.length > 0) await openOwners.pop()!.close().catch(() => undefined);
+});
 
 /** The root span of one run's trace, as the run wrote it. */
 function rootSpanOf(traceFile: string): { name: string; attributes: { key: string; value: { stringValue?: string } }[] } {
@@ -48,8 +61,9 @@ test('the language a press names is the one the run records', async () => await 
   // The store the role watches (the folder the product's own fill keeps), and the database folder inside it.
   const storeFolder = productStoreFolder(product, knowledgeRoot);
   const graphFolder = join(storeFolder, 'graph');
-  await requestStorePreparation(graphFolder, await readPinnedGraphContract(product));
-  const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
+  const graphContract = withAssertionContract(await readPinnedGraphContract(product));
+  await requestStorePreparation(graphFolder, graphContract);
+  const owner = tracked(Object.assign(await createDatabaseOwner({ store: graphFolder, connectOnly: true }), { graphContract }));
   let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     queue = await openFillRunQueue(owner);
@@ -64,7 +78,7 @@ test('the language a press names is the one the run records', async () => await 
         knowledgeRoot,
         log: () => undefined,
         idle: () => finished,
-        openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
+        openStore: async (folder) => Object.assign(await createDatabaseOwner({ store: folder, connectOnly: true }), { graphContract: owner.graphContract }),
       });
     } finally {
       clearInterval(watching);
@@ -87,8 +101,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
   const knowledgeRoot = join(work, 'redelivery-knowledge');
   const storeFolder = join(knowledgeRoot, 'ended');
   const graphFolder = join(storeFolder, 'graph');
-  await requestStorePreparation(graphFolder);
-  const owner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
+  const owner = tracked(await createTestDatabaseOwner({ store: graphFolder }));
   const queue = await openFillRunQueue(owner);
   const job = { product: join(work, 'missing-redelivered-product'), store: storeFolder, runId: 'ended-run' };
   const original = { runId: job.runId, state: 'failed', message: 'The original failure must remain exact.' };
@@ -101,7 +114,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
       knowledgeRoot,
       log: () => undefined,
       idle: () => passes++ > 0,
-      openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
+      openStore: async (folder) => Object.assign(await createDatabaseOwner({ store: folder, connectOnly: true }), { graphContract: owner.graphContract }),
     })).toBe(0);
     expect(await readFillEnd(owner, job.runId)).toEqual(original);
     expect(existsSync(join(storeFolder, 'traces', `${job.runId}.jsonl`))).toBe(false);

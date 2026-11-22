@@ -24,3 +24,5 @@ labels:
 description:
   en: A remote is a copy of a repository that stands somewhere else — a hosting service, a server or another folder — and is reached by a name and an address. People fetch other people's changes from it and send their own to it, so several copies stay in step.
   ru: 'Удалённый репозиторий — копия репозитория, которая лежит в другом месте: на хостинге, на сервере или в другой папке, — и доступна по имени и адресу. Из неё забирают чужие изменения и отправляют туда свои, чтобы несколько копий не расходились.'
+derives-from:
+- code.repository

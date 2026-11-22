@@ -6,6 +6,7 @@ sources:
 - https://github.com/shady2k/madarch/blob/main/docs/vision.md
 - https://agents.md/
 acquisition:
+- agent-from-graph
 - conversation
 - document
 - not-implemented
@@ -19,28 +20,33 @@ relation-constraints:
   - refines
 template-policy: page
 source: graph
-fields:
-- name: body
-  type: text
-  producers:
-  - person
-- name: precedence
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-key: []
 origin: person
-nav: own-page
 details:
 - body
 - precedence
 - status
+fields:
+- name: body
+  type: text
+  binding:
+    agent: The principles, practices and conventions in force, as the constitution
+      states them.
+- name: precedence
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Which statement wins where two disagree, in the order the constitution
+      gives.
+- name: status
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: Whether the constitution is in force.
+key: []
+nav: own-page
 labels:
   en:
     one: Constitution
@@ -50,4 +56,11 @@ labels:
     many: Конституции
 description:
   en: A constitution is the one place where a product states the principles, practices and conventions in force, in the order that settles which wins when two disagree. The product's instructions for its agents are made from it, so a new rule is changed once and reaches every agent.
-  ru: 'Конституция — одно место, где продукт называет действующие принципы, практики и соглашения, в порядке, который решает, что важнее при расхождении. Из неё строят инструкции продукта для агентов, поэтому новое правило меняют один раз и оно доходит до каждого агента.'
+  ru: Конституция — одно место, где продукт называет действующие принципы, практики и соглашения, в порядке, который решает, что важнее при расхождении. Из неё строят инструкции продукта для агентов, поэтому новое правило меняют один раз и оно доходит до каждого агента.
+
+key-edges:
+- role: constitution-product
+  edge: constitution-product
+  side: from
+derives-from:
+- system.product

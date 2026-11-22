@@ -117,9 +117,9 @@
     "network": "none",
     "graph": true,
     "graphReads": [
-      "unresolved",
       "removedEnds",
-      "unevidenced"
+      "unevidenced",
+      "ownFacts"
     ]
   }
 }

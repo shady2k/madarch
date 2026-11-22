@@ -24,3 +24,7 @@ labels:
 description:
   en: A membership records that a person belongs to a group, such as a team, a department or a committee, and which role they have there and from when to when. It is what gives the person the rights and duties of that place.
   ru: 'Членство фиксирует, что человек входит в группу: команду, подразделение или комитет, — какую роль он там занимает и с какого по какое время. Оно даёт человеку права и обязанности этого места.'
+derives-from:
+- person
+- role
+- team

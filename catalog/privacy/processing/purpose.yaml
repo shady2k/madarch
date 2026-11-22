@@ -24,3 +24,5 @@ labels:
 description:
   en: A processing purpose states why personal data is used, such as delivering an order, paying salaries or preventing fraud. Every activity needs a lawful purpose, and data may not be used for another one without a new ground.
   ru: 'Назначение обработки говорит, зачем используют персональные данные: чтобы доставить заказ, выплатить зарплату или предотвратить мошенничество. У каждого действия должна быть законная цель, и использовать данные для другой нельзя без нового основания.'
+derives-from:
+- domain

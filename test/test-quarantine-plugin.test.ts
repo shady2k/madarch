@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { quarantinedTests } from '../plugins/test-quarantine/parser.js';
 import { extract } from '../plugins/test-quarantine/main.js';
 import type { ExtractContext } from '../src/plugin-sdk.js';
@@ -22,22 +23,26 @@ const source = [
   `  });`,
   `});`,
 ].join('\n');
-const file = { kind: 'code.file', key: { repository: 'repo', path: 'test/example.test.ts' } };
+const repository = { kind: 'code.repository', key: { name: 'repo' } };
+const file = { kind: 'code.file', key: { path: 'test/example.test.ts' }, keyEdges: { 'code.file-repository': repository } };
 function context(content: string): ExtractContext {
   return {
-    signal: new AbortController().signal, heartbeat() {}, progress() {},
+    facts: { async apply() { throw new Error("pure extraction must return one atomic operation"); } },
+    signal: new AbortController().signal, heartbeat() {}, progress() {}, async reconcile() { throw new Error('direct extraction must not invoke reconciliation'); },
       async agent() { throw new Error('this extraction does not request an agent'); },
       async read(request: { readonly repository: string; readonly blob: string }) {
-        expect(request).toEqual({ repository: file.key.repository, blob: 'blob-of-the-file' });
+        expect(request).toEqual({ repository: repository.key.name, blob: 'blob-of-the-file' });
         return { text: content, lines: content.split('\n').length, bytes: content.length, binary: false };
       },
     graph: {
+      async ownFacts() { return { vertices: [], edges: [] }; },
+      async removedEnds() { throw new Error('unexpected consistency read'); },
+      async unevidenced() { throw new Error('unexpected consistency read'); },
       async files(pattern) { expect(['**/*.test.*', '**/quarantine-results.json']).toContain(pattern); return pattern === '**/*.test.*' ? [file] : []; },
-      async value<T>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T> {
-        expect(kind).toBe(file.kind); expect(key).toEqual(file.key); expect(field).toBe('blob');
+      async value<T>(kind: string, key: Readonly<Record<string, string | number | boolean>>, field: string, keyEdges?: Readonly<Record<string, import('../src/plugin-sdk.js').EntityRef>>): Promise<T> {
+        expect(kind).toBe(file.kind); expect(key).toEqual(file.key); expect(keyEdges).toEqual(file.keyEdges); expect(field).toBe('blob');
         return 'blob-of-the-file' as T;
       },
-      async unresolved() { return { rows: [] }; }, async removedEnds() { return { rows: [] }; }, async unevidenced() { return { rows: [] }; },
     },
   };
 }
@@ -60,21 +65,27 @@ describe('test quarantine extraction', () => {
   test('reads only host files and content, emits references and evidence, and replacement has no stale cases', async () => {
     const result = await extract(unit, context(source));
     expect(result.end).toEqual({ state: 'complete' });
-    expect(result.vertices).toHaveLength(2);
-    expect(result.vertices?.[0]).toMatchObject({
-      kind: 'code.test-quarantine', key: { ...file.key, name: 'outer suite first' },
-      values: { test: { file: file.key.path, name: 'outer suite first', lines: [3, 3] }, task: 'madarch-64o5.17', quarantine_reason: 'slow', since },
-      evidence: { ...file.key, lineStart: 3, lineEnd: 3 },
+    const cases = result.vertices?.filter(vertex => vertex.kind === 'code.test-quarantine');
+    const blob = { kind: 'code.blob', key: { digest: createHash('sha256').update(source).digest('hex') } };
+    expect(cases).toHaveLength(2);
+    expect(result.vertices?.filter(vertex => vertex.kind === 'code.blob')).toEqual([{ ...blob, values: { content: source } }]);
+    expect(result.edges?.filter(edge => edge.kind === 'code.blob-about')).toEqual([{ kind: 'code.blob-about', from: blob, to: file }]);
+    expect(cases?.[0]).toMatchObject({
+      kind: 'code.test-quarantine', key: { ...file.key, name: 'outer suite first' }, keyEdges: { 'code.test-quarantine-repository': repository },
+      values: { quarantine_reason: 'slow' },
+      evidence: { target: blob, digest: blob.key.digest, ...file.key, lineStart: 3, lineEnd: 3 },
     });
-    expect(result.vertices?.[0]?.values).not.toHaveProperty('latest_result');
-    expect(result.edges?.map(edge => edge.kind)).toEqual(['quarantines', 'fixedBy', 'quarantines', 'fixedBy']);
+    expect(cases?.[0]?.values).not.toHaveProperty('latest_result');
+    expect(result.edges?.filter(edge => edge.kind !== 'code.blob-about').map(edge => edge.kind)).toEqual(['code.test-quarantine-test', 'code.test-quarantine-since', 'code.test-quarantine-task', 'code.test-quarantine-test', 'code.test-quarantine-since', 'code.test-quarantine-task']);
     const replacement = await extract(unit, context(`test('repaired', () => {});`));
-    expect(replacement).toEqual({ vertices: [], edges: [], end: { state: 'complete' } });
+    const repaired = `test('repaired', () => {});`;
+    const repairedBlob = { kind: 'code.blob', key: { digest: createHash('sha256').update(repaired).digest('hex') } };
+    expect(replacement).toEqual({ vertices: [{ ...repairedBlob, values: { content: repaired } }], edges: [{ kind: 'code.blob-about', from: repairedBlob, to: file }], end: { state: 'complete' } });
   });
   test('reads matching CI reports from host file content and excludes stale marker results', async () => {
     const ctx = context(source);
-    const report = { kind: 'code.file', key: { repository: 'repo', path: 'madarch/quarantine-results.json' } };
-    const result = { file: file.key.path, name: 'outer suite first', task: 'madarch-64o5.17', since, result: 'PASS', commit: 'a'.repeat(40), finishedAt: '2026-11-11T20:00:00Z' };
+    const report = { kind: 'code.file', key: { path: 'madarch/quarantine-results.json' }, keyEdges: file.keyEdges };
+    const result = { id: 'result-one', file: file.key.path, name: 'outer suite first', task: 'madarch-64o5.17', since, result: 'PASS', commit: 'a'.repeat(40), finishedAt: '2026-11-11T20:00:00Z' };
     ctx.graph.files = async pattern => pattern === '**/*.test.*' ? [file] : [report];
     const texts = new Map([
       ['blob-source', source],
@@ -83,8 +94,14 @@ describe('test quarantine extraction', () => {
     ctx.graph.value = async <T>(_kind: string, key: Readonly<Record<string, string | number>>): Promise<T> => (key['path'] === report.key.path ? 'blob-report' : 'blob-source') as T;
     ctx.read = async (request) => ({ text: texts.get(request.blob) ?? '', lines: 1, bytes: 1, binary: false });
     const extracted = await extract(unit, ctx);
-    expect(extracted.vertices?.[0]?.values?.['latest_result']).toEqual(result);
-    expect(extracted.vertices?.[1]?.values).not.toHaveProperty('latest_result');
+    const cases = extracted.vertices!.filter(vertex => vertex.kind === 'code.test-quarantine');
+    const first = cases[0]!;
+    expect(extracted.edges?.filter(edge => edge.kind === 'code.test-quarantine-latest-result')).toEqual([{
+      kind: 'code.test-quarantine-latest-result',
+      from: { kind: first.kind, key: first.key, keyEdges: first.keyEdges },
+      to: { kind: 'test-result', key: { id: result.id } },
+    }]);
+    expect(cases[1]?.values).not.toHaveProperty('latest_result');
   });
   test('reports malformed source as partial rather than claiming a complete empty inventory', async () => {
     const result = await extract(unit, context('test('));
@@ -94,15 +111,16 @@ describe('test quarantine extraction', () => {
     const folder = resolve('plugins/test-quarantine');
     const closure = closureOf(folder);
     const work = mkdtempSync(join(tmpdir(), 'madarch-quarantine-'));
-    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
-    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     let content = source;
+    const operations: import('../src/plugin-sdk.js').FactsOperation[] = [];
+    // The host's own environment carries the choice, never the test process's: a leaked variable would run every later
+    // plugin of the run unconfined.
     const host = new PluginHost({ pluginFolder: folder, repository: work, workRoot: work,
-      trust: 'validation', closure,
+      trust: 'validation', closure, env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, operations: { async apply(_unitId, _key, operation) { operations.push(operation as import('../src/plugin-sdk.js').FactsOperation); return {accepted:true}; } },
       // The one blob read, as a fill's host answers it (decision 0038): the graph names the blob, and the reader the
       // caller gave answers its text.
       readBlob: async (ask) => ({ text: ask.blob === 'blob-of-the-file' ? content : '', lines: 1, bytes: content.length, binary: ask.blob !== 'blob-of-the-file' }),
-      graph: { async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return 'blob-of-the-file'; } },
+      graph: { async ownFacts() { return { vertices: [], edges: [] }; }, async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return 'blob-of-the-file'; } },
     });
     try {
       const session = await host.open();
@@ -110,15 +128,21 @@ describe('test quarantine extraction', () => {
         const first = await session.runUnit(unit);
         expect(first.state).toBe('extracted');
         if (first.state !== 'extracted') throw new Error(JSON.stringify(first));
-        expect(first.result.vertices).toHaveLength(2);
+        expect(operations).toHaveLength(1);
+        expect(operations[0]!.vertices).toHaveLength(3);
+        expect(operations[0]!.vertices?.filter(vertex => vertex.kind === 'code.test-quarantine')).toHaveLength(2);
+        expect(operations[0]!.edges).toHaveLength(7);
+        expect(first.result).not.toHaveProperty('vertices');
         content = `test('repaired', () => {});`;
         const second = await session.runUnit({ ...unit, unitId: 'after-repair' });
         expect(second.state).toBe('extracted');
         if (second.state !== 'extracted') throw new Error(JSON.stringify(second));
-        expect(second.result.vertices).toEqual([]);
+        expect(operations).toHaveLength(2);
+        expect(operations[1]!.vertices?.filter(vertex => vertex.kind === 'code.test-quarantine')).toHaveLength(0);
+        expect(operations[1]!.vertices).toEqual([{ kind: 'code.blob', key: { digest: createHash('sha256').update(content).digest('hex') }, values: { content } }]);
+        expect(second.result).not.toHaveProperty('vertices');
       } finally { await session.close(); }
     } finally {
-      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX']; else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
       rmSync(work, { recursive: true, force: true });
     }
   });

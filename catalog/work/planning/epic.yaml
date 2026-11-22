@@ -6,92 +6,57 @@ sources:
 - https://glossary.istqb.org/en_US/term/epic
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
   - hasPart
   - refines
+  - work.depends-on
+  - epic.contains
   in:
   - partOf
   - realises
-template-policy: none
+  - work.depends-on
+  - epic.contains
+template-policy: page
+source: graph
 fields:
-- name: legacy_id
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the need, such as Offline orders; it is the
+      epic's key.
+- name: need
   type: text
   nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
+  binding:
+    agent: The stakeholder need the epic meets, in one or two sentences.
+- name: outcome
   type: text
   nullable: true
-  producers:
-  - person
+  binding:
+    agent: What is true once the epic is met.
 - name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: Where the epic stands, as the work kinds keep it.
 - name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
+  type: value-set-value
   nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
+  binding:
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: queue_position
+  type: integer
   nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.
+key:
+- name
 labels:
   en:
     one: Epic
@@ -102,3 +67,6 @@ labels:
 description:
   en: An epic states a need of a stakeholder that is too large to meet in one iteration. Features and user stories break it into parts small enough to plan and deliver.
   ru: Эпик называет потребность заинтересованной стороны, которую нельзя закрыть за одну итерацию. Возможности и истории пользователя делят его на части, которые можно спланировать и выполнить.
+derives-from:
+- goal
+- stakeholder

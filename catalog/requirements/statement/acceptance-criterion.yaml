@@ -24,3 +24,5 @@ labels:
 description:
   en: An acceptance criterion states one checkable condition that a piece of work must satisfy before it is accepted, such as a behaviour, a limit or a document. Written before the work starts, it turns an expectation into something the team and the stakeholder can agree on.
   ru: 'Критерий приёмки формулирует одно проверяемое условие, которому должна соответствовать работа до приёмки: поведение, предел или документ. Записанный до начала работы, он превращает ожидание в то, о чём команда и заинтересованная сторона могут договориться.'
+derives-from:
+- doc.requirement

@@ -5,13 +5,16 @@ definition: A test case is a check with a known starting state, a set of actions
 sources:
 - https://glossary.istqb.org/en_US/term/test-case
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - verifies
   - hasTestCase
+  - partOf
   in:
   - hasTest
+  - partOf
 template-policy: page
 source: graph
 details:
@@ -24,6 +27,53 @@ details:
 - skipReason
 - cases
 - suite
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the test; it is the test case's key inside its
+      file.
+- name: test_kind
+  type: text
+  nullable: true
+  binding:
+    agent: 'What kind of test it is: a unit test, an integration test, an end-to-end
+      test.'
+- name: framework
+  type: text
+  nullable: true
+  binding:
+    agent: The test framework the test is written with.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the test is written in.
+- name: path
+  type: path
+  nullable: true
+  binding:
+    agent: The path of the file that declares the test, as the file entity holds it.
+- name: skipped
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the test is skipped.
+- name: skip_reason
+  type: text
+  nullable: true
+  binding:
+    agent: Why the test is skipped, where the code says so.
+- name: suite
+  type: text
+  nullable: true
+  binding:
+    agent: The suite the test belongs to, as the test framework groups it.
+key:
+- name
 labels:
   en:
     one: Test case
@@ -34,3 +84,11 @@ labels:
 description:
   en: A test case sets up a known state, performs one action or a short sequence of actions and compares the result with the expected one. In code it is usually a function that a test runner calls; the case fails when the result differs from what should happen.
   ru: 'Тест — проверка с известным начальным состоянием, набором действий и ожидаемым результатом, которую можно запускать снова и снова. В коде это обычно функция, которую вызывает средство запуска тестов: она сравнивает полученный результат с ожидаемым и сообщает о расхождении.'
+
+key-edges:
+- role: code.test-case-file
+  edge: code.test-case-file
+  side: from
+derives-from:
+- code.file
+- test-condition

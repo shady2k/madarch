@@ -25,3 +25,5 @@ labels:
 description:
   en: A business capability names something the organisation is able to do, such as billing a customer or settling a claim. It is described by its outcome rather than by the structure that delivers it, so it stays stable when teams, systems or processes change.
   ru: 'Бизнес-способность называет то, что организация умеет делать: например, выставлять счёт клиенту или урегулировать страховой случай. Её описывают через результат, а не через подразделения и системы, которые её обеспечивают, поэтому она не меняется вместе с ними.'
+derives-from:
+- domain

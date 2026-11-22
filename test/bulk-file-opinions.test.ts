@@ -1,59 +1,28 @@
-import { expect, test } from 'bun:test';
+/** Batching preserves typed assertion streams, selection and rollback (0039.24–25). */
+import { expect,test } from 'bun:test';
+import { generatedTableName,type GraphContract } from '../src/graph/contract.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
-import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { repositoryContract } from './repository-contract-fixture.js';
-import { ensureVertex, publishGraphDrafts } from '../src/graph/write.js';
-
-// The batch and individual calls see the same declarations, inputs and transaction boundaries.
-test('bulk file opinions retain singleton state, journal order, replacements and rollback', async () => {
-  const owners = await Promise.all([createTestDatabaseOwner({ graphContract: repositoryContract }), createTestDatabaseOwner({ graphContract: repositoryContract })]);
-  try {
-    const snapshots: unknown[] = [];
-    for (const [mode, owner] of owners.entries()) {
-      await createOneGraphSchema(owner, repositoryContract);
-      const nodes: string[] = [];
-      await owner.transaction('write', async (tx) => {
-        for (const path of ['a.ts', 'b.ts']) nodes.push((await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: { repository: 'fixture', path } })).nodeId);
-      });
-      const base = nodes.map((_nodeId, at) => ({ kind: GIT_KINDS.file, key: { repository: 'fixture', path: at === 0 ? 'a.ts' : 'b.ts' }, producer: 'scanner', producerVersion: '1', values: { mode: '100644', blob: null, language: at === 0 ? 'TypeScript' : 'XML', languages: at === 0 ? ['TypeScript', 'XML'] : [] }, evidence: [{ type: 'file' as const, path: `${at}.ts` }] }));
-      const turns = [
-        base,
-        base,
-        base.map((draft) => ({ ...draft, evidence: [{ type: 'file' as const, path: 'changed.ts' }], producerVersion: '2' })),
-        base.map((draft) => ({ ...draft, values: { language: 'JavaScript' }, producerVersion: '3' })),
-        base.map((draft) => ({ ...draft, lang: 'ru', translatedFrom: '1', sourceDigest: 'digest' })),
-        [{ ...base[0]!, producer: 'duplicate' }, { ...base[0]!, producer: 'duplicate', values: { language: 'JSON' } }],
-      ];
-      const results: number[] = [];
-      for (const drafts of turns) await owner.transaction('write', async (tx) => {
-        let changed = 0;
-        if (mode === 0) changed = await publishGraphDrafts(tx, repositoryContract, { vertices: drafts, removals: [] });
-        else for (const draft of drafts) changed += await publishGraphDrafts(tx, repositoryContract, { vertices: [draft], removals: [] });
-        results.push(changed);
-      });
-      await owner.transaction('write', async (tx) => {
-        const made = await tx.query<{ id: string }>("INSERT INTO context (parent, ref) VALUES (1, 'branch') RETURNING id::text");
-        const context = Number(made.rows[0]!.id);
-        let changed = 0;
-        if (mode === 0) changed = await publishGraphDrafts(tx, repositoryContract, { vertices: base, removals: [] }, context);
-        else for (const draft of base) changed += await publishGraphDrafts(tx, repositoryContract, { vertices: [draft], removals: [] }, context);
-        results.push(changed);
-      });
-      await expect(owner.transaction('write', async (tx) => {
-        await publishGraphDrafts(tx, repositoryContract, { vertices: base.map((draft) => ({ ...draft, producer: 'rolled-back' })), removals: [] });
-        throw new Error('rollback');
-      })).rejects.toThrow('rollback');
-      const state = await owner.transaction('snapshot', async (tx) => {
-        const opinions = await tx.query(`SELECT id::text, node_id::text, said_by, state, evidence, lang, context_id, translated_from::text, source_digest, mode, blob::text, languages, language FROM ${GIT_TABLES.file} ORDER BY id`);
-        expect(opinions.rows.filter((row: any) => row.state === 'closed')).toHaveLength(3);
-        const journal = await tx.query<{ change: { opinions: unknown[] } }>('SELECT change FROM operation ORDER BY seq');
-        return { opinions: opinions.rows, journal: journal.rows.flatMap(row => row.change.opinions) };
-      });
-      // Node UIDs are deterministic, while event timestamps reflect each database's own turn.
-      const normalized = JSON.parse(JSON.stringify(state), (key, value) => key === 'said_at' ? '<time>' : value);
-      snapshots.push({ results, state: normalized });
-    }
-    expect(snapshots[0]).toEqual(snapshots[1]);
-  } finally { for (const owner of owners) await owner.close(); }
-}, 30_000);
+const graph:GraphContract={vertex:[{name:'file',table:generatedTableName('file','vertex'),key:['path'],fields:[{name:'path',type:'text'},{name:'language',type:'text'}],capability:'fixture'}],edge:[],dictionary:[]};
+test('0039.25: batch and singleton publication preserve the same source histories and effective values',async()=>{
+ const owners=await Promise.all([createTestDatabaseOwner({graphContract:graph}),createTestDatabaseOwner({graphContract:graph})]);
+ try{
+ const snapshots=[];
+ for(const [mode,owner] of owners.entries()){
+ const turns=[['TypeScript','XML'],['TypeScript','XML'],['JavaScript','JSON']];
+ for(const languages of turns)await owner.transaction('write',async tx=>{
+ const vertices=languages.map((language,index)=>({kind:'file',key:{path:`${index}.txt`},values:{language},producer:'fixture',producerVersion:'1'}));
+ if(mode===0)await publishGraphDrafts(tx,graph,{vertices,removals:[]});else for(const vertex of vertices)await publishGraphDrafts(tx,graph,{vertices:[vertex],removals:[]});
+ });
+ const history=await owner.run(tx=>loadAssertions(tx,'vertex','file',['language']));
+ const subjects=await owner.run(tx=>tx.query<{uid:string;path:string}>(`SELECT n.uid::text AS uid,n.key->>'path' AS path FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='file'`));
+ const paths=new Map(subjects.rows.map(row=>[row.uid,row.path]));
+ await expect(owner.transaction('write',async tx=>{await publishGraphDrafts(tx,graph,{vertices:[{kind:'file',key:{path:'0.txt'},values:{language:'rollback'},producer:'fixture',producerVersion:'1'}],removals:[]});throw new Error('rollback');})).rejects.toThrow('rollback');
+ expect(await owner.run(tx=>loadAssertions(tx,'vertex','file',['language']))).toEqual(history);
+ const now=new Date().toISOString();
+ snapshots.push({history:history.map(a=>[{type:a.subject.type,path:paths.get(a.subject.type==='vertex'?a.subject.uid:a.subject.id)},a.source,a.property,a.value,a.operation]),selected:(await owner.run(tx=>loadAssertions(tx,'vertex','file',['language'],undefined,{validAt:now,recordedAt:now,contexts:[1]}))).filter(a=>a.selected).map(a=>a.value)});
+ }
+ expect(snapshots[0]).toEqual(snapshots[1]);
+ }finally{for(const owner of owners)await owner.close();}
+},30000);

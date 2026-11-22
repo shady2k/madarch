@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentExchangeRecorder } from '../src/fill/agent-exchange.js';
-import { agentExchangeFolder, pluginLogFolder, recordFileName } from '../src/fill/run-records.js';
+import { agentExchangeFolder, recordFileName } from '../src/fill/run-records.js';
 import { DEFAULT_LOG_SOURCES, LOG_SOURCES, engineEventOf, logRuns, readLogs } from '../src/knowledge/logs.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
@@ -25,6 +25,7 @@ function fixture(): { store: string; knowledgeRoot: string } {
   const traces = join(store, 'traces');
   mkdirSync(traces, { recursive: true });
   const log = (path: string, records: readonly Record<string, unknown>[]): void => { writeFileSync(path, records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8'); };
+  const pluginLogFolder = (folder: string, run: string): string => join(folder, `${run}.plugins`);
   mkdirSync(join(knowledgeRoot, 'traces'), { recursive: true });
   log(join(knowledgeRoot, 'traces', 'server-77.log.jsonl'), [
     { time: '2026-11-15T09:00:00.000Z', level: 'info', message: 'the server opened the product' },

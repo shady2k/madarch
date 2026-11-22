@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A protocol defines how two programs exchange data: the shape of the messages, the order, the addresses and the errors. HTTP, SMTP, gRPC and MQTT are protocols, and both sides must speak the same one to understand each other.'
   ru: 'Протокол задаёт, как две программы обмениваются данными: форму сообщений, порядок, адреса и ошибки. HTTP, SMTP, gRPC и MQTT — протоколы, и обе стороны должны говорить на одном, чтобы понимать друг друга.'
+derives-from:
+- system.product
+- product-profile

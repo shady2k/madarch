@@ -23,7 +23,7 @@ test('published custom relation labels answer both languages without a catalogue
     const kindFolder = join(folder, 'madarch/kinds/demo/core');
     mkdirSync(kindFolder, { recursive: true });
     const catalog = readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8')
-      .replace('relations: { contains: null }', 'relations: { contains: null, sample.powers: { labels: { en: { out: powers, in: powered-by }, ru: { out: питает, in: питается-от } } } }');
+      .replace('  relations:\n    contains: null', '  relations:\n    contains: null\n    sample.powers: { labels: { en: { out: powers, in: powered-by }, ru: { out: питает, in: питается-от } } }');
     writeFileSync(join(folder, 'madarch/catalog.yaml'), catalog);
     for (const name of ['demo.repository', 'demo.file']) {
       const text = readFileSync(join(import.meta.dir, `graphql/fixture-product-${name}.yaml`), 'utf8');

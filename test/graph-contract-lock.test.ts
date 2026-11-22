@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repositoryContract } from './repository-contract-fixture.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { assertionValueTableName } from '../src/graph/contract.js';
 
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -16,13 +16,10 @@ test('two concurrent first fills create every generated table once', async () =>
   const root = mkdtempSync(join(tmpdir(), 'madarch-contract-lock-'));
   const store = join(root, 'store');
   /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
-
 const RECORD_TABLES = [
-    ...MECHANISM_TABLES,
-    ...repositoryContract.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
-    ...repositoryContract.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
-    ...repositoryContract.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
+    'context', 'edge', 'entity', 'node', 'assertion', 'assertion_vertex_subject', 'assertion_edge_subject',
+    ...repositoryContract.vertex.flatMap(kind => ['$exists', ...kind.fields.filter(f => !kind.key.includes(f.name)).map(f=>f.name)].map(property => assertionValueTableName(kind.name,'vertex',property))),
+    ...repositoryContract.edge.flatMap(kind => ['$exists', ...kind.fields.map(f=>f.name)].map(property=>assertionValueTableName(kind.name,'edge',property))),
   ];
   const [left, right] = await Promise.all([
     createTestDatabaseOwner({ store }),

@@ -9,6 +9,10 @@ import { Metadata, Stack } from '../ui/typography.js';
 import type { LikeC4Answer } from '../diagram-types.js';
 import { linkOfNode } from '../diagram-links.js';
 
+const MODEL_VIEW = {
+  viewId: "index",
+} as const;
+
 /** The palette overrides the LikeC4 runtime needs; its own blue is replaced with the kit's neutral tokens. */
 export const LIKE_C4_THEME_CSS = `/* Unlayered, so these win over the runtime's own tokens, which stand in @layer tokens: the canvas, the labels and the
    controls read from the kit's palette in both schemes (madarch-64o5.96). */
@@ -86,7 +90,7 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
         const model = LikeC4Model.create(answer.view as never);
         setPane(
           <LikeC4ModelProvider likec4model={model}>
-            <ReactLikeC4 viewId="index" className="dg-likec4-view" pannable zoomable controls fitViewPadding={12}>
+            <ReactLikeC4 viewId={MODEL_VIEW.viewId} className="dg-likec4-view" pannable zoomable controls fitViewPadding={12}>
               <NodeClicks links={answer.links ?? {}} open={open} />
             </ReactLikeC4>
           </LikeC4ModelProvider>,

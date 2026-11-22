@@ -24,3 +24,6 @@ labels:
 description:
   en: An assurance argument shows step by step why the evidence supports a claim, for example why the tests and the analysis together make the safety goal credible. Each step names what it rests on, so a reader can find the weak place.
   ru: 'Аргумент обеспечения шаг за шагом показывает, почему доказательства подкрепляют утверждение: например, почему тесты и анализ вместе делают цель безопасности правдоподобной. Каждый шаг называет свою опору, чтобы читатель нашёл слабое место.'
+derives-from:
+- assurance-claim
+- evidence

@@ -24,3 +24,7 @@ labels:
 description:
   en: A push message is a short notification delivered to a phone or a browser through the platform's push service, often when the app is not open. It carries a title, a body and sometimes a link to open.
   ru: Push-сообщение — короткое уведомление, которое доставляют на телефон или в браузер через службу push-уведомлений платформы, часто когда приложение закрыто. В нём есть заголовок, текст и иногда ссылка, которую нужно открыть.
+derives-from:
+- code.service
+- notification-template
+- product-profile

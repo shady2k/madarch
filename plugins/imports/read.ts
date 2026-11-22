@@ -57,7 +57,7 @@ export interface ImportProblem {
 /** One package the repository's files import, at the first place that names it. */
 export interface PackageRecord {
   readonly key: { readonly ecosystem: string; readonly name: string };
-  readonly evidence: { readonly repository: string; readonly path: string; readonly lineStart: number; readonly lineEnd: number; readonly commitOrDigest?: string };
+  readonly evidence: { readonly target: { readonly kind: string; readonly key: { readonly name: string } }; readonly path: string; readonly lineStart: number; readonly lineEnd: number; readonly digest?: string };
 }
 
 /** The repository as the host answered it: every file path, and the text and blob of the files it read. */
@@ -324,7 +324,7 @@ export async function readRepository(repository: RepositoryTexts): Promise<ReadR
           const blob = repository.blobs.get(path);
           packages.set(identity, {
             key: { ecosystem: ECOSYSTEM, name: resolution.name },
-            evidence: { repository: repository.repository, path, lineStart: site.place.line, lineEnd: site.place.lineEnd, ...(blob === undefined ? {} : { commitOrDigest: blob }) },
+            evidence: { target: { kind: 'code.repository', key: { name: repository.repository } }, path, lineStart: site.place.line, lineEnd: site.place.lineEnd, ...(blob === undefined ? {} : { digest: blob }) },
           });
         }
       }

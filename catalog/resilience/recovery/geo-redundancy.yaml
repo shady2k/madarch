@@ -24,3 +24,6 @@ labels:
 description:
   en: Geo-redundancy places copies of data and running services in more than one geographic region, far enough apart that one disaster does not reach both. It trades cost and copying delay for the ability to keep serving when a region is lost.
   ru: Геоизбыточность размещает копии данных и работающие сервисы более чем в одном регионе, достаточно далеко, чтобы одна катастрофа не задела обе. Она обменивает стоимость и задержку копирования на возможность продолжать работать при потере региона.
+derives-from:
+- deployment-node
+- replication

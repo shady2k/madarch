@@ -7,7 +7,8 @@ import { startPreparedServer as startClientServer, activateTestProduct } from '.
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, answersAsDaemon, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
@@ -50,8 +51,22 @@ function product(home: string, folder: string, id: string): void {
       - { name: title, type: text, producers: [fixture] }
       - { name: path, type: text, producers: [fixture] }
       - { name: markdown, type: text, producers: [fixture] }
-      - { name: anchors, type: json, producers: [fixture] }
-      - { name: links, type: json, producers: [fixture] }
+      - name: anchors
+        type: json
+        producers: [fixture]
+        schema:
+          $schema: https://json-schema.org/draft/2020-12/schema
+          type: object
+          properties: {}
+          additionalProperties: false
+      - name: links
+        type: json
+        producers: [fixture]
+        schema:
+          $schema: https://json-schema.org/draft/2020-12/schema
+          type: array
+          items: false
+          maxItems: 0
 `);
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
@@ -73,11 +88,8 @@ async function publishDocument(home: string, folder: string, markdown: string): 
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } }, 1, journal);
-      await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1',
-        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } }, 1, journal);
-      await writeJournal(tx, journal);
+      await bindTestWriteCapability(tx, contract);
+      await publishGraphDrafts(tx, contract, { vertices: [{ ...{ kind: 'document', key: { title: `${folder} vision` } }, producer: 'fixture', producerVersion: '1', values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } }], removals: [] });
     });
   } finally { await owner.close(); }
 }
@@ -415,6 +427,15 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect(state.port).toBeGreaterThan(0);
   expect(state.pid).toBeGreaterThan(0);
   daemonPid = state.pid;
+  const token = (JSON.parse(readFileSync(join(home, '.madarch-daemon.json'), 'utf8')) as { token: string }).token;
+  const progressFile = join(home, `.madarch-daemon-start-${token}.json`);
+  expect(existsSync(progressFile)).toBe(false);
+  writeFileSync(progressFile, JSON.stringify({ phase: 'databases', since: Date.now() - 6000 }));
+  const starting = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+  expect(starting.status).toBe(0);
+  expect(starting.stdout).toContain('starting: databases (6 s)');
+  expect(starting.stdout).not.toContain('running:');
+  rmSync(progressFile);
   const status = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
   expect(status.status).toBe(0);
   expect(status.stdout).toContain(`running: http://127.0.0.1:${state.port}`);
@@ -591,6 +612,7 @@ test('a start still refuses a child whose command line is another program, and e
   // the child this start spawned instead of leaving it serving the home.
   daemonPid = refusedPid!;
   expect(started.message).toContain('was not the daemon of this record; its command line read "sleep 4711"');
+  expect(started.message.split(join(home, '.madarch-daemon.log'))).toHaveLength(2);
   expect(started.message).toContain(join(home, '.madarch-daemon.log'));
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
   // The child the start had spawned is ended with it, not left serving the
@@ -636,6 +658,9 @@ test('a record whose pid is a live process that is not this daemon is never stop
     expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
     // A record whose process is really gone does go with the status read.
     writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: 2147483000, port: 1, startedAt: 0, home, token: 'stale' }));
+    writeFileSync(join(home, '.madarch-daemon-start-stale.json'), JSON.stringify({ phase: 'sandbox', since: 0 }));
+    const staleStatus = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+    expect(staleStatus.stdout.trim()).toBe('not running');
     expect(daemonStatus({ home })).toBe(0);
     expect(existsSync(join(home, '.madarch-daemon.json'))).toBeFalse();
     let alive = true;
@@ -658,11 +683,11 @@ test('a failed start says which reading of the child it saw, and claims no check
   // token is what says so — the claim is made only where the token was read.
   expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), { answered: false, tokenMissed: true })).toContain("does not show this record's token");
   // This record's daemon, which never answered.
-  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 8s');
+  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 120s');
   // Still starting when the wait ran out: the reading is named, and no token
   // check that was never made is claimed for it.
   const starting = startFailureWhy(1234, 43137, seen('starting', ''), never);
-  expect(starting).toContain('was still starting after 8s');
+  expect(starting).toContain('was still starting after 120s');
   expect(starting).toContain('its command line read ""');
   expect(starting).not.toContain('token');
   expect(startFailureWhy(1234, 43137, seen('starting', undefined), never)).toContain('its command line read nothing');

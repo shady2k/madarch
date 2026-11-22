@@ -7,14 +7,14 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AcpConnection, AcpSession } from '../src/fill/acp.js';
-import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
+import type { AcpSession } from '../src/fill/acp.js';
+import { PluginAgentBridge } from '../src/plugin/agent.js';
 import { englishOnly, isLocaleMap } from '../src/plugin/english-task.js';
-import type { PluginUnitResult } from '../src/plugin/protocol.js';
+import type { PluginContractDeclaration } from '../src/plugin/protocol.js';
 import { agentMeaningOf } from '../src/product/manifest/kinds.js';
 
-const outputs = { vertices: [{ kind: 'domain', key: ['id'], fields: [{ name: 'id', type: 'text' as const, required: true, meaning: 'The area’s stable identity.', example: 'billing' }] }], edges: [] };
-const result: PluginUnitResult = { unitId: 'ignored', vertices: [], end: { state: 'complete' } };
+const outputs: PluginContractDeclaration = { vertices: [{ kind: 'domain', key: ['id'], fields: [{ name: 'id', type: 'text' as const, required: true, meaning: 'The area’s stable identity.', example: 'billing' }] }], edges: [] };
+const result: Awaited<ReturnType<PluginAgentBridge['run']>> = { unitId: 'ignored', vertices: [], end: { state: 'complete' } };
 
 /** A kind as the manifest declares it: the same words in two languages, as an agent used to be sent them. */
 function domainKind(): Record<string, unknown> {
@@ -49,14 +49,17 @@ async function promptOf(task: Record<string, unknown>): Promise<string> {
     const bridge = new PluginAgentBridge({ prompt: 'Fill the kind from its documents.', roots: ['.'] }, {
       adapter: { id: 'fixture', command: 'fixture' },
       connect: async () => {
-        const session = {
-          sessionId: 'session-1', model: 'fixture-model', configOptions: [], models: null,
+        const session: AcpSession = {
+          sessionId: 'session-1', model: 'fixture-model', configOptions: [], models: null, modes: null,
+          setConfigOption: async () => { throw new Error('No fixture config options'); },
+          setModel: async () => { throw new Error('No fixture models'); },
+          cancel: async () => undefined, running: () => false,
           usage: () => ({ reported: false, turns: 1, reports: 0 }),
           prompt: async (text: string) => { seen = text; return { stopReason: 'end_turn', text: JSON.stringify(result), updates: [] }; },
-        } as unknown as AcpSession;
-        return { spec: { id: 'fixture', command: 'fixture' }, executable: '/fixture', initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }), newSession: async () => session, stderr: () => '', close: async () => undefined, closed: new Promise<void>(() => undefined) } as unknown as AcpConnection;
+        };
+        return { spec: { id: 'fixture', command: 'fixture' }, executable: '/fixture', initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }), newSession: async () => session, stderr: () => '', close: async () => undefined, closed: new Promise<void>(() => undefined) };
       },
-    } as PluginAgentOptions, { files: async () => [], value: async () => null }, outputs);
+    }, { files: async () => [], value: async () => null }, outputs);
     await bridge.run('agent-fill:domain', task);
     return seen;
   } finally {
@@ -130,11 +133,11 @@ test("the meaning madarch builds from a starter kind's two languages is the Engl
   // The production path (madarch-64o5.107): a catalogue-agent kind whose description is declared in two languages, and a
   // field with no agent binding takes its meaning from that description. The join must read English only.
   const kind = { descriptions: { en: 'An area.', ru: 'Область.' }, labels: { en: 'Area', ru: 'Область' } };
-  const meaning = agentMeaningOf(kind, { name: 'note', type: 'text' } as never);
+  const meaning = agentMeaningOf(kind, { name: 'note' });
   expect(meaning).toBe('An area.');
   expect(JSON.stringify(meaning)).not.toMatch(/[\u0400-\u04FF]/u);
   // A field whose agent binding states its description keeps that one text; a kind with no English description names
   // the field itself rather than another language.
-  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note', binding: { kind: 'agent', description: 'The note.' } } as never)).toBe('The note.');
-  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note' } as never)).toBe('note');
+  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note', binding: { kind: 'agent', description: 'The note.' } })).toBe('The note.');
+  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note' })).toBe('note');
 });

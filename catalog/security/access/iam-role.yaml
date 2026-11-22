@@ -1,26 +1,50 @@
 id: practice.iam-role
 purpose: structure
 audience: [security-engineer, architect]
-definition: An IAM role is a named set of permissions a subject can take on, in a cloud or an application.
+definition: An access role is a named set of permissions the code grants to a subject, in a cloud or in an application.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - grants
+  - partOf
   in:
+  - hasAccessRole
   - grants
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the permission set is known by, such as graph-reader; it is the access role's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the set lets a subject do, in one or two sentences, from the permissions it grants in the graph.
+- name: source
+  type: text
+  nullable: true
+  binding:
+    agent: 'Where the set is declared: a cloud policy, an application configuration, a database grant.'
+key:
+- name
 labels:
   en:
-    one: IAM role
-    many: IAM roles
+    one: Access role
+    many: Access roles
   ru:
-    one: Роль IAM
-    many: Роли IAM
+    one: Роль доступа
+    many: Роли доступа
 description:
-  en: An IAM role bundles permissions that a person or a service may assume for a while, often without permanent keys. Assuming the role gives the subject its permissions and records who did it.
-  ru: Роль IAM объединяет права, которые человек или сервис может принять на время, часто без постоянных ключей. Принятие роли даёт субъекту её права и записывает, кто это сделал.
+  en: 'An access role is a named set of permissions a system grants together: what a program or a person may read and change, as a cloud policy or an application role states it. A business role holds access roles; the access role is what the system checks, and the business role is what people mean.'
+  ru: 'Роль доступа — именованный набор прав, которые система выдаёт вместе: что программа или человек может читать и менять, как это задаёт политика облака или роль приложения. Роль исполняет роли доступа; роль доступа проверяет система, а роль — это то, что имеют в виду люди.'
+derives-from:
+- software-system

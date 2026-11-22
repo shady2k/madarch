@@ -1,0 +1,48 @@
+id: org.permission
+purpose: understand
+audience: [product, product-lead, architect, developer, operations]
+definition: A permission is one action a role may be allowed to take, such as reading, settling a dispute or changing settings.
+sources:
+- https://csrc.nist.gov/projects/role-based-access-control
+acquisition:
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - appliesTo
+  in:
+  - grants
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the action is known by, such as read, settle-dispute or run-fill; it is the permission's key.
+- name: action
+  type: text
+  nullable: true
+  binding:
+    agent: What the action does when it is taken, in one sentence, from the route or the stage that declares it in the graph.
+- name: scope
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the action reaches: the whole product, one kind, one product setting.'
+key:
+- name
+derives-from:
+- role
+labels:
+  en:
+    one: Permission
+    many: Permissions
+  ru:
+    one: Право
+    many: Права
+description:
+  en: A permission is one action the product offers — reading, creating a request or a task, settling a dispute, accepting or rejecting a proposed kind, reading the code and spending tokens, changing settings, administering. A role is given permissions, and every action of the product declares the one it needs, so adding sign-in later only adds the sign-in itself.
+  ru: 'Право — одно действие, которое предлагает продукт: чтение, создание запроса или задачи, решение спора, приём или отклонение предложенного вида, чтение кода и трата токенов, изменение настроек, администрирование. Роли дают права, и каждое действие продукта объявляет нужное ему право, поэтому позже останется добавить только вход.'

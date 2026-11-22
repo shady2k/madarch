@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A supplier assessment examines whether a supplier can be trusted with the product''s work: its security practices, its reliability, its finances and its own suppliers. It records what was checked, what was found and what the product decided.'
   ru: 'Оценка поставщика выясняет, можно ли доверить поставщику работу продукта: его практики безопасности, надёжность, финансовое положение и его собственных поставщиков. В ней записано, что проверяли, что нашли и что решили.'
+derives-from:
+- supplier

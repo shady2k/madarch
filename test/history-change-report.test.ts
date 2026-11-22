@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { type Clock, type CompiledElement, type CompiledModel, type HistoryStore } from './api.js';
-import { createTestHistory } from './test-database.js';
+import { createTestDatabaseOwner, createTestHistory } from './test-database.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { TEST_SOURCE_UID } from './write-capability-fixture.js';
+import { requireWriteCapability } from '../src/graph/write.js';
 
 /**
  * Replays `store()`'s own `opened`/`closed` report as a literal patch —
@@ -84,4 +87,33 @@ describe('the repository test: store()\'s change report replays into exactly ass
       await h.close();
     }
   }, 60_000);
+});
+
+
+test('plain history writes do not bind graph sources while graph fixture writes still do', async () => {
+  const owner = await createTestDatabaseOwner({ authenticated: false });
+  const history = createHistoryStore({ owner, clock: fakeClock(100_000) });
+  const countAssertions = async () => (await owner.run(tx => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM assertion'))).rows[0]!.count;
+  try {
+    await owner.transaction('write', async tx => {
+      expect(() => requireWriteCapability(tx)).toThrow('AUTH_REQUIRED');
+    });
+    const before = await countAssertions();
+    const result = await history.store({ source: 'fixture', commit: 'first', committedAt: 1000, model: model([element('A')]) });
+    expect(result.errors).toEqual([]);
+    expect(result.opened.map(row => [row.kind, row.id])).toEqual([['element', 'A'], ['state', 'as-is']]);
+    expect(await countAssertions()).toBe(before);
+    const graphSources = await owner.run(tx => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM node WHERE uid=$1::uuid', [TEST_SOURCE_UID]));
+    expect(graphSources.rows[0]!.count).toBe('0');
+  } finally {
+    await history.close();
+    await owner.close();
+  }
+  const graph = await createTestDatabaseOwner();
+  try {
+    await graph.transaction('write', async tx => {
+      const source = await tx.query<{ count: string }>('SELECT count(*)::text AS count FROM node WHERE uid=$1::uuid', [TEST_SOURCE_UID]);
+      expect(source.rows[0]!.count).toBe('1');
+    });
+  } finally { await graph.close(); }
 });

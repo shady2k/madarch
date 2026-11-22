@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A test log records what happened during a run, in order: which test started, what it printed, which setup or call failed. It is what a person reads when a result needs explaining.'
   ru: 'Журнал тестирования записывает по порядку, что происходило во время запуска: какой тест начался, что он вывел, какая подготовка или вызов отказали. Его читают, когда результат нужно объяснить.'
+derives-from:
+- test-result
+- test-run

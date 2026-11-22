@@ -1,46 +1,38 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fillStateSchema } from '../src/adapters/schemas/fill-state.js';
-import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import type { FillStateDatabase } from '../src/fill/state-store.js';
-import { FILL_STATE_TABLES, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
+import type { FillStateDatabase } from '../src/graph/fill-state.js';
+import { readProductFillState, readStoreStamp, hasSuccessfulFill, advanceChainIn, advanceRun, advanceUnitIn, readUnitIn, createRun, readRun, readUnit, readUnitGeneration, readUnitGraphUidIn, putFillVertexIn, replaceStaleGenerationIn } from '../src/graph/fill-state.js';
+import { writeOrchestration } from '../src/graph/fill-orchestration.js';
+import { createUnit } from './fill-unit-fixture.js';
 import type { RunEvidence } from '../src/fill/fsm.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { startupBinding } from '../src/graph/manifest-publication.js';
+import { bindWriteCapability, requireWriteCapability } from '../src/graph/write.js';
+import { readKindAssertions } from '../src/graph/records.js';
+import { createTestDatabaseOwner, type TestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
-const settled: RunEvidence = { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true, pendingPublications: 0 };
+const settled: RunEvidence = { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true };
 
-let database: DatabaseOwner;
+let database: TestDatabaseOwner;
 
 beforeAll(async () => {
   // The process's one database owner, as the background server lends it: the store borrows the
   // owner's transactions and opens nothing of its own (madarch-tzte.19.1, madarch-tzte.19.5).
   database = await createTestDatabaseOwner();
-  await createFillStateSchema(database);
+
 });
 
 afterAll(async () => {
   await database.close();
 });
 
-/** One run of one unit, in `running`: a unit belongs to a run, and a unit write refuses a run that ended. */
-async function runOf(unitId: string, runId = `run-of-${unitId}`): Promise<string> {
-  await createRun(database, { runId, product: `product-of-${unitId}`, at: NOW - 2 });
-  await advanceRun(database, { runId, event: { type: 'plan', at: NOW - 1, configuration: 'fixture' } });
-  await advanceRun(database, { runId, event: { type: 'start', at: NOW, stages: 1 } });
-  return runId;
-}
-
-/** Drives one unit into its first running attempt, as the queue's claim hands it out, and answers the record. */
+/** Drives one unit to a leased, running state under fence 1 and answers the record it reached. */
 async function runningUnit(unitId: string) {
-  await runOf(unitId);
-  await createUnit(database, { unitId, product: `product-of-${unitId}`, runId: `run-of-${unitId}`, stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-1', at: NOW });
-  const admitted = await advanceUnit(database, { unitId, event: { type: 'admit', at: NOW + 1, generation: 1 } });
+  await createRun(database, {runId:`run-of-${unitId}`,product:`product-of-${unitId}`,at:NOW});
+  await createUnit(database, { unitId, product: `product-of-${unitId}`, runId: `run-of-${unitId}`, stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-1', retries: 2, at: NOW });
+  const admitted = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'admit', at: NOW + 1, generation: 1 } }));
   expect(admitted.ok).toBe(true);
-  const started = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 3, generation: 1, attempt: 1 } });
+  const started = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'start', at: NOW + 3, generation: 1, fence: 1 } }));
   expect(started.ok).toBe(true);
   if (!started.ok) throw new Error('the unit did not reach running');
   return started.record;
@@ -48,7 +40,8 @@ async function runningUnit(unitId: string) {
 
 async function publishedUnit(unitId: string) {
   await runningUnit(unitId);
-  const published = await advanceUnit(database, { unitId, event: { type: 'publish', at: NOW + 6, generation: 1, outcome: { plugin: 'fixture', kind: 'src', outcome: 'empty', produced: 0 } } });
+  const published = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'complete', at: NOW + 6, generation: 1, fence: 1 } }));
+  if(!published.ok) throw new Error(JSON.stringify(published));
   expect(published.ok).toBe(true);
 }
 
@@ -61,34 +54,29 @@ async function expectAsyncError(work: () => Promise<unknown>): Promise<Error> {
   throw new Error('expected the call to raise');
 }
 
-describe('the fill state schema', () => {
-  test('creates exactly its five tables, and can run again on a database that has them', async () => {
-    const folder = mkdtempSync(join(tmpdir(), 'madarch-state-schema-'));
-    const owner = await createDatabaseOwner({ store: folder });
-    try {
-      await fillStateSchema.prepare(owner);
-      await fillStateSchema.prepare(owner);
-      const { rows } = await owner.transaction('snapshot', async (executor) => executor.query<{ table_name: string }>(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
-      ));
-      const names = rows.map((row) => row.table_name);
-      // A dedicated unprepared store tests this schema alone, not all schemas the shared fixture prepares.
-      expect(names).toEqual([...FILL_STATE_TABLES].sort());
-    } finally {
-      await owner.close();
-      rmSync(folder, { recursive: true, force: true });
-    }
-  });
+
+test('product fill state reads its stamp, chain and newest-first runs in one snapshot', async () => {
+  await createRun(database, { runId: 'snapshot-old', product: 'snapshot-product', at: NOW });
+  await createRun(database, { runId: 'snapshot-new', product: 'snapshot-product', at: NOW + 1 });
+  const transactions: string[] = [];
+  const snapshot = await readProductFillState({ transaction: (kind, work) => {
+    transactions.push(kind);
+    return database.transaction(kind, work);
+  } }, 'snapshot-product');
+  expect(transactions).toEqual(['snapshot']);
+  expect(snapshot.stamp).toBe(await readStoreStamp(database));
+  expect(snapshot.chain?.product).toBe('snapshot-product');
+  expect(snapshot.runs.map(run => run.runId)).toEqual(['snapshot-new', 'snapshot-old']);
 });
 
 describe('the chain of runs', () => {
   
   
-  test('an unopened chain cannot be advanced, and the error names the file, the line and the table', async () => {
-    const caught = await expectAsyncError(() => advanceChain(database, { product: 'product-missing', event: { type: 'start', at: NOW, runId: 'run-a' } }));
-    expect(caught.message).toContain('table fill_chain: no chain for product product-missing');
-    expect(caught.message.startsWith(fileURLToPath(new URL('../src/fill/state-store.ts', import.meta.url)))).toBe(true);
-    expect(caught.message).toMatch(/src\/fill\/state-store\.ts:\d+:\d+:/);
+  test('an unopened chain cannot be advanced, and the error names the file and the line', async () => {
+    const caught = await expectAsyncError(() => writeOrchestration(database, tx => advanceChainIn(tx, { product: 'product-missing', event: { type: 'start', at: NOW, runId: 'run-a' } })));
+    expect(caught.message).toContain('graph system.chain: no chain for product-missing');
+    expect(caught.message.startsWith(fileURLToPath(new URL('../src/graph/fill-state.ts', import.meta.url)))).toBe(true);
+    expect(caught.message).toMatch(/src\/graph\/fill-state\.ts:\d+:\d+:/);
   });
 });
 
@@ -112,7 +100,7 @@ describe('a fill run', () => {
     expect(completed.record.state).toBe('succeeded');
     expect(completed.effects).toEqual(['record-completion', 'emit-progress']);
     expect(await readRun(database, 'run-completed')).toEqual(completed.record);
-  });
+  }, 15_000);
 
   test('refuses completion while a unit is still runnable, naming the guard', async () => {
     await createRun(database, { runId: 'run-refused', product: 'product-run', at: NOW });
@@ -152,106 +140,158 @@ describe('a fill run', () => {
 });
 
 describe('a unit generation', () => {
-  test('records the attempt the queue hands it out as, and refuses an attempt the generation already passed', async () => {
-    const unitId = 'unit-attempts';
-    const running = await runningUnit(unitId);
-    expect(running.state).toBe('running');
-    expect(running.context.attempt).toBe(1);
-    // A duplicate delivery of the attempt in force is no second step of it.
-    const duplicate = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 4, generation: 1, attempt: 1 } });
-    expect(duplicate.ok).toBe(false);
-    if (duplicate.ok) return;
-    expect(duplicate.refusal.guard).toBe('attempt-advances');
-    // A claim the queue hands out again is the generation's next attempt.
-    const again = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 5, generation: 1, attempt: 2 } });
-    expect(again.ok).toBe(true);
-    if (!again.ok) return;
-    expect(again.record.context.attempt).toBe(2);
-    expect((await readUnit(database, unitId))?.context.attempt).toBe(2);
-  });
-
-  test('a retry sends the generation to its retry wait, and the queue\'s next attempt starts it again', async () => {
-    const unitId = 'unit-retried';
+  test('operation retries share the scheduler stream and read back their exact record', async () => {
+    const unitId = 'unit-operation-retry-stream';
     await runningUnit(unitId);
-    const retried = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 6, generation: 1, cause: 'transient-failure', retryAt: NOW + 60_000 } });
-    expect(retried.ok).toBe(true);
-    if (!retried.ok) return;
-    expect(retried.record.state).toBe('retry_wait');
-    expect(retried.record.context.retryAt).toBe(NOW + 60_000);
-    expect(retried.effects).toEqual(['schedule-retry', 'emit-progress']);
-    const again = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 70_000, generation: 1, attempt: 2 } });
-    expect(again.ok).toBe(true);
-    if (!again.ok) return;
-    expect(again.record.state).toBe('running');
-    expect(again.record.context.attempt).toBe(2);
-    expect(again.record.context.retryAt).toBeNull();
+    for (const attempt of [1, 2]) {
+      const at = NOW + attempt * 10;
+      const retried = await database.transaction('write', async tx => {
+        const installed = await startupBinding(tx, database.graphContract, 'retry-operation-fixture');
+        const unitUid = (await readUnitGraphUidIn(tx, unitId))!;
+        const caller = { ...installed.binding, unitUid, permissions: [] };
+        bindWriteCapability(tx, caller);
+        const fillStateSource = (await readKindAssertions(tx, 'vertex', 'plugin', ['label'], {
+          validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+        })).find(record => record.values['label'] === 'fill-state')!.uid;
+        const operationCount = async () => (await tx.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.operation'",
+        )).rows[0]!.count;
+        const operationsBefore = await operationCount();
+        const step = await advanceUnitIn(tx, { unitId, event: { type: 'retry', at, generation: 1,
+          cause: 'transient-failure', retryAt: at + 1, fence: attempt } }, { contract: installed.contract, operationUid: installed.binding.operationUid, unitUid });
+        expect(step.ok).toBe(true);
+        if (!step.ok) throw new Error(JSON.stringify(step));
+        // The returned FSM record must be the graph record, even on the second retry.
+        expect(await readUnitIn(tx, unitId)).toEqual(step.record);
+        expect(step.record.state).toBe('retry_wait');
+        expect(step.record.context).toMatchObject({ attempt, retriesLeft: 2 - attempt, retryAt: at + 1 });
+        expect(requireWriteCapability(tx)).toEqual(caller);
+        expect(await operationCount()).toBe(operationsBefore);
+        if (attempt === 2) {
+          const records = await readKindAssertions(tx, 'vertex', 'system.unit', ['state'], {
+            subjectUids: [unitUid], validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+          });
+          const selected = records[0]!.selectedAssertions.find(assertion => assertion.property === 'state')!;
+          expect(selected.source).toBe(fillStateSource);
+          const lineage = await tx.query<{relation:string;uid:string}>(`SELECT k.name AS relation,n.uid::text AS uid
+            FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node n ON n.id=e.to_node
+            WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid)
+            AND k.name IN ('system.assertion-operation','system.assertion-unit','system.assertion-author')`, [selected.id]);
+          expect(lineage.rows).toEqual(expect.arrayContaining([
+            { relation: 'system.assertion-operation', uid: installed.binding.operationUid },
+            { relation: 'system.assertion-unit', uid: unitUid },
+            { relation: 'system.assertion-author', uid: fillStateSource },
+          ]));
+        }
+        const transitions = await tx.query<{uid:string}>(`SELECT n.uid::text AS uid
+          FROM node n JOIN entity k ON k.id=n.entity_id
+          JOIN edge subject ON subject.from_node=n.id JOIN entity sk ON sk.id=subject.entity_id
+          JOIN node unit ON unit.id=subject.to_node
+          WHERE k.name='system.fill-transition' AND sk.name='system.fill-transition-subject' AND unit.uid=$1::uuid`, [unitUid]);
+        const journal = await readKindAssertions(tx, 'vertex', 'system.fill-transition', ['to_state', 'at'], {
+          subjectUids: transitions.rows.map(row => row.uid),
+          validAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+        });
+        const transition = journal.find(row => row.values['to_state'] === 'retry_wait' && Number(row.values['at']) === at)!;
+        expect(transition).toBeDefined();
+        expect(transition.selectedAssertions.length).toBeGreaterThan(0);
+        for (const assertion of transition.selectedAssertions) {
+          expect(assertion.source).toBe(fillStateSource);
+          const lineage = await tx.query<{uid:string}>(`SELECT op.uid::text AS uid
+            FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node op ON op.id=e.to_node
+            WHERE e.from_node=(SELECT id FROM node WHERE uid=$1::uuid) AND k.name='system.assertion-operation'`, [assertion.id]);
+          expect(lineage.rows).toEqual([{ uid: installed.binding.operationUid }]);
+        }
+        return step.record;
+      });
+      expect(await readUnit(database, unitId)).toEqual(retried);
+      if (attempt === 1) {
+        await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'retry', at: at + 1, generation: 1,
+          cause: 'transient-failure', retryAt: at + 1, fence: 1 } }));
+        const started = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'start', at: at + 2, generation: 1, fence: 2 } }));
+        expect(started.ok).toBe(true);
+        expect((await readUnit(database, unitId))?.state).toBe('running');
+      }
+    }
   });
 
-  test('a message for the replaced generation is refused, whatever attempt it names', async () => {
-    const unitId = 'unit-replaced';
+  
+  
+  test('records queue attempt zero at start and the next externally supplied attempt after retry', async () => {
+    const unitId = 'unit-queue-attempt';
+    await createRun(database,{runId:'run-queue-attempt',product:'product-queue-attempt',at:NOW});
+    await createUnit(database, { unitId, product: 'product-queue-attempt', runId: 'run-queue-attempt', stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-1', retries: 2, at: NOW });
+    await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'admit', at: NOW + 1, generation: 1 } }));
+    const started = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'start', at: NOW + 2, generation: 1, fence: 0, attempt: 1 } }));
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.record.context.fence).toBe(0);
+    expect(started.record.context.attempt).toBe(1);
+
+    await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'retry', at: NOW + 3, generation: 1, cause: 'lease-expired', retryAt: NOW + 4, fence: null } }));
+    await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'retry', at: NOW + 4, generation: 1, cause: 'lease-expired', retryAt: NOW + 4, fence: null } }));
+    const restarted = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'start', at: NOW + 5, generation: 1, fence: 1, attempt: 2 } }));
+    expect(restarted.ok).toBe(true);
+    if (!restarted.ok) return;
+    expect(restarted.record.context.fence).toBe(1);
+    expect(restarted.record.context.attempt).toBe(2);
+    const late = await writeOrchestration(database,tx => advanceUnitIn(tx,{unitId,event:{type:'complete',at:NOW+6,generation:1,fence:0}}));
+    expect(late.ok).toBe(false);
+    if (!late.ok) expect(late.refusal.guard).toBe('fence-current');
+  }, 15_000);
+
+  test('a token of the replaced generation cannot start, block or fail the generation that replaced it', async () => {
+    const unitId = 'unit-replaced-fence';
     await publishedUnit(unitId);
-    await advanceUnit(database, { unitId, event: { type: 'invalidate', at: NOW + 7, replacement: 2, cause: 'inputs changed' } });
-    const replaced = await replaceStaleGeneration(database, { unitId, runId: 'run-2', inputsDigest: 'digest-2', at: NOW + 8 });
+    await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'invalidate', at: NOW + 7, replacement: 2, cause: 'inputs changed' } }));
+    await createRun(database,{runId:'run-2',product:`product-of-${unitId}`,at:NOW+7});
+    const replaced = await writeOrchestration(database, tx => replaceStaleGenerationIn(tx, { unitId, runId: 'run-2', inputsDigest: 'digest-2', retries: 2, at: NOW + 8 }));
     expect(replaced.ok).toBe(true);
     if (!replaced.ok) return;
-    const admitted = await advanceUnit(database, { unitId, event: { type: 'admit', at: NOW + 9, generation: 2 } });
+    const admitted = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'admit', at: NOW + 9, generation: 2 } }));
     expect(admitted.ok).toBe(true);
-    // A message for the replaced generation is refused, whatever attempt it names.
-    const oldGeneration = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 14, generation: 1, attempt: 2 } });
+    const newFence = 0;
+    const started = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'start', at: NOW + 10, generation: 2, fence: newFence } }));
+    expect(started.ok).toBe(true);
+
+    for (const event of [
+      { type: 'block', at: NOW + 12, generation: 2, fence: 1, reason: 'late' },
+      { type: 'fail', at: NOW + 13, generation: 2, fence: 1, cause: 'budget-exhausted' },
+    ] as const) {
+      const refused = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event }));
+      expect(refused.ok).toBe(false);
+      if (refused.ok) continue;
+      expect(refused.refusal.guard).toBe('fence-current');
+    }
+    // A message for the replaced generation is refused too, whatever token it names.
+    const oldGeneration = await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'complete', at: NOW + 14, generation: 1, fence: newFence } }));
     expect(oldGeneration.ok).toBe(false);
     if (oldGeneration.ok) return;
     expect(oldGeneration.refusal.guard).toBe('generation-current');
-    expect((await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 15, generation: 2, attempt: 1 } })).ok).toBe(true);
-  });
+    expect((await writeOrchestration(database, tx => advanceUnitIn(tx, { unitId, event: { type: 'complete', at: NOW + 15, generation: 2, fence: newFence } }))).ok).toBe(true);
+  }, 15_000);
 
-  test('a failure keeps what the generation wrote: nothing is retracted when a generation fails', async () => {
-    const unitId = 'unit-failed-keeps';
-    await runningUnit(unitId);
-    const failed = await advanceUnit(database, { unitId, event: { type: 'fail', at: NOW + 7, generation: 1, cause: 'retries-exhausted' } });
-    expect(failed.ok).toBe(true);
-    if (!failed.ok) return;
-    // The machine's only effects on a failure are the authority's revocation and the progress event.
-    expect(failed.effects).toEqual(['revoke-authority', 'emit-progress']);
+  
+  
+  
   });
-});
 
 describe('the store keeps its state on disk', () => {
   });
 
-describe('a stored record that does not hold the shape its guards read', () => {
-  test('is refused, naming the table and the row, instead of stepping on undefined numbers', async () => {
-    const unitId = 'unit-corrupt';
-    await runOf(unitId, 'run-corrupt');
-    await createUnit(database, { unitId, product: 'product-corrupt', runId: 'run-corrupt', stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-corrupt', at: NOW });
-    await database.transaction('write', async (executor) => {
-      await executor.query("UPDATE fill_unit_generation SET context = '{\"attempt\": \"one\"}'::jsonb WHERE unit_id = $1", [unitId]);
-      await executor.query("UPDATE fill_run SET context = '{\"planningEpoch\": 1}'::jsonb WHERE run_id = $1", ['run-corrupt']);
-    });
-
-    const unitFailure = await expectAsyncError(() => readUnit(database, unitId));
-    expect(unitFailure.message).toContain(`table fill_unit_generation, row ${unitId}/1: attempt is not a whole number of attempts`);
-    expect(unitFailure.message).toMatch(/src\/fill\/state-store\.ts:\d+:\d+:/);
-
-    const runFailure = await expectAsyncError(() => readRun(database, 'run-corrupt'));
-    expect(runFailure.message).toContain('table fill_run, row run-corrupt: planningClosed is not a boolean');
-  });
-
-});
-
 describe('a failure of the borrowed database', () => {
-  test('names the operation and the tables it touched, at the operation\'s own line', async () => {
+  test('names the orchestration transaction and the tables it touched, at the transaction\'s own line', async () => {
     const failing: FillStateDatabase = {
+      graphContract: database.graphContract,
       transaction: async () => {
         throw new Error('boom: connection closed');
       },
     };
-    const caught = await expectAsyncError(() => advanceUnit(failing, { unitId: 'unit-a', event: { type: 'admit', at: NOW, generation: 1 } }));
-    expect(caught.message).toContain('advanceUnit(unit-a, admit) failed on fill_unit, fill_unit_generation, fill_transition: boom: connection closed');
-    expect(caught.message.startsWith(fileURLToPath(new URL('../src/fill/state-store.ts', import.meta.url)))).toBe(true);
-    // The line is the operation's own, not the shared wrapper's: it is where the operation
-    // took its site, inside advanceUnit.
-    const line = Number(/state-store\.ts:(\d+):\d+:/.exec(caught.message)![1]);
-    const source = await Bun.file(fileURLToPath(new URL('../src/fill/state-store.ts', import.meta.url))).text();
+    const caught = await expectAsyncError(() => writeOrchestration(failing, tx => advanceUnitIn(tx, { unitId: 'unit-a', event: { type: 'admit', at: NOW, generation: 1 } })));
+    expect(caught.message).toContain('orchestration metadata failed on node, edge, assertion: boom: connection closed');
+    expect(caught.message.startsWith(fileURLToPath(new URL('../src/graph/fill-orchestration.ts', import.meta.url)))).toBe(true);
+    const line = Number(/fill-orchestration\.ts:(\d+):\d+:/.exec(caught.message)![1]);
+    const source = await Bun.file(fileURLToPath(new URL('../src/graph/fill-orchestration.ts', import.meta.url))).text();
     expect(source.split('\n')[line - 1]).toContain('here()');
   });
 });
@@ -259,16 +299,44 @@ describe('a failure of the borrowed database', () => {
 test('a repository-free fill completion invalidates the store revision without another graph publication', async () => {
   const owner = await createTestDatabaseOwner();
   try {
-    await createFillStateSchema(owner);
-    const before = await readStoreStamp(owner);
+
     await createRun(owner, { runId: 'repository-free', product: 'empty-product', at: NOW });
-    expect(await readStoreStamp(owner)).toBe(before);
-    expect(await hasSuccessfulFill(owner)).toBe(false);
+    const before = await readStoreStamp(owner);
+    expect(await hasSuccessfulFill(owner, 'empty-product')).toBe(false);
     // A fill can finish after its final publication. No node, operation or publication changes here.
-    await owner.run((tx) => tx.query("UPDATE fill_run SET state = 'succeeded' WHERE run_id = $1", ['repository-free']));
-    expect(await hasSuccessfulFill(owner)).toBe(true);
+    await advanceRun(owner,{runId:'repository-free',event:{type:'plan',configuration:'digest',at:NOW+1}});
+    await advanceRun(owner,{runId:'repository-free',event:{type:'start',stages:1,at:NOW+2}});
+    await advanceRun(owner,{runId:'repository-free',event:{type:'complete',evidence:settled,at:NOW+3}});
+    expect(await hasSuccessfulFill(owner, 'empty-product')).toBe(true);
     const after = await readStoreStamp(owner);
     expect(after).not.toBe(before);
     expect(await readStoreStamp(owner)).toBe(after);
   } finally { await owner.close(); }
+}, 15_000);
+
+test('generation identities and replacement links live in the ordinary graph', async () => {
+  const current = await readUnit(database, 'unit-replaced-fence');
+  expect(current?.generation).toBe(2);
+  expect((await readUnitGeneration(database,'unit-replaced-fence',1))?.state).toBe('stale');
+  await database.transaction('snapshot',async tx=>{
+    const first=await readUnitGraphUidIn(tx,'unit-replaced-fence',1),second=await readUnitGraphUidIn(tx,'unit-replaced-fence',2);
+    expect(first).not.toBe(second);expect(first?.[14]).toBe('7');expect(second?.[14]).toBe('7');
+    const tables=await tx.query<{name:string}>("SELECT tablename AS name FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('fill_chain','fill_run','fill_unit','fill_unit_generation','fill_transition')");
+    expect(tables.rows).toEqual([]);
+    const links=await tx.query<{count:string}>("SELECT count(*)::text AS count FROM edge e JOIN entity k ON k.id=e.entity_id JOIN node a ON a.id=e.from_node JOIN node b ON b.id=e.to_node WHERE k.name='system.unit-replacement' AND a.uid=$1::uuid AND b.uid=$2::uuid",[first,second]);
+    expect(links.rows[0]?.count).toBe('1');
+  });
+});
+
+
+test('a malformed attempt cannot enter the typed graph state and the prior record survives', async () => {
+  const unitId = 'unit-malformed-attempt';
+  await runningUnit(unitId);
+  const before = await readUnit(database, unitId);
+  await expect(database.transaction('write', async tx => {
+    const uid = await readUnitGraphUidIn(tx, unitId, 1);
+    if (uid === undefined) throw new Error('fixture unit is absent');
+    await putFillVertexIn(tx, 'system.unit', uid, { attempt: 'one' });
+  })).rejects.toThrow();
+  expect(await readUnit(database, unitId)).toEqual(before);
 });

@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A span records one operation inside a request: when it started, how long it took, which service ran it and what it called next. Spans linked by parents form a trace that shows where time went.'
   ru: 'Интервал трассы записывает одну операцию внутри запроса: когда началась, сколько заняла, какой сервис её выполнил и что она вызвала дальше. Связанные родителями интервалы образуют трассу, по которой видно, куда ушло время.'
+derives-from:
+- telemetry-pipeline

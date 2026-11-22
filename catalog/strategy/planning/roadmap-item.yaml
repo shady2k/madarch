@@ -24,3 +24,6 @@ labels:
 description:
   en: A roadmap item states one thing the product intends to do later, such as a capability, a market or a platform change, and when it is roughly expected. It is a plan, not a promise, and it changes as learning arrives.
   ru: 'Пункт дорожной карты называет одно из будущих дел продукта: возможность, рынок или смену платформы, — и примерное время. Это план, а не обещание, и он меняется по мере новых знаний.'
+derives-from:
+- epic
+- goal

@@ -24,3 +24,5 @@ labels:
 description:
   en: An information category groups information of one kind — personal data, trade secrets, public material — and sets the rules for handling it. The category decides who may see the information, where it may be kept and to whom it may be sent.
   ru: Категория информации объединяет сведения одного рода — персональные данные, коммерческую тайну, открытые материалы — и задаёт правила обращения с ними. От категории зависит, кому сведения можно показывать, где их можно хранить и кому передавать.
+derives-from:
+- domain

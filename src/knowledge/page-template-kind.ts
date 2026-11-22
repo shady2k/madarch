@@ -1,3 +1,4 @@
+import { pageTemplateKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { CATALOG_RAW_KINDS } from './catalog-starter.js';
 import { generatedTableName, type FieldContract, type VertexContract } from '../graph/contract.js';
 
@@ -13,6 +14,19 @@ export interface CataloguePageTemplate {
   readonly pathField?: string;
   /** The kind's table, as the graph contract states it: the columns its templates are written in. */
   readonly vertex: VertexContract;
+}
+
+/** The template kind and field roles shared by publication, graph reads and the schema. */
+export function productPageTemplate(manifest: KindsManifest): Omit<CataloguePageTemplate, 'vertex'> & { readonly fallback?: VertexContract } {
+  const kind = pageTemplateKind(manifest);
+  const catalogue = cataloguePageTemplate();
+  if (kind === undefined) return { ...catalogue, fallback: catalogue.vertex };
+  return {
+    name: kind.name,
+    nameField: kind.pageTemplate!['name'] ?? catalogue.nameField,
+    bodyField: kind.pageTemplate!['body'] ?? catalogue.bodyField,
+    ...((kind.pageTemplate!['path'] ?? catalogue.pathField) === undefined ? {} : { pathField: kind.pageTemplate!['path'] ?? catalogue.pathField }),
+  };
 }
 
 let held: CataloguePageTemplate | undefined;

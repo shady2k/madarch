@@ -11,7 +11,7 @@ export function starterManifestText(): string {
   const metadataText = rawMetadata + '\n' + stringify({ plugins: seededMetadata.plugins }, { lineWidth: 0 });
   const metadata = parse(metadataText);
   const kinds: string[] = [];
-  for (const file of [...STARTER_FILES].sort((a, b) => Number(b.path.endsWith('/code.service.yaml')) - Number(a.path.endsWith('/code.service.yaml')))) {
+  for (const file of [...STARTER_FILES].sort((a, b) => Number(b.path.endsWith('/code.entry-point.yaml')) - Number(a.path.endsWith('/code.entry-point.yaml')))) {
     if (!file.path.startsWith('madarch/kinds/') || !file.path.endsWith('.yaml')) continue;
     const segments = file.path.slice('madarch/kinds/'.length).split('/');
     const name = segments.pop()!.slice(0, -5);

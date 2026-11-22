@@ -6,7 +6,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { readFillEnd } from '../src/fill/orchestrator-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { writeOrchestration, readFillEnd } from '../src/graph/fill-orchestration.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
@@ -183,16 +185,16 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
 
   test('durable run selection survives reopening and status readers do not hide store faults', async () => {
     // Durable run metadata is readable even when no plugin execution trace exists.
-    const newerOwner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
-    const { createRun } = await import('../src/fill/state-store.js');
-    const { recordRunConfiguration } = await import('../src/fill/orchestrator-store.js');
+    const newerOwner = Object.assign(await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true }), { graphContract: withAssertionContract(await readPinnedGraphContract(folder)) });
+    const { createRun } = await import('../src/graph/fill-state.js');
+    const { recordRunConfigurationIn } = await import('../src/graph/fill-orchestration.js');
     // Order fixture rows explicitly in the past so they cannot outrank the next native request.
     const createdAt = Date.now() - 2000;
     try {
       await createRun(newerOwner, { runId: 'older-without-trace', product, at: createdAt });
       await createRun(newerOwner, { runId: 'newer-without-trace', product, at: createdAt + 1 });
       expect((await call('/api/run')).body.run.selection).toBeUndefined();
-      await recordRunConfiguration(newerOwner, { runId: 'newer-without-trace', digest: 'fixture', at: Date.now(), snapshot: { repository: folder, defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture', targets: { kinds: ['doc.term'], vertex: 'named-term' } } });
+      await writeOrchestration(newerOwner, tx => recordRunConfigurationIn(tx, { runId: 'newer-without-trace', digest: 'fixture', at: Date.now(), snapshot: { repository: folder, defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture', targets: { kinds: ['doc.term'], vertex: 'named-term' } } }));
       const newest = await call('/api/run');
       expect(newest.body.run).toMatchObject({ runId: 'newer-without-trace', state: 'created', spans: 0, selection: { kinds: ['doc.term'], vertex: 'named-term' } });
       const savedHistory = await call('/api/fill-runs');
@@ -241,7 +243,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
         await new Promise((rest) => setTimeout(rest, 250));
       }
       expect(detail).toMatchObject({ runId, state: 'failed', selected: ['code.directory'] });
-      const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
+      const owner = Object.assign(await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true }), { graphContract: withAssertionContract(await readPinnedGraphContract(folder)) });
       try { expect((await readFillEnd(owner, runId))?.state).toBe('failed'); } finally { await owner.close(); }
       const status = (await call('/api/status')).body;
       expect(status.fill.state).toBe('failed');
@@ -252,7 +254,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
   }, 120_000);
 
   test('a warmed status still reads durable runs and refuses a real store fault', async () => {
-    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
+    const owner = Object.assign(await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true }), { graphContract: withAssertionContract(await readPinnedGraphContract(folder)) });
     const reader = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
     try {
       expect((await reader.status()).fill.run?.runId).toBeString();

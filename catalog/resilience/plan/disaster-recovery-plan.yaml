@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A disaster recovery plan takes over when a whole site or region is lost: where the service runs instead, how the data gets there and how long the move takes. It is tested by drills that assume the primary place is gone.'
   ru: 'План аварийного восстановления включается, когда потеряна целая площадка или регион: где сервис работает вместо них, как туда попадают данные и сколько занимает переезд. Его проверяют учениями, которые исходят из того, что основное место потеряно.'
+derives-from:
+- contingency-plan

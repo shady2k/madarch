@@ -551,6 +551,12 @@ function asRepositoryPath(path: string, repository: string, commit: string): Rep
  * that name and not a separator, and a name the fill's path form cannot hold is
  * named as unfiled instead of being renamed into another file's path.
  */
+export const GIT_TREE_OBJECT_TYPES = ['blob', 'commit', 'tree'] as const;
+export type GitTreeObjectType = typeof GIT_TREE_OBJECT_TYPES[number];
+function gitTreeObjectType(value: string): GitTreeObjectType | undefined {
+  return GIT_TREE_OBJECT_TYPES.find(type => type === value);
+}
+
 function parseTree(output: Buffer, repository: string, commit: string): { entries: readonly SnapshotEntry[]; unfiled: readonly UnfiledEntry[] } {
   const entries: SnapshotEntry[] = [];
   const unfiled: UnfiledEntry[] = [];
@@ -563,9 +569,13 @@ function parseTree(output: Buffer, repository: string, commit: string): { entrie
       throw malformed(`git listed a tree entry without a path: ${JSON.stringify(row)}`);
     }
     const fields = row.slice(0, tab).split(/\s+/u);
-    const [mode, type, id, size] = fields;
-    if (mode === undefined || type === undefined || id === undefined || size === undefined || fields.length > 4) {
+    const [mode, rawType, id, size] = fields;
+    if (mode === undefined || rawType === undefined || id === undefined || size === undefined || fields.length > 4) {
       throw malformed(`git listed the tree entry ${JSON.stringify(row)} in a shape this reader does not know: a row is "<mode> <type> <object> <size>\\t<path>"`);
+    }
+    const type: GitTreeObjectType | undefined = gitTreeObjectType(rawType);
+    if (type === undefined) {
+      throw malformed(`${import.meta.path}:574: git listed the unknown object type ${JSON.stringify(rawType)} for ${JSON.stringify(path)}; expected ${GIT_TREE_OBJECT_TYPES.join(', ')}`);
     }
     if (!(SNAPSHOT_MODES as readonly string[]).includes(mode)) {
       throw new SnapshotError({

@@ -24,3 +24,6 @@ labels:
 description:
   en: A gRPC method is one call a client can make on a service, with the message it sends and the message it gets back, or with a stream in either direction. The Protocol Buffers file defines both the method and its messages.
   ru: Метод gRPC — один вызов, который клиент может сделать у службы, с отправляемым и получаемым сообщением или с потоком в одну из сторон. Файл Protocol Buffers задаёт и метод, и его сообщения.
+derives-from:
+- code.grpc-service
+- code.message

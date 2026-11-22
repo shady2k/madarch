@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A test suite groups test cases that are run as one: all unit tests, the smoke tests, the payment tests. It states the environment and the setup they expect, so one command can run them all.'
   ru: 'Набор тестов объединяет тесты, которые запускают вместе: все модульные, дымовые или тесты оплаты. В нём указаны ожидаемые среда и подготовка, чтобы все они запускались одной командой.'
+derives-from:
+- code.test-case
+- test-environment

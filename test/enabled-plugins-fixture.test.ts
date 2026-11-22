@@ -8,6 +8,11 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { planManifestFill } from '../src/plugin/fill-declarations.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { validateProductManifests } from '../src/graph/manifest-publication.js';
+import { restrictRepositoryDeclarations } from './repository-contract-fixture.js';
+import { createDraft } from '../src/product/draft.js';
+import { gitEnv } from './git-env.js';
+import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-fixture-plugins-'));
 let original: string;
@@ -61,3 +66,33 @@ test.each(selections)('fixture plugin selection keeps the kinds its plugins fill
     expect(plan.errors).toEqual([]);
     expect(plan.order).toEqual(selected.includes('disk') ? ['disk', 'db-schema'] : []);
 });
+
+
+test('fixture selection restores relation targets and their transitive prerequisites', () => {
+  const draft = createDraft({ home: join(folder, 'relation-products'), name: 'relation-closure', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+  if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+  useFixturePlugins(draft.folder, ['disk', 'git', 'db-schema']);
+  const after = parse(readFolderManifestText(draft.folder));
+  expect(after.kinds['code.service'].relations).toContainEqual({ type: 'code.contains', to: 'code.package:{span.path|dirname}' });
+  const validation = validateProductManifests(draft.folder);
+  expect(validation.ok ? [] : validation.findings).toEqual([]);
+  expect(after.kinds['code.package']).toBeDefined();
+  expect(after.kinds['code.package'].fields.every((field: { producers?: string[] }) => field.producers?.includes('person'))).toBe(true);
+});
+
+test('repository restriction preserves the draft plugins and kinds, and needs no fixture-product', () => {
+  const draft = createDraft({ home: join(folder, 'products'), name: 'repository-walk', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+  if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+  useFixturePlugins(draft.folder, ['disk', 'git']);
+  const before = parse(readFolderManifestText(draft.folder));
+  expect(existsSync(join(draft.folder, 'plugins/fixture-product'))).toBe(false);
+  restrictRepositoryDeclarations(draft.folder);
+  const after = parse(readFolderManifestText(draft.folder));
+  const read = readKinds(draft.folder);
+  expect(read.present).toBe(true);
+  if (!read.present) throw new Error('fixture manifest is absent');
+  expect(read.manifest.findings).toEqual([]);
+  expect(after.plugins).toEqual(before.plugins);
+  // The restriction narrows the declarations to the repository kinds; it changes nothing about the kinds it keeps.
+  for (const [name, kind] of Object.entries(after.kinds)) expect({ name, kind }).toEqual({ name, kind: before.kinds[name] });
+}, 30_000);

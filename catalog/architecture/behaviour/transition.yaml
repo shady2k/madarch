@@ -7,14 +7,30 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   - triggers
   in:
   - partOf
-template-policy: none
+template-policy: member
+source: graph
+fields:
+- name: guard
+  type: text
+  nullable: true
+  binding:
+    agent: The condition that must hold for the move to happen, as the code or the
+      document states it.
+key: []
+derives-from:
+- state-event
+- state
+member:
+  relation: partOf
+  direction: out
+  parentKind: state-machine
 labels:
   en:
     one: Transition
@@ -25,3 +41,14 @@ labels:
 description:
   en: A transition says that when a named event occurs and a guard holds, the thing leaves one state and enters another, often running an action on the way. It is the arrow between two states in a state machine.
   ru: Переход говорит, что при наступлении названного события и выполнении условия вещь покидает одно состояние и входит в другое, часто выполняя действие по пути. Это стрелка между двумя состояниями в конечном автомате.
+
+key-edges:
+- role: transition-machine
+  edge: transition-machine
+  side: from
+- role: transition-from
+  edge: transition-from
+  side: from
+- role: transition-to
+  edge: transition-to
+  side: from

@@ -24,3 +24,6 @@ labels:
 description:
   en: An on-call schedule assigns periods to people, so someone is always named as the first responder for a service. It rotates the duty and keeps the contact details current.
   ru: График дежурств закрепляет периоды за людьми, чтобы у сервиса всегда был названный первый ответчик. Он чередует дежурство и держит контакты актуальными.
+derives-from:
+- person
+- team

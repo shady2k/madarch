@@ -1,3 +1,6 @@
+import { readRunAgentExchanges } from '../fill/agent-exchange.js';
+import { readKindAssertions } from '../graph/records.js';
+import { authoredImportHost } from '../adapters/authored-import.js';
 import { withSpanSync } from '../obs/trace.js';
 /**
  * One product's knowledge wiki (decision 0029): the product's own graph store,
@@ -13,13 +16,19 @@ import { withSpanSync } from '../obs/trace.js';
  * the bytes the graph's spans were read from, and a restarted server still knows.
  */
 import { here } from '../model/raise.js';
+import { executeManualOperation } from '../graph/manual-operation.js';
+import type { ProducerBinding } from '../graph/producer-binding.js';
+type ResolveDisputeInput = Extract<Parameters<typeof executeManualOperation>[2], { kind: 'resolve-dispute' }>['input'];
+import { setProductOperationRunState } from '../graph/operation-host.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
-import { readRunAgentExchanges } from '../fill/agent-exchange.js';
 import { logsAnswer, type LogPage, type LogQuery } from './logs.js';
-import { cancelRun, pauseRun } from '../fill/orchestrator.js';
+import { cancelRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
+import { readPinnedGraphContract } from '../product/preparation-contract.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
+import { withAssertionContract } from '../graph/system-contract.js';
 import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -27,6 +36,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
+import { storedApplicability } from '../graph/applicability.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
@@ -39,14 +49,13 @@ import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, t
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
-import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_QUEUE } from './file-texts.js';
-import { typeNameOf } from '../graphql/names.js';
+import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_DEADLINE_MS, FILE_TEXT_QUEUE } from './file-texts.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
-import { runPhaseOf } from '../fill/fsm.js';
-import { readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { FINAL_RUN_STATES, runPhaseOf } from '../fill/fsm.js';
+import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../graph/fill-orchestration.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
-import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { createRun, readProductFillState, readRuns, hasSuccessfulFill, readRun, readLiveRun, readStoreStamp } from '../graph/fill-state.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
@@ -77,6 +86,7 @@ import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readCha
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
 import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
+import { documentOpinions } from './anchors.js';
 import { Resolver } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
@@ -91,12 +101,14 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
-import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource, problemTaskUid } from '../loop/problem-task.js';
+import { problemFingerprint, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource } from '../loop/problem-task.js';
 import type { Author } from '../loop/entities.js';
 import type { ProblemLink } from '../problems/types.js';
 import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
+import { personBinding, personOperationBinding, agentBinding } from '../graph/system-installation.js';
 import { authoredEntity } from '../graph/authored.js';
+import type { GraphContract } from '../graph/contract.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../graph/manifest-publication.js';
@@ -112,7 +124,7 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readPublishedTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { WriteRefusal, writeContractOf, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
@@ -120,17 +132,24 @@ import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type Wr
  */
 export const DEFAULT_TOKEN_CAP = 200_000;
 
-/** How long a page waits for its text: the plugin host claims the request within a pass, and a read of a blob is quick. */
-const FILE_TEXT_DEADLINE_MS = 30_000;
-
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
  * bindings build. No kind's name stands here: the manifest is the product's data and the reader reads it.
  */
 function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead>; edges: ReadonlyMap<string, GeneratedEdgeRead> } {
-  const contract = graphContractOf(manifest);
-  // Vertices and edges both: a read asks whether the product declares an edge kind too (history, touched).
-  return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
+  const contract = withAssertionContract(withManifestContract(graphContractOf(manifest)));
+  const generated = declaredKindReads(manifest);
+  const edges = declaredEdgeReads(manifest);
+  for (const vertex of contract.vertex) if (!generated.has(vertex.name)) generated.set(vertex.name, {
+    kind: vertex.name, table: vertex.table, key: vertex.key, keyEdges: vertex.keyEdges,
+    columns: vertex.fields.filter(field => !vertex.key.includes(field.name)).map(field => field.name),
+    types: Object.fromEntries(vertex.fields.map(field => [field.name, field.type])),
+  });
+  for (const edge of contract.edge) if (!edges.has(edge.name)) edges.set(edge.name, {
+    kind: edge.name, table: edge.table, from: edge.from, to: edge.to,
+    columns: edge.fields.map(field => field.name), types: Object.fromEntries(edge.fields.map(field => [field.name, field.type])),
+  });
+  return { declared: new Set([...contract.vertex.map(kind => kind.name), ...contract.edge.map(kind => kind.name)]), generated, edges };
 }
 
 /** One term as the glossary page states it: what it is, its other names, and the file and lines it is stated at. */
@@ -153,6 +172,7 @@ const READER_IDLE_MS = 10 * 60_000;
 export type AgentFactory = (agentId: string, journal: Journal) => (UnitAgent & { close(): Promise<void> }) | { error: string };
 
 export interface KnowledgeProductOptions {
+  /** Principal provisioned by the host transport; never derived from a mutation or Git metadata. */
   /** Whole GraphQL/diagram request budget, including worker startup (default 30 seconds). */
   readDeadlineMs?: number;
   productFolder: string;
@@ -222,6 +242,58 @@ export class KnowledgeProduct {
   private generation = 0;
   /** The store's own stamp when this process last read it: a publication moves it, whoever ran the fill. */
   private storeStamp: string | undefined;
+  private fillStateMemo: {
+    owner: DatabaseOwner;
+    snapshot: Awaited<ReturnType<typeof readProductFillState>>;
+    configuration: Awaited<ReturnType<typeof readRunConfiguration>>;
+    outcomes: Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>;
+    ends: Map<string, Awaited<ReturnType<typeof readFillEnd>>>;
+  } | undefined;
+
+  /** All fill reads share the stamp of the transaction that read them, not a preflight stamp. */
+  private async productFillState(owner: DatabaseOwner, product: string) {
+    const revision = await readStoreStamp(owner);
+    if (this.fillStateMemo?.owner === owner && this.fillStateMemo.snapshot.stamp === revision) return this.fillStateMemo;
+    const memo = await owner.transaction('snapshot', async tx => {
+      const database: Pick<DatabaseOwner, 'transaction'> = { transaction: async (_kind, work) => await work(tx) };
+      const snapshot = await readProductFillState(database, product);
+      const latest = snapshot.runs[0];
+      const configuration = latest === undefined ? null : await readRunConfiguration(database, latest.runId).catch(() => null);
+      const ends = new Map<string, Awaited<ReturnType<typeof readFillEnd>>>();
+      for (const run of snapshot.runs.filter(run => FINAL_RUN_STATES.includes(run.state) && (run.runId === latest?.runId || run.runId === this.fillRunId || run.runId === snapshot.chain?.context.activeRunId))) {
+        ends.set(run.runId, await readFillEnd(database, run.runId).catch(() => null));
+      }
+      const outcomes = await withSpan('fill.producer-outcomes.snapshot', {}, async () => {
+        const outcomes = new Map<string, Awaited<ReturnType<typeof readProducerOutcomes>>>();
+        const runIds = new Set([latest?.runId, this.fillRunId, snapshot.chain?.context.activeRunId]);
+        for (const runId of runIds) {
+          if (runId === undefined || runId === null) continue;
+          // Optional metrics must not abort the core snapshot, even on an SQL error.
+          await tx.query('SAVEPOINT producer_outcomes');
+          try {
+            outcomes.set(runId, await readProducerOutcomes(database, { runId }));
+          } catch {
+            await tx.query('ROLLBACK TO SAVEPOINT producer_outcomes');
+          } finally {
+            await tx.query('RELEASE SAVEPOINT producer_outcomes');
+          }
+        }
+        return outcomes;
+      });
+      return { owner, snapshot, configuration, outcomes, ends };
+    });
+    const previous = this.fillStateMemo;
+    if (previous?.owner === owner && previous.snapshot.stamp !== '-' && memo.snapshot.stamp !== '-' && BigInt(previous.snapshot.stamp) > BigInt(memo.snapshot.stamp)) return previous;
+    this.fillStateMemo = memo;
+    return memo;
+  }
+
+  /** Producer metrics belong to the same snapshot as the fill state they describe. */
+  private async producerOutcomes(owner: DatabaseOwner, runId: string) {
+    const memo = this.fillStateMemo;
+    return memo?.owner === owner ? memo.outcomes.get(runId) : undefined;
+  }
+
   private opening: Promise<void> | undefined;
   private storeOpening: Promise<DatabaseOwner | null> | undefined;
   /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
@@ -307,20 +379,27 @@ export class KnowledgeProduct {
   /** A person's explicit entity action never fills the product or installs a manifest. */
   async authored(action: 'create' | 'show' | 'update' | 'delete' | 'list' | 'schema', kind: string, args: { uid?: string; values?: Readonly<Record<string, unknown>>; words?: string; ifRevision?: string } = {}) {
     return await withSpan('authored.action', { 'authored.action': action, 'authored.kind': kind }, async () => {
-      const owner = await this.open();
+      const owner: DatabaseOwner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.options.productFolder);
-      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
+      const identity = this.product();
+      if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner, identity.name))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
       if (read.manifest.findings.length > 0) {
         const first = read.manifest.findings[0]!;
         throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
       }
-      const identity = this.product();
-      if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const writing = action === 'create' || action === 'update' || action === 'delete';
       const by = writing ? await localIdentity(this.folder, { ...process.env, ...this.options.env }) : undefined;
-      const person = by === undefined ? '' : `person:${by.name} <${by.email}>`;
-      const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => await authoredEntity(tx, read.manifest, identity.name, person, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args));
+
+      const binding = writing ? await personBinding(owner, graphContractOf(read.manifest), by) : undefined;
+      const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => {
+        const result = await authoredEntity(tx, read.manifest, identity.name, binding, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args);
+        if (writing) {
+          await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+        }
+        return result;
+      });
       if (writing) {
         this.generation += 1;
         if (this.reader !== undefined) this.reader.seq = this.generation;
@@ -336,14 +415,14 @@ export class KnowledgeProduct {
   /** Explicitly migrate the retired sources; a fill and a normal CRUD call never import them. */
   async importAuthored() {
     return await withSpan('authored.import', {}, async () => {
-      const owner = await this.open();
+      const owner: DatabaseOwner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.folder);
-      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const identity = this.product();
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner, identity.name))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
-      const result = await importAuthored(this.folder, owner, read.manifest, identity.name, `person:${by.name} <${by.email}>`);
+      const result = await importAuthored(this.folder, authoredImportHost(owner, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'authored-import')), read.manifest, identity.name, `person:${by.name} <${by.email}>`);
       this.generation += 1;
       if (this.reader !== undefined) this.reader.seq = this.generation;
       this.filesMemo = undefined;
@@ -375,7 +454,7 @@ export class KnowledgeProduct {
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.storeOpening ??= preparedOnly
-      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['fill-state', 'orchestrator'])
+      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['one-graph'])
       : createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
     const opening = this.storeOpening;
     try {
@@ -397,6 +476,12 @@ export class KnowledgeProduct {
    * schema does, so a first read is an empty page and never a missing relation; a store that has them is read and not
    * touched — a write here would lock the tables a running fill publishes into.
    */
+  private async fillDatabase(owner:DatabaseOwner):Promise<FillStateDatabase>{
+    const manifest=await owner.run(tx=>readPublishedManifest(tx));
+    const graphContract=withAssertionContract(manifest===undefined?await readPinnedGraphContract(this.folder):withManifestContract(graphContractOf(manifest)));
+    return {transaction:owner.transaction.bind(owner),graphContract};
+  }
+
   private async open(): Promise<DatabaseOwner> {
     if (this.closed) throw new Error('the wiki is shutting down');
     const publication = manifestPublicationState(this.folder);
@@ -490,11 +575,11 @@ export class KnowledgeProduct {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const repository = productRepositoryId(product);
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     const manifest = await this.manifestRead(product.folder);
     const kinds = manifest.present ? graphKindsOf(manifest.manifest) : undefined;
     const reader = new GraphReader(owner, this.validAt, undefined, undefined,
-      kinds?.declared ?? new Set<string>(), kinds?.generated, kinds?.edges);
+      kinds?.declared ?? new Set<string>(), kinds?.generated, kinds?.edges, manifest.present ? graphContractOf(manifest.manifest) : undefined);
     const seq = this.reader?.seq ?? 0;
     const held = this.filesMemo;
     if (held !== undefined && held.seq === seq && held.repository === repository) return held.files;
@@ -537,7 +622,7 @@ export class KnowledgeProduct {
   async graphqlSchema(): Promise<string> {
     // What the graph holds, never the checkout: an edit start has not published is no schema this product serves, and
     // the SDL answers the very schema POST /graphql reads.
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     await this.followStoreFill();
     const manifest = await owner.transaction('snapshot', async (tx) => await readPublishedManifest(tx));
     const file = join(this.options.productFolder, KINDS_FILE);
@@ -598,7 +683,7 @@ export class KnowledgeProduct {
         const selected = argument('selected');
         const pluginsOnly = argument('pluginsOnly');
         const kinds = Array.isArray(selected) ? selected.filter((one): one is string => typeof one === 'string') : [];
-        data[key] = this.fillPlan(kinds, pluginsOnly === true);
+        data[key] = await this.fillPlan(kinds, pluginsOnly === true);
         filled = true;
       }
     }
@@ -611,7 +696,7 @@ export class KnowledgeProduct {
    * schema, the relations and the rows answer one revision.
    */
   async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     await this.followStoreFill();
     return await owner.transaction('snapshot', async (tx) => {
       await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
@@ -627,30 +712,53 @@ export class KnowledgeProduct {
       // The templates are the graph's entities, read in this page's own snapshot (the owner's decision of 2026-11-15).
       const templates = await readPublishedTemplates(tx, manifest);
       const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates.templates);
-      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings);
+      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, async ask => {
+        const result = await this.fileText(ask.repository, ask.path, { blob: ask.blob, from: ask.from, ...(ask.to === undefined ? {} : { to: ask.to }), ...(ask.fromColumn === undefined ? {} : { fromColumn: ask.fromColumn }) });
+        return result === undefined ? undefined : { ...result };
+      }, args => this.logs(args));
       return await context.diagramNeighbourhood(id, depth, lang, first);
     });
   }
 
+  /** The local transport provisions its retained identity before exposing mutation tools. */
+  async provisionAgentBinding(session: string): Promise<ProducerBinding> {
+    const owner: DatabaseOwner = await this.open();
+    const manifest = await owner.transaction('snapshot', tx => readPublishedManifest(tx));
+    if (!manifest) throw new WriteRefusal('the graph holds no published manifest');
+    return await agentBinding(owner, withAssertionContract(writeContractOf(manifest)), session);
+  }
+
+  /** An authenticated person's value-pinned decision uses the same durable fence and receipt as writes. */
+  async resolveDispute(source: WriteSource, input: ResolveDisputeInput, operationKey: string, resolver: ProducerBinding): Promise<{ kind: string; uid?: string; written?: number }> {
+    if (typeof operationKey !== 'string' || operationKey.length === 0) throw new WriteRefusal('operationKey must be nonempty text', 'operationKey');
+    return await executeManualOperation(await this.open(), { ...source, operationId: operationKey }, { kind: 'resolve-dispute', input }, resolver);
+  }
+
+  /** The published catalogue used to advertise and parse graph requests. */
+  async requestContract(): Promise<GraphContract> {
+    return await withSpan('graph.request-contract', {}, async () => {
+      const owner = await this.open();
+      return await owner.transaction('snapshot', async tx => {
+        const manifest = await readPublishedManifest(tx);
+        if (manifest === undefined) throw new WriteRefusal('the graph holds no published catalogue', 'kind', 409);
+        return writeContractOf(manifest);
+      });
+    });
+  }
+
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
-  async putEntity(source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
-    const owner = await this.open();
-    await this.followStoreFill();
-    return await putEntityOpinion(owner, source, input);
+  async putEntity(source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly keyEdges?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }, options: { readonly hostBinding: ProducerBinding; readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
+    return await executeManualOperation(await this.open(), source, { kind: 'put-entity', input, preconditions: options.preconditions, contractVersion: options.contractVersion }, options.hostBinding);
   }
 
   /** The agent's opinion of an edge and its attributes. */
-  async putEdge(source: WriteSource, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; written?: number; retracted?: boolean }> {
-    const owner = await this.open();
-    await this.followStoreFill();
-    return await putEdgeOpinion(owner, source, input);
+  async putEdge(source: WriteSource, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }, options: { readonly hostBinding: ProducerBinding; readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<{ kind: string; written?: number; retracted?: boolean }> {
+    return await executeManualOperation(await this.open(), source, { kind: 'put-edge', input, preconditions: options.preconditions, contractVersion: options.contractVersion }, options.hostBinding);
   }
 
   /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
-  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
-    const owner = await this.open();
-    await this.followStoreFill();
-    return await retractOpinion(owner, source, input);
+  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }, options: { readonly hostBinding: ProducerBinding; readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
+    return await executeManualOperation(await this.open(), source, { kind: 'retract', input, preconditions: options.preconditions, contractVersion: options.contractVersion }, options.hostBinding);
   }
 
   async declaredRoles(): Promise<string[]> {
@@ -685,6 +793,7 @@ export class KnowledgeProduct {
     await this.swapping.catch(() => undefined);
     if (this.storeOpening !== held) return;
     this.reader = undefined;
+    this.fillStateMemo = undefined;
     this.opening = undefined;
     // The store's fill-run queue is opened on this reader's owner and asks it for statements on pg-boss's own
     // timer: it stops before the owner it borrows closes (madarch-8bdc.12), or the timer throws into the process.
@@ -701,7 +810,10 @@ export class KnowledgeProduct {
    * repository entity and its as-is edge (madarch-hsqs stage A).
    */
   private async loadPins(owner: DatabaseOwner): Promise<void> {
-    const reader = new GraphReader(owner, this.validAt);
+    const manifest = await owner.run(tx => readPublishedManifest(tx));
+    if (manifest === undefined) throw new WikiReadError('the graph has no published manifest for repository reads');
+    const kinds = graphKindsOf(manifest);
+    const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
     const held = await reader.repositoryFactsAll().catch((error: unknown) => {
       // A store that cannot answer is said, never read as "this product has no repository".
       this.options.errorLog?.(`the knowledge wiki could not read the repositories of ${this.options.productFolder}: ${error instanceof Error ? error.message : String(error)}`);
@@ -736,7 +848,7 @@ export class KnowledgeProduct {
   private published(pins: readonly RepositoryPin[] | undefined): Promise<void> {
     const work = this.swapping.then(async () => {
       if (this.closed) return;
-      const owner = await this.open();
+      const owner: DatabaseOwner = await this.open();
       this.generation += 1;
       this.kindCountsCache.clear();
       this.reader = { owner, seq: this.generation };
@@ -860,21 +972,12 @@ export class KnowledgeProduct {
     if (held !== undefined) return held;
     if (this.fillRunId === undefined) return { ok: false, message: 'no fill of this product is running: there is nothing to do' };
     try {
-      await this.controlStoredRun(this.fillRunId, action, `the person ${action === 'pause' ? 'paused' : 'stopped'} the run`);
+      const owner: DatabaseOwner = await this.open();
+      await askRunControl(await this.fillDatabase(owner), { runId: this.fillRunId, action, at: Date.now() });
       return { ok: true };
     } catch (error) {
       return { ok: false, message: `the run ${this.fillRunId} could not be told to ${action}: ${error instanceof Error ? error.message : String(error)}` };
     }
-  }
-
-  /** Writes one run's pause or stop through its own state machine, in this process, on the store it runs in. */
-  private async controlStoredRun(runId: string, action: 'pause' | 'stop', cause: string): Promise<void> {
-    const owner = await this.open();
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    const control = { database: owner, product: product.name, clock: Date.now, authority: new Map<string, AbortController>(), sink: undefined };
-    if (action === 'pause') await pauseRun(control, { runId });
-    else await cancelRun(control, { runId, cause });
   }
 
   /** The declared repositories whose checkout holds no commit yet: what a fill says it could not read. */
@@ -935,14 +1038,16 @@ export class KnowledgeProduct {
    * fields are the agent's, and which kinds the manifest holds no producer for. The fill route answers it, and a press
    * that names kinds the plan leaves to an agent stops here with the same words.
    */
-  fillPlan(selected: readonly string[], pluginsOnly = false): FillPlanView {
+  async fillPlan(selected: readonly string[], pluginsOnly = false, signal?: AbortSignal): Promise<FillPlanView> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = readKinds(product.folder);
     if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
     const targets = readFillTargets(read.manifest, { entities: selected }, pluginsOnly);
     if (!targets.ok) throw new WikiReadError(targets.message);
-    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly);
+    const publication = await waitForManifestPublication(this.folder, signal);
+    if (publication?.status === 'failed') throw new WikiReadError(`The catalogue could not be published: ${publication.message}`);
+    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly, await storedApplicability(await this.open(), writeContractOf(read.manifest)));
   }
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
@@ -1078,7 +1183,7 @@ export class KnowledgeProduct {
         return plugins.map((plugin) => ({ kind, group: declaration?.group ?? null, plugin, stageUnitId: pluginTurnUnitId(plugin, kind, options.targets?.vertex) }));
       }),
     };
-    if (publication?.status !== 'pending') await createRun(await this.open(), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
+    if (publication?.status !== 'pending') await createRun(await this.fillDatabase(await this.open()), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
     const press = { ...request, ...(selection === undefined ? {} : { selection }) };
     // The repository the run reads, as the product declares it: the card says what it is reading
     // before the run's own trace has a unit to count.
@@ -1092,7 +1197,7 @@ export class KnowledgeProduct {
         if (ready?.status === 'failed') throw new Error(`The catalogue could not be published: ${ready.message}`);
         await (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press));
       } catch (error) {
-        if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
+        if (publication?.status !== 'pending') await failRequestedFill(await this.fillDatabase(await this.open()), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
         this.fill = { state: 'failed', runPhase: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
@@ -1117,7 +1222,7 @@ export class KnowledgeProduct {
     let result: KnowledgeFillResult | undefined;
     try {
       const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
-      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
+      if (await readRun(owner, runId) === null) await createRun(await this.fillDatabase(owner), { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       const run = await startKnowledgeFill({
         productFolder: product.folder,
         storeFolder,
@@ -1136,7 +1241,7 @@ export class KnowledgeProduct {
         await run.close().catch(() => undefined);
       }
     } catch (error) {
-      await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
+      await failRequestedFill(await this.fillDatabase(await this.open()), runId, error instanceof Error ? error.message : String(error));
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
@@ -1174,8 +1279,8 @@ export class KnowledgeProduct {
     let state: string | undefined;
     let end: Awaited<ReturnType<typeof readFillEnd>> = null;
     try {
-      const owner = await this.open();
-      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
+      const owner: DatabaseOwner = await this.open();
+      if (await readRun(owner, runId) === null) await createRun(await this.fillDatabase(owner), { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
@@ -1193,7 +1298,7 @@ export class KnowledgeProduct {
         await Bun.sleep(250);
       }
     } catch (error) {
-      await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
+      await failRequestedFill(await this.fillDatabase(await this.open()), runId, error instanceof Error ? error.message : String(error));
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
@@ -1520,7 +1625,7 @@ export class KnowledgeProduct {
     try {
       const manifest = await owner.run(async (tx) => await readPublishedManifest(tx));
       const kinds = manifest === undefined ? undefined : graphKindsOf(manifest);
-      const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds?.declared, kinds?.generated, kinds?.edges);
+      const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds?.declared, kinds?.generated, kinds?.edges, manifest === undefined ? undefined : graphContractOf(manifest));
       snapshot = await loadGraphSnapshot(reader, signal);
     } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
@@ -1791,9 +1896,9 @@ export class KnowledgeProduct {
     if ('message' in product) return { ok: false, message: product.message };
     this.resetting = true;
     try {
-      const owner = await this.open();
+      const owner: DatabaseOwner = await this.open();
       if (await authoredHistoryPresent(owner)) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
-      if (await readLiveRun(owner) !== null) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
+      if (await readLiveRun(owner, product.name) !== null) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
       const manifests = validateProductManifests(product.folder);
       if (!manifests.ok) return { ok: false, message: manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n') };
       const contract = withManifestContract(manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest));
@@ -1811,6 +1916,7 @@ export class KnowledgeProduct {
         await this.storeOpening?.then((owner) => owner?.close());
         this.storeOpening = undefined;
         this.reader = undefined;
+        this.fillStateMemo = undefined;
         this.opening = undefined;
         await requestStoreReset(storeDatabasePath(this.storeFolder()), contract);
         const fresh = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
@@ -2036,10 +2142,10 @@ export class KnowledgeProduct {
     // to a later revision, and these counts must not be remembered under that later one.
     const statusSeq = this.reader?.seq ?? 0;
     const read = await this.manifestRead(product.folder);
-    const run = await this.runViewOf();
+    const run = await this.runViewOf(undefined, this.fillStateMemo).catch(() => null);
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
     const runId = this.fillRunId ?? run?.runId;
-    const outcomes = runId === undefined ? undefined : await readProducerOutcomes(this.reader!.owner, { runId }).catch(() => undefined);
+    const outcomes = runId === undefined ? undefined : await this.producerOutcomes(this.reader!.owner, runId);
     const counts = await this.repositoryCounts();
     this.fillExtras = {
       ...(counts === undefined ? {} : { counts }),
@@ -2060,7 +2166,7 @@ export class KnowledgeProduct {
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: await hasSuccessfulFill(this.reader!.owner),
+      filled: this.fillStateMemo?.snapshot.runs.some(run => run.state === 'succeeded') ?? false,
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
       fill: { ...fill, ...(run === null ? {} : { run }) },
       writer: this.writerOf(),
@@ -2087,17 +2193,26 @@ export class KnowledgeProduct {
    */
   private async kindCounts(manifest: KindsManifest, seq: number): Promise<WikiStatus['kinds']> {
     const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     const kinds = graphKindsOf(manifest);
-    const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
-    try {
-      const rows = await this.kindCountsCache.counts(seq, async () => await reader.kindCounts());
-      const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
-      return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
-    } catch {
-      // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
-      return names.map((kind) => ({ kind, count: 0 }));
-    }
+    const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
+    return await withSpan('knowledge.kindCounts', { 'knowledge.seq': seq }, async span => {
+      let cached = true;
+      try {
+        const rows = await this.kindCountsCache.counts(seq, async () => {
+          cached = false;
+          return await reader.kindCounts();
+        });
+        const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
+        const result = names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+        span.setAttributes({ 'knowledge.cache.hit': cached, 'knowledge.kinds': JSON.stringify(result.map(row => row.kind)), 'knowledge.counts': JSON.stringify(result.map(row => row.count)) });
+        return result;
+      } catch (error) {
+        span.setAttributes({ 'knowledge.cache.hit': cached, 'error.type': error instanceof Error ? error.name : typeof error, 'error.message': error instanceof Error ? error.message : String(error), 'error.stack': error instanceof Error ? error.stack ?? '' : '' });
+        // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
+        return names.map((kind) => ({ kind, count: 0 }));
+      }
+    });
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */
@@ -2139,7 +2254,10 @@ export class KnowledgeProduct {
     if (owner === undefined || this.pins.size === 0) return undefined;
     const seq = this.reader?.seq ?? 0;
     if (this.countsMemo?.seq === seq) return this.countsMemo.counts;
-    const facts = await new GraphReader(owner, this.validAt).repositoryFactsAll().catch(() => []);
+    const manifest = await owner.run(tx => readPublishedManifest(tx));
+    if (manifest === undefined) throw new WikiReadError('the graph has no published manifest for repository counts');
+    const kinds = graphKindsOf(manifest);
+    const facts = await new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest)).repositoryFactsAll().catch(() => []);
     const declared = this.repositories().map((repository) => repository.name);
     const chosen = facts.find((one) => one.name === declared[0]) ?? facts[0];
     const counts = chosen?.counts;
@@ -2184,8 +2302,8 @@ export class KnowledgeProduct {
     const read = await this.manifestRead(product.folder);
     if (!read.present) throw new WikiReadError(`${join(product.folder, KINDS_FILE)}:1: the product manifest is absent from the graph`);
     const kinds = graphKindsOf(read.manifest);
-    const owner = await this.open();
-    return { graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges), manifest: read.manifest };
+    const owner: DatabaseOwner = await this.open();
+    return { graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(read.manifest)), manifest: read.manifest };
   }
 
 
@@ -2228,40 +2346,35 @@ export class KnowledgeProduct {
     if (this.reader === undefined) return;
     // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
-    let moved = false;
+    const identity = this.product();
+    if ('message' in identity) return;
+    let memo: NonNullable<KnowledgeProduct['fillStateMemo']>;
     try {
-      const stamp = await readStoreStamp(this.reader.owner);
-      if (this.storeStamp !== stamp) {
-        moved = true;
-        this.storeStamp = stamp;
-        this.generation += 1;
-        this.kindCountsCache.clear();
-        this.reader = { owner: this.reader.owner, seq: this.generation };
-        await this.loadPins(this.reader.owner).catch(() => undefined);
-        // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
-        // the answer, never inside it — a status during a fill answers within its own bound (madarch-64o5.3).
-        void this.warmReader().catch(() => undefined);
-      }
+      memo = await this.productFillState(this.reader.owner, identity.name);
     } catch {
       // The store cannot be read: the answer is what this process last knew.
-    }
-    let named: Awaited<ReturnType<typeof readRun>>;
-    try {
-      const identity = this.product();
-      if ('message' in identity) return;
-      const chain = await readChain(this.reader.owner, identity.name);
-      named = chain !== null && chain.state === 'active' && chain.context.activeRunId !== null
-        ? await readRun(this.reader.owner, chain.context.activeRunId)
-        : (await readRuns(this.reader.owner, identity.name))[0] ?? null;
-    } catch {
       return;
     }
-    // A publication from another process carries the units it wrote: one notice per unit publication, so a page open
-    // while a fill runs sees each kind and its counts without waiting for the run's end (madarch-64o5.91). A status
-    // poll can see the store move before the run's progress row is committed, so an active run is read on every poll
-    // (the run page already reads it once a second) and a new run is read on its first sight.
-    const activeRun = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(named.state);
-    if (named !== null && (moved || activeRun || this.progressNotice?.runId !== named.runId)) {
+    const moved = this.storeStamp !== memo.snapshot.stamp;
+    if (moved) {
+      try {
+        this.storeStamp = memo.snapshot.stamp;
+        this.generation += 1;
+        this.kindCountsCache.clear();
+        this.countsMemo = undefined;
+        this.reader = { owner: this.reader.owner, seq: this.generation };
+        await this.loadPins(this.reader.owner).catch(() => undefined);
+        void this.warmReader().catch(() => undefined);
+      } catch {
+        // Retain the last known publication when its reader cannot refresh.
+      }
+    }
+    const { chain, runs } = memo.snapshot;
+    const named = chain?.state === 'active' && chain.context.activeRunId !== null
+      ? runs.find(run => run.runId === chain.context.activeRunId) ?? null : runs[0] ?? null;
+    // Progress is now graph assertions too: every committed progress publication moves the stamp,
+    // including one committed after the run transition. An unchanged poll has no new events to read.
+    if (named !== null && (moved || this.progressNotice?.runId !== named.runId)) {
       await this.announceUnitPublications(named.runId).catch(() => undefined);
     }
     // A run that starts, pauses or ends may also move the product's files and templates: a structure notice lets the
@@ -2290,8 +2403,8 @@ export class KnowledgeProduct {
       return;
     }
     // A run may finish between polls. Adopt its published end, not a terminal row whose store work is still settling.
-    const namedEnd = named !== null && (named.state === 'succeeded' || named.state === 'failed')
-      ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
+    const namedEnd = named !== null && FINAL_RUN_STATES.includes(named.state)
+      ? memo.ends.get(named.runId) ?? null : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;
       this.fill = { state: 'running', runPhase: runPhaseOf(named.state), runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
@@ -2300,7 +2413,7 @@ export class KnowledgeProduct {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
       // run row's terminal state alone is not the store's publication, because the pins a page reads land after it. A run
       // the process has not ended here yet keeps this answer `running`.
-      const end = namedEnd ?? await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
+      const end = namedEnd ?? memo.ends.get(this.fillRunId) ?? null;
       if (end === null) return;
       await this.published(undefined).catch(() => undefined);
       // The answer that reads the settled run warms the worker and the repository aggregates: the page a person opens
@@ -2320,7 +2433,7 @@ export class KnowledgeProduct {
   }
 
   /** The persisted run is authoritative; its trace only supplies metrics. */
-  private async runViewOf(runId?: string): Promise<FillRunView | null> {
+  private async runViewOf(runId?: string, current?: KnowledgeProduct['fillStateMemo']): Promise<FillRunView | null> {
     if (!existsSync(storeDatabasePath(this.storeFolder()))) return null;
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
@@ -2328,9 +2441,10 @@ export class KnowledgeProduct {
     const preparing = publication !== undefined && publication.status !== 'published';
     const owner = preparing ? await this.openStore(true) : await this.openStore();
     if (owner === null) return null;
-    const record = runId === undefined ? await readLatestRun(owner, product.name) : await readRun(owner, runId);
+    const memo = runId === undefined ? current ?? await this.productFillState(owner, product.name) : undefined;
+    const record = runId === undefined ? memo!.snapshot.runs[0] ?? null : await readRun(owner, runId);
     if (record === null || record.product !== product.name) return null;
-    const configuration = await readRunConfiguration(owner, record.runId);
+    const configuration = memo === undefined ? await readRunConfiguration(owner, record.runId) : memo.configuration;
     const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
     let run: ReturnType<typeof readTraceRunSummary> | undefined;
     if (chosenEntry !== undefined) {
@@ -2360,15 +2474,13 @@ export class KnowledgeProduct {
 
   /** Canonical history, never inferred from trace size or local status. */
   async fillRuns(runId?: string) {
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
       const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
-      // One run's agent exchanges are read only for a page that names that run (madarch-64o5.88): the history lists
-      // runs and reads no folder for them. A run whose trace was trimmed, or whose agent never ran, kept none.
       const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
       return { ...detail, agentExchanges: exchanges };
     }));
@@ -2385,7 +2497,7 @@ export class KnowledgeProduct {
 
   /** A scoped control never targets mutable latest-run fields. */
   async controlFillRun(runId: string, action: 'pause' | 'stop') {
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const run = await readRun(owner, runId);
@@ -2395,11 +2507,10 @@ export class KnowledgeProduct {
     // this process or another.
     if (run.state === 'paused') {
       // A paused worker has ended and holds no live sessions; use the same durable cancellation as its host.
-      await cancelRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId, cause: 'stopped from the fill run page' });
-    } else if (action === 'pause') {
-      await pauseRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId });
+      const database = await this.fillDatabase(owner);
+      await cancelRun({ database, product: product.name, clock: Date.now, authority: new Map(), sink: undefined, operations: { setRunState: async (id, state, tx) => await setProductOperationRunState(owner, database.graphContract, id, state, tx) } }, { runId, cause: 'stopped from the fill run page' });
     } else {
-      await cancelRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId, cause: 'stopped from the fill run page' });
+      await askRunControl(await this.fillDatabase(owner), { runId, action, at: Date.now() });
     }
     return { ok: true as const, runId };
   }
@@ -2431,14 +2542,20 @@ export class KnowledgeProduct {
     const roles = declared?.fileText ?? catalogueFileTextRole();
     const kindName = declared?.name ?? roles.kind;
     if (kindName === undefined) return undefined;
-    const field = `all${typeNameOf(kindName)}`;
-    const answer = await this.graphql({
-      query: `query($repository: String!, $path: String!) { ${field}(where: { ${roles.repository}: { _eq: $repository }, ${roles.path}: { _eq: $path } }, first: 1) { edges { node { id ${roles.blob} language } } } }`,
-      variables: { repository, path },
+    const parent = declared?.keyEdges?.find(one => one.role === roles.repository)
+      ?? read.manifest.kinds.get(kindName)?.keyEdges?.find(one => one.role === roles.repository);
+    if (parent === undefined) return undefined;
+    const owner = await this.open();
+    const blob = await owner.transaction('snapshot', async tx => {
+      const contract = withAssertionContract(withManifestContract(graphContractOf(read.manifest)));
+      const files = await readKindAssertions(tx, 'vertex', kindName, [roles.path, roles.blob], { contract });
+      const edges = await readKindAssertions(tx, 'edge', parent.edge, [], { contract });
+      const repositories = await withSpan('graph.source.repository', {}, async () => await tx.query<{ id: number }>(`SELECT id FROM node WHERE key->>'name'=$1`, [repository]));
+      const ids = new Set(repositories.rows.map(row => Number(row.id)));
+      const children = new Set(edges.filter(edge => ids.has(Number(parent.direction === 'from' ? edge.to : edge.from)))
+        .map(edge => Number(parent.direction === 'from' ? edge.from : edge.to)));
+      return files.find(file => children.has(file.id) && file.values[roles.path] === path)?.values[roles.blob];
     });
-    const body = answer.body as { data?: Record<string, { edges?: { node?: Record<string, unknown> }[] }>; errors?: unknown };
-    const node = body.data?.[field]?.edges?.[0]?.node;
-    const blob = node?.[roles.blob];
     if (typeof blob !== 'string' || blob === '') return undefined;
     // The plugin reads the repository the product connected, and only that one: the request names it, and the host
     // checks it lies under the product's repos/ — or is the product's own repository, which is its folder
@@ -2534,9 +2651,9 @@ export class KnowledgeProduct {
       return { documents: [], repositories, truncated: [], note: `the product has no ${read.file} in the graph yet: start a fill to read its documents` };
     }
     try {
-      const owner = await this.open();
+      const owner: DatabaseOwner = await this.open();
       const kinds = graphKindsOf(read.manifest);
-      const graph = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
+      const graph = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(read.manifest));
       return await sourcesListing(read.manifest, graph, repositories);
     } catch (error) {
       return { documents: [], repositories, truncated: [], note: error instanceof Error ? error.message : String(error) };
@@ -2552,7 +2669,7 @@ export class KnowledgeProduct {
     // checkout the wiki no longer reads (madarch-hsqs stage C).
     const read = await this.manifestRead(product.folder);
     if (!read.present) return { problems: [], categories: [], sections: { code: 0, documents: 0, wiki: 0 }, open: 0, closed: 0, dismissed: 0, notes: [{ message: `the product has no ${file} in the graph yet: start a fill to read the product repository` }] };
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     return await this.problemsFor(await this.problemsKey(), owner);
   }
 
@@ -2603,7 +2720,7 @@ export class KnowledgeProduct {
     if (!read.present) throw new WikiReadError(`the product has no ${join(product.folder, KINDS_FILE)}: the wiki shows the kinds that file declares`);
     const manifest = read.manifest;
     const kinds = graphKindsOf(manifest);
-    const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
+    const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
     const repository = this.singleRepository();
     const files = await this.productFiles();
     const dismissals = { items: await graphProblemDismissals(graph), problems: [] };
@@ -2611,7 +2728,7 @@ export class KnowledgeProduct {
     const markdown = new Map((await graphMarkdownEntities(graph, pageOpinionKinds(manifest, kinds.generated))).entities.map((entity) => [entity.id, entity] as const));
     const resolver = new Resolver({
       graph,
-      documentKinds: [...manifest.kinds.values()].filter((kind) => kind.fields?.some((field) => field.name === 'markdown')).map((kind) => kind.name),
+      documents: await documentOpinions(graph, manifest),
       markdown,
       declared: (kind) => manifest.kinds.has(kind),
       repositories: () => [...this.pins.keys()].sort(byCodePoint),
@@ -2675,24 +2792,25 @@ export class KnowledgeProduct {
     }
     const rule = listing.categories.find((category) => category.rule === problem.rule);
     const record = problemTaskRecord(problem, { language, ...(rule?.label === undefined ? {} : { label: rule.label }) });
-    // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
-    // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
-    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
-    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one — a name of
-    // `Alice@work` is written `Alice%40work` — and the author starts with `person:`: the product then knows a person wrote
-    // in it, and its start-over is refused.
-    const source = problemTaskSource(by);
     let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
+    const binding = read.present ? read.manifest.semanticBindings?.get('problem-task') : undefined;
+    if (!binding || !read.present) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
     try {
-      written = await this.putEntity(source, {
-        // The uid is the problem's: a second press, even one that read no task a moment ago, joins this entity instead
-        // of making another, and finds everything unchanged, so it writes nothing and answers the task that stands.
-        kind: PROBLEM_TASK_KIND,
-        id: problemTaskUid(problem),
-        values: { title: record.title, body: record.body, front: record.front },
-        evidence,
-        words: language === 'ru' ? 'Создать задачу' : 'Create a task',
-      });
+      const owner: DatabaseOwner = await this.open();
+      const kinds = graphKindsOf(read.manifest);
+      const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(read.manifest));
+      const targets = typeof problem.entity?.key !== 'string' ? [] : await graph.find(problem.entity.key);
+      if (targets.length > 1) throw new WriteRefusal('the problem names more than one graph entity');
+      if (typeof problem.entity?.key === 'string' && targets.length === 0) throw new WriteRefusal('the problem graph target is missing');
+      const target = targets[0];
+      if (target && !target.uid) throw new WriteRefusal('the problem graph target has no stable UID');
+      const fingerprint = problemFingerprint(problem, target?.uid ?? null);
+      const source = { ...problemTaskSource(by), operationId: fingerprint };
+      written = await executeManualOperation(owner, source, { kind: 'problem-task', input: {
+        rule: problem.rule, fingerprint, reason: record.statement,
+        title: record.title, description: record.body,
+        ...(target?.uid === undefined ? {} : { about: { kind: target.kind, key: {}, uid: target.uid } }),
+      } }, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'problem-task'));
     } catch (error) {
       // The graph's own refusal is said in the reader's language, and their reason is kept in the server's log; every other
       // failure is a defect of this process and is not dressed up as the reader's.
@@ -2703,7 +2821,7 @@ export class KnowledgeProduct {
     // Nothing written means the task stood exactly as this press states it: another press made it, and this one found it.
     const state = written.written === 0 ? 'existing' as const : 'created' as const;
     if (state === 'created') this.notify();
-    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state };
+    return { task: { label: record.title, href: entityPageAddress(binding.kind, written.uid), key: `${binding.kind}:${written.uid}` }, state };
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {
@@ -2719,7 +2837,7 @@ export class KnowledgeProduct {
     const wanted = language ?? current;
     const written = this.pagesLanguage();
     const changed = written !== undefined ? written !== wanted : language !== undefined && language !== current;
-    const owner = await this.open();
+    const owner: DatabaseOwner = await this.open();
     const { graph } = await this.graphAndManifest();
     const planned = await planRefresh({ owner, graph, manifest: read.manifest, productFolder: this.options.productFolder, repository, commit: repository.commit, language: { from: written ?? current, to: wanted, changed } });
     let commitsNotRead: number | null = null;
@@ -2735,7 +2853,7 @@ export class KnowledgeProduct {
   /** Stops a running fill at its next commit and closes the store. */
   async close(): Promise<void> {
     this.closed = true;
-    this.publicationWait.abort();
+    this.publicationWait.abort(new Error('the wiki is shutting down'));
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
     await this.fillRun?.control('stop').catch(() => undefined);
@@ -2752,6 +2870,7 @@ export class KnowledgeProduct {
     await this.storeOpening?.then((owner) => owner?.close()).catch(() => undefined);
     this.storeOpening = undefined;
     this.reader = undefined;
+    this.fillStateMemo = undefined;
     this.opening = undefined;
   }
 }

@@ -24,3 +24,7 @@ labels:
 description:
   en: 'An SBOM component is one item in the list of what a product is built from: a library, a container base, an application or a framework, with its name and version. Its type says what kind of thing it is.'
   ru: 'Компонент SBOM — один пункт в списке того, из чего собран продукт: библиотека, основа контейнера, приложение или каркас, с именем и версией. Его тип говорит, что это за вещь.'
+derives-from:
+- code.package
+- license
+- sbom

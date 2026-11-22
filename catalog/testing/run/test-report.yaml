@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A test report sums up one run: the counts of passed, failed and skipped tests, the failures with their messages and the time taken. It is what a person or a gate reads to decide whether the version may go on.'
   ru: 'Отчёт о тестировании подводит итог одного запуска: сколько тестов прошло, упало и было пропущено, какие были сбои с их сообщениями и сколько всё заняло. По нему человек или шлюз решает, можно ли двигать версию дальше.'
+derives-from:
+- test-result
+- test-run

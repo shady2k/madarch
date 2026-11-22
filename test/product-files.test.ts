@@ -5,7 +5,7 @@ test('snapshot files batch only new blobs in code point order and hold every res
   const calls: (readonly string[])[] = [];
   const files = await snapshotFiles({
     entries: () => [
-      ...['z.json', 'a.json', '😀.json', '\uE000.json'].map((path) => ({ path, mode: '100644', form: 'blob' })),
+      ...['z.json', 'a.json', '😀.json', '\uE000.json'].map((path) => ({ path, mode: '100644', form: 'blob' as const })),
       { path: 'sub', mode: '160000', form: 'commit' },
       { path: 'link', mode: '120000', form: 'link' },
     ],

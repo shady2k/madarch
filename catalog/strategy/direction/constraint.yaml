@@ -25,3 +25,5 @@ labels:
 description:
   en: 'A constraint is a condition the product must respect that cannot be chosen away: a law, a standard, an agreed budget, an existing technology, a deadline. arc42 collects them in section 2 so later decisions know their bounds.'
   ru: 'Ограничение — условие, которое продукт должен соблюдать и которое нельзя просто отменить: закон, стандарт, согласованный бюджет, уже выбранная технология, срок. arc42 собирает их в разделе 2, чтобы позднее решения знали свои рамки.'
+derives-from:
+- idea

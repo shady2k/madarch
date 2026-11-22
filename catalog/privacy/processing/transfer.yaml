@@ -24,3 +24,6 @@ labels:
 description:
   en: A transfer sends personal data outside the country or to an international organisation, where different law may apply. It is allowed only with a safeguard such as an adequacy decision, standard contractual clauses or the person's explicit consent.
   ru: 'Передача отправляет персональные данные в другую страну или международную организацию, где может действовать иное право. Она допустима только с гарантией: решением о достаточной защите, типовыми договорными условиями или явным согласием человека.'
+derives-from:
+- processing-activity
+- recipient

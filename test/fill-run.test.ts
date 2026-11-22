@@ -1,5 +1,4 @@
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The one fill (madarch-8bdc.2.5, item 6): `runFill` over a neutral fixture — every
  * step, one step alone, and a path subset — through the same function every caller
@@ -10,20 +9,19 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { listFiles, repositoryFacts } from '../src/graph/index.js';
+import { listFiles, productFileIndex, repositoryFacts } from '../src/graph/index.js';
 import { runFill } from '../src/fill/run.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, prepareTestStore as prepareStore, type TestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { readFillEnd } from '../src/fill/orchestrator-store.js';
-import { readRun } from '../src/fill/state-store.js';
+import { readFillEnd } from '../src/graph/fill-orchestration.js';
+import { readRun } from '../src/graph/fill-state.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { fillSteps } from '../src/fill/steps.js';
 import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 let root = '';
 let product = '';
-let owner: DatabaseOwner | undefined;
+let owner: TestDatabaseOwner | undefined;
 
 function git(...args: string[]): void {
   execFileSync('git', args, { cwd: product, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -167,6 +165,25 @@ describe('the one fill', () => {
       await store.close();
     }
   }, 300_000);
+
+  test("the product repository's own files reach the graph through the files plugin, its manifest among them (madarch-hsqs, madarch-64o5.74)", async () => {
+    // The owner's words (madarch-hsqs, 2026-11-10): «У нас один источник, граф… запрещено получать информацию
+    // откуда-либо, кроме графа» and «с исходной файловой системой работает только плагин файлов… больше никто».
+    // A reader of the product's documents reads them from the graph (src/plugin/product-source.ts), so the files
+    // plugin must publish the product repository's own files: no exclusion leaves the product's manifest unread.
+    const store = await createTestDatabaseOwner({ btreeGist: true });
+    try {
+      const run = await runFill({ product, database: store, steps: ['plugin-turns'], runId: 'product-repository', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.state).toBe('succeeded');
+      const paths = (await productFileIndex(store, 'run-product')).map(file => file.path);
+      expect(paths).toContain('madarch/catalog.yaml');
+      expect(paths).toContain('workspace.yaml');
+    } finally {
+      await store.close();
+    }
+  }, 300_000);
 });
 
 describe('the end of a run another process reads', () => {
@@ -174,9 +191,8 @@ describe('the end of a run another process reads', () => {
     // The api role states a fill from that row alone (madarch-8bdc.9): even a product with no manifest must
     // leave its end in the caller-prepared store, or the process that pressed the fill would answer `running` for ever.
     const store = join(root, 'end-store');
-    const writer = await createDatabaseOwner({ store });
-    await prepareStore(writer);
-    const reader = await createDatabaseOwner({ store });
+    const writer = await createTestDatabaseOwner({ store });
+    const reader = Object.assign(await createDatabaseOwner({ store }), { graphContract: writer.graphContract });
     const empty = join(root, 'no-manifest');
     mkdirSync(empty, { recursive: true });
     try {

@@ -23,20 +23,19 @@ describe('test quarantine in the starter catalogue', () => {
     expect(CATALOG_KINDS.find((kind) => kind.name === 'code.test-case')?.id).not.toBe(row.id);
   });
 
-  test('the manifest keeps the plugin fields, typed references, natural key and discovery dependencies', () => {
+  test('the manifest keeps scalar facts and declares entity relations as edges', () => {
     const kind = manifest.kinds['code.test-quarantine'];
-    expect(kind.key).toEqual(['repository', 'path', 'name']);
-    expect(kind['derives-from']).toEqual(['code.file']);
+    expect(kind.key).toEqual(['path', 'name']);
+    expect(kind['key-edges']).toEqual([{ role: 'code.test-quarantine-repository', edge: 'code.test-quarantine-repository', side: 'from' }]);
+    expect(kind['derives-from']).toEqual(['code.file', 'code.test-case']);
     expect(kind.fields).toEqual([
-      { name: 'repository', type: 'text', binding: 'test-quarantine@1.repository' },
-      { name: 'path', type: 'text', binding: 'test-quarantine@1.path' },
+      { name: 'path', type: 'path', binding: 'test-quarantine@1.path' },
       { name: 'name', type: 'text', binding: 'test-quarantine@1.name' },
-      { name: 'test', type: 'json', reference: 'code.test-case', binding: 'test-quarantine@1.test' },
-      { name: 'task', type: 'text', reference: 'task', binding: 'test-quarantine@1.task' },
       { name: 'quarantine_reason', type: 'text', binding: 'test-quarantine@1.quarantine_reason' },
-      { name: 'since', type: 'text', reference: 'code.commit', binding: 'test-quarantine@1.since' },
-      { name: 'latest_result', type: 'json', nullable: true, binding: 'test-quarantine@1.latest_result' },
     ]);
+    for (const field of ['test', 'task', 'since', 'latest-result']) {
+      expect(manifest.edges.find((edge: { name: string }) => edge.name === `code.test-quarantine-${field}`)).toBeDefined();
+    }
     expect(kind['relation-constraints']).toEqual({ out: ['quarantines', 'fixedBy'], in: [] });
     for (const relation of row.out) expect(CATALOG_RELATIONS).toHaveProperty(relation);
   });

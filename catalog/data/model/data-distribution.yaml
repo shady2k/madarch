@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A data distribution is a way the same dataset can actually be obtained: a downloadable file, a query endpoint, a feed. It names the media type, the address and the format, so a consumer knows what it will get.'
   ru: 'Распространение — способ, которым набор данных действительно можно получить: скачиваемый файл, точка запросов, поток. В нём указаны тип содержимого, адрес и формат, чтобы потребитель знал, что получит.'
+derives-from:
+- dataset
+- product-profile

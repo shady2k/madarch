@@ -7,7 +7,14 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import type { SnapshotEntry } from './repository-snapshot.js';
 import { withSpanSync } from '../obs/trace.js';
+
+function withoutTrailingSlash(folder: string): string {
+  let end = folder.length;
+  while (end > 0 && folder[end - 1] === '/') end -= 1;
+  return folder.slice(0, end);
+}
 
 /** How a read of the product repository's own files reads them. */
 export interface ProductFileRead {
@@ -73,7 +80,7 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
           span.setAttribute('file.entries', entries.length);
           return entries
             .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-            .map((entry) => `${folder.replace(/\/+$/, '')}/${entry.name}`)
+            .map((entry) => `${withoutTrailingSlash(folder)}/${entry.name}`)
             .sort();
         });
       } catch {
@@ -138,7 +145,7 @@ export function workingTreeFiles(productFolder: string): ProductFileSource {
 interface SnapshotEntryLike {
   readonly path: string;
   readonly mode: string;
-  readonly form: string;
+  readonly form: SnapshotEntry['form'];
   readonly bytes?: number;
 }
 
@@ -176,11 +183,11 @@ export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryL
       for (let at = 0; at < blobs.length; at++) held.set(blobs[at]!, texts[at]!);
     },
     filesIn: (folder) => {
-      const prefix = folder.replace(/\/+$/, '') + '/';
+      const prefix = withoutTrailingSlash(folder) + '/';
       return [...entries.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/')).sort();
     },
     filesBelow: (folder) => {
-      const prefix = folder.replace(/\/+$/, '') + '/';
+      const prefix = withoutTrailingSlash(folder) + '/';
       return [...entries.keys()].filter((path) => path.startsWith(prefix)).sort();
     },
     paths: () => [...entries.keys()].sort(),

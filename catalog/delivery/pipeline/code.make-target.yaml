@@ -8,6 +8,7 @@ acquisition:
 - extractor operations
 relation-constraints:
   out:
+  - partOf
   - handles
   in:
   - partOf
@@ -16,6 +17,31 @@ source: graph
 details:
 - phony
 - recipe
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: phony
+  type: boolean
+  nullable: true
+  producers:
+  - operations
+- name: recipe
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.file
 labels:
   en:
     one: Make target
@@ -26,3 +52,8 @@ labels:
 description:
   en: A make target is a name in a Makefile that runs a list of commands, often producing or updating a file, such as build, test or clean. Targets may depend on other targets, so one command can bring a whole chain into date.
   ru: 'Цель make — имя в Makefile, которое выполняет список команд и часто создаёт или обновляет файл: build, test или clean. Цели могут зависеть от других целей, поэтому одна команда обновляет целую цепочку.'
+
+key-edges:
+- role: code.make-target-file
+  edge: code.make-target-file
+  side: from

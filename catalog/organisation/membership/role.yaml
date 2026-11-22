@@ -1,0 +1,51 @@
+id: org.role
+purpose: understand
+audience: [product, product-lead, architect, developer]
+definition: A role is a part people play with the product or in the organisation, such as a product owner, a developer, a tester or a user, and it carries what the person in it may do and answers for.
+sources:
+- https://www.w3.org/TR/vocab-org/
+acquisition:
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - grants
+  - hasAccessRole
+  - refines
+  in:
+  - holds
+  - refines
+template-policy: page
+extends: system:role
+source: graph
+fields:
+- name: name
+  type: text
+  nullable: true
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives this role, such as product, developer or tester.
+- name: purpose
+  type: text
+  nullable: true
+  binding:
+    agent: What a person in this role does with the product, in one sentence, from the kinds the role reads and the use cases it acts in, in the graph.
+- name: responsibility
+  type: text
+  nullable: true
+  binding:
+    agent: What the role answers for, in one sentence, from the entities the role owns and the problems escalated to it in the graph.
+labels:
+  en:
+    one: Role
+    many: Roles
+  ru:
+    one: Роль
+    many: Роли
+description:
+  en: 'A role is a part a person plays: a user, an administrator, an operator, a tester, a product owner, an analyst, an architect or a developer. It is the actor on use cases and process diagrams, the role a person reads the product with, and the holder of access roles and permissions. The same names are the kinds’ audiences and the roles that escalated problems go to.'
+  ru: 'Роль — часть, которую человек играет: пользователь, администратор, эксплуатация, тестировщик, продукт, аналитик, архитектор или разработчик. Она действует в сценариях и на схемах процессов, с ней человек читает продукт и она держит роли доступа и права. Те же имена — аудитории видов и роли, которым уходят эскалированные проблемы.'
+derives-from:
+- system.product

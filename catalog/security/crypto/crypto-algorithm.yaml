@@ -24,3 +24,5 @@ labels:
 description:
   en: A cryptographic algorithm is a defined method for encrypting, hashing, signing or exchanging keys, with a name and a set of parameters. Its status says whether it is recommended, deprecated or broken, and what should replace it.
   ru: Криптографический алгоритм — определённый способ шифрования, хеширования, подписи или обмена ключами с именем и набором параметров. Его статус говорит, рекомендован он, устарел или сломан и чем его заменять.
+derives-from:
+- technology

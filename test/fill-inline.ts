@@ -7,7 +7,7 @@ import { readPinnedGraphContract } from '../src/product/fill-stages.js';
  */
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runFill } from '../src/fill/run.js';
-import type { FillRunResult } from '../src/fill/orchestrator-host.js';
+import type { FillRunResult, RefusedFillRun } from '../src/fill/orchestrator-host.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 /** Fills a product in this process and waits for it; a failed run is thrown with its own words. */
@@ -17,9 +17,16 @@ export async function fillInProcess(product: string, home: string, storeRoot?: s
   try {
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const result = await runFill({ product, database: owner, store, home, runId: `test-${String(Date.now())}`, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
-    if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
-    return result;
+    return requireSucceededFill(result);
   } finally {
     await owner.close().catch(() => undefined);
   }
+}
+
+export function requireSucceededFill(result: FillRunResult | RefusedFillRun): FillRunResult {
+  if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
+  if (result.state !== 'succeeded' || !result.settled) {
+    throw new Error(`the fill did not succeed (run ${result.runId}, state ${result.state}, settled ${String(result.settled)})`);
+  }
+  return result;
 }

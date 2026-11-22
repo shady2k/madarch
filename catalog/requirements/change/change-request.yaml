@@ -24,3 +24,5 @@ labels:
 description:
   en: A change request proposes an alteration to the product and says why it is needed and what it would affect. It is a request, not yet an agreement, and it goes through impact analysis before someone accepts it.
   ru: Запрос на изменение предлагает изменить продукт и говорит, зачем это нужно и что это затронет. Это просьба, а не договорённость, и до принятия она проходит анализ влияния.
+derives-from:
+- doc.requirement

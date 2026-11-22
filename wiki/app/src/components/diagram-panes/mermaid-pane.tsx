@@ -140,8 +140,8 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
   return svg === null ? <Metadata>{t('knowledge.loadingPicture')}</Metadata> : (
     <div data-testid="mermaid-pane-zoom">
       <DiagramZoomBar>
-        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomOut')} onClick={() => step(1 / 1.25)} data-testid="diagram-zoom-out">−</Button>
-        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomIn')} onClick={() => step(1.25)} data-testid="diagram-zoom-in">+</Button>
+        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomOut')} onClick={() => step(1 / 1.25)} data-testid="diagram-zoom-out">{t('common.zoomOutSymbol')}</Button>
+        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomIn')} onClick={() => step(1.25)} data-testid="diagram-zoom-in">{t('common.zoomInSymbol')}</Button>
         <Button size="sm" variant="default" onClick={() => setZoom(null)} data-testid="diagram-zoom-fit">{t('knowledge.diagramFit')}</Button>
         {zoom === null ? null : <Metadata data-testid="diagram-zoom-level">{`${String(Math.round(scale * 100))}%`}</Metadata>}
       </DiagramZoomBar>

@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A software service is a ready-made application a supplier operates, which the product uses over the network: a mail service, a CRM, a payment system. The product does not install or run it, only calls it.'
   ru: 'Сервис SaaS — готовая программа, которую эксплуатирует поставщик, а продукт использует по сети: почтовая служба, CRM или платёжная система. Продукт её не устанавливает и не запускает, а только обращается к ней.'
+derives-from:
+- external-system
+- supplier

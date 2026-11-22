@@ -24,3 +24,5 @@ labels:
 description:
   en: A telemetry pipeline collects metrics, logs and traces from services, processes them — filtering, sampling, adding labels — and sends them to stores and tools. Its stages decide what is kept, what is dropped and how late the data arrives.
   ru: Конвейер телеметрии собирает метрики, журналы и трассы у сервисов, обрабатывает их — фильтрует, прореживает, добавляет метки — и отправляет в хранилища и инструменты. Его этапы решают, что сохранить, что отбросить и насколько поздно придут данные.
+derives-from:
+- code.service

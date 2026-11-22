@@ -98,6 +98,11 @@ test('conditional HTTP edits preserve intervening fields and report conflicts wi
   const etag = `"${made.entity.revision}"`;
   const bob = await send('PATCH', { values: { title: 'Bob title' } }, made.entity.uid);
   expect(bob.status).toBe(200);
+  const people = await graphql('{ allPerson(first: 10) { edges { node { id } } } }');
+  expect(people.errors, JSON.stringify(people.errors)).toBeUndefined();
+  const principals = people.data!['allPerson'].edges as { node: { id: string } }[];
+  expect(principals).toHaveLength(1);
+  const authenticatedPersonUid = principals[0]!.node.id;
   const patch = (values: Record<string, unknown>) => fetch(`${base}&uid=${made.entity.uid}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json', 'if-match': etag }, body: JSON.stringify({ values }),
   });
@@ -106,7 +111,7 @@ test('conditional HTTP edits preserve intervening fields and report conflicts wi
   expect(await unrelated.json()).toMatchObject({ entity: { values: { title: 'Bob title', count: 2 } } });
   const conflict = await patch({ title: 'Alice stale title' });
   expect(conflict.status).toBe(412);
-  expect(await conflict.json()).toMatchObject({ error: { field: 'title', conflict: { field: 'title', current: 'Bob title', author: expect.stringContaining('person:') } } });
+  expect(await conflict.json()).toMatchObject({ error: { field: 'title', conflict: { field: 'title', current: 'Bob title', author: authenticatedPersonUid } } });
   await send('DELETE', {}, made.entity.uid);
 }, 30_000);
 

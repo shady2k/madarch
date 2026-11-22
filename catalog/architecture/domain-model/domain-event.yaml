@@ -24,3 +24,5 @@ labels:
 description:
   en: A domain event records a fact that has already happened in the business, such as an order being placed or a payment being refused, in words the domain uses. Other parts react to it without the sender knowing who listens.
   ru: 'Событие предметной области фиксирует факт, который уже произошёл в бизнесе: заказ оформлен или платёж отклонён, — на языке самой предметной области. Другие части реагируют на него, а отправитель не знает, кто слушает.'
+derives-from:
+- bounded-context
