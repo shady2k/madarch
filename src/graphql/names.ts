@@ -48,6 +48,21 @@ export function kindTypeNameOf(name: string): string {
   return `${KIND_TYPE_PREFIX}${typeNameOf(name)}`;
 }
 
+/** The kind the manifest gives the catalogue itself: its entries answer as the one `CatalogueEntity` type (f274f0305). */
+export const MANIFEST_KIND = 'manifest.kind';
+
+/** The type every catalogue entry answers as: the catalogue's own kind has no `Kind*` type of its own (decision 0036, section 1). */
+const CATALOGUE_ENTITY_TYPE = 'CatalogueEntity';
+
+/**
+ * The schema type a kind's entities answer as: the one place this rule lives. The catalogue's own kind (`manifest.kind`)
+ * answers as `CatalogueEntity`; every other kind as the type `kindTypeNameOf` names. A page that opens a kind and the
+ * schema that builds it ask this, so the two always name one type.
+ */
+export function entityTypeNameOf(kind: string): string {
+  return kind === MANIFEST_KIND ? CATALOGUE_ENTITY_TYPE : kindTypeNameOf(kind);
+}
+
 /**
  * The field name of a contract field or an edge kind: `commit_count` → `commitCount`, `code.contains` → `codeContains`.
  * A name the schema reserves — `id`, `kind`, `label`, `template`, `assertions`, `contested`, `backlinks`, a name starting

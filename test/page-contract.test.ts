@@ -5,7 +5,7 @@
  * what the app does not draw, with the file and the line, and inheritance orders a page's sections as section 6 says.
  */
 import { describe, expect, test } from 'bun:test';
-import { buildSchema, parse, validate, type GraphQLNamedType, type GraphQLObjectType } from 'graphql';
+import { Kind, buildSchema, getNamedType, parse, validate, visit, type DocumentNode, type GraphQLNamedType, type GraphQLObjectType } from 'graphql';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -13,7 +13,7 @@ import {
   type Bootstrap, type TemplateFile,
 } from '../src/page-contract/index.js';
 import { validateNode } from '../src/page-contract/validate.js';
-import { kindTypeNameOf } from '../src/graphql/names.js';
+import { entityTypeNameOf, typeNameOf } from '../src/graphql/names.js';
 import { starterSchema } from '../scripts/graphql-starter.js';
 import { parseDocument } from 'yaml';
 
@@ -47,9 +47,40 @@ function entityTypes(): string[] {
     .sort();
 }
 
-/** The starter catalogue's kinds, and the type each one opens on (src/graphql/names.ts). */
+/** The starter catalogue's kinds. */
 const starter = starterSchema();
-const kindTypes = starter.kinds.map((kind) => kindTypeNameOf(kind));
+
+/** The type condition of the entity fragment in a composed operation: the type its page opens on, as the page states it. */
+function openedTypes(document: DocumentNode): string[] {
+  const opened = new Set<string>();
+  visit(document, {
+    Field(node) {
+      if (node.name.value !== 'entity' || node.selectionSet === undefined) return undefined;
+      for (const selection of node.selectionSet.selections) {
+        if (selection.kind === Kind.INLINE_FRAGMENT && selection.typeCondition !== undefined) opened.add(selection.typeCondition.name.value);
+      }
+      return false;
+    },
+  });
+  return [...opened].sort();
+}
+
+/**
+ * The entity type the built `starter.graphql` opens a kind on, read from the schema's own roots: the node of the kind's
+ * list connection, and the catalogue's root for `manifest.kind`, which the generator leaves to `CatalogueEntity`.
+ */
+function schemaTypeOf(kind: string): string | undefined {
+  const fields = schema.getQueryType()?.getFields() ?? {};
+  if (kind === 'manifest.kind') {
+    const root = fields['catalogueEntity']?.type;
+    return root === undefined ? undefined : getNamedType(root).name;
+  }
+  const field = fields[`all${typeNameOf(kind)}`];
+  if (field === undefined) return undefined;
+  const connection = getNamedType(field.type) as GraphQLObjectType;
+  const edge = getNamedType(connection.getFields()['edges']!.type) as GraphQLObjectType;
+  return getNamedType(edge.getFields()['node']!.type).name;
+}
 
 /** One address's operation, and the errors the real schema finds in it. */
 function composed(address: Parameters<typeof composePage>[1]): { operation: string; errors: readonly string[] } {
@@ -83,14 +114,37 @@ describe('the starter templates', () => {
   });
 
   test('the entity page composes against every type the schema opens it on', () => {
-    // Every kind of the catalogue is a type the entity page opens on, and the schema opens it on no other.
-    expect(entityTypes().filter((one) => one !== 'CatalogueEntity')).toEqual([...kindTypes].sort());
+    // The schema answers which type each kind opens on; the page answers which type it opens on by composing it. Neither
+    // list is copied from the other, so a new kind, a retyped kind or a renamed type on either side turns this file red.
     const failures: string[] = [];
+    const opened: string[] = [];
     for (const kind of starter.kinds) {
-      const page = composed({ kind, id: '00000000-0000-0000-0000-000000000002' });
-      if (page.errors.length > 0) failures.push(`${kind}: ${page.errors.join('; ')}`);
+      const page = composePage(bootstrap, { kind, id: '00000000-0000-0000-0000-000000000002' });
+      if (page.findings.length > 0) {
+        failures.push(`${kind}: ${page.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('; ')}`);
+        continue;
+      }
+      const document = parse(page.operation);
+      const errors = validate(schema, document).map((error) => error.message);
+      if (errors.length > 0) failures.push(`${kind}: ${errors.join('; ')}`);
+      const types = openedTypes(document);
+      const expected = schemaTypeOf(kind);
+      if (types.length !== 1 || types[0] !== expected) {
+        failures.push(`${kind}: the page opens on ${types.length === 0 ? 'no type' : types.join(', ')}, and the schema opens it on ${String(expected)}`);
+      }
+      opened.push(...types);
     }
     expect(failures).toEqual([]);
+    // Every entity type the schema declares is opened by one kind, and every kind opens one.
+    expect([...opened].sort()).toEqual(entityTypes());
+    // The one kind -> type rule both the composer and this test read agrees with the schema, kind by kind.
+    const rule: [string, string | undefined][] = starter.kinds.map((kind) => [kind, entityTypeNameOf(kind)]);
+    const fromSchema: [string, string | undefined][] = starter.kinds.map((kind) => [kind, schemaTypeOf(kind)]);
+    expect(rule).toEqual(fromSchema);
+    // The correction's fact: the catalogue's own kind opens on the single `CatalogueEntity` type (f274f0305, ALX-648
+    // 8f03f3946), and no type is generated from its name.
+    expect(openedTypes(parse(composePage(bootstrap, { kind: 'manifest.kind', id: '00000000-0000-0000-0000-000000000002' }).operation))).toEqual(['CatalogueEntity']);
+    expect(schema.getType('KindManifestKind')).toBeUndefined();
   });
 
   test('the text page composes on a type that holds a body', () => {
