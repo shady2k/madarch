@@ -64,7 +64,6 @@ export function SYSTEM_EDGE_DEFINITIONS(targets: readonly string[]): readonly Ed
     edge('system.snapshot-about',['system.content-snapshot'],targets,true),
     edge('system.operation-unit',['system.operation'],['system.unit']),
     edge('system.operation-author',['system.operation'],['person','plugin','source','agent','agent-session']),
-    edge('system.operation-affected',['system.operation'],targets,true),
     {...edge('system.unit-parent',['system.unit'],['system.unit'],true),fields:[{name:'sealed_at',type:'bigint'}]},
     edge('system.unit-run',['system.unit'],['system.run']),
     edge('system.run-inherited-unit',['system.run'],['system.unit'],true),

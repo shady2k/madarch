@@ -49,7 +49,7 @@ export interface OperationHost {
 
 const systemPermissions = [
   ...['system.run','system.unit'].map(kind=>({kind,properties:Object.keys({committed_operations:true,last_progress:true,reason:true,outcome:true,produced_kind:true,producer:true,produced:true,producer_version:true,plan_scope:true,$exists:true}),assert:true,retractOwn:true})),
-  ...['system.operation','system.operation-unit','system.operation-author','system.operation-affected','system.kind-applicability','system.applicability-kind','system.applicability-product'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true})),
+  ...['system.operation','system.operation-unit','system.operation-author','system.kind-applicability','system.applicability-kind','system.applicability-product'].map(kind=>({kind,properties:['*'],assert:true,retractOwn:true})),
 ];
 function trusted(binding:WriteCapability,operationUid:string,unitUid:string):WriteCapability {
   return {...binding,operationUid,unitUid,permissions:[...binding.permissions,...systemPermissions]};
@@ -158,13 +158,6 @@ export async function operationReceipt(tx:OuterTransaction,_contract:GraphContra
   });
 }
 
-async function publishAffected(tx:OuterTransaction,options:OperationHostOptions,operationUid:string,context:number):Promise<void>{
-  await withSpan('graph.operation.affected',{},async()=>{
-  const affected=(await tx.query<{uid:string}>(`SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id JOIN edge lineage ON lineage.from_node=a.assertion_id JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-operation' JOIN node op ON op.id=lineage.to_node WHERE op.uid=$1::uuid ORDER BY n.uid::text COLLATE "C"`,[operationUid])).rows;
-  if(affected.length)await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:affected.map(target=>({kind:'system.operation-affected',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.assertion',uid:target.uid,key:{}},discriminator:target.uid,producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}))},context);
-  });
-}
-
 interface OperationPreflight {
   readonly runId:string|null; readonly unitId:string|null;
   readonly principalKind:string|null; readonly locked:readonly {id:string;uid:string}[];
@@ -212,7 +205,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
       await assertOutcomeApplicability(tx,options.contract,{kind:producedKind,plugin:producer,outcome:'failed',produced:0,reason},evidenceUid,String(fields.plan_scope ?? fields.scope ?? options.unitUid));
     }
     await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',reason,context);
-    await publishAffected(tx,options,operationUid,context);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:169: ATTEMPT_STALE failure`);
     await options.queue.fail(options.job.queue,options.job,reason,tx);
@@ -273,7 +265,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
             await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]] )).outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
           }
         }
-        await publishAffected(tx,options,operationUid,context);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
         // All graph writes remain provisional until authority is locked through commit.
         if(!await options.queue.fence(options.job,tx))throw new AttemptStaleError(`${WHERE}:106: ATTEMPT_STALE publication`);

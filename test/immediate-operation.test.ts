@@ -57,7 +57,7 @@ test('immediate operation receipt, rollback, preconditions, run state and atomic
   await setUnitState('running');
   await host.execute({key:'done',request:{},completion:{output:{done:true},enqueue:[],outcome:{plugin:'probe',kind:'probe',outcome:'completed',produced:1}}},async()=>({done:true}));
   expect(await host.execute<{done:boolean}>({key:'done',request:{},completion:{output:{done:true},enqueue:[],outcome:{plugin:'probe',kind:'probe',outcome:'completed',produced:1}}},async()=>({done:false}))).toEqual({done:true});
-  const affected=await owner.run(tx=>tx.query(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.operation-affected'`));
+  const affected=await owner.run(tx=>tx.query(`SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.assertion-operation'`));
   expect(affected.rows.length).toBeGreaterThan(0);
   await expect(host.execute({key:'late',request:{}},async()=>null)).rejects.toThrow('ATTEMPT_STALE');
  }finally{await queue.stop();await owner.close();}
