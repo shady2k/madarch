@@ -23,6 +23,9 @@ function select(result: UnitResult, kind: string, keys: ReadonlySet<string>): Un
     const evidence = fact.evidence as { target?: Ref } | undefined;
     if (evidence?.target !== undefined) needed.add(refOf(evidence.target));
   };
+  for (const edge of primaryEdges) for (const endpoint of [edge.from, edge.to]) {
+    if (endpoint.kind === kind) needed.add(refOf(endpoint));
+  }
   for (const fact of [...primary, ...primaryEdges]) evidenceOf(fact);
   const support = vertices.filter(vertex => !primary.includes(vertex));
   const supportEdges = new Set<EdgeResult>();
