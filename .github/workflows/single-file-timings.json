@@ -128,6 +128,7 @@
     "test/graph-merges.test.ts": 48496,
     "test/graph-one-schema.test.ts": 12200,
     "test/graph-orchestration.test.ts": 4469,
+    "test/graph-plugin-files.test.ts": 6505,
     "test/graph-presentation.test.ts": 11200,
     "test/graph-product-file-index.test.ts": 28900,
     "test/graph-record-selection.test.ts": 3485,
