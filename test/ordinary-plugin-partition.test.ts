@@ -153,11 +153,12 @@ async planOutput(unit,context,cursor){const page=await output.planOutput(unit,co
 async extract(unit,context){await new Promise(resolve=>setTimeout(resolve,2000));return await output.extract(unit,context);}});`);
    writeFolderManifest(product,stringify({language:'en',kinds:{'code.commit':{source:'graph',key:['hash'],fields:['hash','message'].map(name=>({name,type:'text'})),evidence:{immutable:true,digestField:'hash'}}},edges:[{name:'code.parent',from:['code.commit'],to:['code.commit'],cardinality:{from:{min:0,max:null},to:{min:0,max:null}},labels:outputs.edges[0]!.labels}],plugins:[{id:'git',version:1,path:'plugins/git',inputs:[],outputs:['code.commit'],closure:['plugins/git/plugin.json','plugins/git/contract.json','plugins/git/main.ts','plugins/git/partition.ts','plugins/git/scenario.js']}]}));
    let previousOpen=new Map<string,string>();
+   // Change only a closure nonce on the last run: execute reconciliation again instead of inheriting cached units.
    for(const [runIndex,single] of [false,true,true].entries()){
-    writeFileSync(join(plugin,'scenario.js'),`export const single=${single};`);
+    writeFileSync(join(plugin,'scenario.js'),`export const single=${single};export const extractionRun=${runIndex};`);
     const closure=closureOf(plugin).hash;
     writeFileSync(join(product,'madarch/plugins.lock'),stringify({plugins:[{id:'git',path:'plugins/git',version:'1.0.0',closure}]}));
-    if(runIndex<2){gitCommand(product,'add','-A');gitCommand(product,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm',`groups-${runIndex}`);}
+    gitCommand(product,'add','-A');gitCommand(product,'-c','user.name=Fixture','-c','user.email=f@example.invalid','commit','-qm',`groups-${runIndex}`);
     const active=new Set<string>();let peak=0;
     const runId=`groups-${runIndex}`;
     const fill=await createStagesFill({product,database:owner,runId,store:home,releaseHashes:[closure],targets:{kinds:['code.commit']},prepareContract:async contract=>{await prepareTestStore(owner,{contract});}});
