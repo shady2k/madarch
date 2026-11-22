@@ -198,17 +198,20 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
     const run = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data', prepareContract: async (contract) => { graphContract = contract; await prepareStore(owner, { contract }); } });
     if (!run.ok) throw new Error(`fill refused: ${run.reason}`);
     expect(run.state).toBe('succeeded');
-    const readPeriods = () => owner.transaction('snapshot',async tx=>{
-      const files=await readKindAssertions(tx,'vertex','code.file',['added_at','removed_at'],{contract:graphContract});
-      const additions=await readKindAssertions(tx,'edge','code.file-added-in',[],{contract:graphContract});
-      const removals=await readKindAssertions(tx,'edge','code.file-removed-in',[],{contract:graphContract});
-      const commitOf=async (edges:typeof additions,id:number)=>{
-        const edge=edges.find(edge=>edge.from===id);
-        if(edge===undefined)return null;
-        return (await tx.query<{hash:string}>("SELECT key->>'hash' AS hash FROM node WHERE id=$1",[edge.to])).rows[0]!.hash;
-      };
-      return await Promise.all(files.map(async file=>({path:String(file.key['path']),added_at:file.values['added_at']??null,removed_at:file.values['removed_at']??null,added_in:await commitOf(additions,file.id),removed_in:await commitOf(removals,file.id)})));
-    });
+    const readPeriods = async () => {
+      return owner.transaction('snapshot',async tx=>{
+        const files=(await readKindAssertions(tx,'vertex','code.file',['added_at','removed_at'],{contract:graphContract,repositoryKinds:['code.file-repository']})).filter(file=>file.assertions.some(assertion=>assertion.repositoryTargets.some(repository=>repository.key['name']==='fixture')));
+        const fixtureIds=new Set(files.map(file=>file.id));
+        const additions=(await readKindAssertions(tx,'edge','code.file-added-in',[],{contract:graphContract})).filter(edge=>fixtureIds.has(edge.from!));
+        const removals=(await readKindAssertions(tx,'edge','code.file-removed-in',[],{contract:graphContract})).filter(edge=>fixtureIds.has(edge.from!));
+        const commitOf=async (edges:typeof additions,id:number)=>{
+          const edge=edges.find(edge=>edge.from===id);
+          if(edge===undefined)return null;
+          return (await tx.query<{hash:string}>("SELECT key->>'hash' AS hash FROM node WHERE id=$1",[edge.to])).rows[0]!.hash;
+        };
+        return await Promise.all(files.map(async file=>({path:String(file.key['path']),added_at:file.values['added_at']??null,removed_at:file.values['removed_at']??null,added_in:await commitOf(additions,file.id),removed_in:await commitOf(removals,file.id)})));
+      });
+    };
     const periods=(await readPeriods()).sort((a,b)=>a.path<b.path?-1:1);
     expect(periods).toEqual([
       { path: 'gone.txt', added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: '2026-01-02T00:00:00.000Z', removed_in: second },
@@ -223,17 +226,17 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
     const counted=again.filter(file=>file.removed_at===null).length;
     expect(counted).toBe(current().length);
     expect((await repositoryFacts(owner, 'fixture'))?.fileCount).toBe(current().length);
-    const listed = await new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads)
-      .byPrefix('code.file', 'code.file:fixture/', 100);
-    expect(listed.rows.map((row) => row.key).sort()).toEqual(['code.file:fixture/gone.txt', 'code.file:fixture/kept.txt']);
-    for (const path of ['kept.txt', 'gone.txt']) {
+    const listed = await new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads, graphContract)
+      .list('code.file', {limit:100});
+    expect(listed.rows.filter(row=>row.properties['repositoryName']==='fixture').map(row=>row.properties['path']).sort()).toEqual(['gone.txt','kept.txt']);
+    for (const path of current()) {
       const facts = await fileFacts(owner, 'fixture', path);
       expect(facts).toMatchObject({ commitCount: 2, authors: ['Author One', 'Author Two'] });
       expect(facts?.created?.commit).toBe(first);
       expect(facts?.modified?.commit).toBe(second);
     }
     // The catalogue's class rules reach the plugin, and the file states its class beside its other facts.
-    const fileClass=await owner.transaction('snapshot',async tx=>(await readKindAssertions(tx,'vertex','code.file',['class'])).filter(file=>file.key['path']==='kept.txt').map(file=>({class:file.values['class']})));
+    const fileClass=await owner.transaction('snapshot',async tx=>(await readKindAssertions(tx,'vertex','code.file',['class'],{contract:graphContract,repositoryKinds:['code.file-repository']})).filter(file=>file.key['path']==='kept.txt'&&file.assertions.some(assertion=>assertion.repositoryTargets.some(repository=>repository.key['name']==='fixture'))).map(file=>({class:file.values['class']})));
     expect(fileClass).toEqual([{ class: 'code' }]);
   } finally {
     await owner.close();
