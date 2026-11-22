@@ -125,7 +125,8 @@ function declaredSupport(wiring: PluginTurnWiring, unit: PluginTurnUnit) {
     if (![...from, ...to].some(kind => vertices.has(kind) || (kind === unit.kind.name && unit.plugin.contract?.vertices.find(vertex => vertex.kind === kind)?.evidence?.immutable === true))) throw new Error(`${unit.plugin.id}: support edge ${kind} has no declared immutable support endpoint`);
     for (const endpoint of [...from, ...to]) if (!wiring.manifest.kinds.has(endpoint)) throw new Error(`${unit.plugin.id}: support edge ${kind} names uninstalled endpoint ${endpoint}`);
   }
-  return { vertices, edges };
+  const ownKindSupport = requested?.vertices?.includes(unit.kind.name) === true && unit.plugin.contract?.vertices.find(vertex => vertex.kind === unit.kind.name)?.evidence?.immutable === true;
+  return { vertices, edges, ownKindSupport };
 }
 
 /** Runtime-only authority, resolved from the selected plugin declaration rather than producer input. */
@@ -583,7 +584,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (selected !== undefined && [...checked.unit.vertices, ...checked.unit.removals].some(vertex => !supportOutputs.has(vertex.kind) && entityIdOf(wiring, vertex.kind, vertex.key) !== selected)) throw new Error(`${location}: operation writes outside selected entity ${selected}`);
       const keys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
       if (keys !== undefined) {
-        for (const vertex of [...checked.unit.vertices, ...checked.unit.removals]) if (!supportOutputs.has(vertex.kind) && !keys.has(canonicalKey(vertex.key))) throw new Error(`${location}: operation writes outside selected partition keys`);
+        // Immutable own-kind support may repeat the same source's values across partitions without changing them.
+        for (const vertex of checked.unit.vertices) if (!supportOutputs.has(vertex.kind) && !keys.has(canonicalKey(vertex.key))) {
+          const connectedSupport = support.ownKindSupport && vertex.kind === unit.kind.name && checked.unit.edges.some(edge => edge.from.kind === unit.kind.name && edge.to.kind === unit.kind.name && keys.has(canonicalKey(edge.from.key)) && canonicalEntity(edge.to) === canonicalEntity(vertex));
+          if (!connectedSupport) throw new Error(`${location}: operation writes outside selected partition keys`);
+        }
+        for (const vertex of checked.unit.removals) if (!supportOutputs.has(vertex.kind) && !keys.has(canonicalKey(vertex.key))) throw new Error(`${location}: operation writes outside selected partition keys`);
         for (const edge of checked.unit.edges) if (!supportOutputs.has(edge.from.kind) && !supportOutputs.has(edge.to.kind) && !keys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge writes outside selected partition keys`);
       }
       for (const edge of checked.unit.edges) if (!edgeOutputs.some(held => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind)) throw new Error(`${location}: write of unselected edge endpoints ${edge.kind}`);
