@@ -8,6 +8,9 @@ import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
+/** The key edge a file's repository stands on, as the repository fixture declares it. */
+const fileRepositoryEdge = 'code.file-repository';
+
 // A whole-graph verdict reads every touched edge. Its cost must be one properties read, not one per changed file.
 test('relation properties are batched without mixing edges, producers, contexts or superseded assertions', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(repositoryContract) });
@@ -46,7 +49,7 @@ test('relation properties are batched without mixing edges, producers, contexts 
     await owner.exec("INSERT INTO context (parent, ref) VALUES (1, 'review')");
     const otherBinding = await testHostBinding(owner, repositoryContract, 'other-context', '1', 2);
     const touched = (path: string, producer: string, values: Record<string, unknown>) => ({
-      kind: GIT_KINDS.touched, from: heldCommit, to: { kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': repository } }, values, producer, producerVersion: '1',
+      kind: GIT_KINDS.touched, from: heldCommit, to: { kind: 'code.file', key: { path }, keyEdges: { [fileRepositoryEdge]: repository } }, values, producer, producerVersion: '1',
     });
     await owner.transaction('write', async (tx) => {
       // A later assertion from the first source must not let its prior value enter the selected result.
@@ -79,16 +82,20 @@ test('relation properties are batched without mixing edges, producers, contexts 
         ...paths.slice(3).map((path, at) => [path, { change: 'added', added: at + 4, removed: 0 }]),
       ]);
       expect(result.rows.map((row) => row.discriminator)).toEqual(paths.map(() => ''));
-      // Typed reads: one edge selection (4), endpoint-kind lookup (1), two endpoint
-      // selections (8), repository key-edge selection (4), and parent-key lookup (1).
-      // Each selection includes one batched dispute-slot read.
+      // Typed reads: one edge selection (5), endpoint-kind lookup (1) and two endpoint
+      // selections (10). A selection's five reads are the merge probe, identities, the
+      // transaction clock, dispute slots and assertions; the three `system.merge` probes
+      // came with 13fb9104b. The repository key-edge selection (4) and the parent-key
+      // lookup (1) of the old count are folded into the assertion read by 862cf0135, whose
+      // branches a restricted declaration does not build.
       // This bound does not grow with the number of shown endpoints.
-      expect(reads).toHaveLength(18);
+      expect(reads).toHaveLength(16);
+      expect(reads.some((sql) => sql.includes(`'${fileRepositoryEdge}'`))).toBe(true);
       reads.length = 0;
       const single = await reader.relationEdges('code.touched', 1);
       expect(single.total).toBe(100);
       expect(single.rows).toEqual(result.rows.slice(0, 1));
-      expect(reads).toHaveLength(18);
+      expect(reads).toHaveLength(16);
       reads.length = 0;
       const declared = new GraphReader(owner, () => new Date().toISOString(), undefined, measured, undefined, repositoryKindReads, new Map([[GIT_KINDS.touched, repositoryEdgeReads.get(GIT_KINDS.touched)!]]), repositoryContract);
       const generated = await declared.relationEdges('code.touched', 2);
@@ -97,10 +104,13 @@ test('relation properties are batched without mixing edges, producers, contexts 
         { change: 'modified', added: 9, removed: 2 },
         { change: 'modified', added: 7, removed: 0 },
       ]);
-      expect(reads).toHaveLength(13);
+      // The count no longer tells a restricted declaration apart: it runs the same reads.
+      // The difference is that it does no work for the edge it does not declare, below.
+      expect(reads).toHaveLength(16);
+      expect(reads.some((sql) => sql.includes(`'${fileRepositoryEdge}'`))).toBe(false);
       reads.length = 0;
       expect((await reader.relationEdges('code.touched', 0)).rows).toEqual([]);
-      expect(reads).toHaveLength(18);
+      expect(reads).toHaveLength(16);
     });
   } finally { await owner.close(); }
 }, 20_000);
