@@ -27,6 +27,9 @@ for(const omitBootstrap of [false,true]) test(`repository-only bootstrap precede
   try{
    const repo=join(root,'repo');mkdirSync(repo);
    gitCommand(repo,'init','-q','-b','main');
+   let observed=false;
+   let firstKApplied=false;
+   let firstKSnapshot:{key:Record<string,unknown>;fields:string[]}[]=[];
    const hashes:string[]=[];
    for(let index=0;index<4;index++){
     writeFileSync(join(repo,'source.txt'),`source-${index}`);
@@ -116,7 +119,7 @@ return answer;}});`);
       const contract=await readPinnedGraphContract(product);
       await owner.transaction('snapshot',async tx=>{
        const commits=await readKindAssertions(tx,'vertex','code.commit',fields,{contract});
-       expect(commits.some(commit=>commit.key['hash']===hashes[3])).toBe(false);
+       expect(commits).toEqual([]);
        console.info(JSON.stringify({negative:'missing-bootstrap',P:hashes[3],outcomes,present:commits.map(commit=>commit.key['hash'])}));
       });
       return;
@@ -128,9 +131,16 @@ return answer;}});`);
         const commits=await readKindAssertions(tx,'vertex','code.commit',fields,{contract});
         const k=commits.find(commit=>commit.key['hash']===hashes[1]);
         const p=commits.find(commit=>commit.key['hash']===hashes[3]);
-        if(k!==undefined&&p?.values['subject']===undefined){
+        if(k!==undefined&&!firstKApplied){
+         firstKApplied=true;
+         firstKSnapshot=commits.map(commit=>({key:commit.key,fields:Object.keys(commit.values).sort()}));
+         expect(p,`${import.meta.path}:137: first K apply must observe bootstrap P before its owner`).toBeDefined();
+         expect(Object.keys(p!.values).sort(),`${import.meta.path}:138: P owner must not precede first K apply`).toEqual(['$exists','hash']);
+         expect(p!.values['subject']).toBeUndefined();
+         expect(Object.keys(k.values).sort()).toEqual(['$exists',...fields].sort());
          expect(commits.some(commit=>commit.key['hash']===hashes[0])).toBe(true);
-         console.info(JSON.stringify({capture:'K-before-P-owner',present:commits.map(commit=>({key:commit.key,fields:Object.keys(commit.values)}))}));
+         observed=true;
+         console.info(JSON.stringify({capture:'K-before-P-owner',present:firstKSnapshot}));
         }
        });
       }
@@ -139,6 +149,11 @@ return answer;}});`);
      if(state!=='succeeded')throw new Error(`${import.meta.path}:98: parallel fill did not succeed: ${JSON.stringify({state,progress:await readProgress(owner,runId)})}`);
      if(omitBootstrap)throw new Error('missing-bootstrap extraction unexpectedly succeeded');
      expect(state).toBe('succeeded');
+     if(runIndex===1){
+      expect(observed,`${import.meta.path}:153: first K apply observation is required`).toBe(true);
+      expect(firstKSnapshot.find(commit=>commit.key['hash']===hashes[3])?.fields).toEqual(['$exists','hash']);
+      expect(firstKSnapshot.find(commit=>commit.key['hash']===hashes[1])?.fields).toEqual(['$exists',...fields].sort());
+     }
     }finally{stopHeartbeat(orchestrator);await queue.stop();}
     for(const event of await readProgress(owner,runId)){
      if(!event.unitId.includes('git:code.commit#'))continue;
