@@ -1,0 +1,223 @@
+name: Single-file evidence
+
+# Measurement only: this workflow lives on a throwaway evidence branch and never
+# enters the candidate. Each path the gate reports as changed without single-file
+# evidence runs alone on a GitHub-hosted runner of the required CI class
+# (ubuntu-24.04). `.github/evidence-paths.txt` carries the paths one per line in
+# code-point order; lanes A1..A4 take lines 1,5,9,... / 2,6,10,... /
+# 3,7,11,... / 4,8,12,... so the split is deterministic, balanced and disjoint.
+# Lane B runs the two confined fixtures twice each, from the fresh scratch every
+# `bun test` process makes for itself, using the command shape of the required
+# `partition-bootstrap` job in ci.yml.
+
+on:
+  push:
+    branches:
+      - 'evidence/**'
+
+concurrency:
+  group: single-file-evidence-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  lane:
+    name: evidence lane ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: A1
+            index: 1
+          - lane: A2
+            index: 2
+          - lane: A3
+            index: 3
+          - lane: A4
+            index: 4
+    steps:
+      - uses: actions/checkout@v7
+      - name: Record the runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence/logs"
+          {
+            echo "ImageOS=${ImageOS:-unknown}"
+            echo "ImageVersion=${ImageVersion:-unknown}"
+            echo "SHA=$(git rev-parse HEAD)"
+            echo "GITHUB_SHA=${GITHUB_SHA:-unknown}"
+            echo "GITHUB_SERVER_URL=${GITHUB_SERVER_URL:-unknown}"
+            echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-unknown}"
+            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID:-unknown}"
+            echo "GITHUB_JOB=${GITHUB_JOB:-unknown}"
+            echo "job_url=${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-unknown}"
+            echo "nproc=$(nproc)"
+            echo "cpu.max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unknown)"
+            echo "memory.max=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"
+            echo "self.cgroup=$(cat /proc/self/cgroup 2>/dev/null || echo unknown)"
+            echo "uname=$(uname -a)"
+            free -m
+          } | tee "$RUNNER_TEMP/evidence/runner-facts.txt"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Record the installed Bun
+        run: bun --version | sed 's/^/bun=/' | tee -a "$RUNNER_TEMP/evidence/runner-facts.txt"
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Split this lane out of the code-point-ordered list
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence/logs"
+          awk -v lane='${{ matrix.index }}' '(NR - 1) % 4 + 1 == lane' .github/evidence-paths.txt > "$RUNNER_TEMP/evidence/lane-paths.txt"
+          echo "lane ${{ matrix.lane }} paths:"
+          cat "$RUNNER_TEMP/evidence/lane-paths.txt"
+          test "$(wc -l < "$RUNNER_TEMP/evidence/lane-paths.txt")" -gt 0
+      - name: Run each file of the lane alone, again when it passes 30 s
+        run: |
+          set +e
+          set -u
+          timings=.github/workflows/single-file-timings.json
+          evidence="$RUNNER_TEMP/evidence"
+          mkdir -p "$evidence/logs"
+          : > "$evidence/exits.txt"
+          run_file() {
+            local p="$1"
+            local tag="$2"
+            local slug
+            slug=$(printf '%s' "$p" | tr '/' '_')
+            local start
+            start=$(date +%s%3N)
+            # --slow only for a path the slow list names; none of these 19 is listed.
+            if bun -e 'const list = await Bun.file("test/slow-files.json").json(); process.exit(list.files.some(entry => entry.path === process.argv[1]) ? 0 : 1)' "$p"; then
+              scripts/plugin-sandbox-cgroup.sh bun run test --slow --only "$p" --timings="$timings" --update-timings 2>&1 | tee "$evidence/logs/${slug}.${tag}.log"
+            else
+              scripts/plugin-sandbox-cgroup.sh bun run test --only "$p" --timings="$timings" --update-timings 2>&1 | tee "$evidence/logs/${slug}.${tag}.log"
+            fi
+            local status=${PIPESTATUS[0]}
+            local elapsed
+            elapsed=$(( $(date +%s%3N) - start ))
+            echo "$p exit=$status ms=$elapsed" >> "$evidence/exits.txt"
+            RUN_ELAPSED="$elapsed"
+          }
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            run_file "$p" run1
+            if [ "$RUN_ELAPSED" -gt 30000 ]; then
+              run_file "$p" run2
+            fi
+          done < "$evidence/lane-paths.txt"
+          echo "lane ${{ matrix.lane }} finished:"
+          cat "$evidence/exits.txt"
+      - name: Keep only this lane's timing rows
+        if: always()
+        run: |
+          bun -e '
+          const [lane, source, out] = process.argv.slice(1);
+          const paths = new Set((await Bun.file(lane).text()).split("\n").filter(line => line !== ""));
+          const timings = JSON.parse(await Bun.file(source).text());
+          const files = {};
+          for (const [path, milliseconds] of Object.entries(timings.files ?? {})) if (paths.has(path)) files[path] = milliseconds;
+          await Bun.write(out, JSON.stringify({ ...timings, files }, null, 2) + "\n");
+          console.log("lane rows: " + Object.keys(files).length + " of " + paths.size + " paths");
+          ' "$RUNNER_TEMP/evidence/lane-paths.txt" .github/workflows/single-file-timings.json "$RUNNER_TEMP/evidence/single-file-timings.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: evidence-${{ matrix.lane }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error
+
+  confined:
+    name: confined lane B
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Record the runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence/logs"
+          {
+            echo "ImageOS=${ImageOS:-unknown}"
+            echo "ImageVersion=${ImageVersion:-unknown}"
+            echo "SHA=$(git rev-parse HEAD)"
+            echo "GITHUB_SHA=${GITHUB_SHA:-unknown}"
+            echo "GITHUB_SERVER_URL=${GITHUB_SERVER_URL:-unknown}"
+            echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-unknown}"
+            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID:-unknown}"
+            echo "GITHUB_JOB=${GITHUB_JOB:-unknown}"
+            echo "job_url=${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-unknown}"
+            echo "nproc=$(nproc)"
+            echo "cpu.max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unknown)"
+            echo "memory.max=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"
+            echo "self.cgroup=$(cat /proc/self/cgroup 2>/dev/null || echo unknown)"
+            echo "uname=$(uname -a)"
+            free -m
+          } | tee "$RUNNER_TEMP/evidence/runner-facts.txt"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Record the installed Bun
+        run: bun --version | sed 's/^/bun=/' | tee -a "$RUNNER_TEMP/evidence/runner-facts.txt"
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Run each confined fixture alone twice from fresh state
+        run: |
+          set +e
+          set -u
+          evidence="$RUNNER_TEMP/evidence"
+          mkdir -p "$evidence/logs"
+          : > "$evidence/exits.txt"
+          run_twice() {
+            local p="$1"
+            shift
+            local slug
+            slug=$(printf '%s' "$p" | tr '/' '_')
+            for attempt in 1 2; do
+              local start
+              start=$(date +%s%3N)
+              "$@" 2>&1 | tee "$evidence/logs/${slug}.run${attempt}.log"
+              local status=${PIPESTATUS[0]}
+              local elapsed
+              elapsed=$(( $(date +%s%3N) - start ))
+              echo "$p run=$attempt exit=$status ms=$elapsed" >> "$evidence/exits.txt"
+            done
+          }
+          # Exactly the required partition-bootstrap job's command (ci.yml:132).
+          run_twice test/git-partition-bootstrap.test.ts scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/git-partition-bootstrap.test.ts
+          # h3-real is not in test/slow-files.json, so --slow would refuse it; the
+          # wrapper and entry point are the required job's.
+          run_twice test/h3-real-reconciliation.test.ts scripts/plugin-sandbox-cgroup.sh bun run test --only test/h3-real-reconciliation.test.ts
+          echo "lane B finished:"
+          cat "$evidence/exits.txt"
+      - name: Write the empty lane-B timing map
+        if: always()
+        run: |
+          printf '{\n  "version": 1,\n  "files": {}\n}\n' > "$RUNNER_TEMP/evidence/single-file-timings.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: evidence-B
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error
