@@ -542,8 +542,8 @@ WITH assertion_headers AS MATERIALIZED (
         SELECT h.assertion_id,count(av.assertion_id)+count(ae.assertion_id) AS total,
           bool_or(attachment.from_node<>h.assertion_id OR kind.name<>'system.assertion-subject') AS invalid
         FROM assertion_headers h
-        LEFT JOIN assertion_vertex_subject av ON av.assertion_id=h.assertion_id
-        LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=h.assertion_id
+        LEFT JOIN LATERAL (SELECT assertion_id,subject_edge_id FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id OFFSET 0) av ON true
+        LEFT JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE assertion_id=h.assertion_id OFFSET 0) ae ON true
         LEFT JOIN edge attachment ON attachment.id=av.subject_edge_id
         LEFT JOIN entity kind ON kind.id=attachment.entity_id
         GROUP BY h.assertion_id

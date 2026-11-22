@@ -153,7 +153,9 @@ test('ALX107 refuses a historical edge outside its endpoint interval', async () 
 test('generated delta relation check never selects an entire active kind', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
-    const result = await owner.run(tx => tx.query<{ body: string }>("SELECT prosrc AS body FROM pg_proc WHERE oid='graph_checks_pass()'::regprocedure"));
+    const result = await owner.run(tx => tx.query<{ body: string }>(`SELECT string_agg(prosrc,E'\n') AS body FROM pg_proc WHERE oid IN (
+      'graph_checks_pass()'::regprocedure,
+      'graph_relation_violation(bigint[],bigint[],bigint[],bigint[],bigint[],bigint[],text[],text[],bigint,boolean,timestamptz)'::regprocedure)`));
     const calls = [...result.rows[0]!.body.matchAll(/graph_(?:vertex|edge)_active_ids(?:_batch)?\(([^()]*)\)/g)];
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) expect(call[1]!.split(',').length).toBeGreaterThanOrEqual(3);
