@@ -19,7 +19,9 @@ test('committed identities avoid kind and uid reads in a later whole owner trans
    const statements:string[]=[];
    const original=Client.prototype.query;
    const spy=spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
-    if(typeof args[0]==='string')statements.push(args[0]);
+    const first=args[0];
+    if(typeof first==='string')statements.push(first);
+    else if(first!==null&&typeof first==='object'&&typeof (first as {text?:unknown}).text==='string')statements.push((first as {text:string}).text);
     return Reflect.apply(original,this,args);
    } as typeof original);
    try{await owner.transaction('write',async tx=>{
