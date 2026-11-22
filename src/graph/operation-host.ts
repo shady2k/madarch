@@ -8,8 +8,7 @@ import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { withSpan } from '../obs/trace.js';
 import { assertionValueTableName, type GraphContract } from './contract.js';
-import { loadAssertions } from './assertion-read.js';
-import { selectAssertions } from './assertion-selection.js';
+import { loadAssertionsBatch } from './assertion-read.js';
 import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, writeAssertion, writeAssertions, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 import { reconcileDisputes } from './disputes.js';
@@ -62,13 +61,12 @@ async function node(tx:OuterTransaction,uid:string):Promise<string> {
     return row.id;
   });
 }
+async function selectedFieldBatch(tx:OuterTransaction,requests:readonly {kind:string;id:string;properties:readonly string[]}[],context:number):Promise<Record<string,unknown>[]> {
+  const batches=await loadAssertionsBatch(tx,requests.map(({kind,id,properties})=>({sort:'vertex' as const,kind,properties,subjectIds:[Number(id)]})),{currentStatement:true,contexts:[context]});
+  return batches.map(rows=>Object.fromEntries(rows.filter(row=>row.selected).map(row=>[row.property,row.value])));
+}
 async function selectedFields(tx:OuterTransaction,kind:string,uid:string,properties:readonly string[],context:number):Promise<Record<string,unknown>> {
-  return await withSpan('graph.operation.selected', {}, async () => {
-    const id=await node(tx,uid);
-    const rows=await loadAssertions(tx,'vertex',kind,properties,[Number(id)]);
-    const now=(await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-    return Object.fromEntries(properties.map(property=>[property,selectAssertions(rows.filter(row=>row.property===property),{validAt:now,recordedAt:now,contexts:[context]}).selected?.value]));
-  });
+  return await withSpan('graph.operation.selected', {}, async () => (await selectedFieldBatch(tx,[{kind,id:await node(tx,uid),properties}],context))[0]!);
 }
 async function selected(tx:OuterTransaction,kind:string,uid:string,property:string,context:number):Promise<unknown> {
   return (await selectedFields(tx,kind,uid,[property],context))[property];
@@ -167,6 +165,25 @@ async function publishAffected(tx:OuterTransaction,options:OperationHostOptions,
   });
 }
 
+interface OperationPreflight {
+  readonly runId:string|null; readonly unitId:string|null;
+  readonly principalKind:string|null; readonly locked:readonly {id:string;uid:string}[];
+}
+async function operationPreflight(tx:OuterTransaction,options:OperationHostOptions):Promise<OperationPreflight>{
+  return await withSpan('graph.operation.preflight',{},async()=>{
+  const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
+  const row=(await tx.query<{run_id:string|null;unit_id:string|null;principal_kind:string|null;locked:{id:string;uid:string}[]}>(`WITH identities AS MATERIALIZED (
+    SELECT n.id::text AS id,n.uid,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[])
+  ), locked AS MATERIALIZED (
+    SELECT n.id::text AS id,n.uid::text AS uid FROM node n WHERE n.uid=ANY($2::uuid[]) ORDER BY n.uid::text COLLATE "C" FOR UPDATE OF n
+  ) SELECT (SELECT id FROM identities WHERE uid=$3::uuid) AS run_id,
+    (SELECT id FROM identities WHERE uid=$4::uuid) AS unit_id,
+    (SELECT kind FROM identities WHERE uid=$5::uuid) AS principal_kind,
+    (SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'uid',uid)),'[]'::jsonb) FROM locked) AS locked`,[[...uids,options.capability.principalUid],uids,options.runUid,options.unitUid,options.capability.principalUid])).rows[0]!;
+  return {runId:row.run_id,unitId:row.unit_id,principalKind:row.principal_kind,locked:row.locked};
+  });
+}
+
 export function createOperationHost(options:OperationHostOptions):OperationHost {
   const context=options.context??1;
   return {fail:async(reason,apply)=>await withSpan('fill.operation.failure',{'madarch.unit':options.unitUid},async()=>await options.owner.transaction('write',async tx=>{
@@ -216,10 +233,11 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
           return (receipt.result === undefined ? undefined : JSON.parse(receipt.result)) as Result;
         }
         if(!await options.queue.isActive(options.job,tx))throw new AttemptStaleError(`${WHERE}:84: ATTEMPT_STALE`);
+        const preflight=await operationPreflight(tx,options);
+        const fields=await selectedFieldBatch(tx,[{kind:'system.run',id:preflight.runId??'0',properties:['state']},{kind:'system.unit',id:preflight.unitId??'0',properties:['state']}],context);
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
-        const locked=await tx.query('SELECT id FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[uids]);
-        const runState=await selected(tx,'system.run',options.runUid,'state',context),unitState=await selected(tx,'system.unit',options.unitUid,'state',context);
-        if(locked.rows.length!==uids.length || runState!=='running' || unitState!=='running')throw new Error(`${WHERE}:87: RUN_NOT_WRITABLE run ${String(runState)} unit ${String(unitState)}`);
+        const runState=fields[0]!.state,unitState=fields[1]!.state;
+        if(preflight.locked.length!==uids.length || runState!=='running' || unitState!=='running')throw new Error(`${WHERE}:87: RUN_NOT_WRITABLE run ${String(runState)} unit ${String(unitState)}`);
         for(const condition of [...request.preconditions??[]].sort((a,b)=>byCodePoint(a.uid,b.uid))){
           const vertex=await tx.query('SELECT id FROM node WHERE uid=$1::uuid FOR UPDATE',[condition.uid]);
           const edge=vertex.rows.length===0?await tx.query('SELECT id FROM edge WHERE uid=$1::uuid FOR UPDATE',[condition.uid]):undefined;
@@ -231,28 +249,27 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
         await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
-        const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
+        const principal=preflight.principalKind===null?undefined:{kind:preflight.principalKind};
         if(!principal)throw new Error(`${WHERE}:116: TARGET_MISSING principal ${options.capability.principalUid}`);
         const result=await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
         const canonicalResult = result === undefined ? undefined : canonicalJson(result);
-        await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
-        await reconcileDisputes(tx,options.contract);
-        const count=Number(await selected(tx,'system.unit',options.unitUid,'committed_operations',context)??0);
+        const count=Number((await selectedFieldBatch(tx,[{kind:'system.unit',id:preflight.unitId!,properties:['committed_operations']}],context))[0]!.committed_operations??0);
         await publishGraphDrafts(tx,options.contract,{vertices:[
           {kind:'system.operation',uid:operationUid,key:{},values:{key:request.key,canonical_request:canonical,digest,...(canonicalResult === undefined ? {} : {result:canonicalResult})},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
           {kind:'system.unit',uid:options.unitUid,key:{},values:{committed_operations:count+1,last_progress:request.key},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
-        ],removals:[]},context);
+        ],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
+        await reconcileDisputes(tx,options.contract);
         if(request.completion){
           await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
             await set(tx,options.contract,'system.unit',options.unitUid,'state',request.completion!.unitState??'published',context);
           },context);
           if(request.completion.outcome) {
             const values = {produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})};
-            const subjectId = await node(tx,options.unitUid);
+            const subjectId = preflight.unitId!;
             const inputs = Object.entries(values).map(([property,value]) => ({sort:'vertex' as const,kind:'system.unit',subjectId,property,operation:'assert' as const,value}));
             const assertionUids = await writeAssertions(tx,options.contract,inputs,context);
-            const scope = await selectedFields(tx,'system.unit',options.unitUid,['plan_scope','scope'],context);
+            const scope = (await selectedFieldBatch(tx,[{kind:'system.unit',id:preflight.unitId!,properties:['plan_scope','scope']}],context))[0]!;
             await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]] )).outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
           }
         }

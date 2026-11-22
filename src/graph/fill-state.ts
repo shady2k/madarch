@@ -381,6 +381,12 @@ async function storeStampIn(tx: SqlExecutor): Promise<string> {
   });
 }
 export async function readStoreStamp(database:FillStateSnapshotDatabase):Promise<string>{return await snapshotRun(here(),database,'readStoreStamp',storeStampIn);}
+/** Reuse settlement evidence only while its stamp still holds under the graph write lock. */
+export async function lockRunSnapshotIn(tx:SqlExecutor,snapshot:RunStateSnapshot):Promise<boolean>{
+  await acquireGraphWriteLock(tx);
+  return await storeStampIn(tx)===snapshot.stamp;
+}
+
 export async function advanceRunIn(tx:SqlExecutor,options:{readonly runId:string;readonly event:RunEvent;readonly expectedState?:RunState},at=here()):Promise<StoreStep<RunRecord,RunState>>{
     const node=await runNode(tx,options.runId);if(!node)raise(`graph system.run: no run ${options.runId}`);const current=await runRecord(tx,node);
     if(options.expectedState!==undefined&&current.state!==options.expectedState)return {ok:false,record:current,refusal:{code:'fill-run/guard-refused',reason:`${at}: run ${current.runId} is ${current.state}, expected ${options.expectedState}`,state:current.state,event:options.event.type,guard:'expected-state',guards:['expected-state'],transitions:runMachine.from(current.state).filter(t=>t.event===options.event.type).map(t=>t.id)}} as const;
@@ -439,7 +445,7 @@ export async function readRunStateSnapshot(database:FillStateSnapshotDatabase,ru
   const all=await readRecordsIn(tx,'vertex','system.unit',[...fields.unit,'plan_stage_name','plan_stage_unit_name','plan_scope','plan_stage_position','plan_position','planned_at'],(await edgeRowsIn(tx,'system.unit-run','to',[node.id])).map(edge=>edge.from));
   const replaced=new Set((await edgeRowsIn(tx,'system.unit-replacement','from',all.map(row=>row.id))).map(edge=>edge.from));
   const current=all.filter(row=>!replaced.has(row.id));
-  const units=(await unitRecords(tx,current)).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
+  const units=current.map(row=>decodeUnitRecord(row,node)).sort((a,b)=>byCodePoint(a.unitId,b.unitId)||a.generation-b.generation);
   return {runId,stamp,run:await runRecord(tx,node),units,producerOutcomes:await readProducerOutcomesIn(tx,{runId},{runNodeId:node.id,units:all}),plans:await readRunPlansIn(tx,runId,{},current)};
  });
 }

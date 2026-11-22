@@ -57,7 +57,7 @@ import {
   type RunStateSnapshot,
   readRunUnits,
   readRunUnitsIn,
-  lockFillScope,
+  lockFillScope, lockRunSnapshotIn,
   readUnit,
   readUnitIn,
   readUnitGeneration, readUnitGenerationIn,
@@ -1794,6 +1794,7 @@ async function attemptUnitPhases(
     // hold), and a refusal there must leave neither an authority entry behind it nor a unit's tool session open.
     let tools: StageUnitTools | undefined;
     let context: StageContext | undefined;
+    let attemptOperations: Awaited<ReturnType<UnitOperations['open']>> | undefined;
     let result: StageExecutionResult | undefined;
     let failure: StageThrow | undefined;
     try {
@@ -1808,7 +1809,7 @@ async function attemptUnitPhases(
       // again — the store's own answer, read once per attempt, and no graph read that
       // a child's publication could move.
       const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
-      const immediate = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+      const immediate = attemptOperations = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       context = {
         ...{operationSourceUid:immediate.sourceUid,operationUnitUid:immediate.unitUid,executeOperation:<Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>immediate.host.execute({key,request,...(preconditions===undefined?{}:{preconditions})},apply)},
         completeOutcome:outcome=>{producerOutcome=outcome;},
@@ -1895,7 +1896,7 @@ async function attemptUnitPhases(
     }
 
     {
-      const immediate=await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
+      const immediate=attemptOperations ?? await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       const terminal={unitId:unit.unitId,generation:unit.generation};
       let published: FillProgressEvent | undefined;
       try {
@@ -2366,6 +2367,10 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
   const snapshot = _state === undefined ? await readRunStateSnapshot(orchestrator.database, options.runId) : await _state();
   if (!snapshot.run) raise(`no run ${options.runId} is recorded`);
   const pending = { run: snapshot.run, evidence: await runEvidence(orchestrator, options.runId, async () => snapshot) };
+  if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting > 0) {
+    const current = await writeOrchestration(orchestrator.database, tx => lockRunSnapshotIn(tx, snapshot));
+    if (current) return { ...pending, outcome: 'waiting' };
+  }
   if (pending.run.state === 'running' && pending.evidence.runnable + pending.evidence.inFlight + pending.evidence.waiting === 0) {
     await skipOutstandingUnits(orchestrator, pending.run, pending.evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
   }
@@ -2808,7 +2813,8 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // holds, for its epoch is the one a crash between the re-planning step and
   // its planning left open. A run-level refusal stands in the pass's refusals,
   // so nothing is dropped in silence.
-  const quiet = (await runEvidence(orchestrator, run.runId, state));
+  const evidenceSnapshot = await state();
+  const quiet = await runEvidence(orchestrator, run.runId, async () => evidenceSnapshot);
   tick('evidence');
   const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
     ? await replanAfterPublications(orchestrator, { runId: run.runId }, state)
@@ -2853,7 +2859,8 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   // A run that would settle first asks whether what it published still stands: the staleness recheck
   // (a recorded read that moved, an input that moved) runs when nothing else is outstanding, which is
   // the moment its own work is meant to be complete, and its cost is bounded by that.
-  const beforeStale = await runEvidence(orchestrator, run.runId, state);
+  const staleSnapshot = await state();
+  const beforeStale = staleSnapshot === evidenceSnapshot ? quiet : await runEvidence(orchestrator, run.runId, async () => staleSnapshot);
   tick('evidence');
   let stale: StaleSweep = { invalidated: [], refused: [] };
   if (beforeStale.runnable === 0 && beforeStale.inFlight === 0 && beforeStale.waiting === 0) {
