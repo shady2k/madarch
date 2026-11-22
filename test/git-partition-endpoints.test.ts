@@ -64,12 +64,12 @@ test('a real selected child keeps its full parent endpoint outside keys (madarch
   expect(answer.vertices?.some(vertex => vertex.key['hash'] === hashes[0])).toBe(false);
 });
 
-test('a real selected middle commit keeps its parent and full evidence pin outside keys (madarch-64o5.74)', async () => {
+test('a real selected middle commit keeps its parent but only cites the established evidence pin (madarch-64o5.74)', async () => {
   const answer = await partitioned(extract).extract(unit([hashes[1]!]), context());
   expect(answer.edges).toHaveLength(1);
   const primary = fullCommit(answer, hashes[1]!);
   fullCommit(answer, hashes[0]!);
-  fullCommit(answer, hashes[2]!);
+  expect(answer.vertices?.some(vertex => vertex.key['hash'] === hashes[2])).toBe(false);
   expect(primary?.evidence).toMatchObject({ target: { kind: 'code.commit', key: { hash: hashes[2] } } });
 });
 

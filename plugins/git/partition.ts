@@ -12,7 +12,12 @@ function anchor(edge: EdgeResult, kind: string): KeyValues | undefined {
 }
 
 /** Keep selected output facts together with the evidence support they actually reference. */
-function select(result: UnitResult, kind: string, keys: ReadonlySet<string>): UnitResult {
+function select(result: UnitResult, unit: Unit, keys: ReadonlySet<string>): UnitResult {
+  const kind = unit.kind;
+  // Repository output establishes these immutable pins before commit children run. A citation is
+  // not desired output; selected pins and ordinary edge endpoints still keep their full output.
+  const repositories = (unit.inputs as { repositories?: readonly { commit: string }[] }).repositories ?? [];
+  const pins = new Set(kind === 'code.commit' ? repositories.map(pin => refOf({ kind: 'code.commit', key: { hash: pin.commit } })) : []);
   const vertices = result.vertices ?? [];
   const edges = result.edges ?? [];
   const primary = vertices.filter(vertex => vertex.kind === kind && keys.has(keyOf(vertex.key)));
@@ -20,8 +25,11 @@ function select(result: UnitResult, kind: string, keys: ReadonlySet<string>): Un
   const included = new Set(primary.map(refOf));
   const needed = new Set<string>();
   const evidenceOf = (fact: { readonly evidence?: unknown }) => {
-    const evidence = fact.evidence as { target?: Ref } | undefined;
-    if (evidence?.target !== undefined) needed.add(refOf(evidence.target));
+    const evidence = fact.evidence as { target?: Ref; commit?: string } | undefined;
+    if (evidence?.target === undefined) return;
+    const target = refOf(evidence.target);
+    if (pins.has(target) && evidence.commit === evidence.target.key['hash']) return;
+    needed.add(target);
   };
   for (const edge of primaryEdges) for (const endpoint of [edge.from, edge.to]) {
     if (endpoint.kind === kind) needed.add(refOf(endpoint));
@@ -57,13 +65,13 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     const result = await extractOutput({ ...unit, inputs }, context);
     const byKey = new Map<string, KeyValues>();
     for (const vertex of result.vertices ?? []) if (vertex.kind === unit.kind) byKey.set(keyOf(vertex.key), vertex.key);
-    const all = select(result, unit.kind, new Set(byKey.keys()));
+    const all = select(result, unit, new Set(byKey.keys()));
     for (const edge of result.edges ?? []) if (!all.edges?.includes(edge)) throw new Error(`partition edge has no output identity or referenced support: ${JSON.stringify(edge)}`);
     const groups: KeyValues[][] = [];
     let group: KeyValues[] = [];
     for (const [_, key] of [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
       const candidate = [...group, key];
-      if (group.length > 0 && bytesOf(select(result, unit.kind, new Set(candidate.map(keyOf)))) > GROUP_BYTES) { groups.push(group); group = []; }
+      if (group.length > 0 && bytesOf(select(result, unit, new Set(candidate.map(keyOf)))) > GROUP_BYTES) { groups.push(group); group = []; }
       group.push(key);
     }
     if (group.length > 0) groups.push(group);
@@ -88,7 +96,7 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     extract: async (unit: Unit, context: ExtractContext): Promise<UnitResult> => {
       const inputs = unit.inputs as { keys?: readonly KeyValues[] };
       const result = await extractOutput(unit, context);
-      return inputs.keys === undefined ? result : select(result, unit.kind, new Set(inputs.keys.map(keyOf)));
+      return inputs.keys === undefined ? result : select(result, unit, new Set(inputs.keys.map(keyOf)));
     },
   };
 }
