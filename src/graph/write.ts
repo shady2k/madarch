@@ -453,7 +453,10 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  if(edgeInputs.length)for(const row of (await executor.query<{id:string;uid:string}>('SELECT id::text,uid::text FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[edgeInputs.map(edge=>edge.uid)])).rows)edges.set(row.uid,row.id);
  for(const plan of plans)if(plan.edgeUid)plan.subjectId=edges.get(plan.edgeUid)!;
  await checkBatchActivity(executor,needActive,context,nodes);
- const subjectNodes=plans.flatMap(plan=>plan.sort==='vertex'?[plan.subjectId]:edgeInputs.filter(edge=>edges.get(edge.uid)===plan.subjectId).flatMap(edge=>[edge.from,edge.to]));
+ // Retain every input occurrence: duplicate edge drafts repeat endpoints per plan.
+ const endpointsByUid=new Map<string,string[]>();
+ for(const edge of edgeInputs){const endpoints=endpointsByUid.get(edge.uid)??[];endpoints.push(edge.from,edge.to);endpointsByUid.set(edge.uid,endpoints);}
+ const subjectNodes=plans.flatMap(plan=>plan.sort==='vertex'?[plan.subjectId]:endpointsByUid.get(plan.edgeUid!)!);
  await checkBatchScope(executor,contract,binding,subjectNodes,[...edges.values()],context);
  await insertBatchAssertions(executor,prepared,plans,nodes,entities,binding,context,instant);
  for(const node of nodes.values()){
