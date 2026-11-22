@@ -512,23 +512,28 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       if (query.unitId !== id) throw new Error(`${location}: reconciliation names another unit`);
       if ((query.scope.repository !== undefined || query.scope.commit !== undefined) && !currentPins.some((pin) => (query.scope.repository === undefined || pin.id === query.scope.repository) && (query.scope.commit === undefined || pin.commit === query.scope.commit))) throw new Error(`${location}: reconciliation scope is not a current repository revision`);
       // Prior output is reconciliation state, never a dependency on this turn's own publication.
-      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name, ownedEdges,
+      const facts = await producerOwnFacts(wiring, query, { kind: unit.kind.name, ownedEdges, supportKeys: support.ownKindSupport,
         ...(partition?.keys === undefined ? {} : { keys: partition.keys }),
         ...(wiring.paths === undefined ? {} : { paths: wiring.paths }),
       });
-      const inScope = (ref: import('../plugin/protocol.js').PluginEntityRef, evidence?: import('../plugin/protocol.js').PluginEvidence): boolean => {
+      const inScope = (ref: import('../plugin/protocol.js').PluginEntityRef, evidence?: import('../plugin/protocol.js').PluginEvidence, supportKey = false): boolean => {
         if (query.scope.repository !== undefined && query.scope.parent === undefined) throw new Error(`${location}: repository reconciliation requires an explicit parent identity`);
         const underParent = (reference: import('../plugin/protocol.js').PluginEntityRef): boolean => canonicalEntity(reference) === canonicalEntity(query.scope.parent!) || Object.values(reference.keyEdges ?? {}).some(underParent);
         if (query.scope.parent !== undefined && !underParent(ref)) return false;
-        if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(ref.key))) return false;
+        if (partitionKeys !== undefined && !supportKey && !partitionKeys.has(canonicalKey(ref.key))) return false;
         const path = evidence?.path ?? ref.key['path'];
         if (wiring.paths !== undefined && (typeof path !== 'string' || !wiring.paths.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`)))) return false;
         if (only !== undefined && entityIdOf(wiring, ref.kind, ref.key) !== only) return false;
         return true;
       };
+      const edges = facts.edges.filter((edge) => ownsEdge(edge) && inScope(reconciliationEndpoint(unit.kind.name, edge.from, edge.to), edge.evidence));
+      const supportKeys = new Set<string>();
+      if (support.ownKindSupport && partitionKeys !== undefined) for (const edge of edges) {
+        if (edge.from.kind === unit.kind.name && edge.to.kind === unit.kind.name && partitionKeys.has(canonicalKey(edge.from.key))) supportKeys.add(canonicalEntity(edge.to));
+      }
       const scoped = {
-        vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence)),
-        edges: facts.edges.filter((edge) => ownsEdge(edge) && inScope(reconciliationEndpoint(unit.kind.name, edge.from, edge.to), edge.evidence)),
+        vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence, vertex.kind === unit.kind.name && supportKeys.has(canonicalEntity(vertex)))),
+        edges,
       };
       priorFactCount = scoped.vertices.length + scoped.edges.length;
       return scoped;

@@ -21,6 +21,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
   readonly kind: string;
   readonly ownedEdges?: readonly { readonly kind: string; readonly from: string; readonly to: string }[];
   readonly keys?: readonly PluginKeyValues[];
+  readonly supportKeys?: boolean;
   readonly paths?: readonly string[];
 }): Promise<{ vertices: PluginVertexResult[]; edges: PluginEdgeResult[] }> {
   return await withSpan('graph.producer-facts', { sourceUid }, async () => await owner.transaction(SQL_TRANSACTION_KINDS.snapshot, async tx => {
@@ -61,7 +62,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
       'SELECT n.id,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])', [endIds])).rows;
     const byEnd = new Map(ends.map(end => [Number(end.id), end]));
     const keys = scope?.keys === undefined ? undefined : new Set(scope.keys.map(canonicalKey));
-    const selected = held.filter(item => {
+    const inScope = (item: (typeof held)[number], supportKey = false): boolean => {
       if (scope === undefined) return true;
       let end;
       if (item.sort === 'vertex') {
@@ -74,11 +75,21 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
         if (!scope.ownedEdges?.some(edge => edge.kind === item.name && edge.from === from.kind && edge.to === to.kind)) return false;
         end = reconciliationEndpoint(scope.kind, from, to);
       }
-      if (keys !== undefined && !keys.has(canonicalKey(end.key))) return false;
+      if (keys !== undefined && !supportKey && !keys.has(canonicalKey(end.key))) return false;
       const locator = item.link === undefined ? undefined : (JSON.parse(item.link.discriminator) as { locator: Record<string, unknown> }).locator;
       const path = locator?.['path'] ?? end.key['path'];
       return scope.paths === undefined || (typeof path === 'string' && scope.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`)));
-    });
+    };
+    const scoped = held.filter(item => inScope(item));
+    const supportIds = new Set<number>();
+    if (scope?.supportKeys === true && keys !== undefined) for (const item of scoped) {
+      if (item.sort !== 'edge') continue;
+      const from = byEnd.get(Number(item.row.from_node))!;
+      const to = byEnd.get(Number(item.row.to_node))!;
+      if (from.kind === scope.kind && to.kind === scope.kind && keys.has(canonicalKey(from.key))) supportIds.add(Number(to.id));
+    }
+    const scopedItems = new Set(scoped);
+    const selected = held.filter(item => scopedItems.has(item) || (item.sort === 'vertex' && supportIds.has(Number(item.row.id)) && inScope(item, true)));
     const idsByKind = new Map<string, Set<number>>();
     const need = (kind: string, id: number): void => {
       let ids = idsByKind.get(kind);
