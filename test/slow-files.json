@@ -544,6 +544,16 @@
       "defect": "The step-report and span-coverage fill cases raise cannot CREATE INDEX node because it has pending trigger events before checking trace output or uncovered wall-clock fraction.",
       "replacement": "Prepare schema outside transactions with pending assertion triggers, run one fixture fill and assert named steps, wall clock, peak RSS, slowest spans and less than five percent uncovered root time.",
       "exit": "Rewrite test/trace-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/git-partition-bootstrap.test.ts",
+      "seconds": 55.278,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.74",
+      "defect": "Real confined Git fills cover repository-only bootstrap, the K child and P owner group, regrouping and forced extraction, and the missing-bootstrap negative control. These phases cost real fill work (about 20\u201325 seconds per fill under the acceptance workload); the file exceeds 30 seconds without mocks.",
+      "replacement": "Share the product/store/repository prefix between both variants, perform one fill per required phase while preserving bootstrap, first-child, owner, regrouping, forced-repeat and missing-bootstrap assertions, then repeat the independent single-file measurement.",
+      "exit": "Run this file successfully in the blocking suite after an independent single-file measurement at or below 30 seconds, then remove this entry. Reversible coordinator decision for ALX-1149; do not change the threshold or weaken confinement."
     }
   ]
 }

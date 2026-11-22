@@ -421,7 +421,7 @@
     "test/writer-russian.test.ts": 8400,
     "test/writer-set-based.test.ts": 4349,
     "test/yaml-position.test.ts": 6700,
-    "test/git-partition-bootstrap.test.ts": 69836,
+    "test/git-partition-bootstrap.test.ts": 55278,
     "test/git-partition-endpoints.test.ts": 6101,
     "test/git-partition-pin.test.ts": 4940
   }
