@@ -274,6 +274,64 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
       constrained.set(key, index);
     }
   });
+  // Existing unions describe atomicity. Endpoint existence is instead a directed
+  // dependency, so an optional fan-out does not become one oversized operation.
+  const produced = new Map<string, number>();
+  writes.forEach((write, index) => {
+    if (write.operation === 'add' && write.vertex !== undefined) produced.set(identity(write.vertex), root(index));
+  });
+  const dependencies = new Map<number, Set<number>>();
+  const consumers = new Map<number, Set<number>>();
+  for (let index = 0; index < writes.length; index++) {
+    const id = root(index);
+    if (!dependencies.has(id)) dependencies.set(id, new Set());
+    if (!consumers.has(id)) consumers.set(id, new Set());
+  }
+  for (let index = 0; index < writes.length; index++) {
+    const consumer = root(index);
+    const write = writes[index]!;
+    if (write.operation !== 'add' || write.edge === undefined) continue;
+    for (const endpoint of [write.edge.from, write.edge.to]) {
+      const producer = produced.get(identity(endpoint));
+      if (producer === undefined || producer === consumer) continue;
+      dependencies.get(consumer)!.add(producer);
+      consumers.get(producer)!.add(consumer);
+    }
+  }
+  // Condense strongly connected dependencies before packing. Iterative walks
+  // also handle large independent answers without consuming the call stack.
+  const visited = new Set<number>();
+  const finished: number[] = [];
+  for (const node of dependencies.keys()) {
+    if (visited.has(node)) continue;
+    const stack: [number, boolean][] = [[node, false]];
+    while (stack.length > 0) {
+      const [next, exiting] = stack.pop()!;
+      if (exiting) { finished.push(next); continue; }
+      if (visited.has(next)) continue;
+      visited.add(next);
+      stack.push([next, true]);
+      for (const child of consumers.get(next) ?? []) if (!visited.has(child)) stack.push([child, false]);
+    }
+  }
+  const cyclic = new Set<number>();
+  visited.clear();
+  for (const node of finished.reverse()) {
+    if (visited.has(node)) continue;
+    const component: number[] = [];
+    const stack = [node];
+    while (stack.length > 0) {
+      const next = stack.pop()!;
+      if (visited.has(next)) continue;
+      visited.add(next);
+      component.push(next);
+      for (const parent of dependencies.get(next) ?? []) if (!visited.has(parent)) stack.push(parent);
+    }
+    if (component.length > 1) {
+      for (const member of component) join(node, member);
+      cyclic.add(root(node));
+    }
+  }
   const grouped = new Map<number, ReconciliationWrite[]>();
   writes.forEach((write, index) => {
     const key = root(index);
@@ -310,7 +368,7 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
     facts.forEach(visit);
     return ordered;
   };
-  const groups = [...grouped.values()].map(writes => {
+  const groups = [...grouped.entries()].map(([id, writes]) => {
     writes.sort((a, b) => codePointOrder(factKey(a), factKey(b)) || codePointOrder(canonical(a), canonical(b)));
     const operation: Batch = {};
     for (const write of writes) {
@@ -326,13 +384,49 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
       if (operation[phase] !== undefined) operation[phase] = orderedVertices(operation[phase]!, phase === 'removals');
     }
     const phase = operation.vertices !== undefined ? 0 : operation.edges !== undefined ? 1 : operation.edgeRemovals !== undefined ? 2 : 3;
-    return { operation, phase, key: writes.some(write => write.vertex !== undefined) ? writes.filter(write => write.vertex !== undefined).map(factKey).sort(codePointOrder)[0]! : identity(writes[0]!.edge!.from), name: writes.some(write => write.vertex !== undefined) ? identity(writes.find(write => write.vertex !== undefined)!.vertex!) : canonical([writes[0]!.edge!.kind, writes[0]!.edge!.from, writes[0]!.edge!.to, writes[0]!.edge!.discriminator ?? '']), count: writes.filter(write => !implicit(write)).length };
+    return { id, operation, phase, key: writes.some(write => write.vertex !== undefined) ? writes.filter(write => write.vertex !== undefined).map(factKey).sort(codePointOrder)[0]! : identity(writes[0]!.edge!.from), name: writes.some(write => write.vertex !== undefined) ? identity(writes.find(write => write.vertex !== undefined)!.vertex!) : canonical([writes[0]!.edge!.kind, writes[0]!.edge!.from, writes[0]!.edge!.to, writes[0]!.edge!.discriminator ?? '']), count: writes.filter(write => !implicit(write)).length };
   }).sort((a, b) => a.phase - b.phase || codePointOrder(a.key, b.key) || codePointOrder(canonical(a.operation), canonical(b.operation)));
+  const byId = new Map(groups.map(group => [group.id, group]));
+  const rank = new Map(groups.map((group, index) => [group.id, index]));
+  const pending = new Map(groups.map(group => [group.id, new Set<number>()]));
+  const following = new Map(groups.map(group => [group.id, new Set<number>()]));
+  for (const [consumer, producers] of dependencies) for (const producer of producers) {
+    const before = root(producer), after = root(consumer);
+    if (before === after) continue;
+    pending.get(after)!.add(before);
+    following.get(before)!.add(after);
+  }
+  const ready = groups.filter(group => pending.get(group.id)!.size === 0);
+  const ordered: typeof groups = [];
+  while (ready.length > 0) {
+    const group = ready.shift()!;
+    ordered.push(group);
+    for (const next of following.get(group.id)!) {
+      const waiting = pending.get(next)!;
+      waiting.delete(group.id);
+      if (waiting.size !== 0) continue;
+      const candidate = byId.get(next)!;
+      let low = 0, high = ready.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (rank.get(ready[middle]!.id)! < rank.get(next)!) low = middle + 1;
+        else high = middle;
+      }
+      ready.splice(low, 0, candidate);
+    }
+  }
+  // Validate the entire answer before yielding even its first operation.
+  for (const group of ordered) {
+    const bytes = Buffer.byteLength(JSON.stringify(group.operation));
+    if (bytes > reconciliationBytes || (cyclic.has(group.id) && group.count > reconciliationFacts)) {
+      throw new Error(`${import.meta.filename}:422: reconciliation unit ${unit.unitId} ${unit.kind} ${canonical(unit.key)} group ${group.name} has ${group.count} facts and ${bytes} serialized bytes; exceeds ${bytes > reconciliationBytes ? '512 KB operation limit' : '500 fact cycle limit'}`);
+    }
+  }
   let batch: Batch = {};
   let count = 0;
   let bytes = 2;
   let phase = -1;
-  for (const group of groups) {
+  for (const group of ordered) {
     // Serialize each fact once. Add field names, separators and array brackets separately.
     const sizes = new Map(phases.filter(field => group.operation[field] !== undefined).map(field => [field, group.operation[field]!.reduce((sum, fact) => sum + Buffer.byteLength(JSON.stringify(fact)) + 1, 0)]));
     const growth = (target: Batch): number => {
@@ -347,9 +441,6 @@ export function* reconciliationBatches(writes: readonly ReconciliationWrite[], c
       }
       return added;
     };
-    if (2 + growth({}) > reconciliationBytes) {
-      throw new Error(`${import.meta.filename}:320: reconciliation unit ${unit.unitId} ${unit.kind} ${canonical(unit.key)} group ${group.name} exceeds 512 KB operation limit`);
-    }
     if (count > 0 && ((phase !== group.phase && group.phase >= 2) || count + group.count > reconciliationFacts || bytes + growth(batch) > reconciliationBytes)) {
       yield batch as FactsOperation;
       batch = {};
