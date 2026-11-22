@@ -121,9 +121,8 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     });
     for (const file of files) if (file.keyEdges?.['code.file-repository']?.key['name'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), factsOf(String(file.key['path'])));
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
-    const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));
+    // Partition selection needs the full parent and evidence endpoints, including commits outside its keys.
     for (const [walk, held] of history.commits.entries()) {
-      if (unit.kind === 'code.commit' && hashes !== undefined && !hashes.has(held.hash)) continue;
       const commit = { kind: 'code.commit', key: { hash: held.hash } };
       const author = { kind: 'code.author', key: { name: held.authorName, email: held.authorEmail } };
       const [author_date, author_offset_min] = instantOf(held.authorDate);
