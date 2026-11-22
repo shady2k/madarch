@@ -193,14 +193,15 @@ test('the commits touch a deleted file too, and it keeps its history', async () 
 
 test('a fill counts the files whose removal is empty, and dates and commits every file', async () => {
   const owner = await createTestDatabaseOwner({ authenticated:false, graphContract: repositoryContract });
+  let graphContract = repositoryContract;
   try {
-    const run = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
+    const run = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data', prepareContract: async (contract) => { graphContract = contract; await prepareStore(owner, { contract }); } });
     if (!run.ok) throw new Error(`fill refused: ${run.reason}`);
     expect(run.state).toBe('succeeded');
     const readPeriods = () => owner.transaction('snapshot',async tx=>{
-      const files=await readKindAssertions(tx,'vertex','code.file',['added_at','removed_at']);
-      const additions=await readKindAssertions(tx,'edge','code.file-added-in',[]);
-      const removals=await readKindAssertions(tx,'edge','code.file-removed-in',[]);
+      const files=await readKindAssertions(tx,'vertex','code.file',['added_at','removed_at'],{contract:graphContract});
+      const additions=await readKindAssertions(tx,'edge','code.file-added-in',[],{contract:graphContract});
+      const removals=await readKindAssertions(tx,'edge','code.file-removed-in',[],{contract:graphContract});
       const commitOf=async (edges:typeof additions,id:number)=>{
         const edge=edges.find(edge=>edge.from===id);
         if(edge===undefined)return null;
