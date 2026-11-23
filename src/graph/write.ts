@@ -472,7 +472,13 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
 async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number,nodes:Map<string,BatchNode>):Promise<void>{
  return await withSpan('graph.write.checkBatchActivity',{},async()=>{
  if(needActive.size===0)return;
- const inactive=(await executor.query<{uid:string}>(`SELECT input.uid::text FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text) WHERE NOT graph_vertex_active(input.id,input.kind,$2::bigint)`,[JSON.stringify([...needActive.values()].map(input=>({...input,id:nodes.get(input.uid)!.id}))),context])).rows;
+ const inactive=(await executor.query<{uid:string}>(`WITH inputs AS MATERIALIZED (
+ SELECT * FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text)
+ ), kinds AS MATERIALIZED (
+ SELECT kind,array_agg(id) AS ids FROM inputs GROUP BY kind
+ ), active AS MATERIALIZED (
+ SELECT kinds.kind,selected.id FROM kinds CROSS JOIN LATERAL graph_vertex_active_ids_batch(kinds.kind,$2::bigint,kinds.ids,NULL::timestamptz,NULL::bigint) selected(id)
+ ) SELECT input.uid::text FROM inputs input WHERE NOT EXISTS(SELECT 1 FROM active WHERE active.kind=input.kind AND active.id=input.id)`,[JSON.stringify([...needActive.values()].map(input=>({...input,id:nodes.get(input.uid)!.id}))),context])).rows;
  if(inactive.length){const missing=new Set(inactive.map(node=>node.uid));const first=[...needActive.values()].find(node=>missing.has(node.uid))!;throw new Error(`${WHERE}:73: ${first.error} ${first.kind} ${first.uid}`);}
  });
 }
