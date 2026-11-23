@@ -446,6 +446,7 @@
     "test/graph-write-activity-batch.test.ts": 13643,
     "test/queue-order.test.ts": 14279,
     "test/queue-reservations.test.ts": 19023,
-    "test/fill-snapshot-coalescing.test.ts": 17422
+    "test/fill-snapshot-coalescing.test.ts": 17422,
+    "test/producer-facts-identities.test.ts": 13000
   }
 }

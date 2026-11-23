@@ -28,20 +28,34 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
     const selector = { validAt: now, recordedAt: now, contexts: [1] };
     const held: { sort: 'vertex' | 'edge'; name: string; row: Identity; own: StoredAssertion[]; link?: EvidenceLink }[] = [];
-    for (const sort of ['vertex', 'edge'] as const) for (const name of sort === 'vertex' ? kinds : edgeKinds) {
+    const requested = (['vertex', 'edge'] as const).flatMap(sort => (sort === 'vertex' ? kinds : edgeKinds).map(name => {
       const kind = contract[sort].find(declaration => declaration.name === name);
       if (kind === undefined) throw new Error(`${import.meta.path}:1: unknown reconciliation ${sort} kind ${name}`);
-      const identities = await tx.query<Identity>(sort === 'vertex'
-        ? 'SELECT n.id,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 ORDER BY n.uid'
-        : 'SELECT n.id,n.from_node,n.to_node,n.discriminator FROM edge n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 ORDER BY n.uid', [name]);
       const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
-      const assertions = await loadAssertions(tx, sort, name, ['$exists', ...fields], identities.rows.map(row => Number(row.id)), { ...selector, sourceUids: [sourceUid] });
+      return { sort, name, fields };
+    }));
+    const identities = requested.length === 0 ? [] : (await tx.query<Identity & { sort: 'vertex' | 'edge'; name: string }>(
+      `SELECT 'vertex' AS sort,k.name,n.id,n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator,n.uid
+       FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=ANY($1::text[])
+       UNION ALL
+       SELECT 'edge' AS sort,k.name,n.id,NULL::jsonb AS key,n.from_node,n.to_node,n.discriminator,n.uid
+       FROM edge n JOIN entity k ON k.id=n.entity_id WHERE k.name=ANY($2::text[])
+       ORDER BY uid`, [kinds, edgeKinds])).rows;
+    const identitiesByKind = new Map<string, Identity[]>();
+    for (const row of identities) {
+      const key = `${row.sort}:${row.name}`;
+      const group = identitiesByKind.get(key);
+      if (group === undefined) identitiesByKind.set(key, [row]); else group.push(row);
+    }
+    for (const { sort, name, fields } of requested) {
+      const rows = identitiesByKind.get(`${sort}:${name}`) ?? [];
+      const assertions = await loadAssertions(tx, sort, name, ['$exists', ...fields], rows.map(row => Number(row.id)), { ...selector, sourceUids: [sourceUid] });
       const bySubject = new Map<number, StoredAssertion[]>();
       for (const assertion of assertions) if (assertion.source === sourceUid && assertion.language === null && assertion.selected) {
         const group = bySubject.get(assertion.subjectId);
         if (group === undefined) bySubject.set(assertion.subjectId, [assertion]); else group.push(assertion);
       }
-      for (const row of identities.rows) {
+      for (const row of rows) {
         const own = bySubject.get(Number(row.id)) ?? [];
         if (own.some(assertion => assertion.property === '$exists' && assertion.value === true)) held.push({ sort, name, row, own });
       }
