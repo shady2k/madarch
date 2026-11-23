@@ -201,18 +201,6 @@ class PgBossQueue implements QueueService {
       raise(`the enqueue into the queue "${request.queue}" named the priority ${String(request.priority)}: a priority is a whole number, higher claimed first`);
     }
     const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => await withSpan('queue.enqueue', { 'madarch.queue': request.queue }, async () => {
-      // Serialize producers before touching jobs. NO KEY UPDATE is compatible
-      // with the queue foreign key's KEY SHARE lock (pg-boss 12.38 plans.js).
-      await transaction.query(`SELECT name FROM ${this.schema}.queue WHERE name = $1 FOR NO KEY UPDATE`, [request.queue]);
-      // A separate READ COMMITTED statement sees the producer that just released
-      // the queue lock. Include every retained state, especially active/retry;
-      // neither recovery nor retry changes created_on. Keep PostgreSQL precision
-      // in text rather than round a predecessor through a JavaScript Date.
-      const place = await transaction.query<{ time: string }>(
-        `SELECT GREATEST(clock_timestamp(),
-          (SELECT max(created_on) + interval '1 millisecond' FROM ${this.schema}.job WHERE name = $1))::text AS time`,
-        [request.queue],
-      );
       const id = await this.boss.send({
         name: request.queue,
         data: request.data as object,
@@ -224,9 +212,57 @@ class PgBossQueue implements QueueService {
         },
       });
       if (id === null) return { created: false, id: null };
+      // Raise in PostgreSQL so catching this refusal cannot commit the
+      // provisional send in an unsupported caller transaction.
+      await transaction.query(`DO $$ BEGIN
+        IF current_setting('transaction_isolation') <> 'read committed' THEN
+          RAISE EXCEPTION 'queue enqueue reservations require a READ COMMITTED transaction';
+        END IF;
+      END $$`);
+      // Sample the clock once. Retained predecessors include our earlier sends
+      // in every state, but never this send's provisional pg-boss timestamp.
+      const initial = await transaction.query<{ floor: string; slot: string | null }>(
+        `SELECT ceil(extract(epoch FROM clock_timestamp()) * 1000)::bigint::text AS floor,
+          ceil(extract(epoch FROM (SELECT max(created_on) FROM ${this.schema}.job
+            WHERE name = $1 AND id <> $2::uuid)) * 1000 + 1)::bigint::text AS slot`,
+        [request.queue, id],
+      );
+      const floor = BigInt(initial.rows[0]!.floor);
+      let slot = initial.rows[0]!.slot === null ? floor : BigInt(initial.rows[0]!.slot);
+      if (slot < floor) slot = floor;
+      for (;;) {
+        // Two-int advisory keys do not overlap bigint keys (pg-boss SHA keys,
+        // graph hashes and schema locks). The only other two-int repo key is
+        // (739141, 1). Reserve the negative first-key band around -2^30:
+        // first = -2^30 + floor(epoch_ms / 2^31), second = epoch_ms mod 2^31.
+        // PostgreSQL's entire finite timestamptz range fits that negative band.
+        // This is store-wide, across queue names and queue schemas; no holder
+        // is ever waited for. Transaction end releases all its reservations.
+        const reserved = await transaction.query<{ acquired: boolean }>(
+          `SELECT pg_try_advisory_xact_lock(
+            (-1073741824 + floor($1::numeric / 2147483648))::integer,
+            ($1::numeric - floor($1::numeric / 2147483648) * 2147483648)::integer) AS acquired`,
+          [slot.toString()],
+        );
+        if (!reserved.rows[0]!.acquired) { slot += 1n; continue; }
+        // A new READ COMMITTED statement is essential: a producer could commit
+        // between our initial read and the successful nonblocking reservation.
+        const retained = await transaction.query<{ slot: string | null }>(
+          `SELECT ceil(extract(epoch FROM max(created_on)) * 1000 + 1)::bigint::text AS slot
+            FROM ${this.schema}.job WHERE name = $1 AND id <> $2::uuid`,
+          [request.queue, id],
+        );
+        const next = retained.rows[0]!.slot === null ? floor : BigInt(retained.rows[0]!.slot);
+        if (next > slot || floor > slot) {
+          slot = next > floor ? next : floor;
+          continue;
+        }
+        break;
+      }
       await transaction.query(
-        `UPDATE ${this.schema}.job SET created_on = $3::timestamptz WHERE name = $1 AND id = $2::uuid`,
-        [request.queue, id, place.rows[0]!.time],
+        `UPDATE ${this.schema}.job SET created_on = timestamptz 'epoch' + $3::bigint * interval '1 millisecond'
+          WHERE name = $1 AND id = $2::uuid`,
+        [request.queue, id, slot.toString()],
       );
       return { created: true, id };
     });

@@ -74,20 +74,12 @@ test('overlapping producers serialize retained active and retry jobs; rollback l
         if (rollback) throw new Error('rollback producer');
       }).catch(error => error as Error);
       await ready;
-      let otherPid = 0;
       const next = other.transaction('write', async transaction => {
-        otherPid = (await transaction.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        await transaction.query("SET LOCAL statement_timeout = '4s'");
         return await second.enqueue({ queue: declaration.name, data: { n: rollback ? 3 : 2 }, transaction });
       });
-      try {
-        // Wait for the second connection to reach its lock wait, not a sleep-based race.
-        let waiting = false;
-        for (let attempt = 0; attempt < 200; attempt++) {
-          const state = await owner.run(tx => tx.query<{ waiting: boolean }>("SELECT wait_event_type = 'Lock' AS waiting FROM pg_stat_activity WHERE pid = $1", [otherPid]));
-          if (state.rows[0]?.waiting === true) { waiting = true; break; }
-        }
-        expect(waiting).toBe(true);
-      } finally { unlock(); }
+      // The other client finishes while the first still holds its reservation.
+      try { expect((await next).created).toBe(true); } finally { unlock(); }
       const result = await first;
       await next;
       if (rollback) expect((result as Error).message).toBe('rollback producer');
@@ -99,7 +91,7 @@ test('overlapping producers serialize retained active and retry jobs; rollback l
     expect(new Set(rows.rows.map(row => row.time)).size).toBe(4);
     const times = rows.rows.map(row => Date.parse(row.time));
     for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(1);
-    expect(times[3]! - times[2]!).toBe(1);
+    expect(times[3]! - times[2]!).toBe(2);
     expect((await queue.claim<{ n: number }>({ queue: declaration.name, limit: 2 })).map(job => job.data.n)).toEqual([0, 1]);
     expect((await queue.claim<{ n: number }>({ queue: declaration.name, limit: 2 })).map(job => job.data.n)).toEqual([2, 3]);
     expect(await queue.claim({ queue: declaration.name })).toEqual([]);
