@@ -19,9 +19,9 @@ test('endpoint activity selection runs once per kind and keeps first inactive me
    await tx.query("SET LOCAL track_functions = 'all'");
    const query=tx.query.bind(tx);let calls=0;
    const count=async()=>Number((await query<{calls:string}>("SELECT coalesce(sum(calls),0)::text AS calls FROM pg_stat_xact_user_functions WHERE funcname='graph_vertex_active_ids_batch'")).rows[0]!.calls);
-   tx.query=async(sql,values)=>{
-    if(typeof sql!=='string'||!sql.includes('graph_vertex_active'))return query(sql,values);
-    const before=await count();const result=await query(sql,values);calls+=await count()-before;return result;
+   tx.query=async<Row extends object>(sql:string,values?:readonly unknown[])=>{
+    if(!sql.includes('graph_vertex_active'))return query<Row>(sql,values);
+    const before=await count();const result=await query<Row>(sql,values);calls+=await count()-before;return result;
    };
    try{await publishGraphDrafts(tx,contract,{vertices:[subject],removals:[]});}finally{tx.query=query;}
    return calls;

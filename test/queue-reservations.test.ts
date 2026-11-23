@@ -172,19 +172,15 @@ test('measure burst and long caller transaction reservation probes and latency',
   await owner.transaction('write',async tx=>{for(let i=0;i<50;i++)await send(tx,i);});
   const burst={ms:performance.now()-start,probes};
   probes=0;latencies.length=0;
-  const parallelStart=performance.now();
   await Promise.all(Array.from({length:8},(_,i)=>owner.transaction('write',async tx=>{for(let j=0;j<8;j++)await send(tx,100+i*8+j);})));
-  const concurrent={ms:performance.now()-parallelStart,probes,maxSendMs:Math.max(...latencies)};
   probes=0;latencies.length=0;
   const held=gate(),release=gate();
-  const longStart=performance.now();
   const long=owner.transaction('write',async tx=>{
    await send(tx,1000);held.open();await release.ready;await send(tx,1001);
   });
   await held.ready;
   try {await owner.transaction('write',async tx=>{for(let i=0;i<50;i++)await send(tx,1100+i);});}
   finally {release.open();await long;}
-  const longCaller={ms:performance.now()-longStart,probes,maxSendMs:Math.max(...latencies)};
   expect(burst.probes).toBe(50);
   const rows=await places(owner);
   expect(rows).toHaveLength(166);
