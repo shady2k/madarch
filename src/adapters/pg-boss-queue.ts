@@ -253,7 +253,8 @@ class PgBossQueue implements QueueService {
           [request.queue, id],
         );
         const next = retained.rows[0]!.slot === null ? floor : BigInt(retained.rows[0]!.slot);
-        if (next > slot || floor > slot) {
+        // slot starts at or above floor and only increases throughout this loop.
+        if (next > slot) {
           slot = next > floor ? next : floor;
           continue;
         }
