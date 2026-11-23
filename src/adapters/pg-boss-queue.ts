@@ -24,7 +24,8 @@
  * nobody declared is refused by this adapter, naming the queue, rather than by
  * the SQL that then could not name it.
  *
- * pg-boss owns enqueue ordering, locking, expiry and retries (0039 item 24).
+ * The adapter stamps enqueue order in pg-boss’s creation time; pg-boss owns
+ * limited selection, lease locking, expiry and retries (0039 item 24).
  */
 import { PgBoss } from 'pg-boss';
 import type { CommandResponse, Db, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
@@ -199,7 +200,19 @@ class PgBossQueue implements QueueService {
     if (request.priority !== undefined && !Number.isInteger(request.priority)) {
       raise(`the enqueue into the queue "${request.queue}" named the priority ${String(request.priority)}: a priority is a whole number, higher claimed first`);
     }
-    const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => {
+    const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => await withSpan('queue.enqueue', { 'madarch.queue': request.queue }, async () => {
+      // Serialize producers before touching jobs. NO KEY UPDATE is compatible
+      // with the queue foreign key's KEY SHARE lock (pg-boss 12.38 plans.js).
+      await transaction.query(`SELECT name FROM ${this.schema}.queue WHERE name = $1 FOR NO KEY UPDATE`, [request.queue]);
+      // A separate READ COMMITTED statement sees the producer that just released
+      // the queue lock. Include every retained state, especially active/retry;
+      // neither recovery nor retry changes created_on. Keep PostgreSQL precision
+      // in text rather than round a predecessor through a JavaScript Date.
+      const place = await transaction.query<{ time: string }>(
+        `SELECT GREATEST(clock_timestamp(),
+          (SELECT max(created_on) + interval '1 millisecond' FROM ${this.schema}.job WHERE name = $1))::text AS time`,
+        [request.queue],
+      );
       const id = await this.boss.send({
         name: request.queue,
         data: request.data as object,
@@ -211,8 +224,12 @@ class PgBossQueue implements QueueService {
         },
       });
       if (id === null) return { created: false, id: null };
+      await transaction.query(
+        `UPDATE ${this.schema}.job SET created_on = $3::timestamptz WHERE name = $1 AND id = $2::uuid`,
+        [request.queue, id, place.rows[0]!.time],
+      );
       return { created: true, id };
-    };
+    });
     return request.transaction === undefined ? this.owner.transaction('write', enqueued) : enqueued(request.transaction);
   }
 
@@ -222,8 +239,8 @@ class PgBossQueue implements QueueService {
     if (!Number.isInteger(limit) || limit < 1) {
       raise(`the claim of the queue "${request.queue}" asked for ${String(request.limit)} jobs: a claim takes a whole number of jobs, at least 1`);
     }
-    // pg-boss owns batch selection. Sort the returned rows deterministically;
-    // equal creation instants do not imply a separate enqueue-order mechanism.
+    // pg-boss selects by priority and created_on before LIMIT. Adapter enqueues
+    // have distinct millisecond places; external ties sort only selected IDs.
     const jobs = await withSpan('queue.claim', { 'madarch.queue': request.queue }, async () => await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true }));
     return jobs
       .slice()
