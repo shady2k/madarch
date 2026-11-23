@@ -2178,6 +2178,7 @@ export const RUN_ORPHAN_AFTER_MS = 5 * 60_000;
 
 /** The pg-boss claim the caller holds while driving a pressed fill. No separate run lease is stored. */
 export interface RunClaim {
+  readonly queueService: QueueService;
   readonly queue: string;
   readonly job: ClaimedJob<unknown>;
 }
@@ -2188,7 +2189,7 @@ export function beginRunHeartbeat(orchestrator: FillOrchestrator, runId: string,
   if (claim === undefined) return;
   orchestrator.heartbeat.runId = runId;
   const timer = setInterval(() => {
-    void orchestrator.queue.heartbeat(claim.queue, claim.job).catch(() => undefined);
+    void claim.queueService.heartbeat(claim.queue, claim.job).catch(() => undefined);
   }, 5_000);
   timer.unref?.();
   orchestrator.heartbeat.timer = timer;

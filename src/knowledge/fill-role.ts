@@ -261,7 +261,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       runId: data.runId,
       // The claimed job is the run's own lock: the fill heartbeats it, and the run is recoverable when this
       // process ends without settling it (decision 0039, item 12).
-      claim: { queue: FILL_RUN_QUEUE, job },
+      claim: { queueService: held.queue, queue: FILL_RUN_QUEUE, job },
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
