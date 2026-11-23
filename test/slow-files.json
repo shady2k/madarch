@@ -7,12 +7,12 @@
   "files": [
     {
       "path": "test/agent-fill-graph-mcp.test.ts",
-      "seconds": 205,
+      "seconds": 163.3,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7.3",
-      "defect": "Its four cases each drive a scripted ACP agent through a real fill and read the graph through madarch's own MCP server, opening a test database and installing the catalogue per case; 205 seconds is the provisional alone run from the old red tree, which the graph fixture scope fix changes, so the stage lead replaces it with the GitHub runner measurement and must confirm the file is green; the box run of this tree timed out at the per-case 180 s bound; speed-up owed.",
-      "replacement": "Prepare the product, catalogue and fixture repository once for the agent fill cases, reuse that store across them, and keep every MCP tool call, graph read and answer assertion rather than repeating the fill setup per case.",
+      "defect": "The four cases drive the same ACP turn through madarch's MCP server. Their real file, directory and content prerequisites are repeated test setup, not a shared filled store; the GitHub runner measurement confirms the complete file is green.",
+      "replacement": "Use a minimal manifest with real file, directory and content prerequisites to drive the same ACP turn through madarch's MCP server, not a shared filled store; preserve assertions at test/agent-fill-graph-mcp.test.ts:189,193,292,337.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/agent-fill-graph-mcp.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -81,8 +81,8 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7.1",
-      "defect": "The file passes, but its three cases each run a real fill with the disk plugin over a fixture repository and PostgreSQL store, asserting support ownership, foreign-edge reconciliation and retraction counts; the complete file measured 70500 ms alone on a GitHub runner in run 45077801034; speed-up owed.",
-      "replacement": "Share the fixture repository, product and prepared store prefix across the three ownership cases, keep one fill per ownership phase, and retain the support, foreign-edge and retraction assertions.",
+      "defect": "The three cases check supports and retractions through an ordered real-fill sequence: first fill, invalidate and unchanged replay, then a committed edit and invalidation, with operation cursors. The GitHub runner measurement confirms the full file is green.",
+      "replacement": "Use one ordered first-fill → invalidate/unchanged → committed edit/invalidate sequence with operation cursors, preserving the listed supports and retractions.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/disk-support-ownership.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -301,8 +301,8 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-x9a7.2",
-      "defect": "Its one case runs four real Git commits through concurrent partition fills with a pg-boss queue and the confined git plugin, asserting bootstrap, owner groups and no retractions or disputes; the complete file measured 51600 ms alone on a GitHub runner in run 45077801034, where it was green, while this box times the same case out at its own 120 s bound; speed-up owed.",
-      "replacement": "Keep the four-commit history and the group-boundary, bootstrap and no-retraction assertions, but prepare the repository inputs and planned run once and stop repeating the scheduler pass for each boundary.",
+      "defect": "Its case runs four real Git commits through concurrent partition fills and asserts bootstrap, owner groups and no retractions or disputes. Repeated profile fixture setup and assertion reads are the optimization target, not removing scheduler passes; preserve concurrent children and the rest of test/h3-real-reconciliation.test.ts:23 onward.",
+      "replacement": "Profile fixture setup and repeated assertion reads while retaining the four-commit history, concurrent children, scheduler passes, group-boundary, bootstrap and no-retraction assertions in test/h3-real-reconciliation.test.ts:23 onward.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/h3-real-reconciliation.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {

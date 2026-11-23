@@ -132,23 +132,23 @@ jobs:
           echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
           sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
       - name: Run the full confined partition bootstrap fixture
+        id: bootstrap
         run: scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/git-partition-bootstrap.test.ts
       - name: Run the complete H3 real reconciliation fixture and prove its case ran
+        id: h3
         run: |
           expect_cases() {
-            local log=$1 path=$2 least=$3 pass ran
-            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
-            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
-            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
-              echo "::error file=$path,line=1::$path selected no test file" >&2
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
               return 1
             fi
-            if [ "$pass" -lt "$least" ]; then
-              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
-              return 1
-            fi
-            if ! grep -qF "$path" "$log"; then
-              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
               return 1
             fi
           }
@@ -162,21 +162,20 @@ jobs:
           [ "$status" -eq 0 ] || exit "$status"
           exit "$checked"
       - name: Run the complete disk support ownership fixture and prove its three cases ran
+        id: disk
         run: |
           expect_cases() {
-            local log=$1 path=$2 least=$3 pass ran
-            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
-            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
-            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
-              echo "::error file=$path,line=1::$path selected no test file" >&2
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
               return 1
             fi
-            if [ "$pass" -lt "$least" ]; then
-              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
-              return 1
-            fi
-            if ! grep -qF "$path" "$log"; then
-              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
               return 1
             fi
           }
@@ -190,21 +189,20 @@ jobs:
           [ "$status" -eq 0 ] || exit "$status"
           exit "$checked"
       - name: Run the complete agent fill graph MCP fixture and prove its four cases ran
+        id: mcp
         run: |
           expect_cases() {
-            local log=$1 path=$2 least=$3 pass ran
-            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
-            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
-            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
-              echo "::error file=$path,line=1::$path selected no test file" >&2
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
               return 1
             fi
-            if [ "$pass" -lt "$least" ]; then
-              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
-              return 1
-            fi
-            if ! grep -qF "$path" "$log"; then
-              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
               return 1
             fi
           }
@@ -217,6 +215,13 @@ jobs:
           set -e
           [ "$status" -eq 0 ] || exit "$status"
           exit "$checked"
+      - name: Require all partition-bootstrap fixtures to succeed
+        if: always()
+        run: |
+          if [[ "${{ steps.bootstrap.outcome }}" != success || "${{ steps.h3.outcome }}" != success || "${{ steps.disk.outcome }}" != success || "${{ steps.mcp.outcome }}" != success ]]; then
+            echo "required step outcomes: bootstrap=${{ steps.bootstrap.outcome }}, h3=${{ steps.h3.outcome }}, disk=${{ steps.disk.outcome }}, mcp=${{ steps.mcp.outcome }}" >&2
+            exit 1
+          fi
 
   checks:
     runs-on: ubuntu-24.04
