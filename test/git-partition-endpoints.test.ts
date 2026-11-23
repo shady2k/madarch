@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extract } from '../plugins/git/main.js';
 import { partitioned } from '../plugins/git/partition.js';
+import { reconcileFacts, reconciliationBatches } from '../src/plugin-sdk.js';
 import gitContract from '../plugins/git/contract.json';
 
 type Unit = Parameters<typeof extract>[0];
@@ -88,4 +89,47 @@ for (const reverse of [false, true]) test(`real acyclic history preserves endpoi
     results.push(answer);
   }
   expect(results.flatMap(result => result.edges ?? [])).toHaveLength(2);
+});
+
+for (const split of [false, true]) test(`commit change evidence reconciles across hash groups, split=${split} (madarch-64o5.74)`, async () => {
+  const output = partitioned(extract);
+  const groups = split ? [[hashes[0]!], [hashes[1]!, hashes[2]!]] : [hashes];
+  const vertices = new Map<string, NonNullable<Awaited<ReturnType<typeof extract>>['vertices']>[number]>();
+  const edges = new Map<string, NonNullable<Awaited<ReturnType<typeof extract>>['edges']>[number]>();
+  const reconcile = async (keys: readonly string[]) => {
+    const base = unit(keys);
+    const selected = { ...base, inputs: { ...base.inputs as object, edgeOutputs: [
+      { kind: 'code.parent', from: 'code.commit', to: 'code.commit' },
+      { kind: 'code.touched', from: 'code.commit', to: 'code.file' },
+    ] } };
+    const answer = await output.extract(selected, context());
+    expect(answer.end.state).toBe('complete');
+    const current = { vertices: [...vertices.values()], edges: [...edges.values()].filter(edge => keys.includes(String(edge.from.key['hash']))) };
+    const writes = reconcileFacts(answer, current, {}, { kind: selected.kind, keys: keys.map(hash => ({ hash })) });
+    expect(writes.some(write => write.operation === 'remove')).toBe(false);
+    const operations = [...reconciliationBatches(writes, gitContract.outputs as never, selected)];
+    for (const operation of operations) {
+      for (const vertex of operation.vertices ?? []) {
+        const identity = JSON.stringify([vertex.kind, vertex.key]);
+        const prior = vertices.get(identity);
+        if (prior !== undefined) expect(vertex.values).toEqual(prior.values);
+        vertices.set(identity, vertex);
+      }
+      for (const edge of operation.edges ?? []) {
+        const identity = JSON.stringify([edge.kind, edge.from, edge.to]);
+        const prior = edges.get(identity);
+        if (prior !== undefined) expect(edge.values).toEqual(prior.values);
+        edges.set(identity, edge);
+      }
+    }
+    return writes;
+  };
+  for (const keys of groups) await reconcile(keys);
+  for (const edge of edges.values()) if (edge.kind === 'code.touched') expect(edge.evidence).toMatchObject({ target: edge.from, commit: edge.from.key['hash'] });
+  expect(vertices.size).toBe(3);
+  expect([...edges.values()].filter(edge => edge.kind === 'code.parent')).toHaveLength(2);
+  expect([...edges.values()].filter(edge => edge.kind === 'code.touched')).toHaveLength(3);
+  expect([...edges.values()]).toContainEqual(expect.objectContaining({ kind: 'code.parent', from: { kind: 'code.commit', key: { hash: hashes[2] } }, to: { kind: 'code.commit', key: { hash: hashes[1] } } }));
+  expect(await reconcile(hashes)).toEqual([]);
+  for (const keys of [...groups].reverse()) expect(await reconcile(keys)).toEqual([]);
 });

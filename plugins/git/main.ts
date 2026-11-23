@@ -140,7 +140,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
         const file = { kind: 'code.file', key: { path: touched.path }, keyEdges: { 'code.file-repository': repository } };
         fileIdentity(pin.repository, touched.path, factsOf(touched.path));
         if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) fileIdentity(pin.repository, touched.previousPath, factsOf(touched.previousPath));
-        edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commit: held.hash, path: touched.path } });
+        edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { target: commit, commit: held.hash, path: touched.path } });
         if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { path: touched.previousPath }, keyEdges: { 'code.file-repository': repository } }, discriminator: held.hash, evidence });
       }
     }
