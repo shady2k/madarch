@@ -89,7 +89,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const listed = await post({ jsonrpc: '2.0', id: ++sequence, method: 'tools/list', params: {} });
     tools = ((listed.result ?? {}).tools ?? []).map((one) => one.name);
     const folders = await tool('graph_query', { query: '{ allCodeDirectory(where: {path: {_like: "src/%"}}, orderBy: [{field: path}]) { edges { node { path codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
-    const files = await tool('graph_query', { query: '{ allCodeFile(orderBy: [{field: path}]) { edges { node { path lines codeBlobAboutOf(first: 1) { edges { node { node { ... on KindCodeBlob { digest } } } } } codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
+    // The fixture's source files, not the product catalogue that sorts before src/ in the default page.
+    const files = await tool('graph_query', { query: '{ allCodeFile(where: {path: {_like: "src/%"}}, orderBy: [{field: path}]) { edges { node { path lines codeBlobAboutOf(first: 1) { edges { node { node { ... on KindCodeBlob { digest } } } } } codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
     const repositoryOf = (node, edge) => node[edge].edges[0]?.node.node.name;
     const fileNodes = files.data.allCodeFile.edges.map((edge) => ({ ...edge.node, digest: edge.node.codeBlobAboutOf.edges[0]?.node.node.digest, repository: repositoryOf(edge.node, 'codeFileRepository') })).filter(node => node.repository === 'app');
     const first = fileNodes.find((node) => node.path.endsWith('create-order.ts')) ?? fileNodes[0];
@@ -255,7 +256,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       expect(domainRows.map((node) => [node.name, node.domainCoversFolder.edges.map((held) => [held.node.node.kind, held.node.node.path])])).toEqual([['Identity', [['code.directory', 'src/identity']]], ['Orders', [['code.directory', 'src/orders']]]]);
       expect(domainRows[0]?.description).toContain('area of the product');
       type RepositoryNode = { id: string; path: string; codeDirectoryRepository: { edges: { node: { node: { name: string } } }[] } };
-      const directories = await graph('{ allCodeDirectory(first: 10) { edges { node { id path codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
+      const directories = await graph('{ allCodeDirectory(first: 10, where: {path: {_like: "src/%"}}) { edges { node { id path codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
       expect(directories.status).toBe(200);
       const directoryRows = (directories.body as { data: { allCodeDirectory: { edges: { node: RepositoryNode }[] } } }).data.allCodeDirectory.edges.map((edge) => edge.node);
       const modules = await graph('{ allCodeModule(first: 10, orderBy: [{field: name}]) { edges { node { name responsibility codeModuleFolder(first: 10) { edges { node { node { id ... on KindCodeDirectory { path } } } } } } } } }');
@@ -266,9 +267,9 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       // Every entity names the graph file its fact rests on: the file the agent read through the server.
       const evidence = await graph('{ allDomain(first: 10, orderBy: [{field: name}]) { edges { node { name descriptionAssertions { selected evidence { locator target { kind ... on KindCodeBlob { digest } } } } } } } }');
       expect(evidence.status).toBe(200);
-      const blobs = await graph('{ allCodeBlob(first: 10) { edges { node { digest codeBlobAbout(first: 10) { edges { node { node { id ... on KindCodeFile { path } } } } } } } } }');
+      const blobs = await graph('{ allCodeBlob(first: 10, where: {digest: {_in: ' + JSON.stringify(Object.entries(FILES).filter(([path]) => path.startsWith('src/')).map(([, content]) => createHash('sha256').update(content).digest('hex'))) + '}}) { edges { node { digest codeBlobAbout(first: 10) { edges { node { node { id ... on KindCodeFile { path } } } } } } } } }');
       expect(blobs.status).toBe(200);
-      const files = await graph('{ allCodeFile(first: 10) { edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
+      const files = await graph('{ allCodeFile(first: 10, where: {path: {_like: "src/%"}}) { edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }');
       expect(files.status).toBe(200);
       type FileNode = { id: string; path: string; codeFileRepository: { edges: { node: { node: { name: string } } }[] } };
       const fileRows = (files.body as { data: { allCodeFile: { edges: { node: FileNode }[] } } }).data.allCodeFile.edges.map((edge) => edge.node);
