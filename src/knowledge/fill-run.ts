@@ -92,7 +92,7 @@ export interface KnowledgeFillOptions {
    * item 12). `madarch --role fill` claims it before starting the run and settles it after; a run a person's own
    * process drives claims none.
    */
-  readonly claim?: { readonly queue: string; readonly job: NonNullable<Awaited<ReturnType<typeof import('../fill/run-jobs.js').claimFillRun>>> };
+  readonly claim?: import('../fill/orchestrator.js').RunClaim;
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
