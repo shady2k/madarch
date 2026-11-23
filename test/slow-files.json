@@ -6,6 +6,16 @@
   "note": "Each retained file has a concrete observed failure or passing slow behavior, a behavior-preserving rewrite plan and an explicit blocking-suite exit. Reasons distinguish assertion/setup defects from actual waiting timeouts; measured seconds remain from pass A, not the later rerun.",
   "files": [
     {
+      "path": "test/agent-fill-graph-mcp.test.ts",
+      "seconds": 205,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.3",
+      "defect": "Its four cases each drive a scripted ACP agent through a real fill and read the graph through madarch's own MCP server, opening a test database and installing the catalogue per case; 205 seconds is the provisional alone run from the old red tree, which the graph fixture scope fix changes, so the stage lead replaces it with the GitHub runner measurement and must confirm the file is green; the box run of this tree timed out at the per-case 180 s bound; speed-up owed.",
+      "replacement": "Prepare the product, catalogue and fixture repository once for the agent fill cases, reuse that store across them, and keep every MCP tool call, graph read and answer assertion rather than repeating the fill setup per case.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/agent-fill-graph-mcp.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
+    },
+    {
       "path": "test/agent-usage-page.test.ts",
       "seconds": 59.1,
       "reason": "red-defect",
@@ -64,6 +74,16 @@
       "defect": "The simultaneous-first-runs case cannot reach its one-store and second-start-refusal assertions because planning raises selected kind product has no enabled producer.",
       "replacement": "Declare an enabled product producer, race the two starts against one store and assert exactly one accepted chain and a named refusal for the other.",
       "exit": "Rewrite test/daemon-one-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/disk-support-ownership.test.ts",
+      "seconds": 70.5,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.1",
+      "defect": "The file passes, but its three cases each run a real fill with the disk plugin over a fixture repository and PostgreSQL store, asserting support ownership, foreign-edge reconciliation and retraction counts; the complete file measured 70500 ms alone on a GitHub runner in run 45077801034; speed-up owed.",
+      "replacement": "Share the fixture repository, product and prepared store prefix across the three ownership cases, keep one fill per ownership phase, and retain the support, foreign-edge and retraction assertions.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/disk-support-ownership.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/draft-starter-copy.test.ts",
@@ -216,6 +236,16 @@
       "exit": "Rewrite test/git-file-history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/git-partition-bootstrap.test.ts",
+      "seconds": 55.278,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.74",
+      "defect": "Real confined Git fills cover repository-only bootstrap, the K child and P owner group, regrouping and forced extraction, and the missing-bootstrap negative control. These phases cost real fill work (about 20\u201325 seconds per fill under the acceptance workload); the file exceeds 30 seconds without mocks.",
+      "replacement": "Share the product/store/repository prefix between both variants, perform one fill per required phase while preserving bootstrap, first-child, owner, regrouping, forced-repeat and missing-bootstrap assertions, then repeat the independent single-file measurement.",
+      "exit": "Run this file successfully in the blocking suite after an independent single-file measurement at or below 30 seconds, then remove this entry. Reversible coordinator decision for ALX-1149; do not change the threshold or weaken confinement."
+    },
+    {
       "path": "test/graph-merges.test.ts",
       "seconds": 48.5,
       "reason": "green-slow",
@@ -264,6 +294,16 @@
       "defect": "The natural-text-key case raises TARGET_MISSING for a mention, the disagreement case receives no contested description, and the catalogue-endpoint query is rejected for undeclared fields.",
       "replacement": "Create valid mention targets and use declared catalogue fields, then assert atomic text-key writes and backlinks, both conflicting opinions, stable returned identities and accepted catalogue edge endpoints.",
       "exit": "Rewrite test/graphql-writes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/h3-real-reconciliation.test.ts",
+      "seconds": 51.6,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.2",
+      "defect": "Its one case runs four real Git commits through concurrent partition fills with a pg-boss queue and the confined git plugin, asserting bootstrap, owner groups and no retractions or disputes; the complete file measured 51600 ms alone on a GitHub runner in run 45077801034, where it was green, while this box times the same case out at its own 120 s bound; speed-up owed.",
+      "replacement": "Keep the four-commit history and the group-boundary, bootstrap and no-retraction assertions, but prepare the repository inputs and planned run once and stop repeating the scheduler pass for each boundary.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/h3-real-reconciliation.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/knowledge-close-verdict.test.ts",
@@ -544,16 +584,6 @@
       "defect": "The step-report and span-coverage fill cases raise cannot CREATE INDEX node because it has pending trigger events before checking trace output or uncovered wall-clock fraction.",
       "replacement": "Prepare schema outside transactions with pending assertion triggers, run one fixture fill and assert named steps, wall clock, peak RSS, slowest spans and less than five percent uncovered root time.",
       "exit": "Rewrite test/trace-report.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/git-partition-bootstrap.test.ts",
-      "seconds": 55.278,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-64o5.74",
-      "defect": "Real confined Git fills cover repository-only bootstrap, the K child and P owner group, regrouping and forced extraction, and the missing-bootstrap negative control. These phases cost real fill work (about 20\u201325 seconds per fill under the acceptance workload); the file exceeds 30 seconds without mocks.",
-      "replacement": "Share the product/store/repository prefix between both variants, perform one fill per required phase while preserving bootstrap, first-child, owner, regrouping, forced-repeat and missing-bootstrap assertions, then repeat the independent single-file measurement.",
-      "exit": "Run this file successfully in the blocking suite after an independent single-file measurement at or below 30 seconds, then remove this entry. Reversible coordinator decision for ALX-1149; do not change the threshold or weaken confinement."
     }
   ]
 }

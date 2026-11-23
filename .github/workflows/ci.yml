@@ -106,7 +106,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # This full confined fixture is slow, but is blocking on every CI run.
+  # The listed slow files are blocking on every CI run: the shards leave them
+  # out, so these steps are their only required coverage. Each step fails when
+  # the run selected no file or reported fewer passing cases than the file has;
+  # a green job that cannot show the file ran is not coverage.
   partition-bootstrap:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
@@ -130,6 +133,90 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
       - name: Run the full confined partition bootstrap fixture
         run: scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/git-partition-bootstrap.test.ts
+      - name: Run the complete H3 real reconciliation fixture and prove its case ran
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass ran
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
+            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
+            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
+              echo "::error file=$path,line=1::$path selected no test file" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
+              return 1
+            fi
+            if ! grep -qF "$path" "$log"; then
+              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/h3-real-reconciliation.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/h3-real-reconciliation.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/h3-real-reconciliation.test.ts 1
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+      - name: Run the complete disk support ownership fixture and prove its three cases ran
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass ran
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
+            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
+            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
+              echo "::error file=$path,line=1::$path selected no test file" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
+              return 1
+            fi
+            if ! grep -qF "$path" "$log"; then
+              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/disk-support-ownership.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/disk-support-ownership.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/disk-support-ownership.test.ts 3
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+      - name: Run the complete agent fill graph MCP fixture and prove its four cases ran
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass ran
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n = $1 } END { print n + 0 }' "$log")
+            ran=$(awk '/^Ran [0-9]+ tests? across 1 file\./ { print $2; exit }' "$log")
+            if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
+              echo "::error file=$path,line=1::$path selected no test file" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases, fewer than its $least" >&2
+              return 1
+            fi
+            if ! grep -qF "$path" "$log"; then
+              echo "::error file=$path,line=1::$path is not named in the run output" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/agent-fill-graph-mcp.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/agent-fill-graph-mcp.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/agent-fill-graph-mcp.test.ts 4
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
 
   checks:
     runs-on: ubuntu-24.04
