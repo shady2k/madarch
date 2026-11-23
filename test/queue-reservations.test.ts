@@ -41,7 +41,7 @@ test('publication completion and singleton contender both commit with the follow
   expect((await queue.job('q',job!.id))?.state).toBe('completed');
   expect((await queue.enqueue({queue:'q',data:{},singletonKey:'K'})).created).toBe(false);
   expect((await queue.enqueue({queue:'q',data:{},singletonKey:'OTHER'})).created).toBe(false);
-  expect(await owner.run(tx=>tx.query("SELECT id FROM deadlock_review.job WHERE state='created'"))).toMatchObject({rows:expect.arrayContaining([expect.anything(),expect.anything()])});
+   expect((await owner.run(tx=>tx.query("SELECT id FROM deadlock_review.job WHERE state='created'"))).rows).toHaveLength(2);
  }finally{await queue?.stop();await owner.close();}
 },60000);
 
