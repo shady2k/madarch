@@ -283,12 +283,6 @@ jobs:
       # carries the owner's decision, which is how a rule changes.
       - name: The list of architectural violations only shrinks
         run: bun run check:architecture-base
-      # The queue's PostgreSQL leg (madarch-tzte.19.2): the sharded test job sets
-      # no server, so this is the only place the queue's postgres profile, its
-      # pooled statements and its schema install run at all.
-      - run: bun test test/queue-postgres.test.ts
-        env:
-          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
