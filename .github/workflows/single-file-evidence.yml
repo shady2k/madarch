@@ -1,8 +1,8 @@
 name: Single-file evidence
 
 # Measurement only: this workflow lives on a throwaway evidence branch and never
-# enters the candidate. Each path the gate reports as changed without single-file
-# evidence runs alone on a GitHub-hosted runner of the required CI class
+# enters the candidate. Each of the four final slow files runs alone on a
+# GitHub-hosted runner of the required CI class
 # (ubuntu-24.04). `.github/evidence-paths.txt` carries the paths one per line in
 # code-point order; lanes A1..A4 take lines 1,5,9,... / 2,6,10,... /
 # 3,7,11,... / 4,8,12,... so the split is deterministic, balanced and disjoint.
@@ -83,7 +83,7 @@ jobs:
           echo "lane ${{ matrix.lane }} paths:"
           cat "$RUNNER_TEMP/evidence/lane-paths.txt"
           test "$(wc -l < "$RUNNER_TEMP/evidence/lane-paths.txt")" -gt 0
-      - name: Run each file of the lane alone, again when it passes 30 s
+      - name: Run each file of the lane alone twice
         run: |
           set +e
           set -u
@@ -98,7 +98,7 @@ jobs:
             slug=$(printf '%s' "$p" | tr '/' '_')
             local start
             start=$(date +%s%3N)
-            # --slow only for a path the slow list names; none of these 19 is listed.
+            # --slow for a path the slow list names; the unlisted candidate runs plain.
             if bun -e 'const list = await Bun.file("test/slow-files.json").json(); process.exit(list.files.some(entry => entry.path === process.argv[1]) ? 0 : 1)' "$p"; then
               scripts/plugin-sandbox-cgroup.sh bun run test --slow --only "$p" --timings="$timings" --update-timings 2>&1 | tee "$evidence/logs/${slug}.${tag}.log"
             else
@@ -113,9 +113,7 @@ jobs:
           while IFS= read -r p; do
             [ -n "$p" ] || continue
             run_file "$p" run1
-            if [ "$RUN_ELAPSED" -gt 30000 ]; then
-              run_file "$p" run2
-            fi
+            run_file "$p" run2
           done < "$evidence/lane-paths.txt"
           echo "lane ${{ matrix.lane }} finished:"
           cat "$evidence/exits.txt"
@@ -204,11 +202,10 @@ jobs:
               echo "$p run=$attempt exit=$status ms=$elapsed" >> "$evidence/exits.txt"
             done
           }
-          # Exactly the required partition-bootstrap job's command (ci.yml:132).
+          # Exactly the required partition-bootstrap job's command (ci.yml:135).
           run_twice test/git-partition-bootstrap.test.ts scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/git-partition-bootstrap.test.ts
-          # h3-real is not in test/slow-files.json, so --slow would refuse it; the
-          # wrapper and entry point are the required job's.
-          run_twice test/h3-real-reconciliation.test.ts scripts/plugin-sandbox-cgroup.sh bun run test --only test/h3-real-reconciliation.test.ts
+          # h3-real is a listed green-slow file; --slow also proves the listed-file selection.
+          run_twice test/h3-real-reconciliation.test.ts scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/h3-real-reconciliation.test.ts
           echo "lane B finished:"
           cat "$evidence/exits.txt"
       - name: Write the empty lane-B timing map
