@@ -65,17 +65,35 @@ const DECISION_QUERY = `{ allDocDecision(first: 10, orderBy: [{ field: legacyId 
 } } } }`;
 
 async function evidenceFiles(owner: Parameters<typeof executeGraphql>[0], manifest: Parameters<typeof executeGraphql>[1]) {
-  const blobs = await executeGraphql(owner, manifest, { query: '{ allCodeBlob(first: 10) { totalCount edges { node { digest codeBlobAbout(first: 10) { totalCount edges { node { node { id ... on KindCodeFile { path } } } } } } } } }' });
-  const files = await executeGraphql(owner, manifest, { query: '{ allCodeFile(first: 10) { totalCount edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }' });
+  const digests = DECISIONS.map((file) => createHash('sha256').update(`# ${file.title}\n\n${file.body}\n`).digest('hex'));
+  // The product's catalogue is also a source: keep unrelated rows beyond the first page.
+  for (const kind of ['allCodeBlob', 'allCodeFile']) {
+    const page = await executeGraphql(owner, manifest, { query: `{ ${kind}(first: 10) { totalCount edges { node { id } } } }` });
+    expect(page.status).toBe(200);
+    const connection = (page.body as { data: any }).data[kind];
+    expect(connection.edges).toHaveLength(10);
+    expect(connection.totalCount).toBeGreaterThan(10);
+  }
+  // Read exactly the expected identities, not an arbitrary page of the whole graph.
+  const blobs = await executeGraphql(owner, manifest, {
+    query: `query($digests: [String!]!) { allCodeBlob(first: 10, where: {digest: {_in: $digests}}) { totalCount edges { node { digest codeBlobAbout(first: 10) { totalCount edges { node { node { id ... on KindCodeFile { path } } } } } } } } }`,
+    variables: { digests },
+  });
+  const files = await executeGraphql(owner, manifest, {
+    query: `query($paths: [String!]!) { allCodeFile(first: 10, where: {path: {_in: $paths}}) { totalCount edges { node { id path codeFileRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } } } } } }`,
+    variables: { paths: DECISIONS.map((file) => file.path) },
+  });
   expect(blobs.status).toBe(200);
   expect(files.status).toBe(200);
   const fileConnection = (files.body as { data: any }).data.allCodeFile;
   const blobConnection = (blobs.body as { data: any }).data.allCodeBlob;
+  expect(fileConnection.totalCount).toBe(DECISIONS.length);
+  expect(blobConnection.totalCount).toBe(DECISIONS.length);
   expect(fileConnection.edges.length).toBe(fileConnection.totalCount);
   expect(blobConnection.edges.length).toBe(blobConnection.totalCount);
   for (const { node } of blobConnection.edges) expect(node.codeBlobAbout.edges.length).toBe(node.codeBlobAbout.totalCount);
   const fileRows = fileConnection.edges.map((edge: any) => edge.node);
-  return new Map<string, { repository: string; path: string }[]>((blobs.body as { data: any }).data.allCodeBlob.edges.map((edge: any) => [edge.node.digest,
+  return new Map<string, { repository: string; path: string }[]>(blobConnection.edges.map((edge: any) => [edge.node.digest,
     edge.node.codeBlobAbout.edges.map((held: any) => ({ path: held.node.node.path,
       repository: fileRows.find((file: any) => file.id === held.node.node.id)?.codeFileRepository.edges[0]?.node.node.name })),
   ]));
@@ -89,8 +107,7 @@ function decisionEvidence(assertion: any, files: Map<string, { repository: strin
   }));
 }
 
-function expectedEvidence() {
-  const file = DECISIONS[0]!;
+function expectedEvidence(file: typeof DECISIONS[number]) {
   return [{ kind: 'code.blob', digest: createHash('sha256').update(`# ${file.title}\n\n${file.body}\n`).digest('hex'),
     path: file.path, lineStart: 1, lineEnd: 3, files: [{ repository: 'app', path: file.path }] }];
 }
@@ -196,7 +213,12 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       expect(held.status).toBe(200);
       const rows = (held.body as { data: any }).data.allDocDecision.edges.map((edge: any) => edge.node);
       expect(rows.map((row: any) => [row.legacyId, row.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
-      expect(decisionEvidence(rows[0].bodyAssertions.find((assertion: any) => assertion.selected), await evidenceFiles(owner, { manifest: declarations.manifest, folder: f.product }))).toEqual(expectedEvidence());
+      const evidence = await evidenceFiles(owner, { manifest: declarations.manifest, folder: f.product });
+      for (const [at, file] of DECISIONS.entries()) {
+        const selected = rows[at].bodyAssertions.filter((assertion: any) => assertion.selected);
+        expect(selected).toHaveLength(1);
+        expect(decisionEvidence(selected[0], evidence)).toEqual(expectedEvidence(file));
+      }
       // The run keeps what the agent spent, and the cap the press held it to.
       const usage = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; field: string; total_tokens: number; reported: boolean }>(
         'SELECT kind, field, total_tokens, reported FROM agent_usage WHERE run_id = $1 ORDER BY kind, field', [run.runId],
@@ -221,7 +243,12 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       const opinions = data.allDocDecision.edges[0].node.bodyAssertions.filter((assertion: any) => assertion.selected);
       const sources = await reader.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'plugin', ['label']));
       expect(opinions.map((opinion: any) => sources.find((source) => source.uid === opinion.source.id)?.values['label'])).toEqual(['agent-fill']);
-      expect(decisionEvidence(opinions[0], await evidenceFiles(reader, { manifest: declarations.manifest, folder: f.product }))).toEqual(expectedEvidence());
+      const evidence = await evidenceFiles(reader, { manifest: declarations.manifest, folder: f.product });
+      for (const [at, file] of DECISIONS.entries()) {
+        const selected = data.allDocDecision.edges[at].node.bodyAssertions.filter((assertion: any) => assertion.selected);
+        expect(selected).toHaveLength(1);
+        expect(decisionEvidence(selected[0], evidence)).toEqual(expectedEvidence(file));
+      }
     } finally { await reader.close(); }
   }, 300_000);
 
