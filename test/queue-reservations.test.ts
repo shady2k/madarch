@@ -1,4 +1,6 @@
 import {test,expect} from 'bun:test';
+import type { OuterTransaction } from '../src/history-types.js';
+import { prepareQueueSchema } from '../src/adapters/schemas/queue.js';
 import {createTestDatabaseOwner} from './test-database.js';
 import {prepareStore} from '../src/adapters/prepare-store.js';
 import {createPgBossQueue} from '../src/adapters/pg-boss-queue.js';
@@ -36,7 +38,6 @@ test('publication completion and singleton contender both commit with the follow
    });
   })();
   const results=await Promise.allSettled([a,b]);
-  console.log('DEADLOCK RESULTS',JSON.stringify(results,(_key,value)=>value instanceof Error?{message:value.message,code:(value as any).code,detail:(value as any).detail}:value));
   expect(results).toEqual([{status:'fulfilled',value:undefined},{status:'fulfilled',value:undefined}]);
   expect((await queue.job('q',job!.id))?.state).toBe('completed');
   expect((await queue.enqueue({queue:'q',data:{},singletonKey:'K'})).created).toBe(false);
@@ -44,9 +45,6 @@ test('publication completion and singleton contender both commit with the follow
    expect((await owner.run(tx=>tx.query("SELECT id FROM deadlock_review.job WHERE state='created'"))).rows).toHaveLength(2);
  }finally{await queue?.stop();await owner.close();}
 },60000);
-
-import type { OuterTransaction } from '../src/history-types.js';
-import { prepareQueueSchema } from '../src/adapters/schemas/queue.js';
 
 const ordered = {name:'ordered',leaseSeconds:60,retries:2,retryDelaySeconds:0,retryBackoff:false,singletons:true};
 const tick = '2026-01-01T00:00:00.000Z';
@@ -187,7 +185,6 @@ test('measure burst and long caller transaction reservation probes and latency',
   try {await owner.transaction('write',async tx=>{for(let i=0;i<50;i++)await send(tx,1100+i);});}
   finally {release.open();await long;}
   const longCaller={ms:performance.now()-longStart,probes,maxSendMs:Math.max(...latencies)};
-  console.log('RESERVATION MEASUREMENTS',JSON.stringify({burst,concurrent,longCaller}));
   expect(burst.probes).toBe(50);
   const rows=await places(owner);
   expect(rows).toHaveLength(166);
