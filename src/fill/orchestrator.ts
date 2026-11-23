@@ -1297,10 +1297,11 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
   const at = orchestrator.clock();
   const swept: SweptUnit[] = [];
   const refused: UnitRefusal[] = [];
-  const run = (state === undefined ? await readRun(database, options.runId) : (await state()).run);
+  const snapshot = state === undefined ? undefined : await state();
+  const run = snapshot === undefined ? await readRun(database, options.runId) : snapshot.run;
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (run.state !== 'running' && run.state !== 'pausing') return { swept, refused };
-  const units = (state === undefined ? await readRunUnits(database, run.runId) : (await state()).units);
+  const units = snapshot === undefined ? await readRunUnits(database, run.runId) : snapshot.units;
 
   for (const unit of units) {
     if (unit.state === 'retry_wait' && unit.context.retryAt !== null && unit.context.retryAt <= at) {
@@ -2778,7 +2779,8 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     cached = await readRunStateSnapshot(database, options.runId, cached);
     return cached;
   };
-  let run = (await state()).run;
+  const initial = await state();
+  let run = initial.run;
   if (run === null) raise(`no run ${options.runId} is recorded`);
 
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
@@ -2800,7 +2802,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   }
   // The run's size, for the pass timing: a count is what tells a pass that costs what it does from one
   // that costs what the run holds. The ordinary graph supplies the run-unit membership.
-  const unitsInRun = (await state()).units.length;
+  const unitsInRun = initial.units.length;
   tick('read');
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId }, state);

@@ -442,6 +442,10 @@
     "test/yaml-position.test.ts": 6700,
     "test/git-partition-bootstrap.test.ts": 55278,
     "test/git-partition-endpoints.test.ts": 6101,
-    "test/git-partition-pin.test.ts": 4940
+    "test/git-partition-pin.test.ts": 4940,
+    "test/graph-write-activity-batch.test.ts": 13643,
+    "test/queue-order.test.ts": 14279,
+    "test/queue-reservations.test.ts": 19023,
+    "test/fill-snapshot-coalescing.test.ts": 17422
   }
 }
