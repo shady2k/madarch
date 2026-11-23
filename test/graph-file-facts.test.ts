@@ -2,84 +2,116 @@
  * A product may declare code.file's lines and no class. The file facts read only the columns the manifest declares; the
  * absent class is unknown, never a query for a column the generated table does not hold.
  */
-import { createTestDatabaseOwner } from './test-database.js';
+import { createTestDatabaseOwner, testStoreServer } from './test-database.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { loadAssertions, loadAssertionsBatch } from '../src/graph/assertion-read.js';
 import type { SqlExecutor } from '../src/sql-driver.js';
-import { expect, test } from 'bun:test';
-import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import type { OuterTransaction } from '../src/adapters/database-owner.js';
 import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from '../src/knowledge/graph-read.js';
 
-function reader(columns: readonly string[], row: Record<string, unknown>, options: { repositoryEdge?: boolean } = {}): { reader: GraphReader; queries: string[] } {
-  const queries: string[] = [];
-  const at = '2026-01-01T00:00:00.000Z';
-  const assertionRows = (kind: string, fields: readonly string[], repositoryTargets: unknown[]) => fields.map((property, index) => ({
-    request_index: 0, property_rank: index,
-    id: `019a0000-0000-7000-8000-${String((kind === GIT_KINDS.file ? 10 : 30) + index).padStart(12, '0')}`,
-    subject_id: kind === GIT_KINDS.file ? 1 : 3,
-    original_subject_id: kind === GIT_KINDS.file ? 1 : 3,
-    subject_uid: kind === GIT_KINDS.file ? String(row['node']) : '019a0000-0000-7000-8000-000000000003',
-    original_subject_uid: kind === GIT_KINDS.file ? String(row['node']) : '019a0000-0000-7000-8000-000000000003',
-    edge_from: null, edge_to: null, property, context_id: 1, language: null,
-    source: '019a0000-0000-7000-8000-000000000004', author: '019a0000-0000-7000-8000-000000000004',
-    unit: null, operation_uid: '019a0000-0000-7000-8000-000000000005', evidence: [],
-    evidence_attachments: [], repository_targets: repositoryTargets,
-    value: property === '$exists' ? true : row[property], value_type: property === '$exists' ? 'boolean' : property === 'lines' ? 'bigint' : 'text',
-    operation: 'assert', valid_from: at, valid_to: null, recorded_at: at, recorded_sequence: String(index + 1),
-    selected: true, active: true,
-  }));
-  const tx = { query: async (sql: string, values: readonly unknown[] = []) => {
-    queries.push(sql);
-    if (sql.includes('WITH anchors AS')) return { rows: [] };
-    // records.ts:55-58 reads the transaction instant when a property admits a dispute (2b7931e07).
-    if (sql.includes('transaction_timestamp() AS now')) return { rows: [{ now: at }] };
-    if (sql.includes('AS assertion_uid')) throw new Error('fixture assertions have no evidence');
-    if (sql.includes('AS target_kind')) return { rows: [{ id: 3, kind: 'fixture.file-repository', target_uid: row['scope'], target_kind: GIT_KINDS.repository, target_key: { name: 'repo' } }] };
-    // assertion-read.ts:127-137 writes the repository subquery only when repositoryKinds is non-empty.
-    if (sql.includes('FROM assertion a JOIN node assertion_node')) return { rows: assertionRows(String(values[0]), values[1] as string[], sql.includes("'fixture.file-repository'") ? [{ uid: String(row['scope']), key: { name: 'repo' } }] : []) };
-    if (sql.includes('FROM node n JOIN entity k')) return { rows: [{ request_index: 0, id: 1, uid: row['node'], key: { repository: row['repository'], path: row['path'] }, read_at: at }] };
-    if (sql.includes('FROM edge n JOIN entity k')) return { rows: [{ request_index: 0, id: 3, uid: '019a0000-0000-7000-8000-000000000003', key: {}, from_node: 1, to_node: 2, discriminator: '', read_at: at }] };
-    throw new Error(`unexpected fixture query: ${sql}`);
-  } } as unknown as OuterTransaction;
-  const file: GeneratedKindRead = { kind: GIT_KINDS.file, table: 'ordinary_file', key: ['repository', 'path'], columns, types: {} };
-  const contract: GraphContract = withAssertionContract({
-    vertex: [{ name: GIT_KINDS.repository, table: 'ordinary_repository', capability: 'disk', key: ['name'], fields: [{ name: 'name', type: 'text' }] }, { name: file.kind, table: file.table, capability: 'disk', key: file.key,
-      fields: columns.map(name => ({ name, type: name === 'lines' ? 'integer' : 'text' })) }],
-    edge: [{ name: 'fixture.file-repository', capability: 'disk', from: [GIT_KINDS.file], to: [GIT_KINDS.repository], fields: [], repeats: false,
-      cardinality: { from: 'one', to: 'many' }, labels: { en: { out: 'repository', in: 'files' }, ru: { out: 'repository', in: 'files' } } }], dictionary: [],
+function fileContract(columns: readonly string[], repositoryEdge: boolean): GraphContract {
+  const file = { kind: GIT_KINDS.file, table: 'ordinary_file', key: ['repository', 'path'] };
+  return withAssertionContract({
+    vertex: [
+      { name: GIT_KINDS.repository, table: 'ordinary_repository', capability: 'disk', key: ['name'], fields: [{ name: 'name', type: 'text' }] },
+      { name: file.kind, table: file.table, capability: 'disk', key: file.key,
+        fields: columns.map(name => ({ name, type: name === 'lines' ? 'integer' : 'text' })) },
+    ],
+    edge: repositoryEdge ? [{ name: 'fixture.file-repository', capability: 'disk', from: [GIT_KINDS.file], to: [GIT_KINDS.repository], fields: [], repeats: false,
+      cardinality: { from: 'one', to: 'many' }, labels: { en: { out: 'repository', in: 'files' }, ru: { out: 'repository', in: 'files' } } }] : [],
+    dictionary: [],
   });
-  const edges = new Map<string, GeneratedEdgeRead>(options.repositoryEdge === false ? [] : [['fixture.file-repository', { kind: 'fixture.file-repository', columns: [], types: {}, from: [GIT_KINDS.file], to: [GIT_KINDS.repository] }]]);
-  return {
-    queries,
-    reader: new GraphReader({} as DatabaseOwner, () => at, undefined, tx, new Set([GIT_KINDS.file]), new Map([[GIT_KINDS.file, file]]), edges, contract),
-  };
+}
+
+const fixtureContract = fileContract(['path', 'repository', 'lines', 'class'], true);
+let fileOwner: Awaited<ReturnType<typeof createTestDatabaseOwner>>;
+// These cases only read. Install and seed the physical superset once; each reader still receives its own contract.
+beforeAll(async () => {
+  fileOwner = await createTestDatabaseOwner({ graphContract: fixtureContract, socket: (await testStoreServer()).socketDir });
+  const repository = { kind: GIT_KINDS.repository, key: { name: 'repo' } };
+  const target = { kind: GIT_KINDS.file, key: { repository: 'repo', path: 'src/a.ts' } };
+  const other = { kind: GIT_KINDS.file, key: { repository: 'repo', path: 'src/other.ts' } };
+  await fileOwner.transaction('write', async tx => {
+    await publishGraphDrafts(tx, fixtureContract, {
+      vertices: [
+        { ...repository, values: {}, producer: 'fixture', producerVersion: '1' },
+        { ...target, values: { lines: 700, class: 'generated' }, producer: 'fixture', producerVersion: '1' },
+        { ...other, values: { lines: 12, class: 'handwritten' }, producer: 'fixture', producerVersion: '1' },
+      ],
+      edges: [{ kind: 'fixture.file-repository', from: target, to: repository, values: {}, producer: 'fixture', producerVersion: '1' }],
+      removals: [],
+    });
+  });
+}, 30_000);
+
+afterAll(async () => { await fileOwner?.close(); });
+
+async function withFileReader(
+  columns: readonly string[],
+  repositoryEdge: boolean,
+  check: (held: { reader: GraphReader; queries: string[]; tx: OuterTransaction; fileId: number; otherFileId: number; fileUid: string; otherFileUid: string; repositoryUid: string }) => Promise<void>,
+): Promise<void> {
+  const file: GeneratedKindRead = { kind: GIT_KINDS.file, table: 'ordinary_file', key: ['repository', 'path'], columns, types: {} };
+  const contract = fileContract(columns, repositoryEdge);
+  await fileOwner.transaction('snapshot', async tx => {
+    const identities = await tx.query<{ id: number; uid: string; path: string; kind: string }>(`SELECT n.id, n.uid::text, n.key->>'path' AS path, k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=ANY($1::text[])`, [[file.kind, GIT_KINDS.repository]]);
+    const targetRow = identities.rows.find(row => row.path === 'src/a.ts')!;
+    const otherRow = identities.rows.find(row => row.path === 'src/other.ts')!;
+    const repositoryRow = identities.rows.find(row => row.kind === GIT_KINDS.repository)!;
+    const queries: string[] = [];
+    const observed = { ...tx, query: ((...args: Parameters<typeof tx.query>) => {
+      queries.push(args[0]);
+      return tx.query(...args);
+    }) as typeof tx.query };
+    const edges = new Map<string, GeneratedEdgeRead>(repositoryEdge ? [['fixture.file-repository', { kind: 'fixture.file-repository', columns: [], types: {}, from: [file.kind], to: [GIT_KINDS.repository] }]] : []);
+    const reader = new GraphReader(fileOwner, () => new Date().toISOString(), undefined, observed, new Set([file.kind]), new Map([[file.kind, file]]), edges, contract);
+    await check({ reader, queries, tx: observed,
+      fileId: Number(targetRow.id), otherFileId: Number(otherRow.id),
+      fileUid: targetRow.uid, otherFileUid: otherRow.uid, repositoryUid: repositoryRow.uid });
+  });
 }
 
 test('a file kind without a class reads its facts and calls the class unknown', async () => {
-  const held = reader(['path', 'repository', 'lines'], { node: 'n1', path: 'src/a.ts', repository: 'repo', scope: 'repo', lines: '700', total: '1' });
-  const facts = await held.reader.fileFacts('', 10);
-  expect(facts.rows).toEqual([{ key: `${GIT_KINDS.file}:repo/src/a.ts`, node: 'n1', path: 'src/a.ts', repository: 'repo', scope: 'repo', class: 'unknown', lines: 700 }]);
-  expect(held.queries.join('\n')).not.toContain(assertionValueTableName(GIT_KINDS.file, 'vertex', 'class'));
-  expect(held.queries.join('\n')).toContain("'fixture.file-repository'");
-});
+  await withFileReader(['path', 'repository', 'lines'], true, async held => {
+    const facts = await held.reader.fileFacts('src/a.ts', 10);
+    expect(facts).toEqual({ total: 1, rows: [{ key: `${GIT_KINDS.file}:repo/src/a.ts`, node: held.fileUid, path: 'src/a.ts', repository: 'repo', scope: held.repositoryUid, class: 'unknown', lines: 700 }] });
+    expect(held.queries.join('\n')).not.toContain(assertionValueTableName(GIT_KINDS.file, 'vertex', 'class'));
+    expect(held.queries.join('\n')).toContain("'fixture.file-repository'");
+  });
+}, 30_000);
 
 test('a file kind with no declared repository edge leaves repository and scope empty', async () => {
-  const held = reader(['path', 'repository', 'lines'], { node: 'n1', path: 'src/a.ts', repository: 'repo', scope: 'repo', lines: '700', total: '1' }, { repositoryEdge: false });
-  const facts = await held.reader.fileFacts('', 10);
-  expect(facts.rows).toEqual([{ key: `${GIT_KINDS.file}:repo/src/a.ts`, node: 'n1', path: 'src/a.ts', repository: '', scope: '', class: 'unknown', lines: 700 }]);
-  expect(held.queries.join('\n')).not.toContain('fixture.file-repository');
-});
+  await withFileReader(['path', 'repository', 'lines'], false, async held => {
+    const facts = await held.reader.fileFacts('src/a.ts', 10);
+    expect(facts).toEqual({ total: 1, rows: [{ key: `${GIT_KINDS.file}:repo/src/a.ts`, node: held.fileUid, path: 'src/a.ts', repository: '', scope: '', class: 'unknown', lines: 700 }] });
+    expect(held.queries.join('\n')).not.toContain('fixture.file-repository');
+  });
+}, 30_000);
 
 test('a file kind with a class reads that column', async () => {
-  const held = reader(['path', 'repository', 'lines', 'class'], { node: 'n1', path: 'src/a.ts', repository: 'repo', scope: 'repo', lines: '700', class: 'generated', total: '1' });
-  const facts = await held.reader.fileFacts('', 10);
-  expect(facts.rows[0]?.class).toBe('generated');
-  expect(held.queries.join('\n')).toContain(assertionValueTableName(GIT_KINDS.file, 'vertex', 'class'));
-});
+  await withFileReader(['path', 'repository', 'lines', 'class'], true, async held => {
+    const facts = await held.reader.fileFacts('src/a.ts', 10);
+    expect(facts).toEqual({ total: 1, rows: [{ key: `${GIT_KINDS.file}:repo/src/a.ts`, node: held.fileUid, path: 'src/a.ts', repository: 'repo', scope: held.repositoryUid, class: 'generated', lines: 700 }] });
+    expect(held.queries.join('\n')).toContain(assertionValueTableName(GIT_KINDS.file, 'vertex', 'class'));
+  });
+}, 30_000);
+
+test('a different file subject cannot supply the fixture assertions', async () => {
+  await withFileReader(['path', 'repository', 'lines', 'class'], true, async held => {
+    const values = (rows: Awaited<ReturnType<typeof loadAssertions>>) => rows.map(row => [row.subject, row.property, row.value]);
+    const expected = [[{ type: 'vertex', uid: held.fileUid }, 'lines', 700], [{ type: 'vertex', uid: held.fileUid }, 'class', 'generated']];
+    const target = await loadAssertions(held.tx, 'vertex', GIT_KINDS.file, ['lines', 'class'], [held.fileId]);
+    const wrong = await loadAssertions(held.tx, 'vertex', GIT_KINDS.file, ['lines', 'class'], [held.otherFileId]);
+    expect(values(target)).toEqual(expected);
+    expect(values(wrong)).toEqual([[{ type: 'vertex', uid: held.otherFileUid }, 'lines', 12], [{ type: 'vertex', uid: held.otherFileUid }, 'class', 'handwritten']]);
+    expect(() => expect(values(wrong)).toEqual(expected)).toThrow();
+  });
+}, 30_000);
 
 
 test('typed assertion JSON preserves exact sequences without changing internal values', async () => {
