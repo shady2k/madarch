@@ -311,6 +311,8 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
       if (value === undefined || !names.has(value) || protocolFields.has(node)) continue;
+      // This status belongs to the private startup file protocol, not a catalogue kind.
+      if (module.file === 'src/obs/startup-context.ts' && value === 'unsupported') continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
     for (const node of nodesOf(module.tree)) {
@@ -440,6 +442,8 @@ export const FILE_AND_PROCESS_ALLOWED: readonly { readonly file: string; readonl
   { file: 'src/identity/identity.ts', why: 'who the user is, asked of git' },
   { file: 'src/render/read-worker.ts', why: 'the renderer in a process of its own' },
   { file: 'src/obs/trace.ts', why: 'the trace writer' },
+  { file: 'src/obs/startup-context.ts', why: 'the startup entry context file, not extraction input' },
+  { file: 'src/obs/startup-platform.ts', why: 'the startup clock and kernel process identity' },
   { file: 'src/knowledge/logs.ts', why: 'the log reader: it reads the logs madarch keeps in its own folders' },
   { file: 'src/fill/agent-exchange.ts', why: "the agent exchange record: it writes and reads a run's own evidence beside its trace" },
   { file: 'src/obs/retention.ts', why: 'the raw telemetry retention sweep' },

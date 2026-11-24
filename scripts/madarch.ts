@@ -21,6 +21,13 @@
  * source checkout never matched it anyway, so the source runs keep their
  * argv as `bun scripts/madarch.ts …` laid it.
  */
+import { startupEntry, startupBegin } from '../src/obs/log.js';
+const roleAt = process.argv.indexOf('--role');
+const role = roleAt === -1 ? (process.argv[2] === 'daemon-serve' ? 'daemon' : 'cli') : process.argv[roleAt + 1] === 'fill' ? 'fill' : 'api';
+startupEntry(role);
+const commandPhase = process.argv[2] === 'stop' ? 'command.stop' : process.argv[2] === 'serve' ? 'command.serve' : 'command.other';
+const terminal = startupBegin(role === 'cli' ? commandPhase : `role.${role}`);
+process.once('exit', (code) => terminal(code === 0 ? 'ok' : 'error'));
 process.argv[1] = process.execPath;
 
 // The plugin host runs a plugin on the Bun inside this binary (decision 0035, item 7): a compiled binary has no

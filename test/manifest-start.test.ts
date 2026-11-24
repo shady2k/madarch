@@ -1,3 +1,4 @@
+import { collectStartup } from './startup-trace-collector.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -63,9 +64,18 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     expect(Bun.spawnSync(['git', ...args], { cwd: product, env: gitEnv }).exitCode).toBe(0);
   }
   const app = join(root, 'app'); mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
+  const lockPath = join(home, '.madarch', 'knowledge', 'sample', 'graph', 'pgdata.lock');
+  const lock = Bun.spawn([process.execPath, join(import.meta.dir, 'fixtures', 'startup-trace-lock.ts'), lockPath], { env: { ...process.env }, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  const lockReader = lock.stdout.getReader();
+  expect(new TextDecoder().decode((await lockReader.read()).value)).toContain('locked');
+  let released = false;
+  async function releaseLock(): Promise<void> {
+    if (released) return; released = true; lock.stdin.write('release\n'); lock.stdin.end();
+    expect(await lock.exited).toBe(0);
+  }
   const port = await freePort();
   const child = Bun.spawn([process.execPath, join(import.meta.dir, '..', 'scripts', 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
-    env: { ...process.env, MADARCH_HOME: root, MADARCH_APP_DIST: app, MADARCH_OWN_WIKI: 'off', MADARCH_STARTUP_TIMING: '1' }, stdout: 'pipe', stderr: 'pipe',
+    env: { ...process.env, MADARCH_HOME: root, MADARCH_APP_DIST: app, MADARCH_OWN_WIKI: 'off', MADARCH_STARTUP_TIMING: '1', MADARCH_TRACE: 'on' }, stdout: 'pipe', stderr: 'pipe',
   });
   let diagnostics = '';
   const errors = (async () => {
@@ -87,14 +97,22 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
   try {
     await until(async () => (await fetch(`${base}/product`)).ok);
     // The public listener precedes store preparation and publication, not validation.
-    await until(async () => diagnostics.includes('startup listener '));
-    expect(diagnostics).toContain('startup manifest.validate ');
-    expect(diagnostics).not.toContain('startup catalogue.publish ');
+    await until(async () => collectStartup(diagnostics).records.some(r => r.phase === 'listener' && r.edge === 'terminal'));
+    expect(collectStartup(diagnostics).records.some(r => r.phase === 'manifest.validate' && r.edge === 'terminal')).toBe(true);
     const publishing = await fetch(`${base}/status`);
     expect(publishing.status).toBe(200);
     expect(await publishing.json()).toMatchObject({ publication: 'pending' });
+    await releaseLock();
     await until(async () => (await (await fetch(`${base}/status`)).json()).publication !== 'pending');
-    expect(diagnostics.indexOf('startup listener ')).toBeLessThan(diagnostics.indexOf('startup catalogue.publish '));
+    await until(async () => collectStartup(diagnostics).records.some(r => r.phase === 'catalogue.publish' && r.edge === 'terminal'));
+    const records = collectStartup(diagnostics).records;
+    const validation = records.find(r => r.phase === 'manifest.validate' && r.edge === 'terminal')!;
+    const bindBegin = records.find(r => r.phase === 'listener' && r.edge === 'begin')!;
+    const bindEnd = records.find(r => r.phase === 'listener' && r.edge === 'terminal')!;
+    const publication = records.find(r => r.phase === 'catalogue.publish' && r.edge === 'terminal')!;
+    expect(validation.pid).toBe(bindBegin.pid);
+    expect(BigInt(validation.ns)).toBeLessThanOrEqual(BigInt(bindBegin.ns));
+    expect(BigInt(bindEnd.ns)).toBeLessThanOrEqual(BigInt(publication.ns));
     const initial = await (await fetch(`${base}/status`)).json() as { manifest: string; filled: boolean; kinds: { kind: string }[] };
     expect(initial).toMatchObject({ manifest: 'not-filled', filled: false });
     // Prime the reader cache before the valid edit; the manifest journal must invalidate it.
@@ -107,6 +125,7 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     expect(((await (await fetch(`${base}/status`)).json()) as { kinds: { kind: string }[] }).kinds.map((one) => one.kind)).toEqual(['term']);
     expect(diagnostics).toMatch(new RegExp(kinds.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\d+:'));
   } finally {
+    await releaseLock();
     if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
     await output; await errors;
   }

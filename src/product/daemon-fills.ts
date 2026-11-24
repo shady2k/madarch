@@ -1,7 +1,8 @@
+import { startupBegin } from '../obs/log.js';
 /** Store and fill services held by the products-home daemon. */
 import { withSpanSync, withSpan } from '../obs/trace.js';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { readProduct } from './manifest.js';
@@ -144,9 +145,9 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       await createFillStateSchema(held.owner);
       await createOrchestratorSchema(held.owner);
       await createOneGraphSchema(held.owner, withManifestContract(contract));
-      const started = performance.now();
-      try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); }
-      finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
+      const terminal = startupBegin('catalogue.transaction', join(storeDatabasePath(folder), 'pgdata'));
+      try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); terminal('ok'); }
+      catch (error) { terminal('error'); throw error; }
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const held = await store(request.product.folder);

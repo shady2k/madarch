@@ -270,6 +270,14 @@
     "test/e2e/check-slow-tests.test.ts": 5883,
     "test/plugin-turn-exclusions.test.ts": 11537,
     "test/schema-stamp.test.ts": 17308,
-    "test/daemon-ready-timeout.test.ts": 16530
+    "test/daemon-ready-timeout.test.ts": 16530,
+    "test/manifest-start.test.ts": 27519,
+    "test/startup-trace.test.ts": 19099,
+    "test/startup-trace-store.test.ts": 12499,
+    "test/startup-trace-architecture.test.ts": 6725,
+    "test/startup-trace-launch-direct.test.ts": 16643,
+    "test/startup-trace-launch-delegated.test.ts": 16254,
+    "test/startup-trace-launch-fallback.test.ts": 18335,
+    "test/startup-trace-boundaries.test.ts": 24169
   }
 }

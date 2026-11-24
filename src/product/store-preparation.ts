@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { startupEnabled, startupIdentifiers } from '../obs/startup-context.js';
+import { startupOperation } from '../obs/log.js';
 /** Owner-only schema service. API and fill processes request preparation over an authenticated loopback channel. */
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { withSpanSync, withSpan } from '../obs/trace.js';
@@ -6,6 +9,7 @@ import { resolve } from 'node:path';
 import type { GraphContract } from '../graph/contract.js';
 
 export interface PreparationRequest {
+  readonly startup?: { readonly operation: string; readonly collection?: string; readonly keyId?: string };
   readonly store: string;
   readonly database?: string;
   readonly contract?: GraphContract;
@@ -51,7 +55,7 @@ async function request(body: PreparationRequest): Promise<void> {
   const url = process.env[ADDRESS];
   const token = process.env[TOKEN];
   if (url === undefined || token === undefined) throw new Error(`${resolve(body.store)}:1: the store needs its owning madarch process for schema preparation (src/product/store-preparation.ts)`);
-  await sendRequest(body, url, token);
+  await sendRequest(startupEnabled() ? { ...body, startup: { operation: startupOperation() ?? randomUUID(), ...startupIdentifiers() } } : body, url, token);
 }
 async function sendRequest(body: PreparationRequest, url: string, token: string): Promise<void> {
   const response = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': url, 'http.bytes': Buffer.byteLength(JSON.stringify(body)) }, async (span) => {

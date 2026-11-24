@@ -1,3 +1,4 @@
+import { reportInitFailure } from './init-language-diagnostic.js';
 /**
  * The language of a first run (madarch-64o5.84): `MADARCH_LANG`, else the language this machine remembers from an
  * earlier first run (the madarch home's `settings.json`, where the wiki's reading role lives), else the locale. The
@@ -63,6 +64,7 @@ test('a --json init never asks, and the product carries the remembered language 
   const run = spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), 'init', join(root, 'idea'), '--home', products, '--template', 'everything', '--json', '--no-open', '--port', '0'], { cwd: root, env, encoding: 'utf8', timeout: 120_000, input: '' });
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
   expect(output).not.toContain('Language / Язык');
+  reportInitFailure(run);
   expect(run.status).toBe(0);
   // The product's folder is the one the command printed: a first init of a day makes idea-<date>, not idea.
   const line = output.split('\n').map((one) => one.trim()).find((one) => one.startsWith('{') && one.endsWith('}'));
@@ -100,6 +102,7 @@ test('a checkout initialized with MADARCH_LANG=ru gets a product whose manifest 
   const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: root, MADARCH_HOME: root, MADARCH_OWN_WIKI: 'off', MADARCH_PLUGIN_SANDBOX: 'off', MADARCH_LANG: 'ru', GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.invalid' };
   const run = spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), 'init', checkout, '--home', products, '--template', 'everything', '--json', '--no-open', '--port', '0'], { cwd: root, env, encoding: 'utf8', timeout: 120_000, input: '' });
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  reportInitFailure(run);
   expect(run.status).toBe(0);
   const line = output.split('\n').map((one) => one.trim()).find((one) => one.startsWith('{') && one.endsWith('}'));
   if (line === undefined) throw new Error(`init printed no JSON facts: ${output}`);
