@@ -4,7 +4,7 @@ import { withSpanSync } from './trace.js';
 import { createHash } from 'node:crypto';
 export function processStartTicks(pid: number): string | undefined {
  if (process.platform !== 'linux') return undefined;
- try { const stat = withSpanSync('fs.read', { 'file.path': `/proc/${pid}/stat` }, () => readFileSync(`/proc/${pid}/stat`, 'utf8')); return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; } catch { return undefined; }
+ try { const stat = withSpanSync('fs.read', { 'file.path': `/proc/${pid}/stat` }, span => { const value = readFileSync(`/proc/${pid}/stat`, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(value)); return value; }); return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; } catch { return undefined; }
 }
 interface SharedClock { sample: () => bigint; domain: string; ticksPerSecond: bigint }
 let shared: SharedClock | null | undefined;

@@ -41,6 +41,10 @@ Linux uses CLOCK_BOOTTIME with a hashed boot and time-namespace domain. If the k
 
 This slice does not implement S2 shutdown/postmaster identity or S3 detailed readiness marks.
 
+The Windows file-channel status is `unavailable`. It does not bypass the product-data gate. The two named observation modules remain limited to private-channel and platform metadata, not repository content. The shared proc-stat helper retains its byte count; startup-context reads remain outside spans to keep the private path out of telemetry.
+
+Compiled plugin dispatch removes the context path before importing the plugin and loads no startup observation or OpenTelemetry. Normal command dispatch loads startup observation before recording its entry. Child privacy fixtures observe the effective environment and argv inside wrappers around actual asynchronous and synchronous PostgreSQL commands and an unrelated child. Missing terminal records fail explicit assertions, and holder cleanup does not replace a prior failure.
+
 ## Preserved contracts
 
 - fill-orchestrator/host: the background server still builds the orchestrator over the process's one database owner, holds it for the life of the process and stops it with its own shutdown. The change records the publication transaction the fill service runs on that owner (`catalogue.transaction`) and the fill process's own entry (`role.fill`), and hands the private context path to the roles that already start there; the orchestrator's construction is not a recorded phase and nothing about it moves.
@@ -65,15 +69,24 @@ Place: the command's stderr and the home's `.madarch-daemon.log` — a command r
    and read the command's stderr. `MADARCH_OWN_WIKI=off` only keeps the walk off the network; it changes no record.
 3. The command's stderr holds one `begin` and one `terminal` record for `command.other` and one pair for `ensureDaemon`,
    in the order the phases happened, each with `context: "ready"`, the file's `collection` and its `keyId`.
-4. Read `~/products/.madarch-daemon.log`: the `daemon`, `api`, `fill` and `launcher` records there carry the same
-   `collection` and the same `keyId` with `context: "ready"` — the daemon's `role.daemon`, `store.open`,
-   `cluster.initdb`, `cluster.start` and `schema.prepare`, the api's `role.api`, `manifest.validate`, `listener`,
-   `catalogue.publish` and `catalogue.transaction`, and the fill's `role.fill` with its `store.open` and
-   `cluster.start` pairs.
+4. Read `~/products/.madarch-daemon.log` once the `begin` and `terminal` of `api`'s `catalogue.publish` are both
+   there (the `begin` shows first, a moment before `init` returns; `grep -c '"phase":"catalogue.publish"'` reaches
+   two). Every record there carries the same `collection` and the same `keyId` with `context: "ready"`:
+   - `daemon`: `role.daemon`, `store.open`, `cluster.initdb`, `cluster.start` and `schema.prepare`;
+   - `launcher`: `role.launcher`'s `begin` and `terminal`;
+   - `api`: `role.api`, `manifest.validate`, `listener`, `catalogue.publish`, `store.open`, `cluster.start`
+     (`reused` — the daemon already started the cluster) and `catalogue.transaction`;
+   - `fill`: `role.fill`'s `begin`, and the `store.open` / `cluster.start` (`reused`) pairs that process records when
+     it opens a product's store; how many of those pairs the log holds depends on the work the fill process finds.
+   `role.daemon`, `role.api` and `role.fill` terminals are written when those processes exit, so their completed pairs
+   appear in this file after step 5.
 5. `MADARCH_STARTUP_TIMING=1 MADARCH_STARTUP_CONTEXT=~/startup-context.json madarch stop --home ~/products` ends the
-   background server and writes the stop command's own `command.stop` pair to its stderr.
-6. Run the same `init` command once more without `MADARCH_STARTUP_CONTEXT`, which makes a second product in the same
-   home: the command's records on stderr and the records the restarted server's roles add to the log both say
-   `context: "absent"` and carry no `collection` or `keyId`. Without `MADARCH_STARTUP_TIMING=1`, or with
-   `MADARCH_TRACE=off`, neither place gets a record.
+   background server, writes the stop command's own `command.stop` pair to its stderr, and adds the `terminal` of
+   `role.daemon`, `role.api` and `role.fill` to `~/products/.madarch-daemon.log` — the fill's with outcome `error`,
+   because the stop ends that process by signal rather than at an end of its own.
+6. Run the same `init` command once more without `MADARCH_STARTUP_CONTEXT` and with a second product folder,
+   `madarch init ~/idea-2 --home ~/products --template everything --port 0`, which makes a second product in the same
+   home: the command's records on stderr and the records the restarted server's `daemon`, `launcher`, `api` and
+   `fill` add to the log all say `context: "absent"` and carry no `collection` or `keyId`. Without
+   `MADARCH_STARTUP_TIMING=1`, or with `MADARCH_TRACE=off`, neither place gets a record.
 7. `madarch stop --home ~/products` ends the server step 6 started.

@@ -2,7 +2,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-export type StartupContext = { status: 'absent' | 'invalid' | 'unsupported' } | { status: 'ready'; collection: string; keyId: string; key: Buffer };
+export type StartupContext = { status: 'absent' | 'invalid' | 'unavailable' } | { status: 'ready'; collection: string; keyId: string; key: Buffer };
 let captured: string | undefined;
 let context: StartupContext = { status: 'absent' };
 let entered = false;
@@ -13,7 +13,7 @@ export function consumeStartupContext(): void {
  captured = process.env.MADARCH_STARTUP_CONTEXT;
  delete process.env.MADARCH_STARTUP_CONTEXT;
  if (!startupEnabled() || captured === undefined) return;
- context = { status: process.platform === 'win32' ? 'unsupported' : 'invalid' };
+ context = { status: process.platform === 'win32' ? 'unavailable' : 'invalid' };
  if (process.platform === 'win32' || !isAbsolute(captured)) return;
  let fd: number | undefined;
  try {

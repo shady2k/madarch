@@ -10,17 +10,15 @@ if (configPath !== undefined) {
  const spawnSync = cp.spawnSync; const openSync = fs.openSync; const readFileSync = fs.readFileSync; const dlopen = ffi.dlopen; const fstatSync = fs.fstatSync;
  let contextFd: number | undefined;
  const receipt = (value: object): void => append(config.receipts, JSON.stringify(value) + '\n');
- const inspect = (kind: string, command: unknown, options: any): void => {
-  const env = options?.env ?? process.env;
-  const text = JSON.stringify({ command, env });
-  receipt({ kind, pgctl: JSON.stringify(command).includes('pg_ctl'), unrelated: JSON.stringify(command).includes('process.stdout.write'), pathAbsent: !text.includes(config.context) && env.MADARCH_STARTUP_CONTEXT === undefined, keyAbsent: !text.includes(config.key) });
- };
+ const wrapper = new URL('./startup-private-child.ts', import.meta.url).pathname;
+ const wrap = (kind: string, command: string[]): string[] => [process.execPath, wrapper, kind, ...command];
+ const isPgctl = (command: string[]): boolean => command[0]?.endsWith('/pg_ctl') === true;
  const originalSpawn = Bun.spawn.bind(Bun);
- (Bun as any).spawn = (...args: any[]) => { inspect('bun', args[0], args[1]); return (originalSpawn as any)(...args); };
- const originalSync = Bun.spawnSync.bind(Bun);
- (Bun as any).spawnSync = (...args: any[]) => { inspect('bun-sync', args[0], args[1]); return (originalSync as any)(...args); };
+ (Bun as any).spawn = (command: string[], options: any) => originalSpawn(isPgctl(command) ? wrap('bun', command) : command, options);
  mock.module('node:child_process', () => ({ ...cp,
-  spawnSync: (...args: any[]) => { inspect('sync', [args[0], args[1]], args[2]); return (spawnSync as any)(...args); },
+  spawnSync: (command: string, args: string[], options: any) => isPgctl([command])
+   ? spawnSync(process.execPath, [wrapper, 'sync', command, ...args], options)
+   : spawnSync(command, args, options),
  }));
  mock.module('node:fs', () => ({ ...fs,
   openSync: (...args: any[]) => { const fd = (openSync as any)(...args); if (args[0] === config.context) { receipt({ contextOpened: true }); contextFd = fd; } return fd; },
@@ -35,7 +33,7 @@ if (configPath !== undefined) {
  mock.module('../../src/plugin/sandbox-delegation.js', () => ({ ...delegation, canStartDelegatedScope: async () => config.mode !== 'direct' }));
  // The unrelated child is dispatched only after entry consumed its context.
  process.once('exit', () => {
-  const answer = Bun.spawnSync([process.execPath, '-e', 'process.stdout.write("unrelated")'], { env: { ...process.env } });
+  const answer = Bun.spawnSync(wrap('unrelated', [process.execPath, '-e', 'process.stdout.write("unrelated")']), { env: { ...process.env } });
   receipt({ unrelatedRan: answer.exitCode === 0 });
  });
 }

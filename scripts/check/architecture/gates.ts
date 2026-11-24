@@ -311,8 +311,6 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
       if (value === undefined || !names.has(value) || protocolFields.has(node)) continue;
-      // This status belongs to the private startup file protocol, not a catalogue kind.
-      if (module.file === 'src/obs/startup-context.ts' && value === 'unsupported') continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
     for (const node of nodesOf(module.tree)) {

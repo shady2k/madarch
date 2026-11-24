@@ -25,8 +25,8 @@ test('real pg_ctl Bun and synchronous executions plus unrelated children receive
  expect(code, out + err).toBe(0);
  const receipts = observed(f); const commands = receipts.filter(r => r.kind && (r.pgctl || r.unrelated));
  expect(commands.some(r => r.pgctl && r.kind === 'bun')).toBe(true); expect(commands.some(r => r.pgctl && r.kind === 'sync')).toBe(true);
- expect(receipts.some(r => r.unrelatedRan)).toBe(true);
- for (const r of commands) expect(r).toMatchObject({ pathAbsent: true, keyAbsent: true });
+ expect(receipts.some(r => r.unrelatedRan)).toBe(true); expect(commands.some(r => r.unrelated && r.kind === 'unrelated')).toBe(true);
+ for (const r of commands) expect(r, 'child effective environment and argv must contain neither context path nor key').toMatchObject({ pathAbsent: true, keyAbsent: true });
  expect(JSON.stringify(receipts)).not.toContain(f.key); expect(JSON.stringify(receipts)).not.toContain(f.context);
  expect(collectStartup(err).incomplete).toEqual([]);
 }, 60_000);

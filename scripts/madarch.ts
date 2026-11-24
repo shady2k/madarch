@@ -21,19 +21,13 @@
  * source checkout never matched it anyway, so the source runs keep their
  * argv as `bun scripts/madarch.ts …` laid it.
  */
-import { startupEntry, startupBegin } from '../src/obs/log.js';
-const roleAt = process.argv.indexOf('--role');
-const role = roleAt === -1 ? (process.argv[2] === 'daemon-serve' ? 'daemon' : 'cli') : process.argv[roleAt + 1] === 'fill' ? 'fill' : 'api';
-startupEntry(role);
-const commandPhase = process.argv[2] === 'stop' ? 'command.stop' : process.argv[2] === 'serve' ? 'command.serve' : 'command.other';
-const terminal = startupBegin(role === 'cli' ? commandPhase : `role.${role}`);
-process.once('exit', (code) => terminal(code === 0 ? 'ok' : 'error'));
 process.argv[1] = process.execPath;
 
 // The plugin host runs a plugin on the Bun inside this binary (decision 0035, item 7): a compiled binary has no
 // separate interpreter to start, so it starts itself with the entry as its first word and runs that module, and the
 // sandbox gives it no other way in. The word is internal: the command line below never sees it.
 if (process.argv[2] === '--plugin-entry') {
+  delete process.env.MADARCH_STARTUP_CONTEXT;
   const entry = process.argv[3];
   if (entry === undefined) {
     console.error('madarch: --plugin-entry names the module to run, and none was given');
@@ -41,6 +35,13 @@ if (process.argv[2] === '--plugin-entry') {
   }
   await import(entry);
 } else {
+  const { startupEntry, startupBegin } = await import('../src/obs/log.js');
+  const roleAt = process.argv.indexOf('--role');
+  const role = roleAt === -1 ? (process.argv[2] === 'daemon-serve' ? 'daemon' : 'cli') : process.argv[roleAt + 1] === 'fill' ? 'fill' : 'api';
+  startupEntry(role);
+  const commandPhase = process.argv[2] === 'stop' ? 'command.stop' : process.argv[2] === 'serve' ? 'command.serve' : 'command.other';
+  const terminal = startupBegin(role === 'cli' ? commandPhase : `role.${role}`);
+  process.once('exit', (code) => terminal(code === 0 ? 'ok' : 'error'));
   const { main } = await import('../src/product/cli.js');
   process.exitCode = await main(process.argv.slice(2));
 }

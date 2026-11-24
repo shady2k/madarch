@@ -192,12 +192,12 @@ test('FIFO validation completes without a writer and foreign UID file is invalid
  expect(run(fifo).records[0]!.context).toBe('invalid');
  expect(run('/etc/passwd').records[0]!.context).toBe('invalid');
 });
-test('Windows file boundary reports unsupported without identifiers', () => {
+test('Windows file boundary reports unavailable without identifiers', () => {
  const child=Bun.spawnSync([process.execPath,join(import.meta.dir,'fixtures','startup-trace-child.ts'),'unused','windows'],{
   env:{...process.env,MADARCH_TRACE:'on',MADARCH_STARTUP_TIMING:'1',MADARCH_STARTUP_CONTEXT:context},
  });
  expect(child.exitCode).toBe(0); const records=collectStartup(child.stderr.toString()).records;
- expect(records).toHaveLength(2); expect(records[0]).toMatchObject({context:'unsupported',clock:'process'}); expect(records[0]!.collection).toBeUndefined();
+ expect(records).toHaveLength(2); expect(records[0]).toMatchObject({context:'unavailable',clock:'process'}); expect(records[0]!.collection).toBeUndefined();
 });
 
 test('overlapping operations retain their own operation and trace identities', async () => {

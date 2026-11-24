@@ -53,7 +53,7 @@ test('real initdb command failure keeps product output and balanced error outcom
  const collected=collectStartup(on.stderr.toString()); expect(collected.incomplete).toEqual([]);
  const withoutRecords=(text:string)=>text.split('\n').filter(line=>{try{return JSON.parse(line).version!==1;}catch{return true;}}).join('\n');
  expect(withoutRecords(on.stderr.toString())).toBe(off.stderr.toString());
- for(const phase of ['store.open','cluster.initdb']) expect(collected.records.find(r=>r.phase===phase && r.edge==='terminal')!.outcome).toBe('error');
+ for(const phase of ['store.open','cluster.initdb']) { const terminal = collected.records.find(r=>r.phase===phase && r.edge==='terminal'); expect(terminal, `missing ${phase} terminal`).toBeDefined(); expect(terminal!.outcome).toBe('error'); }
  expect(on.stdout.toString()).toContain('EXPECTED-COMMAND-FAILURE'); expect(on.stderr.toString()).not.toContain(key);
 });
 
@@ -69,8 +69,9 @@ test('another process reuses an already answering prepared cluster',async()=>{
   const [exit,out,err]=await Promise.all([peer.exited,new Response(peer.stdout).text(),new Response(peer.stderr).text()]);expect(exit,out+err).toBe(0);
   const result=collectStartup(err);expect(result.incomplete).toEqual([]);
   expect(result.records.filter(r=>r.phase==='cluster.initdb')).toEqual([]);
-  expect(result.records.find(r=>r.phase==='cluster.start'&&r.edge==='terminal')!.outcome).toBe('reused');
+  const terminal = result.records.find(r=>r.phase==='cluster.start'&&r.edge==='terminal'); expect(terminal, 'missing cluster.start terminal').toBeDefined(); expect(terminal!.outcome).toBe('reused');
   expect(result.records.filter(r=>r.phase==='store.open')).toHaveLength(2);
- }finally{holder.stdin.write('release\n');holder.stdin.end();await reader.cancel();expect(await holder.exited).toBe(0);}
+ }finally{ try { holder.stdin.write('release\n'); holder.stdin.end(); } catch { /* The holder may have exited before cleanup. */ } await reader.cancel(); await holder.exited; }
+ expect(holder.exitCode).toBe(0);
  expect(collectStartup(await error).incomplete).toEqual([]);
 },120_000);
