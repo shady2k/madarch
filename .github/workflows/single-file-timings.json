@@ -223,6 +223,7 @@
     "test/roles-two-and-two.test.ts": 7900,
     "test/sandbox-probe.test.ts": 6600,
     "test/selective-runtime.test.ts": 7800,
+    "test/server-sources.test.ts": 29615,
     "test/server-templates.test.ts": 166400,
     "test/source-follows-fill.test.ts": 29700,
     "test/sources.test.ts": 5900,
