@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { run } from './startup-stop-matrix-helper.js';
 
 // Both stop paths run `pg_ctl stop` and both read its ending the same way: the ending by a signal is the one that has no
-// exit code, and the record's fields are read from a command record that exists (ALX-1604, item 2).
+// exit code, and the record's fields are read from a command record that exists.
 for (const [mode, path] of [['command-signal', 'stopStoreForExit'], ['cluster-command-signal', 'stopCluster']] as const) test(`signal termination of ${path}'s command omits its exit code`, async () => {
  const { records, stop, facts } = await run(mode);
  const commands = records.filter(r => r.phase === 'cluster.stop.command' && r.edge === 'terminal' && r.command === 'signal');

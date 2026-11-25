@@ -554,7 +554,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   let proc: import('node:child_process').ChildProcess;
   if (delegated) {
     // The scope's receipt script is written beside the pid file before anything is spawned; a write that fails is a start
-    // that did not happen, reported as one, the way the log and the state record are (madarch-4ag1, ALX-1703).
+    // that did not happen, reported as one, the way the log and the state record are (madarch-4ag1).
     let scope: { command: string; args: string[] };
     try { scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`); }
     catch (error) {

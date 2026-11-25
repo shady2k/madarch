@@ -8,15 +8,24 @@ fs.mkdirSync(folder, { recursive: true });
 const pgCtl = join(root, 'pg_ctl.exe');
 fs.writeFileSync(pgCtl, 'fixture');
 const pidFile = join(folder, 'postmaster.pid');
-const recorded = !['absent', 'corrupt', 'unreadable', 'null-error', 'undefined-error'].includes(mode);
+const recorded = !['absent', 'absent-once', 'corrupt', 'unreadable', 'null-error', 'undefined-error'].includes(mode);
 if (recorded) fs.writeFileSync(pidFile, '4242\n');
-let launches = 0; let callbacks = 0; let probes = 0;
+let launches = 0; let callbacks = 0; let probes = 0; let existsCalls = 0;
 const nativeRead = fs.readFileSync;
-mock.module('node:fs', () => ({ ...fs, readFileSync: (...args: Parameters<typeof nativeRead>) => {
+const nativeExists = fs.existsSync;
+mock.module('node:fs', () => ({ ...fs,
+ // The pid record is looked at once per stop: `absent-once` answers absent on the first look and present on every look
+ // after it, so a stop that reads the file twice is caught naming a holder it never saw.
+ existsSync: (path: Parameters<typeof nativeExists>[0]): boolean => {
+  if (path !== pidFile) return Reflect.apply(nativeExists, fs, [path]);
+  existsCalls++;
+  return mode === 'absent-once' ? existsCalls > 1 : Reflect.apply(nativeExists, fs, [path]);
+ },
+ readFileSync: (...args: Parameters<typeof nativeRead>) => {
  if (args[0] !== pidFile) return Reflect.apply(nativeRead, fs, args);
  if (mode === 'null-error') throw null;
  if (mode === 'undefined-error') throw undefined;
- if (mode === 'absent' || mode === 'absent-command' || mode === 'unreadable') throw Object.assign(new Error('fixture read failure'), { code: mode === 'unreadable' ? 'EACCES' : 'ENOENT' });
+ if (mode === 'absent' || mode === 'absent-command' || mode === 'absent-once' || mode === 'unreadable') throw Object.assign(new Error('fixture read failure'), { code: mode === 'unreadable' ? 'EACCES' : 'ENOENT' });
  return mode === 'corrupt' ? 'not-a-pid\n' : '4242\n';
 } }));
 const nativeSpawn = childProcess.spawnSync;
@@ -30,7 +39,9 @@ mock.module('node:child_process', () => ({ ...childProcess, spawnSync: (program:
  if (mode === 'signal') return { status: null, signal: 'SIGTERM', stdout: '', stderr: '' };
  if (mode === 'kill') return { status: null, signal: 'SIGKILL', stdout: '', stderr: '' };
  if (mode === 'exit-error') return { status: 7, signal: null, stdout: '', stderr: '' };
- fs.rmSync(pidFile);
+ // `force`: a record the mock reports as present is not on disk in `absent-once`, and a stopped store's record is gone
+ // either way.
+ fs.rmSync(pidFile, { force: true });
  return { status: 0, signal: null, stdout: '', stderr: '' };
 } }));
 const { stopWindowsDaemon } = await import('../../src/product/windows-daemon-stop.js');
@@ -39,4 +50,4 @@ const ok = stopWindowsDaemon({ pid: 1, home: root }, {
  alive: () => { probes++; return false; },
  ...(mode === 'bypass' ? { stopStore: () => { callbacks++; fs.rmSync(pidFile); return true; } } : {}),
 });
-console.log(JSON.stringify({ ok, launches, callbacks, probes }));
+console.log(JSON.stringify({ ok, launches, callbacks, probes, existsCalls }));

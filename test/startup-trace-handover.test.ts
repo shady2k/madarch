@@ -88,7 +88,7 @@ test('S2 independent daemon stop precedes fresh serve of the same scratch cluste
   expect(stopParsed.records.some(r => r.phase === 'cluster.stop.command')).toBe(false);
   const sweep = stopParsed.records.filter(r => r.phase === 'cluster.stop' && r.edge === 'terminal');
   // The independent CLI sweeps exactly the one store of this home, and its sweep is what these records are read for: a
-  // missing record would let every check below pass on nothing (ALX-1604, item 2).
+  // missing record would let every check below pass on nothing.
   expect(sweep, 'one sweep terminal for the store the CLI stop did not open').toHaveLength(1);
   expect(sweep.every(r => r.outcome === 'absent')).toBe(true);
   expect(sweep.every(r => r.postmasterPid === undefined && r.postmasterTicks === undefined && r.identity === undefined)).toBe(true);

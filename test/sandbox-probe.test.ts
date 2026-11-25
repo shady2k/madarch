@@ -16,8 +16,8 @@ test('a machine with no delegated cgroup reaches the isolation choice in plain w
   expect(probe.reason).not.toMatch(/systemd-run|--scope|bwrap/u);
 });
 
-// ALX-1703 minor 1: the wrapper is written beside the pid file before anything is spawned, so a write that fails is a
-// start that did not happen, and a home keeps no `.madarch-daemon-scope.sh.<pid>` of it.
+// The wrapper is written beside the pid file before anything is spawned, so a write that fails is a start that did not
+// happen, and a home keeps no `.madarch-daemon-scope.sh.<pid>` of it.
 test('a scope wrapper that cannot be replaced takes its own partial file with it', () => {
   const home = mkdtempSync(join(tmpdir(), 'madarch-scope-'));
   try {

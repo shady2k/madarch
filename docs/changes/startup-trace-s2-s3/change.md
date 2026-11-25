@@ -104,7 +104,11 @@ Place: the command's stderr and the home's `.madarch-daemon.log`, the two places
    sweep of the store runs after the daemon's roles gave the store up, so that sweep's `cluster.stop` pair is `absent` —
    the server's record is gone by then. The home's log holds the roles' own stops: a `cluster.lock.users` pair with
    `acquired`, a `cluster.stop.command` pair with `exit` and `code: 0`, and the `cluster.stop` pair it ends, `stopped`
-   with `holder: "gone"`, `probe: "answered"`, `command: "exit"` and `identity: "observed"`.
+   with `holder: "gone"`, `probe: "answered"`, `command: "exit"` and `identity: "observed"`. The `api` role's own end
+   then stops every database under the home once more, `pg_ctl stop` answers a
+   server that is already gone, and the log therefore also ends with a `cluster.stop.command` pair with `error` and
+   `code: 1` and the `cluster.stop` pair it ends, `absent` with `holder: "absent"`. That last pair is the cleanup finding
+   nothing left to stop, not a failed stop: the stop's own result is the pairs above it.
 4. Run the `init` command of step 1 a second time with a second product folder. The log holds the `schema.request` pair
    the `api` role writes when it asks for preparation, and the `schema.commit` pair the owner answers it with,
    `acknowledged` because PostgreSQL answered `COMMIT` by name. A transaction that failed pairs `schema.rollback`
@@ -116,6 +120,18 @@ Place: the command's stderr and the home's `.madarch-daemon.log`, the two places
    `command: "none"` and no pid, because the lock another process holds decides and this stop reads nothing more.
 7. Without `MADARCH_STARTUP_TIMING=1`, or with `MADARCH_TRACE=off`, neither place gets a record of this slice, and the
    start, the reuse and the stop behave exactly as they do with the records on.
+
+- What confirms each step: the suite that runs the real launcher, daemon, roles and stores under fixtures, never a stub
+  of the product — these commands were not hand-run on a personal machine for this slice. Steps 1 and 2 come from
+  `test/startup-trace-launch-delegated.test.ts`, `startup-trace-launch-direct.test.ts`,
+  `startup-trace-launch-fallback.test.ts` and `startup-trace-launch-evidence.test.ts`, which read a real start's
+  `daemon.lock`, `daemon.spawn` and `daemon.wait` pairs with `childPid`, and from `test/startup-trace-handover.test.ts`
+  and `startup-trace-start.test.ts`, which read the `identity` and `reused` of the two roles' `cluster.start` pairs. Step
+  3 is the handover test's real stop and the stop matrix (`test/startup-trace-stop*.test.ts`); step 4 is
+  `test/startup-trace-rpc.test.ts` and `startup-trace-schema.test.ts`; step 5 is `test/startup-trace-store.test.ts`, where
+  a second process opens the answering store. Step 6 is `test/startup-trace-stop-ownership.test.ts`, whose second holder
+  turns the stop into `skipped` without a command, and step 7 is the records-off case every file above runs beside its
+  records-on one.
 
 ## Blocking questions
 

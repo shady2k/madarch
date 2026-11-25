@@ -208,13 +208,14 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     if (store.pid === undefined) Object.assign(store, capture(store.folder));
     const terminal = startupBegin('cluster.stop', store.folder);
     const pidFile = join(store.folder, 'postmaster.pid');
-    // A record the capture found absent and this look finds names no holder: it appeared between the two, so neither its
-    // holder nor its exit is established here, and the outcome below is unknown (ALX-1604, item 3). This is the same one
-    // look the stop already takes, never a new wait or a second read.
-    const appeared = store.pid === undefined && store.holder === 'absent' && existsSync(pidFile);
+    // The one look at the record this stop takes: a record the capture found absent and this look finds names no holder,
+    // since it appeared between the two, so neither its holder nor its exit is established here and the outcome below is
+    // unknown. With the records off the same single look still decides the stop, and it adds no read of its own.
+    const present = existsSync(pidFile);
+    const appeared = store.pid === undefined && store.holder === 'absent' && present;
     let evidence: StartupEvidence = { ...(store.holder === 'absent' && store.pid === undefined ? {} : { identity: 'unknown' as const }), signal: 'none', command: 'none', probe: 'skipped', ...(appeared ? {} : { holder: store.holder }), ...(store.pid === undefined ? {} : { postmasterPid: store.pid }) };
     try {
-    if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) { if (store.pid === undefined && store.holder === 'absent') terminal('absent', evidence); return true; }
+    if (!present && (store.pid === undefined || !exists(store.pid))) { if (store.pid === undefined && store.holder === 'absent') terminal('absent', evidence); return true; }
     // The installed binary only: stopping must never download a PostgreSQL build.
     if (!existsSync(pgCtl)) {
       console.error(`Windows stop could not stop the store ${store.folder}: ${pgCtl} is not installed`);

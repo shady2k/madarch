@@ -75,3 +75,17 @@ test('S2 Windows fake-reader trace off emits no startup records and keeps callba
  const on = await run('bypass'); const off = await run('bypass', 'off');
  expect(off.code).toBe(on.code); expect(off.stdout).toBe(on.stdout); expect(off.stderr).toBe(''); expect(off.records).toEqual([]);
 });
+test('S2 Windows stop looks at the pid record once, so a record appearing between two looks is never read as absent', async () => {
+ // The fixture answers absent on the first look at the file and present on every look after it: a stop that looks twice
+ // names a holder it never observed and runs a stop over a record the capture found absent.
+ for (const trace of ['on', 'off']) {
+  const result = await run('absent-once', trace);
+  expect(result.code, result.stderr).toBe(0); expect(result.incomplete).toEqual([]);
+  expect(result.facts, `trace ${trace}`).toEqual({ ok: true, launches: 0, callbacks: 0, probes: 0, existsCalls: 1 });
+  expect(result.records.some(r => r.phase === 'cluster.stop.command')).toBe(false);
+  if (trace === 'off') { expect(result.records).toEqual([]); continue; }
+  const stop = result.records.find(r => r.phase === 'cluster.stop' && r.edge === 'terminal');
+  expect(stop).toMatchObject({ outcome: 'absent', holder: 'absent', command: 'none', probe: 'skipped' });
+  expect(stop?.identity).toBeUndefined(); expect(stop?.postmasterPid).toBeUndefined(); expect(stop?.postmasterTicks).toBeUndefined();
+ }
+});
