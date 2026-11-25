@@ -334,7 +334,7 @@
     "test/producer-binding.test.ts": 2851,
     "test/producer-facts-identities.test.ts": 13000,
     "test/producer-facts.test.ts": 5841,
-    "test/producer-lifecycle.test.ts": 16600,
+    "test/producer-lifecycle.test.ts": 31739,
     "test/producer-outcomes.test.ts": 9000,
     "test/producer-read.test.ts": 5082,
     "test/product-cli-script.test.ts": 573100,
