@@ -8,10 +8,10 @@
  * that fails here says which read or write it failed at. The cgroup files' contents are read as the format states them —
  * one line of controller names separated by spaces — never matched as text.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, posix } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { withSpan } from '../obs/trace.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
 
 const WHERE = 'src/plugin/sandbox-delegation.ts';
 const HERE = fileURLToPath(import.meta.url);
@@ -102,11 +102,40 @@ export async function canStartDelegatedScope(root = CGROUP_ROOT): Promise<boolea
   return await userManagerDelegates(root) && existsSync(join(root, 'user.slice'));
 }
 
+/** The file beside a pid receipt that holds the wrapper script: one per daemon home, written whole on each start. */
+const RECEIPT_SCRIPT_NAME = '.madarch-daemon-scope.sh';
+
+/**
+ * The shell that writes the scoped process's own pid, then becomes the daemon.
+ *
+ * `systemd-run` expands the words it is handed: on systemd 262 `--expand-environment` is on by default, `--scope`
+ * included, so a `$$` written into an argument reaches the shell as `$` and the receipt held `$` instead of the pid
+ * (madarch-4ag1). The words handed to it therefore carry no `$` and no `%`: the receipt's path, the daemon's command
+ * and its arguments arrive as this script's positional parameters, and the script's own two lines are a file that
+ * `systemd-run` never looks into.
+ */
+const RECEIPT_SCRIPT = 'echo "$$" > "$1" || exit 1\nshift\nexec "$@"\n';
+
+/**
+ * Writes the receipt script beside the pid file and answers its path. The file is replaced whole, so a start that
+ * reads it never reads half of one, and its content is the same on every start.
+ */
+function receiptScript(pidFile: string): string {
+  const path = join(dirname(pidFile), RECEIPT_SCRIPT_NAME);
+  const partial = `${path}.${String(process.pid)}`;
+  withSpanSync('fs.write', { 'file.path': path }, (span) => {
+    writeFileSync(partial, RECEIPT_SCRIPT, { mode: 0o600 });
+    renameSync(partial, path);
+    span.setAttribute('file.bytes', Buffer.byteLength(RECEIPT_SCRIPT));
+  });
+  return path;
+}
+
 /** The command that starts a daemon in a transient delegated user scope, with its real pid written for the caller. */
 export function delegatedScopeCommand(command: string, args: readonly string[], pidFile: string, unit: string): { command: string; args: string[] } {
   return {
     command: 'systemd-run',
-    args: ['--user', '--scope', '--quiet', '--unit', unit, '-p', 'Delegate=yes', '--', '/bin/sh', '-c', 'echo $$ > "$1"; shift; exec "$@"', 'sh', pidFile, command, ...args],
+    args: ['--user', '--scope', '--quiet', '--unit', unit, '-p', 'Delegate=yes', '--', '/bin/sh', receiptScript(pidFile), pidFile, command, ...args],
   };
 }
 

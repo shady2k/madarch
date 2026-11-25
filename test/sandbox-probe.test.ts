@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fillIsolation, probePluginSandbox } from '../src/plugin/sandbox-probe.js';
@@ -16,12 +17,55 @@ test('a machine with no delegated cgroup reaches the isolation choice in plain w
 });
 
 test('the delegated scope command is a child scope with its own controllers and pid file', () => {
-  const scope = delegatedScopeCommand('madarch', ['daemon-serve', '--home', '/tmp/home'], '/tmp/madarch.pid', 'madarch-daemon-1');
-  expect(scope.command).toBe('systemd-run');
-  expect(scope.args).toContain('--scope');
-  expect(scope.args).toContain('Delegate=yes');
-  expect(scope.args).toContain('/tmp/madarch.pid');
-  expect(scope.args.slice(-4)).toEqual(['madarch', 'daemon-serve', '--home', '/tmp/home']);
+  const home = mkdtempSync(join(tmpdir(), 'madarch-scope-'));
+  try {
+    const pidFile = join(home, 'daemon.pid');
+    const scope = delegatedScopeCommand('madarch', ['daemon-serve', '--home', home], pidFile, 'madarch-daemon-1');
+    expect(scope.command).toBe('systemd-run');
+    expect(scope.args).toContain('--scope');
+    expect(scope.args).toContain('Delegate=yes');
+    expect(scope.args).toContain(pidFile);
+    expect(scope.args.slice(-4)).toEqual(['madarch', 'daemon-serve', '--home', home]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+// madarch-4ag1: systemd-run expands the words it is given — on systemd 262 `--expand-environment` is on by default even
+// for `--scope`, so a `$$` in an argument arrives at the shell as `$` and the pid receipt held `$` instead of the pid.
+test('the delegated scope hands systemd-run no word that its expansion rewrites', () => {
+  const home = mkdtempSync(join(tmpdir(), 'madarch-scope-'));
+  try {
+    const pidFile = join(home, 'daemon.pid');
+    const scope = delegatedScopeCommand(process.execPath, ['-e', 'console.log(1)'], pidFile, 'madarch-daemon-1');
+    const commandAt = scope.args.indexOf(process.execPath);
+    expect(commandAt).toBeGreaterThan(0);
+    for (const word of [scope.command, ...scope.args.slice(0, commandAt)]) {
+      expect(word).not.toContain('$');
+      expect(word).not.toContain('%');
+    }
+    expect(scope.args).toContain(pidFile);
+    expect(scope.args.slice(-3)).toEqual([process.execPath, '-e', 'console.log(1)']);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test.skipIf(!existsSync('/bin/sh'))('the delegated scope writes the scoped process\'s own pid and becomes the target whole', () => {
+  const home = mkdtempSync(join(tmpdir(), 'madarch-receipt-'));
+  try {
+    const pidFile = join(home, 'daemon.pid');
+    const said = ['a b', '"quoted"', 'кириллица', 'tab\there'];
+    const program = 'console.log(JSON.stringify({ pid: process.pid, argv: process.argv.slice(1) }))';
+    const scope = delegatedScopeCommand(process.execPath, ['-e', program, ...said], pidFile, 'madarch-daemon-1');
+    const inner = scope.args.slice(scope.args.indexOf('--') + 1);
+    const ran = spawnSync(inner[0]!, inner.slice(1), { encoding: 'utf8' });
+    expect(ran.status).toBe(0);
+    const held = readFileSync(pidFile, 'utf8');
+    expect(held).toMatch(/^[0-9]+\n?$/);
+    const receipt = Number(held.trim());
+    expect(receipt).toBeGreaterThan(0);
+    expect(receipt).not.toBe(process.pid);
+    const answer = JSON.parse(ran.stdout) as { pid: number; argv: string[] };
+    expect(answer.pid).toBe(receipt);
+    expect(answer.argv).toEqual(said);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test('the machine setting is remembered in settings.json beside the reader role, without another file', () => {
