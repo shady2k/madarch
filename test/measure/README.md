@@ -73,9 +73,9 @@ today, by file and line.
 | requirement | current home | A8 action |
 |---|---|---|
 | 80 related kinds render within 200 ms warm | `test/catalogue-diagram.test.ts:99` (reading at `:91`) | — |
-| the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:158` (`:133`) | — |
+| the file catalogue's diagram within 200 ms | `test/catalogue-kind-relations.test.ts:161` (`:133`), gated by `MADARCH_SKIP_PERF` | — |
 | a child stops within 10 s of SIGTERM; one ignoring SIGTERM stops within 10 s; one holding its output stops within 5 s | `test/child-stop.test.ts:20`, `:34`, `:48` | — |
-| diagram fold under 5 ms, fold and layout under 400 ms | `test/diagram-budget.test.ts:47`, `:48` | — |
+| diagram fold under 5 ms, fold and layout under 400 ms | `test/diagram-budget.test.ts:51`, `:52`, gated by `MADARCH_SKIP_PERF` | — |
 | another diagram answers under 650 ms while a CPU-looping renderer runs, and the looping one's timeout is answered under 1 500 ms | `test/diagram-route.test.ts:255`, `:258` | — |
 | the static fill's peak per 100 files varies at most 25 % between 100, 200 and 400 files (memory) | `test/fill-static-heap.test.ts:77`, `:78`; `MADARCH_SKIP_PERF` at `:39` | — |
 | `graphql-executor`: a diagram read over 1 324 children, bounded to its sample, under 2 s | `test/graphql-executor.test.ts:653` (reading at `:639`) | — |
@@ -87,16 +87,20 @@ today, by file and line.
 | the first publication of `everything` through the `madarch init` path | `test/madarch-init-e2e.test.ts:80`; the press waits up to 3600 × 500 ms at `:197`, with no elapsed assertion | — |
 | `graph-records`: the two passes over one fixture, 120 s (ALX-29) | `test/graph-records.test.ts:168` (case at `:156`) | — |
 | `fill-states`: the press and the refusal, 300 s each | `test/fill-states.test.ts:115`, `:143` | — |
-| `api-role-first-page`: the first status answer on a 150 000-span store within 5 s, the cached answer within 50 ms | `test/api-role-first-page.test.ts:74`, `:79` | — |
+| `api-role-first-page`: the first status answer on a 150 000-span store within 5 s, the cached answer within 50 ms | `test/api-role-first-page.test.ts:77`, `:82`, gated by `MADARCH_SKIP_PERF` | — |
 | process exits with stdout held: `expect(elapsed).toBeLessThan(10_000)` | `test/postgres-cluster-owner.test.ts:615` | measurement needed |
 | foreign PID preparation: `expect(performance.now() - started).toBeLessThan(12_000)` | `test/postgres-cluster-owner.test.ts:637` | measurement needed |
 | ACP install: `expect(Date.now() - started).toBeLessThan(2_500)` | `test/fill-acp-install.test.ts:260` | measurement needed |
 | ignored SIGTERM: `expect(Date.now() - started).toBeGreaterThan(2_000)` before checking stopped process group | `test/fill-acp-install.test.ts:295` | controlled-timer event check: after SIGTERM, advance to just before `KILL_GRACE_MS` and assert no SIGKILL; advance to the grace deadline and assert SIGKILL; assert the process group has exited before tree removal. Replacing `KILL_GRACE_MS` with 0 must fail this check |
 | PostgreSQL 404: `expect(Date.now() - started).toBeLessThan(10_000)` | `test/postgres-install.test.ts:189` | measurement needed |
 
-The three files under `MADARCH_SKIP_PERF` are this table's rows for
-`fill-static-heap`, `history` and `roles-two-and-two`. Two of them read the
-variable as `!== undefined` (`test/fill-static-heap.test.ts:39`,
-`test/history.test.ts:553`) and `roles-two-and-two` as `=== '1'`
-(`test/roles-two-and-two.test.ts:19`); A8 settles that spelling with the
-variable's removal.
+Six files read `MADARCH_SKIP_PERF`, and three of them are this table's rows:
+`fill-static-heap`, `history` and `roles-two-and-two`. The other three are
+`api-role-first-page`, `catalogue-kind-relations` and `diagram-budget`: their
+wall-clock assertions are gated (P2, `madarch-x9a7.6`) because the bounds are
+the GitHub `ubuntu-24.04`, 4 vCPU runner's shape, and each names its source, or
+says that no user requirement was found for it. `fill-static-heap` and `history`
+read the variable as `!== undefined` (`test/fill-static-heap.test.ts:39`,
+`test/history.test.ts:553`), `roles-two-and-two` as `=== '1'`
+(`test/roles-two-and-two.test.ts:19`) and the P2 files as `!== undefined`; A8
+settles that spelling with the variable's removal.

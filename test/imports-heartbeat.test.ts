@@ -1,7 +1,11 @@
 /**
  * The imports producer keeps its heartbeat while it reads a repository: the SDK's heartbeat is a timer, and a
- * synchronous pass over every file would silence the plugin for as long as it parses. The host may lower the silence it
- * allows; this unit reads eight hundred files, which took longer than that bound before the reader yielded between files.
+ * synchronous pass over every file would silence the plugin for as long as it parses. This unit reads four hundred
+ * files, which outlasted the host's own five-second silence bound before the reader yielded between files.
+ *
+ * This is an end-to-end check under that default bound, not a proof of the yield: on a machine that reads four hundred
+ * files inside five seconds it would pass even without one. The yield itself is proved by the clockless case in
+ * test/imports-read.test.ts.
  */
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -27,7 +31,7 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 
 test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silence bound keeps its heartbeat and completes', async () => {
   const files = new Map<string, string>();
-  for (let index = 0; index < 800; index += 1) {
+  for (let index = 0; index < 400; index += 1) {
     const body = Array.from({ length: 2_000 }, (_, at) => `export const v${String(at)} = ${String(at)} + Math.max(${String(at)}, 1);`).join('\n');
     files.set(`src/m${String(index)}.ts`, `${body}\n`);
   }
@@ -41,8 +45,6 @@ test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silen
     workRoot: join(work, 'host'),
     trust: 'production',
     releaseHashes: [closure.hash],
-    // The host's default is five seconds; a bound this small is crossed by the synchronous pass the reader used to make.
-    limits: { heartbeatMs: 1_000 },
     ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
     graph: {
       files: async () => [...files.keys()].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),

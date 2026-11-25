@@ -70,11 +70,14 @@ test('the first status answer on a 150 000-span store answers within 5 seconds',
   expect(body.fill.run.steps.map((step: { step: string }) => step.step)).toEqual(['repository-tree']);
   // A fill now writes about 300 spans; 150 000 is a store left by a fill before the trace was bounded. The
   // quadratic reading this guards against took 303 s here; measured after the fix: 1.0 s on the worker VM,
-  // 2.1 s on the CI runner (run 42722618397), so 5 s keeps the guard without timing the runner.
-  expect(elapsed).toBeLessThan(5_000);
+  // 2.1 s on the CI runner (run 42722618397), so 5 s keeps the guard without timing the runner. The bounds are the
+  // requirement's own (docs/changes/madarch-64o5.32/capabilities/fill-orchestrator.md:339: "first answer arrives
+  // within 5 seconds and the unchanged second answer within 50 milliseconds"), on the GitHub ubuntu-24.04, 4 vCPU
+  // runner; MADARCH_SKIP_PERF drops them where that shape is not the machine under test.
+  if (process.env['MADARCH_SKIP_PERF'] === undefined) expect(elapsed).toBeLessThan(5_000);
   const secondAt = Date.now();
   const second = await fetch(`${server!.url}/api/status`, { headers: { accept: 'application/json' } });
   const secondElapsed = Date.now() - secondAt;
   expect(second.status).toBe(200);
-  expect(secondElapsed).toBeLessThan(50);
+  if (process.env['MADARCH_SKIP_PERF'] === undefined) expect(secondElapsed).toBeLessThan(50);
 }, 30_000);

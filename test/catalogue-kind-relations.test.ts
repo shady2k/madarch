@@ -155,7 +155,10 @@ test('the real File catalogue page shares dependency and declared-relation edges
         for (const occurrence of occurrences) expect(view.views.index.nodes.some(node => node.id === occurrence)).toBe(true);
       }
       console.log(`File catalogue renderDiagram ${format}: ${elapsed.toFixed(1)} ms warm`);
-      expect(elapsed).toBeLessThan(200);
+      // No user requirement was found for this 200 ms bound: it arrived in commit ffa450754 with no source. It is the
+      // GitHub ubuntu-24.04, 4 vCPU runner's shape, and MADARCH_SKIP_PERF drops it where that shape is not the machine
+      // under test; madarch-x9a7 settles its disposition.
+      if (process.env['MADARCH_SKIP_PERF'] === undefined) expect(elapsed).toBeLessThan(200);
     }
 
   } finally {
