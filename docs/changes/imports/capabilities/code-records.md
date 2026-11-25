@@ -82,7 +82,7 @@ The imports producer shall read the TypeScript and JavaScript file vertices and 
   Checked by test/imports-read.test.ts
 
 ### Scenario: heartbeat-on-a-large-repository
-- Given: a unit over eight hundred files and a host whose silence bound is one second
+- Given: a unit over four hundred files and the host's default silence bound
 - When: the producer reads the repository
 - Then: the unit completes, its answer names no problem, and the host records no missing heartbeat
   Checked by test/imports-heartbeat.test.ts

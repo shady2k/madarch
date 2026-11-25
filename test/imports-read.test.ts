@@ -158,13 +158,14 @@ describe('the imports reader', () => {
     expect(unread.problems).toEqual([]);
   });
 
-  test('reading N files turns a macrotask at least N times, and the proof reads no clock', async () => {
+  test('each file is read in a later event-loop turn than the one before it, and the proof reads no clock', async () => {
     // The reader owes one event-loop turn per file: the host's heartbeat is a timer, so a pass that never yields silences
-    // the plugin for as long as it parses. A chain of immediates counts the turns the loop makes while the read runs,
-    // and nothing here reads or waits for the wall.
+    // the plugin for as long as it parses, and a pass that yields once for the whole read — or every second file — still
+    // silences it for more than one file's parse. A chain of immediates counts the turns of the loop the read runs in,
+    // the turn is recorded where each file's text is first asked for, and nothing here reads or waits for the wall.
     const count = 24;
-    const names = Array.from({ length: count }, (_, at) => `src/m${String(at)}.ts`);
-    const texts = new Map(names.map((path, at) => [path, at + 1 < count ? `import './m${String(at + 1)}.js';\n` : 'export const end = 1;\n']));
+    // Zero-padded, so the order the reader sorts its paths into is this fixture's order too.
+    const names = Array.from({ length: count }, (_, at) => `src/m${String(at).padStart(2, '0')}.ts`);
     let turns = 0;
     let ticking = true;
     const turn = (): void => {
@@ -173,13 +174,30 @@ describe('the imports reader', () => {
       setImmediate(turn);
     };
     setImmediate(turn);
+    // The reader asks each file for its text once, in the order it reads them, so the first ask is where it reads it.
+    const readAtTurn = new Map<string, number>();
+    const texts = new (class extends Map<string, string> {
+      override get(path: string): string | undefined {
+        if (!readAtTurn.has(path)) readAtTurn.set(path, turns);
+        return super.get(path);
+      }
+    })(names.map((path) => [path, 'export const one = 1;\n']));
     const read = await readRepository({ repository: 'app', files: names, texts, blobs: new Map() });
     // The last file's own wait opens a turn the read leaves before it answers; let that turn finish before counting stops.
     await new Promise<void>((resolve) => { setImmediate(() => { resolve(); }); });
     ticking = false;
     expect(read.problems).toEqual([]);
-    expect(read.records).toHaveLength(count - 1);
-    expect(turns).toBeGreaterThanOrEqual(count);
+    expect(read.records).toEqual([]);
+    const turnOf = names.map((path) => {
+      const at = readAtTurn.get(path);
+      if (at === undefined) throw new Error(`the reader never asked for ${path}`);
+      return at;
+    });
+    // Every file but the first must be read in a strictly later turn than the file before it.
+    const notLater = names.slice(1).flatMap((path, at) => turnOf[at + 1]! > turnOf[at]!
+      ? []
+      : [`${path} was read in turn ${String(turnOf[at + 1])}, not after ${names[at]!} in turn ${String(turnOf[at])}`]);
+    expect(notLater).toEqual([]);
   });
 });
 
