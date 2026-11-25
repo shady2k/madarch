@@ -38,8 +38,17 @@ interface DaemonState { pid: number; port: number; startedAt: number; home: stri
 const STATE_FILE = '.madarch-daemon.json';
 const LOG_FILE = '.madarch-daemon.log';
 const LOCK_FILE = '.madarch-daemon.lock';
-/** How long a start waits for the child's listener to answer before it reads the start as failed. */
-const READY_TIMEOUT_MS = 8000;
+/**
+ * How long a start waits for the child's listener to answer before it reads the
+ * start as failed. It is a hang guard, never a speed limit: readiness comes only
+ * from the answer that child alone gives (the HMAC of a fresh nonce with this
+ * record's token, madarch-64o5.80), so a live child that is slow to open its port
+ * is still coming up and is waited for, while one that ended or runs another
+ * program ends the wait at once (`startChild`). A loaded start was measured
+ * opening its port at about 7.4 s (ALX-1624), and 8 s ended such a healthy
+ * server (madarch-lyh1).
+ */
+const READY_TIMEOUT_MS = 60_000;
 /**
  * How many free ports a start that asked for port 0 may try: the one it picked
  * first and two more picked when another process took the port before the
