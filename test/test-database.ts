@@ -141,7 +141,7 @@ export interface TestDatabaseOptions {
 }
 
 /** A fresh database the run's server holds for one case, dropped when its owner closes. */
-async function dropDatabase(socketDir: string, database: string): Promise<void> {
+export async function dropDatabase(socketDir: string, database: string): Promise<void> {
   const cluster = { dataDir: socketDir, socketDir, port: 5_432, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
   await clusterQuery(cluster, 'postgres', `DROP DATABASE IF EXISTS "${database.replace(/"/gu, '""')}" WITH (FORCE)`).catch(() => undefined);
 }
