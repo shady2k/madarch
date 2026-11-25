@@ -166,6 +166,37 @@ async function freePort(): Promise<number> {
   });
 }
 
+/** Live Windows ownership proof: verifies `endWindowsProcesses` refuses a mismatched creation time and kills an exact match. */
+async function verifyWindowsProcessOwnership(): Promise<void> {
+  const { listWindowsProcesses, endWindowsProcesses } = await import('../src/adapters/windows-processes.js');
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'ignore' });
+  const exited = new Promise<void>((done) => { sleeper.once('close', () => done()); sleeper.once('error', () => done()); });
+  const isRunning = (pid: number): boolean => {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+  };
+  try {
+    const pid = sleeper.pid;
+    if (pid === undefined) throw new Error('Windows ownership check could not spawn a sleeper process');
+    const listed = listWindowsProcesses();
+    if (listed === undefined) throw new Error('Windows ownership check could not list Windows processes');
+    const row = listed.find((one) => one.pid === pid);
+    if (row === undefined || row.created === undefined) throw new Error(`Windows ownership check could not read created timestamp for sleeper pid ${pid}`);
+    const wrong = endWindowsProcesses([{ pid, created: row.created - 1_000_000 }]);
+    if (wrong === undefined) throw new Error('Windows ownership check: endWindowsProcesses failed on mismatched created timestamp');
+    if (wrong.held.includes(pid)) throw new Error(`Windows ownership check: pid ${pid} was held despite mismatched created timestamp`);
+    if (!isRunning(pid)) throw new Error(`Windows ownership check: pid ${pid} stopped after mismatched created timestamp`);
+    const right = endWindowsProcesses([{ pid, created: row.created }]);
+    if (right === undefined) throw new Error('Windows ownership check: endWindowsProcesses failed on matching created timestamp');
+    if (!right.held.includes(pid)) throw new Error(`Windows ownership check: pid ${pid} was not held on matching created timestamp`);
+    if (right.left.includes(pid)) throw new Error(`Windows ownership check: pid ${pid} remained in left after matching termination`);
+    await Promise.race([exited, new Promise((done) => setTimeout(done, 1_000))]);
+    if (isRunning(pid)) throw new Error(`Windows ownership check: pid ${pid} is still running after matching termination`);
+  } finally {
+    try { sleeper.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
 async function serveCheck(): Promise<void> {
   /** Runs one `npx madarch` command to its end, the way a person does, and answers what it printed. */
   const runMadarch = async (command: string, extra: string[]): Promise<{ status: number; stdout: string; stderr: string }> =>
@@ -271,7 +302,10 @@ async function serveCheck(): Promise<void> {
           // Loaded here, never at the top: the walk reads no madarch runtime it does not use, and a Linux run
           // (which installs no packages) never reaches a module that would ask for a tracing dependency.
           const { stopWindowsDaemon } = await import('../src/product/windows-daemon-stop.js');
-          if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
+          const ownsRoot = server.exitCode === null && server.signalCode === null
+            ? (line: string) => line.includes(product)
+            : 'stores-only' as const;
+          if (!stopWindowsDaemon({ pid: server.pid, home }, ownsRoot, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
         } else {
           // The serve and everything it started are one process group. A role that will not leave, or one whose
           // descendant still holds the serve's output open, must not become a wait with no end: the walk names it.
@@ -351,6 +385,7 @@ async function serveCheck(): Promise<void> {
     // Foreground cleanup on Windows stops the home's stores, so no daemon may still hold one here.
     // `not-filled` is not store readiness: startup publication may still be in initdb. Stop must end preparation too.
     await stopServer();
+    if (process.platform === 'win32') await verifyWindowsProcessOwnership();
     await checkForegroundServe(facts.folder, 'not-filled');
     console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
     const restarted = await runMadarch('start', ['--home', home, '--port', String(port)]);

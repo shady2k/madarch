@@ -297,7 +297,7 @@ async function waitUntil(ok: () => boolean | Promise<boolean>, timeoutMs: number
  * starting child nothing.
  */
 async function stopProcess(state: DaemonState, reads: ChildReadings = childReadings): Promise<boolean> {
-  if (process.platform === 'win32') return stopWindowsDaemon(state);
+  if (process.platform === 'win32') return stopWindowsDaemon(state, (line) => isDaemonCommandLine(line, state));
   try { process.kill(state.pid, 'SIGTERM'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false; return true; }
   if (!(await waitUntil(() => !daemonIsAlive(state, reads), 3000))) {
     try { process.kill(state.pid, 'SIGKILL'); } catch { /* gone between the check and the kill */ }
@@ -654,7 +654,7 @@ export function stopDaemon(options: { home?: string }): number {
     if (state === undefined || !daemonIsAlive(state)) {
       // A prior Windows stop may have ended the launcher but failed a store's shutdown.
       // Retry the stores without ever signaling a stale or recycled process id.
-      if (process.platform === 'win32' && state !== undefined && !stopWindowsDaemon(state, { storesOnly: true })) return stopFailure(state);
+      if (process.platform === 'win32' && state !== undefined && !stopWindowsDaemon(state, 'stores-only')) return stopFailure(state);
       if (existsSync(statePath(home))) clearState(home);
       // A daemon that is gone may still have left the home's PostgreSQL servers running.
       stopDatabasesUnderSync(knowledgeRootOf(home));
@@ -662,7 +662,7 @@ export function stopDaemon(options: { home?: string }): number {
       return 0;
     }
     if (process.platform === 'win32') {
-      if (!stopWindowsDaemon(state)) return stopFailure(state);
+      if (!stopWindowsDaemon(state, (line) => isDaemonCommandLine(line, state))) return stopFailure(state);
     } else {
       try { process.kill(state.pid, 'SIGTERM'); } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return stopFailure(state);
