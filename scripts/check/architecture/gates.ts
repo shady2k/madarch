@@ -437,6 +437,7 @@ export const FILE_AND_PROCESS_ALLOWED: readonly { readonly file: string; readonl
   { file: 'src/product/draft.ts', why: 'the product folder a person makes' },
   { file: 'src/adapters/postgres-cluster.ts', why: 'the PostgreSQL server madarch installs' },
   { file: 'src/adapters/postgres-install.ts', why: 'the PostgreSQL server madarch installs' },
+  { file: 'src/adapters/windows-processes.ts', why: 'the Windows process query and termination adapter' },
   { file: 'src/identity/identity.ts', why: 'who the user is, asked of git' },
   { file: 'src/render/read-worker.ts', why: 'the renderer in a process of its own' },
   { file: 'src/obs/trace.ts', why: 'the trace writer' },
