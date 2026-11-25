@@ -157,6 +157,30 @@ describe('the imports reader', () => {
     expect(unread.records).toEqual([]);
     expect(unread.problems).toEqual([]);
   });
+
+  test('reading N files turns a macrotask at least N times, and the proof reads no clock', async () => {
+    // The reader owes one event-loop turn per file: the host's heartbeat is a timer, so a pass that never yields silences
+    // the plugin for as long as it parses. A chain of immediates counts the turns the loop makes while the read runs,
+    // and nothing here reads or waits for the wall.
+    const count = 24;
+    const names = Array.from({ length: count }, (_, at) => `src/m${String(at)}.ts`);
+    const texts = new Map(names.map((path, at) => [path, at + 1 < count ? `import './m${String(at + 1)}.js';\n` : 'export const end = 1;\n']));
+    let turns = 0;
+    let ticking = true;
+    const turn = (): void => {
+      if (!ticking) return;
+      turns += 1;
+      setImmediate(turn);
+    };
+    setImmediate(turn);
+    const read = await readRepository({ repository: 'app', files: names, texts, blobs: new Map() });
+    // The last file's own wait opens a turn the read leaves before it answers; let that turn finish before counting stops.
+    await new Promise<void>((resolve) => { setImmediate(() => { resolve(); }); });
+    ticking = false;
+    expect(read.problems).toEqual([]);
+    expect(read.records).toHaveLength(count - 1);
+    expect(turns).toBeGreaterThanOrEqual(count);
+  });
 });
 
 /** The resolution cases the review named: the repository's own rules, over the graph's files. */

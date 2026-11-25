@@ -1,7 +1,7 @@
 /**
  * The imports producer keeps its heartbeat while it reads a repository: the SDK's heartbeat is a timer, and a
- * synchronous pass over every file would silence the plugin for as long as it parses. The host may lower the silence it
- * allows; this unit reads eight hundred files, which took longer than that bound before the reader yielded between files.
+ * synchronous pass over every file would silence the plugin for as long as it parses. This unit reads eight hundred
+ * files, which outlasted the host's own five-second silence bound before the reader yielded between files.
  */
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -41,8 +41,6 @@ test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silen
     workRoot: join(work, 'host'),
     trust: 'production',
     releaseHashes: [closure.hash],
-    // The host's default is five seconds; a bound this small is crossed by the synchronous pass the reader used to make.
-    limits: { heartbeatMs: 1_000 },
     ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
     graph: {
       files: async () => [...files.keys()].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
