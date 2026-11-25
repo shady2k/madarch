@@ -45,8 +45,8 @@ mock.module('node:child_process', () => ({ ...childProcess, spawnSync: (program:
  return { status: 0, signal: null, stdout: '', stderr: '' };
 } }));
 const { stopWindowsDaemon } = await import('../../src/product/windows-daemon-stop.js');
-const ok = stopWindowsDaemon({ pid: 1, home: root }, {
- storesOnly: true, storeFolders: () => [folder], pgCtl,
+const ok = stopWindowsDaemon({ pid: 1, home: root }, 'stores-only', {
+ storeFolders: () => [folder], pgCtl,
  alive: () => { probes++; return false; },
  ...(mode === 'bypass' ? { stopStore: () => { callbacks++; fs.rmSync(pidFile); return true; } } : {}),
 });

@@ -6,51 +6,58 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { postgresInstallFolder, postgresProgram } from '../adapters/postgres-builds.js';
 import { commandLineArguments, preparationInProgress, runsOnDataDir } from '../adapters/postgres-preparation-record.js';
+import { endWindowsProcesses, listWindowsProcesses, type WindowsEndResult, type WindowsProcess } from '../adapters/windows-processes.js';
 import { knowledgeRootOf } from './store.js';
 
-export interface WindowsProcess { pid: number; parent: number; name: string; }
+export type { WindowsEndResult, WindowsProcess };
 
-/** Running PostgreSQL receives pg_ctl stop; initdb's bootstrap children are part of preparation, not a store server. */
-export function applicationProcessTree(pid: number, processes: readonly WindowsProcess[]): number[] {
-  const tree = [pid];
-  const bootstrap = new Set<number>();
-  if (processes.find((row) => row.pid === pid)?.name.toLowerCase() === 'initdb.exe') bootstrap.add(pid);
-  for (let index = 0; index < tree.length; index++) {
+const MAX_END_ROUNDS = 3;
+
+function processKey(pid: number, created: number): string {
+  return `${String(pid)}:${String(created)}`;
+}
+
+function collectProcessTree(
+  roots: readonly WindowsProcess[],
+  processes: readonly WindowsProcess[],
+  initialBootstrap: ReadonlySet<number> = new Set(),
+): { row: WindowsProcess; bootstrap: boolean }[] {
+  const treeRows: WindowsProcess[] = [];
+  const treePids = new Set<number>();
+  const bootstrap = new Set<number>(initialBootstrap);
+  for (const root of roots) {
+    if (root.created === undefined || treePids.has(root.pid)) continue;
+    treeRows.push(root);
+    treePids.add(root.pid);
+    if (root.name.toLowerCase() === 'initdb.exe') bootstrap.add(root.pid);
+  }
+  for (let index = 0; index < treeRows.length; index++) {
+    const parent = treeRows[index]!;
     for (const child of processes) {
-      if (child.parent !== tree[index] || tree.includes(child.pid)) continue;
+      if (child.parent !== parent.pid || treePids.has(child.pid)) continue;
+      if (child.created === undefined) {
+        console.error(`Windows stop ignored pid ${child.pid} (${child.name || 'unknown'}): missing creation time (parent pid ${parent.pid})`);
+        continue;
+      }
+      if (parent.created === undefined || child.created < parent.created) {
+        console.error(`Windows stop ignored pid ${child.pid} (${child.name || 'unknown'}): older than pid ${parent.pid}`);
+        continue;
+      }
       const preparing = bootstrap.has(child.parent) || child.name.toLowerCase() === 'initdb.exe';
       if (child.name.toLowerCase() === 'postgres.exe' && !preparing) continue;
-      tree.push(child.pid);
+      treeRows.push(child);
+      treePids.add(child.pid);
       if (preparing) bootstrap.add(child.pid);
     }
   }
-  return tree;
+  return treeRows.map((row) => ({ row, bootstrap: bootstrap.has(row.pid) }));
 }
 
-function processes(): WindowsProcess[] | undefined {
-  const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress';
-  for (const program of ['powershell', 'pwsh']) {
-    const result = withSpanSync('process.run', { 'process.command': program, 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => { const answer = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
-    if (result.error || result.status !== 0) continue;
-    try {
-      const value = JSON.parse(result.stdout);
-      const rows = Array.isArray(value) ? value : [value];
-      return rows.map((row) => ({ pid: row.ProcessId, parent: row.ParentProcessId, name: row.Name }));
-    } catch { /* A failed process listing is not evidence that the tree is gone. */ }
-  }
-  return undefined;
-}
-
-/** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
-function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
-  const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
-  const answer = withSpanSync('process.run', { 'process.command': 'powershell', 'process.args': ['-NoProfile', '-NonInteractive', '-Command', query] }, (span) => { const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
-  if (answer.error !== undefined || answer.status !== 0) return undefined;
-  try {
-    const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
-    const all = Array.isArray(value) ? value : [value];
-    return all.map((row) => ({ pid: row.ProcessId, name: row.Name ?? '', commandLine: row.CommandLine ?? '' }));
-  } catch { return undefined; }
+/** Running PostgreSQL receives pg_ctl stop; initdb's bootstrap children are part of preparation, not a store server. */
+export function applicationProcessTree(pid: number, processes: readonly WindowsProcess[]): number[] {
+  const root = processes.find((row) => row.pid === pid);
+  if (root === undefined || root.created === undefined) return [];
+  return collectProcessTree([root], processes).map((entry) => entry.row.pid);
 }
 
 function alive(pid: number): boolean {
@@ -64,53 +71,68 @@ function waitGone(pids: readonly number[], timeoutMs: number, exists = alive): b
   return !pids.some(exists);
 }
 
-/**
- * Whether this process is store preparation: something initdb started, under the daemon's own root. initdb runs its
- * bootstrap `postgres --boot` through cmd.exe on Windows, so that whole subtree is preparation and never a store
- * server. The walk stops at the root: an initdb an id names above it is another program — Windows reuses ids — and it
- * must not turn the daemon's subtree, which holds a store server, into one swept whole.
- */
-function inStorePreparation(pid: number, root: number, processes: readonly WindowsProcess[]): boolean {
-  const seen = new Set<number>();
-  for (let at = pid; at !== root && !seen.has(at);) {
-    seen.add(at);
-    const row = processes.find((one) => one.pid === at);
-    if (row === undefined) return false;
-    if (row.name.toLowerCase() === 'initdb.exe') return true;
-    at = row.parent;
-  }
-  return false;
-}
-
 /** Do not report success until every captured application process and store server has ended. */
-export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
-  processes?: () => WindowsProcess[] | undefined;
-  alive?: (pid: number) => boolean;
-  kill?: (pid: number) => void;
-  /** `subtree` is set only where no store server can be under the pid; see the kill loop. */
-  taskkill?: (pid: number, timeoutMs: number, subtree: boolean) => { status: number | null; error?: Error; stdout: string; stderr: string };
-  pgCtl?: string;
-  stopStore?: (program: string, folder: string) => boolean;
-  /** A stale daemon record may still need its stores swept, but its PID must not be signaled. */
-  storesOnly?: boolean;
-  /** The store data folders under the home's knowledge root, or the error that stopped the listing. */
-  storeFolders?: () => string[] | Error;
-  /** A Windows machine's processes by command line, for a store a preparation is still making. */
-  preparationProcesses?: () => { pid: number; name: string; commandLine: string }[] | undefined;
-  /** Ends one process, by the identity its command line gives it. */
-  endProcess?: (pid: number) => void;
-} = {}): boolean {
+export function stopWindowsDaemon(
+  state: { pid: number; home: string },
+  ownsRoot: 'stores-only' | ((commandLine: string) => boolean),
+  reads: {
+    processes?: () => WindowsProcess[] | undefined;
+    end?: (targets: readonly { pid: number; created: number }[]) => WindowsEndResult | undefined;
+    alive?: (pid: number) => boolean;
+    pgCtl?: string;
+    stopStore?: (program: string, folder: string) => boolean;
+    /** The store data folders under the home's knowledge root, or the error that stopped the listing. */
+    storeFolders?: () => string[] | Error;
+  } = {},
+): boolean {
   const exists = reads.alive ?? alive;
-  const snapshot = reads.storesOnly ? [] : (reads.processes ?? processes)();
-  if (snapshot === undefined) {
-    // The listing is the only thing that can say what the daemon started: a stop that cannot read it cannot end a
-    // tree it cannot name, and must not guess.
-    console.error(`Windows stop could not read the process list with powershell or pwsh, so the tree of pid ${state.pid} could not be named or ended`);
-    return false;
+  const listProcesses = reads.processes ?? listWindowsProcesses;
+  const endProcesses = reads.end ?? endWindowsProcesses;
+
+  let initialEntries: { row: WindowsProcess; bootstrap: boolean }[] = [];
+  if (ownsRoot !== 'stores-only') {
+    const snapshot = listProcesses();
+    if (snapshot === undefined) {
+      // The listing is the only thing that can say what the daemon started: a stop that cannot read it cannot end a
+      // tree it cannot name, and must not guess.
+      console.error(`Windows stop could not read the process list with powershell or pwsh, so the tree of pid ${state.pid} could not be named or ended`);
+      return false;
+    }
+    const rootRow = snapshot.find((row) => row.pid === state.pid);
+    if (rootRow === undefined) {
+      if (exists(state.pid)) {
+        console.error(`Windows stop could not find live pid ${state.pid} in the process list, so its ownership could not be verified and nothing was ended`);
+        return false;
+      }
+    } else if (rootRow.commandLine === '') {
+      console.error(`Windows stop refused pid ${state.pid} (${rootRow.name || 'unknown'}): empty command line`);
+      return false;
+    } else if (!ownsRoot(rootRow.commandLine)) {
+      console.error(`Windows stop refused pid ${state.pid} (${rootRow.name || 'unknown'}): command line is not owned by this target`);
+      return false;
+    } else if (rootRow.created === undefined) {
+      console.error(`Windows stop refused pid ${state.pid} (${rootRow.name || 'unknown'}): missing creation time`);
+      return false;
+    } else {
+      const initialPids = applicationProcessTree(state.pid, snapshot);
+      const snapshotByPid = new Map(snapshot.map((row) => [row.pid, row]));
+      const bootstrapPids = new Set<number>();
+      initialEntries = initialPids.map((pid) => {
+        const row = snapshotByPid.get(pid)!;
+        const isBootstrap = row.name.toLowerCase() === 'initdb.exe' || (pid !== state.pid && bootstrapPids.has(row.parent));
+        if (isBootstrap) bootstrapPids.add(pid);
+        return { row, bootstrap: isBootstrap };
+      });
+      if (!reads.processes) {
+        console.error(
+          `Windows stop process tree: ${JSON.stringify(
+            initialEntries.map(({ row: { pid, parent, name, created } }) => ({ pid, parent, name, created })),
+          )}`,
+        );
+      }
+    }
   }
-  const nameOf = (pid: number): string => snapshot.find((row) => row.pid === pid)?.name ?? 'unknown';
-  const tree = reads.storesOnly ? [] : applicationProcessTree(state.pid, snapshot);
-  if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(tree.map((pid) => snapshot.find((row) => row.pid === pid) ?? { pid }))}`);
+
   const root = knowledgeRootOf(state.home);
   const listStores = reads.storeFolders ?? ((): string[] | Error => {
     try { return withSpanSync('fs.readdir', { 'file.path': root }, (span) => { const held = readdirSync(root); span.setAttribute('file.entries', held.length); return held; }).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
@@ -144,65 +166,122 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   // stop go on.
   const before = look('before the kill');
   const stores = withSpanSync('stores.capture', { 'file.path': root, 'stores.count': before?.length ?? 0 }, () => (before ?? []).map((folder) => capture(folder)));
-  const deadline = Date.now() + 5_000; // The existing daemon TERM + KILL budget, shared by process checks.
-  const taskkill = reads.taskkill ?? ((pid: number, timeoutMs: number, subtree: boolean) =>
-    withSpanSync('process.run', { 'process.command': 'taskkill', 'process.args': ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)] }, (span) => { const answer = spawnSync('taskkill', ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)], { encoding: 'utf8', timeout: timeoutMs }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; }));
-  // Children before parents: Windows recycles a process id as soon as its holder ends, so a tree walked from the top
-  // can wait on an id that already names something else.
-  for (const pid of [...tree].reverse()) {
-    if (!exists(pid)) continue;
-    // /T is what reaches everything a process started after the snapshot: initdb runs its bootstrap `postgres --boot`
-    // through cmd.exe, and a bootstrap started between the listing and this kill is in no list. Only a preparation
-    // subtree may be ended whole, since a store server is never under one; the daemon's own subtree does hold one,
-    // which pg_ctl stops with a fast shutdown, so that subtree is walked, never swept.
-    const subtree = inStorePreparation(pid, state.pid, snapshot);
-    try {
-      if (reads.kill) reads.kill(pid);
-      else {
-        const timeout = deadline - Date.now();
-        if (timeout <= 0) throw new Error('the termination budget is exhausted');
-        const result = taskkill(pid, timeout, subtree);
-        if (result.error || result.status !== 0) throw new Error(`taskkill${subtree ? ' /T' : ''} exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
-      }
-    } catch (error) {
-      // Windows can refuse a pid that exited since the snapshot. Still attempt the remaining captured children.
-      if (exists(pid)) console.error(`Windows stop could not terminate pid ${pid} (${nameOf(pid)}${subtree ? ', store preparation' : ''}): ${String(error)}`);
+
+  const capturedRows = new Map<string, WindowsProcess>();
+  const survivors = new Map<string, WindowsProcess>();
+  let endFailed = false;
+
+  let roundEntries = initialEntries;
+  for (let round = 1; round <= MAX_END_ROUNDS && roundEntries.length > 0; round++) {
+    // Children before parents: end verified targets in reverse BFS order.
+    const targets = [...roundEntries].reverse().map((entry) => ({ pid: entry.row.pid, created: entry.row.created! }));
+    const roundMap = new Map<number, { row: WindowsProcess; bootstrap: boolean }>();
+    for (const entry of roundEntries) {
+      capturedRows.set(processKey(entry.row.pid, entry.row.created!), entry.row);
+      roundMap.set(entry.row.pid, entry);
     }
+
+    const result = endProcesses(targets);
+    if (result === undefined) {
+      endFailed = true;
+      console.error(`Windows stop could not end the process tree of pid ${state.pid}`);
+      break;
+    }
+
+    const heldSet = new Set(result.held);
+    for (const pid of result.left) {
+      const entry = roundMap.get(pid);
+      if (entry !== undefined) survivors.set(processKey(entry.row.pid, entry.row.created!), entry.row);
+    }
+    for (const target of targets) {
+      if (heldSet.has(target.pid)) continue;
+      if (result.processes.some((row) => row.pid === target.pid && row.created === target.created)) {
+        const entry = roundMap.get(target.pid);
+        if (entry !== undefined) survivors.set(processKey(entry.row.pid, entry.row.created!), entry.row);
+      }
+    }
+
+    // Reconstruct only the rows held by this round's end call plus result.processes without duplicate (pid, created).
+    // Earlier rounds' handles are already closed, so dead PIDs from earlier rounds must not act as straggler roots.
+    const combined: WindowsProcess[] = [];
+    const combinedKeys = new Set<string>();
+    const heldRoots: WindowsProcess[] = [];
+    const heldBootstrap = new Set<number>();
+    for (const entry of roundEntries) {
+      if (!heldSet.has(entry.row.pid)) continue;
+      const key = processKey(entry.row.pid, entry.row.created!);
+      combinedKeys.add(key);
+      combined.push(entry.row);
+      if (entry.bootstrap) heldBootstrap.add(entry.row.pid);
+      heldRoots.push(entry.row);
+    }
+    for (const row of result.processes) {
+      if (row.created !== undefined) {
+        const key = processKey(row.pid, row.created);
+        if (combinedKeys.has(key)) continue;
+        combinedKeys.add(key);
+      }
+      combined.push(row);
+    }
+
+    const stragglers = heldRoots.length === 0
+      ? []
+      : collectProcessTree(heldRoots, combined, heldBootstrap).filter(
+          (entry) => entry.row.created !== undefined && !capturedRows.has(processKey(entry.row.pid, entry.row.created)),
+        );
+    if (stragglers.length === 0) break;
+    if (round === MAX_END_ROUNDS) {
+      for (const entry of stragglers) {
+        survivors.set(processKey(entry.row.pid, entry.row.created!), entry.row);
+      }
+      break;
+    }
+    roundEntries = stragglers;
   }
-  let applicationsGone = waitGone(tree, Math.max(0, deadline - Date.now()), exists);
-  if (!applicationsGone) {
-    // An id Windows recycled while the stop waited holds another process, not the one this tree captured: a listing
-    // names what each id holds now, and a captured pid under another name is not a survivor.
-    const listing = (reads.processes ?? processes)();
-    const survivors = listing === undefined
-      ? tree.filter((pid) => exists(pid))
-      : listing.filter((row) => tree.includes(row.pid) && row.name === nameOf(row.pid)).map((row) => row.pid);
-    applicationsGone = survivors.length === 0;
-    if (!applicationsGone) console.error(`Windows stop left ${survivors.map((pid) => `pid ${String(pid)} (${nameOf(pid)})`).join(', ')} running`);
+
+  const applicationsGone = !endFailed && survivors.size === 0;
+  if (survivors.size > 0) {
+    console.error(`Windows stop left ${[...survivors.values()].map((row) => `pid ${String(row.pid)} (${row.name || 'unknown'})`).join(', ')} running`);
   }
+
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
   const sweep = (store: { folder: string; pid?: number; holder: 'absent' | 'unreadable' }): boolean => {
     // A store initdb is still making is not a store server: initdb's bootstrap writes the `postmaster.pid` pg_ctl reads,
     // and pg_ctl refuses it ("cannot stop server; single-user server is running"). What a stopped madarch left of that
     // preparation may still write the folder, so it is ended here — by identity, a program whose command line names the
-    // folder, since a pid without a start time may be another process's — and success is claimed only when none remains.
+    // folder, and by verified creation time — and success is claimed only when none remains.
     if (preparationInProgress(store.folder)) {
-      const listing = reads.preparationProcesses ?? windowsProcesses;
-      // By the argument, never by a substring: a server of `pgdata-other` is another store's.
-      const holders = (): { pid: number; name: string }[] | undefined => listing()?.filter((row) => runsOnDataDir(row.name, commandLineArguments(row.commandLine, 'win32'), store.folder, 'win32')).map((row) => ({ pid: row.pid, name: row.name }));
-      const found = holders();
+      const findHolders = (rows: readonly WindowsProcess[] | undefined): WindowsProcess[] | undefined =>
+        rows?.filter((row) => runsOnDataDir(row.name, commandLineArguments(row.commandLine, 'win32'), store.folder, 'win32'));
+      const found = findHolders(listProcesses());
       if (found === undefined) {
         console.error(`Windows stop: the store ${store.folder} is still being prepared and the process list could not be read, so it is left as it stands and this stop fails`);
         return false;
       }
-      for (const holder of found) (reads.endProcess ?? ((pid: number) => { withSpanSync('process.run', { 'process.command': 'taskkill', 'process.args': ['/F', '/PID', String(pid)] }, (span) => { const answer = spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; }); }))(holder.pid);
-      const remaining = holders() ?? found;
+      if (found.length === 0) {
+        console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
+        return true;
+      }
+      const missingCreated = found.filter((row) => row.created === undefined);
+      if (missingCreated.length > 0) {
+        console.error(`Windows stop: the store ${store.folder} is still being prepared and ${missingCreated.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} has no creation time, so it is left as it stands and this stop fails`);
+        return false;
+      }
+      const result = endProcesses(found.map((row) => ({ pid: row.pid, created: row.created! })));
+      if (result === undefined) {
+        console.error(`Windows stop: the store ${store.folder} is still being prepared and ending its holders failed, so it is left as it stands and this stop fails`);
+        return false;
+      }
+      const leftSet = new Set(result.left);
+      const remaining = found.filter((row) => leftSet.has(row.pid));
+      for (const row of findHolders(result.processes) ?? []) {
+        if (!remaining.some((existing) => existing.pid === row.pid && existing.created === row.created)) remaining.push(row);
+      }
       if (remaining.length > 0) {
         console.error(`Windows stop: the store ${store.folder} is still being prepared and ${remaining.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} still name it, so this stop fails and the folder is left as it stands`);
         return false;
       }
-      if (found.length > 0) console.error(`Windows stop: the store ${store.folder} was still being prepared; its left-over ${found.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} were ended, and the next open prepares it again`);
-      else console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
+      console.error(`Windows stop: the store ${store.folder} was still being prepared; its left-over ${found.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} were ended, and the next open prepares it again`);
       return true;
     }
     if (store.pid === undefined) Object.assign(store, capture(store.folder));
