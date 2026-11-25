@@ -677,7 +677,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     return { ok: false, taken: false, message: `could not save the daemon state at ${statePath(home)}: ${(error as Error).message}` };
   }
   const waited = startupBegin('daemon.wait');
-  const start = await waitForDaemonStart({
+  const outcome = await waitForDaemonStart({
     pid: state.pid, port, now: Date.now,
     sleep: async (ms) => { await new Promise<void>((done) => setTimeout(done, ms)); },
     readChild: () => readChild(state.pid, state, reads),
@@ -686,15 +686,15 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     alive: () => daemonIsAlive(state, reads),
     phase: () => readStart(home, token), print,
   });
-  const answered = start.answered;
+  const answered = outcome.answered;
   // The child is ready when its listener answers, not merely when the process
   // exists: the answer waits for the port, and a child that dies or execs into
   // another program ends the wait early. Only the child's own answer counts — a
   // server that took this port answers every 2xx, so the probe asks for the proof
   // the child alone can give (an HMAC of a fresh nonce with the token this record
   // holds), and a start that asked for a free port picks again (madarch-64o5.80).
-  waited(start.ok && answered ? 'ok' : 'error', spawnedPid === undefined ? {} : { childPid: spawnedPid });
-  if (start.ok) {
+  waited(outcome.ok && answered ? 'ok' : 'error', spawnedPid === undefined ? {} : { childPid: spawnedPid });
+  if (outcome.ok) {
     try { unlinkSync(pidFile); } catch { /* never written */ }
     return { ok: true, pid: state.pid, port };
   }
@@ -707,7 +707,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
   clearStart(home, token);
   if (childFault.message !== undefined) return { ok: false, taken: false, message: `${here()}: the daemon did not start on port ${port}: ${childFault.message}; read ${logPath(home)} for its cause` };
-  const why = start.why;
+  const why = outcome.why;
   let diagnostic = '';
   try { diagnostic = `\n${withSpanSync('fs.read', { 'file.path': logPath(home) }, (span) => { const held = readFileSync(logPath(home), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })}`; } catch { /* the child may have failed before writing */ }
   const taken = !survived && !answered && await addressHeld(port);

@@ -47,6 +47,7 @@ import { processStartTicks } from '../obs/startup-platform.js';
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { constants, fstatSync, readSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';

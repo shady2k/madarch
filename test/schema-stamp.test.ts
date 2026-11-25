@@ -138,7 +138,7 @@ describe('explicit store preparation and connect-only clients', () => {
 
 describe('transaction client query admission', () => {
   test('one transaction submits concurrent calls to its native client one at a time', async () => {
-    const owner = await fresh();
+    const { owner } = await fresh();
     await owner.ready;
     const { Client } = await import('pg');
     const original = Client.prototype.query;
@@ -171,7 +171,7 @@ describe('transaction client query admission', () => {
   });
 
   test('a handled statement error can recover through its savepoint', async () => {
-    const owner = await fresh();
+    const { owner } = await fresh();
     try {
       await owner.exec('CREATE TABLE queue_probe (value integer NOT NULL)');
       await owner.transaction('write', async (tx) => {
@@ -185,7 +185,7 @@ describe('transaction client query admission', () => {
   });
 
   test('callback rejection drains accepted calls before rollback and refuses calls through a retained executor', async () => {
-    const owner = await fresh();
+    const { owner } = await fresh();
     let lateQuery: (() => Promise<unknown>) | undefined;
     let settled = false;
     let accepted: Promise<PromiseSettledResult<unknown>[]> | undefined;
