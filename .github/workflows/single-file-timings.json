@@ -270,6 +270,6 @@
     "test/e2e/check-slow-tests.test.ts": 5883,
     "test/plugin-turn-exclusions.test.ts": 11537,
     "test/schema-stamp.test.ts": 17308,
-    "test/daemon-ready-timeout.test.ts": 25718
+    "test/daemon-ready-timeout.test.ts": 16530
   }
 }
