@@ -3,6 +3,11 @@
  * not opened its port yet is still coming up and is waited for, and readiness is read only from the answer that child
  * alone gives (the HMAC proof, madarch-64o5.80). The child here spends 9.5 s before its entry point runs — past the
  * 8 s bound this change replaced — so this file is red before the change and green after it.
+ *
+ * The daemon is two Bun processes: the one a start spawns (`daemon-serve` on its command line) and the api role that
+ * process spawns in turn (`--role api daemon-serve …`, src/product/cli.ts). Both inherit BUN_OPTIONS, so the pause
+ * below is taken only in the process whose command line carries `daemon-serve` without `--role`: the wait under test
+ * is the start's own, and a pause in both processes would put the port 19 s away instead of 9.5 s.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
 
-/** The pause the daemon child takes before its entry point runs: past the 8 s bound this change replaced. */
+/** The pause the start's own process takes before its entry point runs: past the 8 s bound this change replaced. */
 const SLOW_START_MS = 9_500;
 const KEPT = ['HOME', 'MADARCH_HOME', 'MADARCH_APP', 'MADARCH_APP_DIST', 'BUN_OPTIONS'];
 
@@ -52,9 +57,10 @@ test("a start outlasts 8 s of a live child's slow start and reads readiness from
   const appFolder = join(root, 'app-folder'); mkdirSync(appFolder);
   cpSync(app, join(appFolder, 'dist'), { recursive: true });
   writeFileSync(join(appFolder, 'package.json'), JSON.stringify({ name: 'app', private: true, scripts: { build: 'true' } }, null, 2));
-  // Bun runs this preload in the daemon child only — its command line carries `daemon-serve` — before its entry point.
+  // Bun runs this preload in the process a start spawns — its command line carries `daemon-serve` and no `--role` —
+  // before its entry point; the api role that process spawns in turn carries `--role` and keeps its own start.
   const preload = join(root, 'slow-daemon-preload.ts');
-  writeFileSync(preload, `if (process.argv.includes('daemon-serve')) await Bun.sleep(${SLOW_START_MS});\n`);
+  writeFileSync(preload, `if (process.argv.includes('daemon-serve') && !process.argv.includes('--role')) await Bun.sleep(${SLOW_START_MS});\n`);
   for (const key of KEPT) kept[key] = process.env[key];
   process.env.HOME = root;
   process.env.MADARCH_HOME = root;
@@ -68,4 +74,4 @@ test("a start outlasts 8 s of a live child's slow start and reads readiness from
   expect(started.port).toBe(port);
   expect(started.reused).toBe(false);
   expect((await fetch(`${started.url}/api/products`)).status).toBe(200);
-}, 30_000);
+}, 60_000);

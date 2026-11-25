@@ -21,7 +21,8 @@ holds a live child that opens its port at 9.5 s as the case the old bound failed
 ## Rationale
 
 `no-behavior`. `fill-orchestrator/host` requires the background server the process builds; it says nothing about how
-long a start may wait for it, and the 8 s was a test-side number with no requirement behind it (ALX-1683). A loaded
+long a start may wait for it, and the 8 s was a constant of the product with no requirement behind it (ALX-1683): no
+requirement asked for 8 s, so the number bounded nothing but itself. A loaded
 machine was measured opening the port at about 7.4 s (ALX-1624), so 8 s killed exactly the healthy runs the
 requirement asks to serve.
 
