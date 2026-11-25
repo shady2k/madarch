@@ -8,7 +8,7 @@
  * that fails here says which read or write it failed at. The cgroup files' contents are read as the format states them —
  * one line of controller names separated by spaces — never matched as text.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withSpan, withSpanSync } from '../obs/trace.js';
@@ -118,14 +118,20 @@ const RECEIPT_SCRIPT = 'echo "$$" > "$1" || exit 1\nshift\nexec "$@"\n';
 
 /**
  * Writes the receipt script beside the pid file and answers its path. The file is replaced whole, so a start that
- * reads it never reads half of one, and its content is the same on every start.
+ * reads it never reads half of one, and its content is the same on every start. A write that fails takes its own
+ * partial file with it: a home is not left holding `.madarch-daemon-scope.sh.<pid>` for a start that never happened.
  */
 function receiptScript(pidFile: string): string {
   const path = join(dirname(pidFile), RECEIPT_SCRIPT_NAME);
   const partial = `${path}.${String(process.pid)}`;
   withSpanSync('fs.write', { 'file.path': path }, (span) => {
-    writeFileSync(partial, RECEIPT_SCRIPT, { mode: 0o600 });
-    renameSync(partial, path);
+    try {
+      writeFileSync(partial, RECEIPT_SCRIPT, { mode: 0o600 });
+      renameSync(partial, path);
+    } catch (error) {
+      try { unlinkSync(partial); } catch { /* never written, or already renamed */ }
+      throw error;
+    }
     span.setAttribute('file.bytes', Buffer.byteLength(RECEIPT_SCRIPT));
   });
   return path;

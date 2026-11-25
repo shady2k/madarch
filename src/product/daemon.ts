@@ -15,7 +15,7 @@ import { startupBegin } from '../obs/log.js';
  */
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { stopWindowsDaemon } from './windows-daemon-stop.js';
-import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, closeSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -330,18 +330,21 @@ function portOccupied(port: number): Promise<boolean> {
  * and cleared when no such process exists; a live holder's lock is never
  * taken, and the attempt answers undefined instead.
  */
-function acquireLock(home: string): string | undefined {
+function acquireLock(home: string, terminal: ReturnType<typeof startupBegin>): string | undefined {
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   for (let attempt = 0; attempt < 2; attempt++) {
-    try { withSpanSync('fs.write', { 'file.path': join(home, LOCK_FILE), 'file.bytes': Buffer.byteLength(JSON.stringify({ pid: process.pid, token })) }, () => writeFileSync(join(home, LOCK_FILE), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 })); return token; }
-    catch {
+    try { withSpanSync('fs.write', { 'file.path': join(home, LOCK_FILE), 'file.bytes': Buffer.byteLength(JSON.stringify({ pid: process.pid, token })) }, () => writeFileSync(join(home, LOCK_FILE), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 })); terminal('acquired'); return token; }
+    catch (error) {
+      const filesystemError = error === null || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST';
       try {
         const holder = JSON.parse(withSpanSync('fs.read', { 'file.path': join(home, LOCK_FILE) }, (span) => { const held = readFileSync(join(home, LOCK_FILE), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; })) as { pid?: number };
         if (Number.isInteger(holder.pid) && !processExists(holder.pid!)) { unlinkSync(join(home, LOCK_FILE)); continue; }
       } catch { /* a lock that cannot be read is not ours to remove */ }
+      terminal(filesystemError ? 'error' : 'busy');
       return undefined;
     }
   }
+  terminal('busy');
   return undefined;
 }
 function releaseLock(home: string, token: string): void {
@@ -424,8 +427,9 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   let lock: string | undefined;
   try { withSpanSync('fs.mkdir', { 'file.path': home }, () => mkdirSync(home, { recursive: true })); }
   catch (error) { return { ok: false, message: `the products home ${home} cannot be used for the daemon state: ${(error as Error).message}` }; }
-  try { lock = acquireLock(home); }
-  catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
+  const locked = startupBegin('daemon.lock');
+  try { lock = acquireLock(home, locked); }
+  catch (error) { locked('error'); return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
   if (lock === undefined) return { ok: false, message: `another madarch lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying` };
   try { return await ensureDaemonUnderLock(home, port, asked, built.dist, options.readings ?? childReadings, asked === 0 ? pickPort : undefined, addressHeld); }
   finally { releaseLock(home, lock); }
@@ -495,13 +499,17 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
  */
 export async function answersAsDaemon(port: number, token: string): Promise<boolean> {
   const nonce = randomUUID();
+  const proof = startupBegin('daemon.proof');
   try {
     const response = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': `http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}` }, async (span) => { const response = await fetch(`http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }); span.setAttribute('http.status', response.status); return response; });
-    if (!response.ok) return false;
+    if (!response.ok) { proof('error'); return false; }
     const body = (await response.json().catch(() => null)) as { proof?: unknown } | null;
-    if (body === null || typeof body.proof !== 'string') return false;
-    return body.proof === createHmac('sha256', token).update(nonce).digest('hex');
+    if (body === null || typeof body.proof !== 'string') { proof('error'); return false; }
+    const verified = body.proof === createHmac('sha256', token).update(nonce).digest('hex');
+    proof(verified ? 'ok' : 'error');
+    return verified;
   } catch {
+    proof('error');
     return false;
   }
 }
@@ -526,29 +534,46 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   const env: NodeJS.ProcessEnv = startupChildEnv({ ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist });
   delete env.MADARCH_STORE_OWNER_URL;
   delete env.MADARCH_STORE_OWNER_TOKEN;
+  let spawned: ReturnType<typeof startupBegin> | undefined;
   const start = (command: string, args: string[]): import('node:child_process').ChildProcess => {
-    const started = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => spawn(command, args, { detached: true, stdio: ['ignore', log, log], env }));
-    started.unref();
-    return started;
+    const attempt = startupBegin('daemon.spawn');
+    spawned = attempt;
+    try {
+      const started = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => spawn(command, args, { detached: true, stdio: ['ignore', log, log], env }));
+      if (started.pid === undefined) attempt('error');
+      started.unref();
+      return started;
+    } catch (error) { attempt('error'); throw error; }
   };
   // Where the user manager delegates cpu, memory and pids, the daemon starts in its own transient scope and makes the
   // daemon/plugins child layout there (sandbox-delegation.ts). The scope's shell writes the daemon's real pid, so the
   // state file, the command-line check and stop all name the daemon rather than systemd-run.
   const pidFile = join(home, `.madarch-daemon-pid-${token}`);
   const delegated = await canStartDelegatedScope();
+  let delegatedAttempt = delegated;
   let proc: import('node:child_process').ChildProcess;
   if (delegated) {
-    const scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`);
+    // The scope's receipt script is written beside the pid file before anything is spawned; a write that fails is a start
+    // that did not happen, reported as one, the way the log and the state record are (madarch-4ag1).
+    let scope: { command: string; args: string[] };
+    try { scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`); }
+    catch (error) {
+      closeSync(log);
+      return { ok: false, taken: false, message: `the daemon did not start: the scope wrapper beside ${pidFile} cannot be written: ${(error as Error).message}` };
+    }
     proc = start(scope.command, scope.args);
     const pidWritten = await waitUntil(() => existsSync(pidFile), 2500);
     if (!pidWritten) {
+      spawned?.('unknown');
       try { proc.kill('SIGTERM'); } catch { /* already gone */ }
       try { unlinkSync(pidFile); } catch { /* never written */ }
+      delegatedAttempt = false;
       proc = start(child.command, child.args);
     }
   } else {
     proc = start(child.command, child.args);
   }
+  let receiptPid: number | undefined;
   const daemonPid = (() => {
     try {
       const written = withSpanSync('fs.read', { 'file.path': pidFile }, (span) => {
@@ -557,9 +582,12 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
         return text;
       });
       const held = Number(written.trim());
+      if (Number.isInteger(held) && held > 0) receiptPid = held;
       return Number.isInteger(held) && held > 0 ? held : proc.pid!;
     } catch { return proc.pid!; }
   })();
+  const spawnedPid = delegatedAttempt ? receiptPid : proc.pid;
+  spawned?.(spawnedPid === undefined ? (delegatedAttempt ? 'unknown' : 'error') : 'ok', spawnedPid === undefined ? {} : { childPid: spawnedPid });
   // A spawn that cannot even happen (a PATH without bun) is a failed start,
   // not an uncaught error on a process the state file already names.
   const childFault: { message?: string } = {};
@@ -583,6 +611,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   // the last one: what the check saw, read before the process is ended. The
   // wait's own first pass sets it, so nothing is read twice.
   let seen: { reading: SpawnedChild; args: string | undefined } = { reading: 'starting', args: undefined };
+  const waited = startupBegin('daemon.wait');
   const ready = await waitUntil(async () => {
     seen = readChild(state.pid, state, reads);
     if (seen.reading === 'ended' || seen.reading === 'foreign') return true;
@@ -596,6 +625,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
     return false;
   }, READY_TIMEOUT_MS);
+  waited(ready && answered ? 'ok' : 'error', spawnedPid === undefined ? {} : { childPid: spawnedPid });
   if (ready && answered && daemonIsAlive(state, reads)) {
     try { unlinkSync(pidFile); } catch { /* never written */ }
     return { ok: true, pid: state.pid, port };
@@ -647,7 +677,10 @@ export function stopDaemon(options: { home?: string }): number {
     console.error(`the products home ${home} cannot be read to stop the daemon: ${(error as Error).message}`);
     return 1;
   }
-  const lock = acquireLock(home);
+  const locked = startupBegin('daemon.lock');
+  let lock: string | undefined;
+  try { lock = acquireLock(home, locked); }
+  catch (error) { locked('error'); throw error; }
   if (lock === undefined) { console.error(`another daemon lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying`); return 1; }
   try {
     const state = readState(home);

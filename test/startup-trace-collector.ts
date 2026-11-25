@@ -2,7 +2,8 @@
 export interface StartupRecord {
  version: number; context: string; instance: string; pid: number; role: string; sequence: number;
  pair: string; phase: string; edge: string; clock: string; ns: string;
- domain?: string; startTicks?: string; collection?: string; keyId?: string; cluster?: string; outcome?: string;
+ operation?: string; traceId?: string; spanId?: string; domain?: string; startTicks?: string; collection?: string; keyId?: string; cluster?: string; outcome?: string;
+ identity?: string; postmasterPid?: number; postmasterTicks?: string; holder?: string; probe?: string; command?: string; code?: number; signal?: string; childPid?: number;
 }
 export function collectStartup(text: string, expectedRoles: readonly string[] = []): { records: StartupRecord[]; incomplete: string[] } {
  const records: StartupRecord[] = []; const incomplete: string[] = [];
