@@ -658,11 +658,11 @@ test('a failed start says which reading of the child it saw, and claims no check
   // token is what says so — the claim is made only where the token was read.
   expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), { answered: false, tokenMissed: true })).toContain("does not show this record's token");
   // This record's daemon, which never answered.
-  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 8s');
+  expect(startFailureWhy(1234, 43137, seen('daemon', daemonLine), never)).toContain('did not answer on port 43137 within 60s');
   // Still starting when the wait ran out: the reading is named, and no token
   // check that was never made is claimed for it.
   const starting = startFailureWhy(1234, 43137, seen('starting', ''), never);
-  expect(starting).toContain('was still starting after 8s');
+  expect(starting).toContain('was still starting after 60s');
   expect(starting).toContain('its command line read ""');
   expect(starting).not.toContain('token');
   expect(startFailureWhy(1234, 43137, seen('starting', undefined), never)).toContain('its command line read nothing');
