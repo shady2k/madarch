@@ -12,7 +12,11 @@
  * Nothing here accepts a source line, a document, a prompt or the values a
  * statement was given. A caller that has such text has nothing to log with.
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { clusterDigest, consumeStartupContext, startupContextFields, startupEnabled } from './startup-context.js';
+import { processStartTicks, startupClock } from './startup-platform.js';
 import { currentSpan, currentTrace } from './trace.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -63,3 +67,41 @@ export const log = {
    */
   error: (message: string, fields: LogFields = {}, error?: unknown): void => write('error', message, fields, error),
 };
+
+/** Closed startup edge vocabulary; no caller-provided payload or error text. */
+export type StartupOutcome = 'ok' | 'error' | 'reused' | 'unknown' | 'cancelled';
+export type StartupRole = 'cli' | 'launcher' | 'daemon' | 'api' | 'fill' | 'fixture';
+let startupRole: StartupRole = 'cli';
+const roleScope = new AsyncLocalStorage<StartupRole>();
+export function withStartupRole<T>(role: StartupRole, work: () => T): T { return roleScope.run(role, work); }
+let startupInstance: string | undefined;
+let startupSequence = 0;
+let startupPair = 0;
+const startupScope = new AsyncLocalStorage<{ operation?: string }>();
+export function startupEntry(role: StartupRole): void { consumeStartupContext(); startupRole = role; }
+export function withStartupContext<T>(operation: string | undefined, work: () => T): T {
+ return startupScope.run(operation === undefined ? {} : { operation }, work);
+}
+export function startupOperation(): string | undefined { return startupScope.getStore()?.operation; }
+export function startupBegin(phase: string, dataDir?: string): (outcome: StartupOutcome) => void {
+ if (!startupEnabled()) return () => {};
+ try {
+ startupInstance ??= randomUUID();
+ const pair = String(++startupPair);
+ const cluster = dataDir === undefined ? undefined : clusterDigest(dataDir);
+ const operation = startupOperation();
+ const role = roleScope.getStore() ?? startupRole;
+ const emit = (edge: 'begin' | 'terminal', outcome?: StartupOutcome): void => {
+  try {
+   const span = currentSpan()?.spanContext();
+   const record = { version: 1, ...startupContextFields(), instance: startupInstance, pid: process.pid,
+    role, sequence: ++startupSequence, pair, phase, edge, ...startupClock(),
+    startTicks: processStartTicks(process.pid), cluster, operation, outcome,
+    ...(span === undefined ? {} : { traceId: span.traceId, spanId: span.spanId }) };
+   writeSync(2, `${JSON.stringify(record)}\n`);
+  } catch { /* evidence loss cannot change the product result */ }
+ };
+ emit('begin'); let ended = false;
+ return (outcome) => { if (ended) return; ended = true; emit('terminal', outcome); };
+ } catch { return () => {}; }
+}

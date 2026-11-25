@@ -1,3 +1,5 @@
+import { startupBegin, withStartupContext } from '../obs/log.js';
+import { startupIdentifiers, validStartupOperation } from '../obs/startup-context.js';
 /** The owner process's authenticated preparation service; connections stay in the storage layer. */
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -26,6 +28,8 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
   };
   const prepare = async (body: PreparationRequest): Promise<void> => {
     const store = resolve(body.store);
+    const terminal = startupBegin('schema.prepare', resolve(store, 'pgdata'));
+    try {
     if (body.histories === true || body.rename !== undefined) {
       prepared.delete(store);
       const lease = await leaseStoreCluster(resolve(body.store));
@@ -41,6 +45,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
           }
         }
       } finally { await lease.close(); }
+      terminal('ok');
       return;
     }
     const database = body.database ?? 'madarch';
@@ -48,18 +53,16 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     const stamp = body.database !== undefined ? 'history' : contract === undefined ? undefined : graphSchemaStamp(contract);
     const previous = prepared.get(store)?.get(database);
     // Only this owner's last successful preparation stands; a different contract may change its schema.
-    if (body.reset !== true && previous !== undefined && (stamp === undefined || previous === stamp)) return;
+    if (body.reset !== true && previous !== undefined && (stamp === undefined || previous === stamp)) { terminal('reused'); return; }
     prepared.get(store)?.delete(database);
     const owner = await ownerOf(store, body.database);
-    const started = performance.now();
-    try {
-      await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
-    } finally {
-      if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
-    }
+    await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+
     const databases = prepared.get(store) ?? new Map<string, string>();
     databases.set(database, stamp ?? 'prepared');
     prepared.set(store, databases);
+    terminal('ok');
+    } catch (error) { terminal('error'); throw error; }
   };
   const token = randomUUID();
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
@@ -67,7 +70,10 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     try {
       const body = await req.json() as PreparationRequest;
       if (typeof body.store !== 'string' || body.store === '') return new Response('store is required', { status: 400 });
-      const pending = tail.then(async () => await prepare(body));
+      const identifiers = startupIdentifiers();
+      const incoming = body.startup;
+      const operation = identifiers !== undefined && incoming?.collection === identifiers.collection && incoming.keyId === identifiers.keyId && validStartupOperation(incoming.operation) ? incoming.operation : undefined;
+      const pending = tail.then(async () => await withStartupContext(operation, async () => await prepare(body)));
       tail = pending.catch(() => undefined);
       await pending;
       return new Response(null, { status: 204 });

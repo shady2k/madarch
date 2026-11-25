@@ -1,3 +1,5 @@
+import { startupChildEnv } from '../obs/startup-context.js';
+import { startupBegin } from '../obs/log.js';
 /** The bound after which a request still running is reported. */
 export function watchdogBound(env: Readonly<Record<string, string | undefined>>): number {
   const named = Number(env.MADARCH_WATCHDOG_MS ?? '');
@@ -542,6 +544,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     return answered;
   };
   let server: ReturnType<typeof Bun.serve>;
+  const bindTerminal = startupBegin('listener');
   try {
     server = Bun.serve({
       hostname: options.host ?? '127.0.0.1',
@@ -552,7 +555,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       // comments, keeps one long-lived request alive without polling.
       idleTimeout: 255,
     });
+    bindTerminal('ok');
   } catch (error) {
+    bindTerminal('error');
     await knowledgeHost.close().catch(() => {});
     await graphs?.close().catch(() => {});
     await queryDatabase?.close().catch(() => {});
@@ -599,7 +604,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } }));
+    const child = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: startupChildEnv({ ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) }) }));
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: async () => {

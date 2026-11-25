@@ -1,3 +1,6 @@
+import { sanitizedStartupEnv } from '../obs/startup-context.js';
+import { startupBegin } from '../obs/log.js';
+import { processStartTicks } from '../obs/startup-platform.js';
 /**
  * The PostgreSQL server a store runs on (madarch-8bdc.2.5, items 1 and 3; the roles' one owner, madarch-8bdc.9): one
  * cluster — a data directory, a private Unix socket (Unix) or authenticated loopback TCP (Windows) — started on demand and
@@ -151,7 +154,7 @@ function socketFolderFor(dataDir: string): string {
 /** Runs one of the server's own programs, refusing by name with what it said. */
 function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean; readonly stdio?: 'ignore' | 'pipe' } = {}): { code: number; stdout: string; stderr: string } {
   const answer = withSpanSync('process.run', { 'process.command': program, 'process.args': [...args] }, (span) => {
-    const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: { ...process.env, LC_ALL: 'C' }, ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
+    const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }), ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
     span.setAttribute('process.exit_code', answer.status ?? -1);
     span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
     span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
@@ -525,7 +528,6 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
   const connection = process.platform === 'win32'
     ? `-h 127.0.0.1 -p ${String(await freeTcpPort())} -c unix_socket_directories=`
     : `-k "${socketDir}" -p ${String(CLUSTER_PORT)} -c listen_addresses=`;
-  const started = performance.now();
   try {
     const invocation = clusterStartInvocation(dataDir, logFile, connection);
     runBinary(join(bin, postgresProgram('pg_ctl')), invocation.args, { stdio: invocation.stdio });
@@ -541,8 +543,6 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
       span.setAttribute('file.bytes', Buffer.byteLength(held));
       return held;
     })}`);
-  } finally {
-    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.start ${(performance.now() - started).toFixed(1)} ms`);
   }
   lowerPriorityOf(dataDir);
 }
@@ -759,7 +759,7 @@ async function runInitdb(program: string, args: readonly string[], dataDir: stri
   return await withSpan('process.run', { 'process.command': program, 'process.args': [...args], 'file.path': dataDir }, async (span) => {
     const child = spawn(program, [...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, LC_ALL: 'C' },
+      env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }),
       // Its own process group on POSIX, so a timeout ends what initdb started; Windows is ended with `taskkill /T`.
       detached: process.platform !== 'win32',
     });
@@ -923,7 +923,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   // from here until initdb ends, and a crash mid-way must not leave a store that reads as whole.
   withSpanSync('fs.remove', { 'file.path': preparedRecordPath(dataDir) }, () => rmSync(preparedRecordPath(dataDir), { force: true }));
   writeRecord(preparingRecordPath(dataDir), { id, version, startedAt });
-  const started = performance.now();
+  const terminal = startupBegin('cluster.initdb', dataDir);
   try {
     await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], dataDir, (pid, startTime) => {
       // The record names the initdb as soon as it has one: a madarch that a stop ends leaves a folder only a later open
@@ -932,7 +932,9 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
     }, initdbTimeoutMs);
     writeRecord(preparedRecordPath(dataDir), { version, preparedAt: new Date().toISOString() });
     withSpanSync('fs.remove', { 'file.path': preparingRecordPath(dataDir) }, () => rmSync(preparingRecordPath(dataDir), { force: true }));
+    terminal('ok');
   } catch (error) {
+    terminal('error');
     // An initdb that wrote nothing never prepared anything: the record of that attempt is not one to keep, since a
     // later open would refuse a folder holding nothing rather than prepare it.
     if (withSpanSync('fs.readdir', { 'file.path': dataDir }, (span) => {
@@ -941,8 +943,6 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
       return held;
     }).length === 0) rmSync(preparingRecordPath(dataDir), { force: true });
     throw error;
-  } finally {
-    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);
   }
 }
 
@@ -986,9 +986,12 @@ export interface OpenClusterOptions {
  * the last hold of it in this process is given back and no other process holds one.
  */
 export async function openCluster(options: OpenClusterOptions): Promise<RunningCluster> {
+  const terminal = startupBegin('store.open', options.dataDir);
+  try {
   refuseRoot();
   const key = resolve(options.dataDir);
   let opened = openInProcess.get(key);
+  const reused = opened !== undefined;
   if (opened === undefined) {
     opened = openOnce(key, options).then((cluster) => ({ cluster, users: 0 }));
     openInProcess.set(key, opened);
@@ -998,10 +1001,12 @@ export async function openCluster(options: OpenClusterOptions): Promise<RunningC
   const held = await opened;
   held.users += 1;
   const { cluster } = held;
+  terminal(reused ? 'reused' : 'ok');
   return {
     dataDir: cluster.dataDir, socketDir: cluster.socketDir, port: cluster.port, user: cluster.user, bin: cluster.bin,
     stop: async () => await releaseCluster(key),
   };
+  } catch (error) { terminal('error'); throw error; }
 }
 
 /** One caller's stop: the server is given up when the last caller holding it in this process stops. */
@@ -1048,9 +1053,12 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
     // process finds it answering and connects to it instead of starting a second server of the same store.
     const start = await holdLock(startLockPath(dataDir), LOCK_EX, { what: `the start of the PostgreSQL server on ${dataDir}`, deadlineMs: START_LOCK_WAIT_MS });
     try {
+      const terminal = startupBegin('cluster.start', dataDir);
+      try {
       if (await answering(socketDir)) {
         // A server another process started, or a predecessor left: it serves this store, so it is lowered too.
         lowerPriorityOf(dataDir);
+        terminal('reused');
       } else {
         if (startsRefused) throw new Error(`${dataDir}:1: this process is stopping, so the store's PostgreSQL server is not started for it (src/adapters/postgres-cluster.ts)`);
         await reclaimStaleServer(dataDir, bin, socketDir, log);
@@ -1063,7 +1071,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
         if (failing !== undefined) {
           throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}, and the last attempt said: ${failing} (src/adapters/postgres-cluster.ts)`);
         }
+        terminal('ok');
       }
+      } catch (error) { terminal('error'); throw error; }
     } finally {
       releaseLock(start);
     }
@@ -1107,17 +1117,7 @@ function realPathOf(path: string): string {
 
 /** The kernel's start time of a process (Linux `/proc/<pid>/stat` field 22), or undefined where it is not read. */
 export function processStartTime(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
-  if (platform !== 'linux') return undefined;
-  try {
-    const stat = withSpanSync('fs.read', { 'file.path': `/proc/${String(pid)}/stat` }, (span) => {
-      const held = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
-      span.setAttribute('file.bytes', Buffer.byteLength(held));
-      return held;
-    });
-    // The second field is the command in parentheses; the fields after it are space separated.
-    const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    return after[19] ?? undefined;
-  } catch { return undefined; }
+  return platform === 'linux' ? processStartTicks(pid) : undefined;
 }
 
 /**
@@ -1165,7 +1165,7 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
   const answer = withSpanSync('process.run', { 'process.command': psql, 'process.args': ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'] }, (span) => {
     const answer = spawnSync(psql, ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
     encoding: 'utf8', timeout: 5_000,
-    env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
+    env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) }),
   });
     span.setAttribute('process.exit_code', answer.status ?? -1);
     span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
@@ -1230,7 +1230,7 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
             continue;
           }
           const verifiedStart = processStartTime(pid);
-          const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
+          const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }) });
           if (stopped.status !== 0) {
             if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
             if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
@@ -1318,7 +1318,7 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', key, '-m', 'fast', '-w', 'stop'] }, async (span) => {
       const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
         stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
-        env: { ...process.env, LC_ALL: 'C' },
+        env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }),
       });
       const code = await stopping.exited;
       span.setAttribute('process.exit_code', code);
@@ -1360,7 +1360,7 @@ async function stopCluster(options: { readonly dataDir: string; readonly socketD
       const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', dataDir, '-m', 'fast', '-w', 'stop'] }, async (span) => {
         const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', dataDir, '-m', 'fast', '-w', 'stop'], {
           stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
-          env: { ...process.env, LC_ALL: 'C' },
+          env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }),
         });
       const code = await stopping.exited;
         span.setAttribute('process.exit_code', code);

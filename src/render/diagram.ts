@@ -1,3 +1,4 @@
+import { sanitizedStartupEnv } from '../obs/startup-context.js';
 /**
  * The diagram of one entity, rendered on the server (decision 0036, sections 7 and 8; capability views, one-view): the
  * neighbourhood the graph read layer answered, an edge and its inverse drawn once, more than `aggregateAbove` neighbours
@@ -349,7 +350,7 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     // layout serves a checkout's vendor tree, whose entry imports its sibling modules and reads its template.
     copyArchifyVendor(vendor, join(folder, 'archify'));
     const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
-    const child = withSpanSync('process.run', { 'process.command': process.execPath, 'process.args': [renderer, input, output], 'process.cwd': folder }, () => Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } }));
+    const child = withSpanSync('process.run', { 'process.command': process.execPath, 'process.args': [renderer, input, output], 'process.cwd': folder }, () => Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: sanitizedStartupEnv({ ...process.env, BUN_BE_BUN: '1' }) }));
     options.started?.(child.pid, folder);
     const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {

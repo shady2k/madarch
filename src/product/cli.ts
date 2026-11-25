@@ -1,3 +1,5 @@
+import { startupChildEnv } from '../obs/startup-context.js';
+import { startupBegin, withStartupRole } from '../obs/log.js';
 /**
  * The `madarch` command's parsing and printing (`scripts/madarch.ts` is the
  * entry point; docs/changes/draft-product/capabilities/product-repository.md
@@ -649,7 +651,11 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
-        const child = withSpanSync('process.run', { 'process.command': command, 'process.args': childArgs }, () => Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } }));
+        const child = withStartupRole('launcher', () => {
+          const terminal = startupBegin('role.launcher');
+          try { const child = withSpanSync('process.run', { 'process.command': command, 'process.args': childArgs }, () => Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: startupChildEnv({ ...process.env, MADARCH_API_PARENT: String(process.pid) }) })); terminal('ok'); return child; }
+          catch (error) { terminal('error'); throw error; }
+        });
         // A role that will not leave — one inside a store's start, say — is killed rather than waited for: the child's
         // output is this process's own, so a descendant of it holding that open would keep a stop from ever ending.
         const stop = (): void => {
@@ -1268,9 +1274,9 @@ export function nextSteps(folder: string, init: boolean, language: CommandLangua
  */
 async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>, language: CommandLanguage = commandLanguage()): Promise<number> {
   const words = initWords(language);
-  const daemonStarted = performance.now();
-  const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
-  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup ensureDaemon ${(performance.now() - daemonStarted).toFixed(1)} ms`);
+  const daemonTerminal = startupBegin('ensureDaemon');
+  const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env }).catch((error: unknown) => { daemonTerminal('error'); throw error; });
+  daemonTerminal(started.ok ? (started.reused ? 'reused' : 'ok') : 'error');
   if (!started.ok) { console.error(started.message); return 1; }
   const name = encodeURIComponent(basename(folder));
   const url = `${started.url}/products/${name}/`;

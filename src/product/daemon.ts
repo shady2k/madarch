@@ -1,3 +1,5 @@
+import { startupChildEnv } from '../obs/startup-context.js';
+import { startupBegin } from '../obs/log.js';
 /** The detached products-home server lifecycle behind `madarch start`, `stop` and `status` (change madarch-zcti, requirement product-repository/daemon).
  *
  * One detached `bun` child serves every valid product in the products home on
@@ -521,7 +523,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   catch (error) { return { ok: false, taken: false, message: `the daemon log at ${logPath(home)} cannot be written: ${(error as Error).message}` }; }
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const child = daemonCommand(home, port);
-  const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist };
+  const env: NodeJS.ProcessEnv = startupChildEnv({ ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist });
   delete env.MADARCH_STORE_OWNER_URL;
   delete env.MADARCH_STORE_OWNER_TOKEN;
   const start = (command: string, args: string[]): import('node:child_process').ChildProcess => {
@@ -810,7 +812,8 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     const validated: ValidatedManifests[] = [];
     const folders = products.products.map((one) => one.folder);
     if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
-    const validationStarted = performance.now();
+    const validationTerminal = startupBegin('manifest.validate');
+    try {
     const ownFolder = ownInstall?.ok ? ownInstall.folder : undefined;
     for (const folder of folders) {
       const read = validateProductManifests(folder);
@@ -827,23 +830,23 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       } else if (read.value !== undefined) validated.push(read.value);
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
-    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup manifest.validate ${(performance.now() - validationStarted).toFixed(1)} ms`);
+    validationTerminal('ok');
+    } catch (error) { validationTerminal('error'); throw error; }
     for (const value of validated) setManifestPublicationState(value.folder, { status: 'pending' });
     const publish = async (value: ValidatedManifests): Promise<void> => {
       setManifestPublicationState(value.folder, { status: 'pending' });
-      const started = performance.now();
+      const terminal = startupBegin('catalogue.publish');
       try {
         await fills.publishManifests(value);
         setManifestPublicationState(value.folder, { status: 'published' });
+        terminal('ok');
       } catch (error) {
+        terminal('error');
         setManifestPublicationState(value.folder, { status: 'failed', message: String(error) });
         throw error;
-      } finally {
-        if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.publish ${(performance.now() - started).toFixed(1)} ms ${value.folder}`);
       }
     };
     const { startServer } = await import('../server/http.js');
-    const listenerStarted = performance.now();
     const server = await startServer({
       productHome: home,
       knowledgeRoot: knowledgeRootOf(home),
@@ -855,7 +858,6 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
         stop: async () => { await publication; await fills.stop(); },
       },
     });
-    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup listener ${(performance.now() - listenerStarted).toFixed(1)} ms`);
     // Valid declarations may take seconds to publish. The listener can answer truthfully meanwhile;
     // validation above is still a hard start gate, before any public socket is opened.
     let manifests: ReturnType<typeof createManifestWatch> | undefined;
