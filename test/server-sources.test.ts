@@ -874,7 +874,11 @@ describe('a rename claim on the stores', () => {
           new RegExp(`shop\\.json[\\s\\S]*"formerNames"`),
         );
       } finally {
-        rmSync(dir, { recursive: true, force: true });
+        try {
+          await dropTestStoreDatabases(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   });
@@ -1114,7 +1118,11 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
         writeFileSync(join(dir, 'shop.json'), JSON.stringify(sidecar));
         await expect(testSources(dir, fakeClock(DAY(1))), name).rejects.toThrow(problem);
       } finally {
-        rmSync(dir, { recursive: true, force: true });
+        try {
+          await dropTestStoreDatabases(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   }, 60_000);
@@ -1135,7 +1143,11 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
         writeFileSync(join(dir, `${stem}.json`), JSON.stringify({ source, commit: 'c1', committedAt: 1, storedAt: 2 }));
         await expect(testSources(dir, fakeClock(DAY(1))), stem).rejects.toThrow(/does not decode to a source name/);
       } finally {
-        rmSync(dir, { recursive: true, force: true });
+        try {
+          await dropTestStoreDatabases(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   });
@@ -1163,7 +1175,11 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
         await expect(testSources(dir, fakeClock(DAY(1))), named).rejects.toThrow(/holds the sources (shop, other|other, shop), but its sidecar/);
       } finally {
-        rmSync(dir, { recursive: true, force: true });
+        try {
+          await dropTestStoreDatabases(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   });
@@ -1181,7 +1197,11 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
         await built.close();
         await expect(testSources(dir, fakeClock(DAY(1))), stem).rejects.toThrow(/the folder was not written by this server/);
       } finally {
-        rmSync(dir, { recursive: true, force: true });
+        try {
+          await dropTestStoreDatabases(dir);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   });

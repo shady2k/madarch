@@ -9,7 +9,7 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { repositoryContract } from './repository-contract-fixture.js';
-import { testStoreServer } from './test-database.js';
+import { dropDatabase, testStoreServer } from './test-database.js';
 
 /** Observe every client query, including a forbidden attempt that PostgreSQL rejects. */
 function observed(owner: DatabaseOwner, statements: string[]): DatabaseOwner {
@@ -45,13 +45,15 @@ function observed(owner: DatabaseOwner, statements: string[]): DatabaseOwner {
 }
 const ddl = (sql: string): boolean => /\b(?:CREATE|ALTER|DROP|TRUNCATE)\s/iu.test(sql);
 
-async function fresh(): Promise<DatabaseOwner> {
-  return await createDatabaseOwner({ cluster: await testStoreServer(), database: `schema_${crypto.randomUUID().replaceAll('-', '')}` });
+async function fresh() {
+  const cluster = await testStoreServer();
+  const database = `schema_${crypto.randomUUID().replaceAll('-', '')}`;
+  return { owner: await createDatabaseOwner({ cluster, database }), cluster, database };
 }
 
 describe('explicit store preparation and connect-only clients', () => {
   test('an unprepared graph client refuses with a preparation instruction and attempts no DDL', async () => {
-    const owner = await fresh();
+    const { owner, cluster, database } = await fresh();
     try {
       const statements: string[] = [];
       const client = observed(owner, statements);
@@ -60,7 +62,10 @@ describe('explicit store preparation and connect-only clients', () => {
       expect(statements.filter(ddl)).toEqual([]);
       const held = await owner.run(async (tx) => await tx.query<{ name: string | null }>("SELECT to_regclass('madarch_meta.schema_stamp')::text AS name"));
       expect(held.rows).toEqual([{ name: null }]);
-    } finally { await owner.close(); }
+    } finally {
+      await owner.close();
+      await dropDatabase(cluster.socketDir, database);
+    }
   }, 120_000);
 
   test('twenty fresh prepared stores accept eight concurrent module clients without DDL or retries', async () => {
@@ -112,7 +117,10 @@ describe('explicit store preparation and connect-only clients', () => {
           "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('node', 'edge', 'entity') ORDER BY table_name",
         ));
         expect(tables.rows.map((row) => row.table_name)).toEqual(['edge', 'entity', 'node']);
-      } finally { await owner.close(); }
+      } finally {
+        await owner.close();
+        await dropDatabase(cluster.socketDir, database);
+      }
     }
   }, 120_000);
 });
