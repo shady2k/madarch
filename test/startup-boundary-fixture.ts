@@ -1,4 +1,4 @@
-import { expect } from 'bun:test';
+import { afterAll, expect } from 'bun:test';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,14 +7,15 @@ import { createServer } from 'node:net';
 import { collectStartup, type StartupRecord } from './startup-trace-collector.js';
 const source = join(import.meta.dir, '..', 'scripts', 'madarch.ts');
 export const preload = join(import.meta.dir, 'fixtures', 'startup-boundary-preload.ts');
-/** Folders this module's fixtures made; removed when the process that made them exits. */
-const folders: string[] = [];
-process.once('exit', () => {
- for (const folder of folders) { try { rmSync(folder, { recursive: true, force: true }); } catch { /* already removed */ } }
-});
-export function fixture(mode = 'direct') {
- const folder = mkdtempSync(join(tmpdir(), 'startup-boundaries-')); chmodSync(folder, 0o700); folders.push(folder);
- const home = join(folder, 'products'); mkdirSync(home);
+/** Call once from each test file so its afterAll owns only that file's tree. */
+export function createFixtureOwner() {
+ const root = mkdtempSync(join(tmpdir(), 'startup-boundaries-'));
+ chmodSync(root, 0o700);
+ afterAll(() => rmSync(root, { recursive: true, force: true }));
+ return (mode = 'direct') => makeFixture(root, mode);
+}
+function makeFixture(root: string, mode: string) {
+ const folder = mkdtempSync(join(root, 'case-')); const home = join(folder, 'products'); mkdirSync(home);
  const context = join(folder, 'context'); const collection = randomUUID(); const key = randomBytes(32).toString('hex');
  writeFileSync(context, JSON.stringify({ version: 1, collection, key }), { mode: 0o600 });
  const receipts = join(folder, 'receipts'); const config = join(folder, 'config');
@@ -29,7 +30,7 @@ export function fixture(mode = 'direct') {
  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, MADARCH_HOME: folder, MADARCH_APP: app, MADARCH_APP_DIST: join(app, 'dist'), MADARCH_OWN_WIKI: 'off', MADARCH_STARTUP_TIMING: '1', MADARCH_TRACE: 'on', MADARCH_STARTUP_CONTEXT: context, STARTUP_BOUNDARY_CONFIG: config };
  return { folder, home, context, collection, key, receipts, env };
 }
-export type Fixture = ReturnType<typeof fixture>;
+export type Fixture = ReturnType<typeof makeFixture>;
 export function launch(f: Fixture, args: string[], env = f.env) {
  const child = Bun.spawn([process.execPath, '--preload', preload, source, ...args], { env, stdout: 'pipe', stderr: 'pipe' });
  const out = new Response(child.stdout).text(); let stderr = '';

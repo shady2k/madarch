@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectStartup } from './startup-trace-collector.js';
-import { fixture, launch, observed, ready, port, until, saveBoundaryEvidence } from './startup-boundary-fixture.js';
+import { createFixtureOwner, launch, observed, ready, port, until, saveBoundaryEvidence } from './startup-boundary-fixture.js';
+const fixture = createFixtureOwner();
 const mode: string = 'fallback';
  test(`real launcher, ${mode} daemon attempts, API and fill retain entry context through detached close`, async () => {
   const f = fixture(mode); const p = await port();

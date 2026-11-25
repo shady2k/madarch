@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { collectStartup } from './startup-trace-collector.js';
-import { fixture, launch, observed, ready, port, until, clean, preload } from './startup-boundary-fixture.js';
+import { createFixtureOwner, launch, observed, ready, port, until, clean, preload } from './startup-boundary-fixture.js';
+const fixture = createFixtureOwner();
 test('direct daemon-serve entry reports ready without a launcher', async () => {
  const f = fixture(); const p = await port(); const run = launch(f, ['daemon-serve', '--home', f.home, '--port', String(p)]);
  try { await until(async () => { try { return (await fetch(`http://127.0.0.1:${p}/api/products`)).ok; } catch { return false; } }, 'direct API response'); await until(() => observed(f).some(r => r.fillSignalReady), 'direct fill installed signal handler'); expect(collectStartup(run.snapshot()).records.some(r => r.role === 'fill' && r.edge === 'begin'), 'direct fill must emit begin before signal-ready receipt').toBe(true); }

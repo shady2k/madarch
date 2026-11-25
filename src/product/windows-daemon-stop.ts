@@ -1,3 +1,4 @@
+import { startupBegin, type StartupEvidence } from '../obs/log.js';
 /** Windows terminates processes for SIGTERM, so the stopper itself must release their stores. */
 import { withSpanSync } from '../obs/trace.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -125,10 +126,17 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     console.error(`Windows stop could not list the store folders under ${root} ${when}: ${listing.message}`);
     return undefined;
   };
-  const capture = (folder: string): { folder: string; pid?: number } => {
+  const capture = (folder: string): { folder: string; pid?: number; holder: 'absent' | 'unreadable' } => {
     let pid: number | undefined;
-    try { const value = Number(readFileSync(join(folder, 'postmaster.pid'), 'utf8').split('\n')[0]); if (Number.isInteger(value) && value > 0) pid = value; } catch { /* no server recorded */ }
-    return { folder, pid };
+    let holder: 'absent' | 'unreadable' = 'unreadable';
+    try {
+      const value = Number(readFileSync(join(folder, 'postmaster.pid'), 'utf8').split('\n')[0]);
+      if (Number.isInteger(value) && value > 0) pid = value;
+    } catch (error) {
+      if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') holder = 'absent';
+    }
+    // A PID record supplies no Windows start ticks: neither the holder's identity nor its exit is established.
+    return { folder, pid, holder };
   };
   // A store being prepared beside this home can hold the folder as it makes it, and Windows refuses the listing then
   // (a sharing violation a moment later does not see). So this look is an optimisation: a store that opens between it
@@ -173,7 +181,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     if (!applicationsGone) console.error(`Windows stop left ${survivors.map((pid) => `pid ${String(pid)} (${nameOf(pid)})`).join(', ')} running`);
   }
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
-  const sweep = (store: { folder: string; pid?: number }): boolean => {
+  const sweep = (store: { folder: string; pid?: number; holder: 'absent' | 'unreadable' }): boolean => {
     // A store initdb is still making is not a store server: initdb's bootstrap writes the `postmaster.pid` pg_ctl reads,
     // and pg_ctl refuses it ("cannot stop server; single-user server is running"). What a stopped madarch left of that
     // preparation may still write the folder, so it is ended here — by identity, a program whose command line names the
@@ -197,18 +205,31 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
       else console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
       return true;
     }
-    store.pid ??= capture(store.folder).pid;
+    if (store.pid === undefined) Object.assign(store, capture(store.folder));
+    const terminal = startupBegin('cluster.stop', store.folder);
     const pidFile = join(store.folder, 'postmaster.pid');
-    if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) return true;
+    // A record the capture found absent and this look finds names no holder: it appeared between the two, so neither its
+    // holder nor its exit is established here, and the outcome below is unknown (ALX-1604, item 3). This is the same one
+    // look the stop already takes, never a new wait or a second read.
+    const appeared = store.pid === undefined && store.holder === 'absent' && existsSync(pidFile);
+    let evidence: StartupEvidence = { ...(store.holder === 'absent' && store.pid === undefined ? {} : { identity: 'unknown' as const }), signal: 'none', command: 'none', probe: 'skipped', ...(appeared ? {} : { holder: store.holder }), ...(store.pid === undefined ? {} : { postmasterPid: store.pid }) };
+    try {
+    if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) { if (store.pid === undefined && store.holder === 'absent') terminal('absent', evidence); return true; }
     // The installed binary only: stopping must never download a PostgreSQL build.
     if (!existsSync(pgCtl)) {
       console.error(`Windows stop could not stop the store ${store.folder}: ${pgCtl} is not installed`);
       return false;
     }
     const ok = reads.stopStore ? reads.stopStore(pgCtl, store.folder) : (() => {
+      const commandTerminal = startupBegin('cluster.stop.command', store.folder);
+      evidence = { ...evidence, command: 'launch-error' };
+      try {
       const result = withSpanSync('process.run', { 'process.command': pgCtl, 'process.args': ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'] }, (span) => { const answer = spawnSync(pgCtl, ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }); span.setAttribute('process.exit_code', answer.status ?? -1); span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? '')); span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? '')); return answer; });
+      evidence = { ...evidence, command: result.error !== undefined ? ((result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? 'timeout' : 'launch-error') : result.signal !== null ? 'signal' : 'exit', ...(result.status === null ? {} : { code: result.status }) };
+      commandTerminal(!result.error && result.status === 0 ? 'ok' : 'error', evidence);
       if (result.error || result.status !== 0) console.error(`Windows stop: pg_ctl stop of ${store.folder} exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
       return !result.error && result.status === 0;
+      } catch (error) { commandTerminal('error', evidence); throw error; }
     })();
     if (!ok) {
       if (reads.stopStore) console.error(`Windows stop could not stop the store ${store.folder}`);
@@ -224,6 +245,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
       return false;
     }
     return true;
+    } finally { terminal('unknown', evidence); }
   };
   let stopped = applicationsGone;
   // The stores the first look named are swept whatever the look after them says: a stop never leaves a server running

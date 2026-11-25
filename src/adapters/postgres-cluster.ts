@@ -1,5 +1,6 @@
 import { sanitizedStartupEnv } from '../obs/startup-context.js';
-import { startupBegin } from '../obs/log.js';
+import { startupBegin, type StartupEvidence, type StartupOutcome } from '../obs/log.js';
+import { startupEnabled } from '../obs/startup-context.js';
 import { processStartTicks } from '../obs/startup-platform.js';
 /**
  * The PostgreSQL server a store runs on (madarch-8bdc.2.5, items 1 and 3; the roles' one owner, madarch-8bdc.9): one
@@ -47,7 +48,7 @@ import { processStartTicks } from '../obs/startup-platform.js';
  * of failing inside initdb.
  */
 import { withSpanSync, withSpan } from '../obs/trace.js';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, fstatSync, readSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -152,7 +153,7 @@ function socketFolderFor(dataDir: string): string {
 }
 
 /** Runs one of the server's own programs, refusing by name with what it said. */
-function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean; readonly stdio?: 'ignore' | 'pipe' } = {}): { code: number; stdout: string; stderr: string } {
+function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean; readonly stdio?: 'ignore' | 'pipe'; readonly observed?: (evidence: StartupEvidence) => void } = {}): { code: number; stdout: string; stderr: string } {
   const answer = withSpanSync('process.run', { 'process.command': program, 'process.args': [...args] }, (span) => {
     const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }), ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
     span.setAttribute('process.exit_code', answer.status ?? -1);
@@ -160,6 +161,7 @@ function runBinary(program: string, args: readonly string[], options: { readonly
     span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
     return answer;
   });
+  options.observed?.({ command: answer.error !== undefined ? ((answer.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? 'timeout' : 'launch-error') : answer.signal !== null ? 'signal' : 'exit', ...(answer.status === null ? {} : { code: answer.status }) });
   if (answer.error !== undefined) {
     throw new Error(`${program}:1: the server's own program could not run: ${answer.error.message} (src/adapters/postgres-cluster.ts)`);
   }
@@ -422,17 +424,30 @@ function flock(descriptor: number, operation: number): number {
  * start or stop is never a silent wait. The descriptor it answers is the hold.
  */
 async function holdLock(path: string, mode: number, wait: { readonly what: string; readonly deadlineMs: number }): Promise<number> {
-  const fd = openLock(path);
-  const deadline = Date.now() + wait.deadlineMs;
-  for (;;) {
-    try { if (flock(fd, mode | LOCK_NB) === 0) return fd; }
-    catch (error) { closeLock(fd); throw new Error(`${path}:1: ${String(error)}`); }
-    if (Date.now() >= deadline) {
-      closeLock(fd);
-      throw new Error(`${path}:1: ${wait.what} waited ${String(wait.deadlineMs)} ms and the lock is still held: another process of madarch is using ${dirname(path)}, and it is either still starting or still stopping that store's PostgreSQL server (src/adapters/postgres-cluster.ts)`);
-    }
-    await Bun.sleep(LOCK_POLL_MS);
+  const terminal = startupBegin(path.endsWith(USERS_LOCK_FILE) ? 'cluster.lock.users' : 'cluster.lock.start', join(dirname(path), 'pgdata'));
+  try {
+    const fd = openLock(path);
+    const deadline = Date.now() + wait.deadlineMs;
+    for (;;) {
+      try { if (flock(fd, mode | LOCK_NB) === 0) { terminal('acquired'); return fd; } }
+      catch (error) { closeLock(fd); throw new Error(`${path}:1: ${String(error)}`); }
+      if (Date.now() >= deadline) {
+        closeLock(fd);
+        terminal('busy');
+        throw new Error(`${path}:1: ${wait.what} waited ${String(wait.deadlineMs)} ms and the lock is still held: another process of madarch is using ${dirname(path)}, and it is either still starting or still stopping that store's PostgreSQL server (src/adapters/postgres-cluster.ts)`);
+      }
+      await Bun.sleep(LOCK_POLL_MS);
   }
+  } catch (error) { terminal('error'); throw error; }
+}
+/** One nonblocking lock attempt; descriptor zero is a valid hold. */
+function tryClusterLock(fd: number, dataDir: string, kind: 'users' | 'start'): number {
+  const terminal = startupBegin(`cluster.lock.${kind}`, dataDir);
+  try {
+    const result = flock(fd, LOCK_EX | LOCK_NB);
+    terminal(result === 0 ? 'acquired' : 'busy');
+    return result;
+  } catch (error) { terminal('error'); throw error; }
 }
 
 /** Gives a lock back: the kernel releases it here or when the process ends, whichever comes first. */
@@ -475,19 +490,35 @@ async function reclaimStaleServer(dataDir: string, bin: string, socketDir: strin
     if (await answering(socketDir)) return;
     await Bun.sleep(100);
   }
+  const stop = beginStop(dataDir);
+  stop.sample();
+  stop.probe('failed');
+  try {
   log(`madarch: stopping the PostgreSQL server pid ${String(pid)} a crashed process left holding ${dataDir}`);
-  const stopped = runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+  stop.command('launch-error');
+  const commandTerminal = startupBegin('cluster.stop.command', dataDir);
+  let stopped: ReturnType<typeof runBinary>;
+  try {
+    stopped = runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { allowFailure: true, observed: evidence => {
+      stop.command(evidence.command!, evidence.code);
+      commandTerminal(evidence.command === 'exit' && evidence.code === 0 ? 'ok' : 'error', evidence);
+    } });
+  } catch (error) { commandTerminal('error', { command: 'launch-error' }); throw error; }
   if (stopped.code !== 0) {
     if (process.platform === 'win32') throw new Error(`${dataDir}:1: pg_ctl could not reclaim the server: ${stopped.stderr}; refusing to kill an unverified Windows PID ${pid}`);
+    stop.signal('term');
     try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
     const killed = Date.now() + 10_000;
     while (alive(pid) && Date.now() < killed) await Bun.sleep(20);
     if (alive(pid)) {
+      stop.signal('kill');
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
       while (alive(pid)) await Bun.sleep(20);
     }
   }
+  stop.finish();
   withSpanSync('fs.remove', { 'file.path': join(dataDir, 'postmaster.pid') }, () => rmSync(join(dataDir, 'postmaster.pid'), { force: true }));
+  } finally { stop.finish(); }
 }
 
 /** The socket file a dead server left in the folder is not a server: the new one makes its own. */
@@ -1001,7 +1032,7 @@ export async function openCluster(options: OpenClusterOptions): Promise<RunningC
   const held = await opened;
   held.users += 1;
   const { cluster } = held;
-  terminal(reused ? 'reused' : 'ok');
+  terminal(reused ? 'reused' : 'ok', reused ? startIdentity(cluster.dataDir) : undefined);
   return {
     dataDir: cluster.dataDir, socketDir: cluster.socketDir, port: cluster.port, user: cluster.user, bin: cluster.bin,
     stop: async () => await releaseCluster(key),
@@ -1058,7 +1089,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
       if (await answering(socketDir)) {
         // A server another process started, or a predecessor left: it serves this store, so it is lowered too.
         lowerPriorityOf(dataDir);
-        terminal('reused');
+        terminal('reused', startIdentity(dataDir));
       } else {
         if (startsRefused) throw new Error(`${dataDir}:1: this process is stopping, so the store's PostgreSQL server is not started for it (src/adapters/postgres-cluster.ts)`);
         await reclaimStaleServer(dataDir, bin, socketDir, log);
@@ -1071,7 +1102,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
         if (failing !== undefined) {
           throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}, and the last attempt said: ${failing} (src/adapters/postgres-cluster.ts)`);
         }
-        terminal('ok');
+        terminal('ok', startIdentity(dataDir));
       }
       } catch (error) { terminal('error'); throw error; }
     } finally {
@@ -1087,6 +1118,101 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
   return {
     dataDir, socketDir, port: clusterEndpoint(socketDir).port, user: CLUSTER_USER, bin,
     stop: async () => await stopCluster({ dataDir, socketDir, bin, users }),
+  };
+}
+
+/** A nonblocking capped read; proc pseudo-files report size zero. */
+function holderText(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > 4096) throw new Error('unreadable holder');
+    const buffer = Buffer.alloc(4097);
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+    if (bytes > 4096) throw new Error('oversized holder');
+    return buffer.toString('utf8', 0, bytes);
+  } finally { closeSync(fd); }
+}
+/** One bounded sample under the caller's existing locks; never a database probe. */
+type HolderSample = { pid?: number; ticks?: string; state?: string; readable: boolean };
+function sampleHolder(dataDir: string, oldPid?: number): HolderSample {
+  return withSpanSync('startup.holder.sample', {}, () => {
+  try {
+    const readPid = (): number | undefined => {
+      try {
+        const text = holderText(join(dataDir, 'postmaster.pid'));
+        const pid = Number(text.split('\n')[0]);
+        if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('invalid holder');
+        return pid;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+    };
+    const pid = readPid();
+    const subject = oldPid ?? pid;
+    let ticks: string | undefined;
+    let state: string | undefined;
+    if (subject !== undefined) {
+      if (process.platform !== 'linux') return { ...(pid === undefined ? {} : { pid }), readable: false };
+      try {
+        const stat = holderText(`/proc/${subject}/stat`);
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        ticks = fields[19]; state = fields[0];
+        if (ticks === undefined || !/^\d+$/.test(ticks)) return { ...(pid === undefined ? {} : { pid }), readable: false };
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    if (readPid() !== pid) return { ...(pid === undefined ? {} : { pid }), readable: false };
+    return { ...(pid === undefined ? {} : { pid }), ...(ticks === undefined ? {} : { ticks }), ...(state === undefined ? {} : { state }), readable: true };
+  } catch { return { readable: false }; }
+  });
+}
+function holderIdentity(sample: HolderSample, verified = false): StartupEvidence {
+  if (sample.readable && sample.pid === undefined) return {};
+  if (!sample.readable || sample.ticks === undefined) return { identity: 'unknown' };
+  return { identity: verified ? 'verified' : 'observed', postmasterPid: sample.pid!, postmasterTicks: sample.ticks };
+}
+function startIdentity(dataDir: string): StartupEvidence | undefined {
+  return startupEnabled() ? holderIdentity(sampleHolder(dataDir)) : undefined;
+}
+/** The ordered stop table is observation, not permission to signal or remove files. */
+function beginStop(dataDir: string) {
+  const terminal = startupBegin('cluster.stop', dataDir);
+  let before: HolderSample | undefined;
+  let verified = false;
+  let probe: StartupEvidence['probe'] = 'skipped';
+  let command: StartupEvidence['command'] = 'none';
+  let code: number | undefined;
+  let signal: StartupEvidence['signal'] = 'none';
+  let ended = false;
+  return {
+    sample: () => { if (startupEnabled()) before = sampleHolder(dataDir); },
+    probe: (result: NonNullable<StartupEvidence['probe']>, confirmed = false) => {
+      probe = result;
+      if (confirmed && before?.pid !== undefined && before.ticks !== undefined) {
+        const after = sampleHolder(dataDir);
+        verified = after.readable && after.pid === before.pid && after.ticks === before.ticks;
+      }
+    },
+    command: (result: NonNullable<StartupEvidence['command']>, status?: number) => { command = result; code = status; },
+    signal: (value: NonNullable<StartupEvidence['signal']>) => { signal = value; },
+    finish: (skipped = false) => {
+      if (ended) return;
+      ended = true;
+      if (!startupEnabled()) { terminal('unknown'); return; }
+      if (skipped) { terminal('skipped', { identity: 'unknown', command, signal, probe }); return; }
+      const after = sampleHolder(dataDir, before?.pid);
+      let holder: StartupEvidence['holder'] = 'unreadable';
+      if (after.readable && before?.readable !== false) {
+        if (before?.pid === undefined) holder = after.pid === undefined ? 'absent' : undefined;
+        else if (after.ticks === undefined || after.ticks !== before.ticks || after.state === 'Z' || after.state === 'X') holder = 'gone';
+        else holder = after.pid === before.pid ? 'held' : 'released';
+      }
+      let outcome: StartupOutcome;
+      if (before === undefined || !before.readable || (before.pid !== undefined && before.ticks === undefined)) outcome = 'unknown';
+      else if (before.pid === undefined) outcome = holder === 'absent' ? 'absent' : 'unknown';
+      else if (holder === 'unreadable' || holder === 'released') outcome = 'unknown';
+      else if (holder === 'held') outcome = command === 'none' && signal === 'none' ? (probe === 'failed' ? 'unresponsive' : probe === 'other' || probe === 'skipped' ? 'unknown' : 'error') : 'error';
+      else outcome = command === 'exit' && code === 0 ? 'stopped' : 'unknown';
+      terminal(outcome, { ...holderIdentity(before ?? { readable: false }, verified), holder, probe, command, ...(code === undefined ? {} : { code }), signal });
+    },
   };
 }
 
@@ -1138,7 +1264,8 @@ export function postmasterStill(dataDir: string, pid: number, startTime: string 
  * that it is busy or shutting down is checked through its own files (`postmasterBusyIdentity`). A process that is not
  * confirmed is never signaled and `pg_ctl` is never run for it.
  */
-export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
+export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform, observed?: (probe: 'answered' | 'failed' | 'other' | 'skipped') => void): boolean {
+  observed?.('skipped');
   if (holderOf(dataDir) !== pid) return false;
   const bin = join(postgresInstallFolder(process.env), 'bin');
   const psql = join(bin, postgresProgram('psql', platform));
@@ -1172,9 +1299,11 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
     span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
     return answer;
   });
-  if (answer.status !== 0) return false;
-  if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
-  return holderOf(dataDir) === pid;
+  if (answer.status !== 0) { observed?.('failed'); return false; }
+  if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) { observed?.('other'); return false; }
+  if (holderOf(dataDir) !== pid) return false;
+  observed?.('answered');
+  return true;
 }
 
 /** The decision a failed `pg_ctl` leaves: the fallback signals only where the platform can verify the pid. */
@@ -1208,40 +1337,52 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
     span.setAttribute('postgres.stores', folders.length);
     for (const folder of folders) {
       const dataDir = join(folder, 'pgdata');
+      const stop = beginStop(dataDir);
+      try {
       const key = resolve(dataDir);
       mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
       const users = openLock(usersLockPath(key));
       try {
-        if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+        if (tryClusterLock(users, dataDir, 'users') !== 0) {
           // A live process still uses this server: its own stop is the one that may end it.
+          stop.finish(true);
           continue;
         }
         const start = openLock(startLockPath(key));
         try {
-          if (flock(start, LOCK_EX | LOCK_NB) !== 0) continue;
+          if (tryClusterLock(start, dataDir, 'start') !== 0) { stop.finish(true); continue; }
+          stop.sample();
           const pidFile = join(dataDir, 'postmaster.pid');
           const pid = holderOf(dataDir);
           if (pid === null) continue;
-          if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
+          if (!alive(pid)) { stop.finish(); rmSync(pidFile, { force: true }); continue; }
           // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
           // must not be touched by it either.
-          if (!postmasterOfDataDir(dataDir, pid)) {
+          const confirmed = postmasterOfDataDir(dataDir, pid, process.platform, result => stop.probe(result));
+          if (confirmed) stop.probe('answered', true);
+          if (!confirmed) {
             console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
             continue;
           }
           const verifiedStart = processStartTime(pid);
+          const commandTerminal = startupBegin('cluster.stop.command', dataDir);
+          stop.command('launch-error');
           const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }) });
+          stop.command(stopped.error !== undefined ? ((stopped.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? 'timeout' : 'launch-error') : stopped.signal !== null ? 'signal' : 'exit', stopped.status ?? undefined);
+          commandTerminal(stopped.status === 0 ? 'ok' : 'error', { command: stopped.error !== undefined ? ((stopped.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? 'timeout' : 'launch-error') : stopped.signal !== null ? 'signal' : 'exit', ...(stopped.status === null ? {} : { code: stopped.status }) });
           if (stopped.status !== 0) {
-            if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
+            if (!alive(pid)) { stop.finish(); rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
             if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
               console.error(`${dataDir}:1: the PostgreSQL server pid ${String(pid)} is no longer the verified process, or the platform cannot verify it; no signal is sent and its record stays`);
               continue;
             }
+            stop.signal('term');
             try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
             waitGoneSync(pid, 10_000);
             // The escalation follows the verified process itself, never a second socket answer: a server shutting down
             // refuses connections, and asking again would block the SIGKILL a hung shutdown needs.
             if (postmasterStill(dataDir, pid, verifiedStart)) {
+              stop.signal('kill');
               try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
             }
           }
@@ -1249,17 +1390,21 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
             console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
             continue;
           }
+          stop.finish();
           if (existsSync(pidFile)) {
             if (alive(pid)) { console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`); continue; }
             rmSync(pidFile, { force: true });
           }
           removeSocketFiles(clusterPaths(folder).socketDir);
         } finally {
+          stop.finish();
           releaseLock(start);
         }
       } finally {
+        stop.finish();
         releaseLock(users);
       }
+      } finally { stop.finish(); }
     }
   });
 }
@@ -1285,6 +1430,8 @@ export async function stopDatabasesUnder(knowledgeRoot: string, options: { reado
  */
 export async function stopStoreForExit(store: string, options: { readonly force?: boolean } = {}): Promise<void> {
   const { dataDir, socketDir } = clusterPaths(store);
+  const stop = beginStop(dataDir);
+  try {
   const key = resolve(dataDir);
   // A process that is ending (`force`) drops the holds it still has, its own owners included, and stops the server: nothing
   // in it reads the store again. A role giving its stores up inside a process that goes on living leaves a store another
@@ -1292,7 +1439,7 @@ export async function stopStoreForExit(store: string, options: { readonly force?
   if (options.force !== true) {
     const opening = openInProcess.get(key);
     const heldByProcess = opening === undefined ? undefined : await opening.catch(() => undefined);
-    if (heldByProcess !== undefined && heldByProcess.users > 0) return;
+    if (heldByProcess !== undefined && heldByProcess.users > 0) { stop.finish(true); return; }
   }
   for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
   userLocks.delete(key);
@@ -1300,13 +1447,15 @@ export async function stopStoreForExit(store: string, options: { readonly force?
   withSpanSync('fs.mkdir', { 'file.path': dirname(key) }, () => mkdirSync(dirname(key), { recursive: true, mode: 0o700 }));
   const users = openLock(usersLockPath(key));
   try {
-    if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
+    if (tryClusterLock(users, dataDir, 'users') !== 0) { stop.finish(true); return; }
+    stop.sample();
     // The programs of the install that is here, and never an install: `ensurePostgresInstalled` downloads one when the
     // caller's home holds none, and a role ending in a home that never ran a server would wait for that download before it
     // stopped anything (measured: a daemon's role held a server's stop for its whole two-second wait this way). No
     // `pg_ctl` means no server of this install runs, so there is nothing to stop.
     const bin = join(postgresInstallFolder(process.env), 'bin');
     if (!existsSync(join(bin, postgresProgram('pg_ctl')))) {
+      stop.probe('unavailable');
       if (process.platform === 'win32' && holderOf(key) !== null) throw new Error(`${key}:1: PostgreSQL is still recorded but pg_ctl is missing`);
       return;
     }
@@ -1315,15 +1464,19 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     // spend (madarch-8bdc.12).
     // A shutdown checkpoint can wait on disk I/O. Keep the event loop free so the ending role's deadline can fire.
     const postmaster = process.platform === 'win32' ? holderOf(key) : null;
+    stop.command('launch-error');
+    const commandTerminal = startupBegin('cluster.stop.command', dataDir);
     const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', key, '-m', 'fast', '-w', 'stop'] }, async (span) => {
       const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
         stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
         env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }),
       });
       const code = await stopping.exited;
+      stop.command(stopping.signalCode === null ? 'exit' : 'signal', stopping.signalCode === null ? code : undefined);
+      commandTerminal(code === 0 ? 'ok' : 'error', { command: stopping.signalCode === null ? 'exit' : 'signal', ...(stopping.signalCode === null ? { code } : {}) });
       span.setAttribute('process.exit_code', code);
       return code;
-    });
+    }).catch((error: unknown) => { commandTerminal('error', { command: 'launch-error' }); throw error; });
     if (process.platform === 'win32') {
       // Windows shutdown must finish before its caller can exit; pg_ctl failure is not a stopped store.
       if (code !== 0 && holderOf(key) !== null) throw new Error(`${key}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
@@ -1331,10 +1484,13 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     }
     // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
     // its socket away would make it look gone.
+    stop.finish();
     if (code === 0) removeSocketFiles(socketDir);
   } finally {
+    stop.finish();
     releaseLock(users);
   }
+  } finally { stop.finish(); }
 }
 
 /**
@@ -1345,35 +1501,48 @@ export async function stopStoreForExit(store: string, options: { readonly force?
  */
 async function stopCluster(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly users: number }): Promise<void> {
   const { dataDir, socketDir, bin, users } = options;
+  const stop = beginStop(dataDir);
+  try {
   userLocks.get(dataDir)?.delete(users);
-  if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+  if (tryClusterLock(users, dataDir, 'users') !== 0) {
     // The kernel took this process's shared hold away to try, and gave the exclusive one to nobody: another process
     // holds the server (or is asking for it), so it keeps answering and this hold is simply given back. This is the
     // ordinary case of a fill child leaving between two of an api process's reads, so it is not a warning.
+    stop.finish(true);
     releaseLock(users);
     return;
   }
   try {
-    if (await answering(socketDir)) {
+    stop.sample();
+    const answered = await answering(socketDir);
+    stop.probe(answered ? 'answered' : 'failed');
+    if (answered) {
       // Independent stores may stop together; a checkpoint must not block their owners' event loop.
       const postmaster = process.platform === 'win32' ? holderOf(dataDir) : null;
+      stop.command('launch-error');
+      const commandTerminal = startupBegin('cluster.stop.command', dataDir);
       const code = await withSpan('process.run', { 'process.command': join(bin, postgresProgram('pg_ctl')), 'process.args': ['-D', dataDir, '-m', 'fast', '-w', 'stop'] }, async (span) => {
         const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', dataDir, '-m', 'fast', '-w', 'stop'], {
           stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
           env: sanitizedStartupEnv({ ...process.env, LC_ALL: 'C' }),
         });
       const code = await stopping.exited;
+        stop.command(stopping.signalCode === null ? 'exit' : 'signal', stopping.signalCode === null ? code : undefined);
+        commandTerminal(code === 0 ? 'ok' : 'error', { command: stopping.signalCode === null ? 'exit' : 'signal', ...(stopping.signalCode === null ? { code } : {}) });
         span.setAttribute('process.exit_code', code);
         return code;
-      });
+      }).catch((error: unknown) => { commandTerminal('error', { command: 'launch-error' }); throw error; });
       if (process.platform === 'win32') {
         if (code !== 0 && holderOf(dataDir) !== null) throw new Error(`${dataDir}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
         if (holderOf(dataDir) !== null || (postmaster !== null && alive(postmaster))) throw new Error(`${dataDir}:1: PostgreSQL still holds postmaster.pid after pg_ctl stop`);
       }
       if (code !== 0) return;
     }
+    stop.finish();
     removeSocketFiles(socketDir);
   } finally {
+    stop.finish();
     releaseLock(users);
   }
+  } finally { stop.finish(); }
 }

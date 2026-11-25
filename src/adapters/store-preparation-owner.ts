@@ -1,4 +1,4 @@
-import { startupBegin, withStartupContext } from '../obs/log.js';
+import { startupBegin, withStartupContext, withStartupPreparation } from '../obs/log.js';
 import { startupIdentifiers, validStartupOperation } from '../obs/startup-context.js';
 /** The owner process's authenticated preparation service; connections stay in the storage layer. */
 import { randomUUID } from 'node:crypto';
@@ -73,7 +73,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
       const identifiers = startupIdentifiers();
       const incoming = body.startup;
       const operation = identifiers !== undefined && incoming?.collection === identifiers.collection && incoming.keyId === identifiers.keyId && validStartupOperation(incoming.operation) ? incoming.operation : undefined;
-      const pending = tail.then(async () => await withStartupContext(operation, async () => await prepare(body)));
+      const pending = tail.then(async () => await withStartupContext(operation, async () => await withStartupPreparation(resolve(body.store, 'pgdata'), async () => await prepare(body))));
       tail = pending.catch(() => undefined);
       await pending;
       return new Response(null, { status: 204 });

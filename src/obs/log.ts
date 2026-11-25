@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { clusterDigest, consumeStartupContext, startupContextFields, startupEnabled } from './startup-context.js';
 import { processStartTicks, startupClock } from './startup-platform.js';
-import { currentSpan, currentTrace } from './trace.js';
+import { currentSpan, currentTrace, startSpan } from './trace.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type LogFields = Readonly<Record<string, unknown>>;
@@ -69,7 +69,19 @@ export const log = {
 };
 
 /** Closed startup edge vocabulary; no caller-provided payload or error text. */
-export type StartupOutcome = 'ok' | 'error' | 'reused' | 'unknown' | 'cancelled';
+export type StartupOutcome = 'ok' | 'error' | 'reused' | 'unknown' | 'cancelled' | 'skipped' | 'absent' | 'unresponsive' | 'stopped' | 'acknowledged' | 'acquired' | 'busy';
+export interface StartupEvidence {
+ readonly identity?: 'observed' | 'verified' | 'unknown';
+ readonly postmasterPid?: number;
+ readonly postmasterTicks?: string;
+ readonly holder?: 'gone' | 'held' | 'released' | 'unreadable' | 'absent';
+ readonly probe?: 'answered' | 'failed' | 'other' | 'skipped' | 'unavailable';
+ readonly command?: 'exit' | 'signal' | 'timeout' | 'launch-error' | 'none';
+ readonly code?: number;
+ readonly signal?: 'none' | 'term' | 'kill';
+ readonly childPid?: number;
+}
+export type StartupTerminal = (outcome: StartupOutcome, evidence?: StartupEvidence) => void;
 export type StartupRole = 'cli' | 'launcher' | 'daemon' | 'api' | 'fill' | 'fixture';
 let startupRole: StartupRole = 'cli';
 const roleScope = new AsyncLocalStorage<StartupRole>();
@@ -77,13 +89,16 @@ export function withStartupRole<T>(role: StartupRole, work: () => T): T { return
 let startupInstance: string | undefined;
 let startupSequence = 0;
 let startupPair = 0;
+const schemaScope = new AsyncLocalStorage<string>();
+export function withStartupPreparation<T>(dataDir: string, work: () => T): T { return schemaScope.run(dataDir, work); }
+export function startupPreparation(): string | undefined { return schemaScope.getStore(); }
 const startupScope = new AsyncLocalStorage<{ operation?: string }>();
 export function startupEntry(role: StartupRole): void { consumeStartupContext(); startupRole = role; }
 export function withStartupContext<T>(operation: string | undefined, work: () => T): T {
  return startupScope.run(operation === undefined ? {} : { operation }, work);
 }
 export function startupOperation(): string | undefined { return startupScope.getStore()?.operation; }
-export function startupBegin(phase: string, dataDir?: string): (outcome: StartupOutcome) => void {
+export function startupBegin(phase: string, dataDir?: string): StartupTerminal {
  if (!startupEnabled()) return () => {};
  try {
  startupInstance ??= randomUUID();
@@ -91,17 +106,32 @@ export function startupBegin(phase: string, dataDir?: string): (outcome: Startup
  const cluster = dataDir === undefined ? undefined : clusterDigest(dataDir);
  const operation = startupOperation();
  const role = roleScope.getStore() ?? startupRole;
- const emit = (edge: 'begin' | 'terminal', outcome?: StartupOutcome): void => {
+ const run = currentTrace();
+ const phaseSpan = run === undefined || run.closed ? undefined : startSpan(phase, {
+  'startup.pair': pair, 'startup.instance': startupInstance,
+  ...(cluster === undefined ? {} : { 'startup.cluster': cluster }),
+  ...(operation === undefined ? {} : { 'startup.operation': operation }),
+ });
+ const span = phaseSpan?.spanContext();
+ const emit = (edge: 'begin' | 'terminal', outcome?: StartupOutcome, evidence?: StartupEvidence): void => {
   try {
-   const span = currentSpan()?.spanContext();
    const record = { version: 1, ...startupContextFields(), instance: startupInstance, pid: process.pid,
     role, sequence: ++startupSequence, pair, phase, edge, ...startupClock(),
-    startTicks: processStartTicks(process.pid), cluster, operation, outcome,
+    startTicks: processStartTicks(process.pid), cluster, operation, outcome, ...evidence,
     ...(span === undefined ? {} : { traceId: span.traceId, spanId: span.spanId }) };
    writeSync(2, `${JSON.stringify(record)}\n`);
   } catch { /* evidence loss cannot change the product result */ }
  };
  emit('begin'); let ended = false;
- return (outcome) => { if (ended) return; ended = true; emit('terminal', outcome); };
+ return (outcome, evidence) => {
+  if (ended) return;
+  ended = true;
+  emit('terminal', outcome, evidence);
+  try {
+   phaseSpan?.setAttribute('startup.outcome', outcome);
+   for (const [key, value] of Object.entries(evidence ?? {})) if (value !== undefined) phaseSpan?.setAttribute(`startup.${key}`, value);
+   phaseSpan?.end();
+  } catch { /* trace failure cannot change the product result */ }
+ };
  } catch { return () => {}; }
 }

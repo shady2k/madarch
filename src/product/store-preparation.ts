@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { startupEnabled, startupIdentifiers } from '../obs/startup-context.js';
-import { startupOperation } from '../obs/log.js';
+import { startupOperation, startupBegin, withStartupContext } from '../obs/log.js';
 /** Owner-only schema service. API and fill processes request preparation over an authenticated loopback channel. */
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { withSpanSync, withSpan } from '../obs/trace.js';
@@ -55,7 +55,15 @@ async function request(body: PreparationRequest): Promise<void> {
   const url = process.env[ADDRESS];
   const token = process.env[TOKEN];
   if (url === undefined || token === undefined) throw new Error(`${resolve(body.store)}:1: the store needs its owning madarch process for schema preparation (src/product/store-preparation.ts)`);
-  await sendRequest(startupEnabled() ? { ...body, startup: { operation: startupOperation() ?? randomUUID(), ...startupIdentifiers() } } : body, url, token);
+  if (!startupEnabled()) { await sendRequest(body, url, token); return; }
+  const operation = startupOperation() ?? randomUUID();
+  await withStartupContext(operation, async () => {
+    const terminal = startupBegin('schema.request', resolve(body.store, 'pgdata'));
+    try {
+      await sendRequest({ ...body, startup: { operation, ...startupIdentifiers() } }, url, token);
+      terminal('ok');
+    } catch (error) { terminal('error'); throw error; }
+  });
 }
 async function sendRequest(body: PreparationRequest, url: string, token: string): Promise<void> {
   const response = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': url, 'http.bytes': Buffer.byteLength(JSON.stringify(body)) }, async (span) => {

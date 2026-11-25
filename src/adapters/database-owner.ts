@@ -1,3 +1,4 @@
+import { startupBegin, startupPreparation } from '../obs/log.js';
 /**
  * One database owner per process: the single PostgreSQL database the fact log,
  * the query projection, the graph store and the queue's tables share
@@ -294,7 +295,17 @@ class PostgresOwner implements DatabaseOwner {
         };
         const held = await this.ownWork.run(true, () => work(counted));
         if (kind === 'write') await refuseAborted(client, this.location);
-        await this.named(async () => await client.query('COMMIT'));
+        const preparation = kind === 'write' ? startupPreparation() : undefined;
+        const committed = preparation === undefined ? undefined : startupBegin('schema.commit', preparation);
+        try {
+          const result = await this.named(async () => await client.query('COMMIT'));
+          committed?.(result.command === 'COMMIT' ? 'acknowledged' : 'unknown');
+        } catch (error) {
+          const response = (typeof error === 'object' && error !== null ? error : {}) as { severity?: string; code?: string };
+          const rejected = response.severity === 'ERROR' && typeof response.code === 'string' && response.code !== '40003' && !response.code.startsWith('08');
+          committed?.(rejected ? 'error' : 'unknown');
+          throw error;
+        }
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);
@@ -306,13 +317,17 @@ class PostgresOwner implements DatabaseOwner {
       });
       return value;
     } catch (error) {
+      const preparation = kind === 'write' ? startupPreparation() : undefined;
+      const rolledBack = preparation === undefined ? undefined : startupBegin('schema.rollback', preparation);
       try {
         await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ROLLBACK') }, async (span) => {
           const answer = await client.query('ROLLBACK');
+          rolledBack?.(answer.command === 'ROLLBACK' ? 'acknowledged' : 'unknown');
           span.setAttribute('db.rows', answer.rows.length);
           return answer;
         });
       } catch (rollbackError) {
+        rolledBack?.('unknown');
         releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
       }
       throw error;

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fillIsolation, probePluginSandbox } from '../src/plugin/sandbox-probe.js';
@@ -14,6 +14,19 @@ test('a machine with no delegated cgroup reaches the isolation choice in plain w
   expect(probe.reason.length).toBeGreaterThan(0);
   expect(probe.reason).not.toContain('MADARCH_PLUGIN_SANDBOX');
   expect(probe.reason).not.toMatch(/systemd-run|--scope|bwrap/u);
+});
+
+// ALX-1703 minor 1: the wrapper is written beside the pid file before anything is spawned, so a write that fails is a
+// start that did not happen, and a home keeps no `.madarch-daemon-scope.sh.<pid>` of it.
+test('a scope wrapper that cannot be replaced takes its own partial file with it', () => {
+  const home = mkdtempSync(join(tmpdir(), 'madarch-scope-'));
+  try {
+    const pidFile = join(home, '.madarch-daemon-pid-1');
+    // A rename onto a folder fails after the partial file stands, which is the moment the cleanup exists for.
+    mkdirSync(join(home, '.madarch-daemon-scope.sh'));
+    expect(() => delegatedScopeCommand('madarch', ['daemon-serve'], pidFile, 'madarch-daemon-1')).toThrow();
+    expect(readdirSync(home)).toEqual(['.madarch-daemon-scope.sh']);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test('the delegated scope command is a child scope with its own controllers and pid file', () => {

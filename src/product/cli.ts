@@ -1287,19 +1287,27 @@ async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: 
     // The same facts the human lines carry, the port note included: a
     // machine consumer is told that --port did not apply exactly as a
     // person reading the lines is.
-    console.log(JSON.stringify({
-      ...jsonBase,
-      url,
-      pid: started.pid,
-      port: started.port,
-      reused: started.reused,
-      ...(started.requestedPort === undefined ? {} : { requestedPort: started.requestedPort }),
-      ...(started.note === undefined ? {} : { portNote: started.note }),
-      ...(ssh ? { sshTunnel: tunnel } : {}),
-    }));
+    const address = startupBegin('address.write.json');
+    try {
+      console.log(JSON.stringify({
+        ...jsonBase,
+        url,
+        pid: started.pid,
+        port: started.port,
+        reused: started.reused,
+        ...(started.requestedPort === undefined ? {} : { requestedPort: started.requestedPort }),
+        ...(started.note === undefined ? {} : { portNote: started.note }),
+        ...(ssh ? { sshTunnel: tunnel } : {}),
+      }));
+      address('ok');
+    } catch (error) { address('error'); throw error; }
     return 0;
   }
-  console.log(started.reused ? words.alreadyRunning(url) : words.running(url));
+  const address = startupBegin('address.write.human');
+  try {
+    console.log(started.reused ? words.alreadyRunning(url) : words.running(url));
+    address('ok');
+  } catch (error) { address('error'); throw error; }
   if (started.note !== undefined) console.log(started.note);
   if (ssh) {
     console.log(words.sshLead);
