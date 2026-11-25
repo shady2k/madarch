@@ -82,8 +82,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   reads the exported model, not files), `time-format.mjs`
   (which `check.mjs` reads records by), and `argv.mjs` and `regular-file.mjs`
   (which every check reads its arguments and opens a named path through),
-  verbatim copies of shady2k-skills plugin 0.143.0 (setup and rules 0.68.0,
-  madarch-znmp, 2026-11-13; earlier 0.128.0, setup 0.58.0, madarch-j6ho.4;
+  verbatim copies of shady2k-skills plugin 0.145.0 (setup and rules 0.70.0,
+  madarch-4627; earlier 0.143.0, setup 0.68.0, madarch-znmp;
+  0.128.0, setup 0.58.0, madarch-j6ho.4;
   0.121.0, setup 0.51.0, madarch-y47p),
   compared byte for byte at each setup, with the set's fixtures and templates
   under `.shady2k/checks/`. Their self-tests run from the plugin's
@@ -188,9 +189,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   (up to 40ce61f1, recorded at the move from its own tree) read their own
   committed export. Tracker writes need no commit: the tracker commands publish them
   (see "Tracker synchronization"), and a commit carries code and documents only.
-- **Tracker synchronization:** the set's mechanism, copied byte for byte from
-  shady2k-skills 0.143.0 (madarch-znmp, 2026-11-10; earlier 0.128.0,
-  madarch-j6ho.4). Since 0.143.0 a change costs what the change costs, not the
+- **Tracker synchronization:** the set's mechanism, verified byte for byte against
+  shady2k-skills 0.145.0 (madarch-4627). These files are identical to the
+  0.143.0 copies (madarch-znmp, 2026-11-10; earlier 0.128.0, madarch-j6ho.4).
+  Since 0.143.0 a change costs what the change costs, not the
   whole store (shady2k/skills#52): measured on this machine's store (591
   items, 1 293 recordings), a claim took 349 s at an 881 MB process-tree peak
   on 0.128.0 and 4.6 s at 180 MB on 0.143.0, and a status transition 9.4 s
@@ -364,13 +366,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
-- **Product repository:** none. This repository is neither a product repository
-  nor a code repository under a product's `repos/`. The program is run from this
-  repository, `node <setup skill directory>/product.mjs where`, and prints
-  `where: none` (checked 2026-10-09 in the 0.41.0 run); started anywhere else,
-  or given a folder, it answers about that folder instead. The set's
-  product-repository layout (`workspace.yaml`, `repos/`) is therefore not
-  installed here, and `docs/` is this repository's own.
+- **Product repository:** none. The engine repository keeps its own Beads
+  tracker and documentation. Its root `workspace.yaml` is required by
+  `madarch mcp --repo`, and the product wiki lives in
+  [shady2k/madarch-product](https://github.com/shady2k/madarch-product).
+  `product.mjs where` reports `where: product` because it sees the root
+  manifest. Under the [owner's decision of 2026-11-25 (ALX-1658)](mention://issue/01a21046-7e67-7349-9c85-cce505967b19?comment=01a21176-d29b-742d-b644-68adf0ddf3b9),
+  setup treats the engine as an ordinary repository and leaves
+  `docs/kinds.yaml` and the product document layout in the product wiki.
+  [ALX-1665](mention://issue/01a2117a-9b92-7128-b889-c193abab141d) tracks the
+  classification fix in `shady2k/skills`.
 - **Task ids of this repository's commits resolve against:** this repository's
   own tracker, `.beads/issues.jsonl` (the adapter's `commits` operation reads
   the working tree, `push.mjs` the export at the pushed tip). There is no
