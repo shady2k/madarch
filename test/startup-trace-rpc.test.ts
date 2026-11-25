@@ -10,7 +10,7 @@ const context = join(root, 'context');
 writeFileSync(context, JSON.stringify({ version: 1, collection: randomUUID(), key: randomBytes(32).toString('hex') }), { mode: 0o600 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 test('S3 real child RPC correlates preparation and reuse, but refuses mismatched identifiers', async () => {
- const child = Bun.spawn([process.execPath, join(import.meta.dir, 'fixtures/startup-trace-rpc.ts'), join(root, 'store')], {
+ const child = Bun.spawn([process.execPath, join(import.meta.dir, 'fixtures/startup-trace-rpc.ts'), join(root, 'store'), 's3'], {
   env: { ...process.env, MADARCH_TRACE: 'on', MADARCH_STARTUP_TIMING: '1', MADARCH_STARTUP_CONTEXT: context }, stdout: 'pipe', stderr: 'pipe',
  });
  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

@@ -93,7 +93,11 @@ test('startup timing counts actual synchronous writes separately from logs and O
   expect(nested.parentSpanId).toBe(outer.spanId);
   expect(nested.traceId).toBe(outer.traceId);
   expect(BigInt(nested.startTimeUnixNano)).toBeGreaterThanOrEqual(BigInt(outer.startTimeUnixNano));
-  expect(BigInt(nested.endTimeUnixNano)).toBeLessThanOrEqual(BigInt(outer.endTimeUnixNano));
+  // OTel's SpanImpl anchors a span's start time to an integer-millisecond Date.now(), so a boundary
+  // tick between the two starts lifts the nested end past the outer end by up to 1 ms. The nesting
+  // itself is read from the durations, which are a pure performance.now() delta.
+  expect(BigInt(nested.endTimeUnixNano) - BigInt(nested.startTimeUnixNano)).toBeLessThanOrEqual(BigInt(outer.endTimeUnixNano) - BigInt(outer.startTimeUnixNano));
+  expect(BigInt(nested.endTimeUnixNano)).toBeLessThanOrEqual(BigInt(outer.endTimeUnixNano) + 1_000_000n);
   // These are overlapping windows. Their durations are deliberately never summed.
  }
  for (const phase of ['fixture.startup', 'fixture.prepare']) {

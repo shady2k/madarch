@@ -3,6 +3,9 @@ import { startupIdentifiers, startupChildEnv } from '../../src/obs/startup-conte
 import { withStorePreparationOwner, requestHistoryPreparation } from '../../src/product/store-preparation.js';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+// The extended mode the RPC suite drives adds a capturing proxy and two operations held at a
+// barrier. Invoked without the flag the fixture keeps the plain sequence the S1 suite drives.
+const extended = process.argv[3] === 's3';
 const contextPath = process.env.MADARCH_STARTUP_CONTEXT;
 const contextKey = contextPath === undefined ? undefined : (JSON.parse(readFileSync(contextPath, 'utf8')) as { key: string }).key;
 startupEntry(process.argv[3] === 'client' ? 'api' : 'fixture');
@@ -24,7 +27,7 @@ if (process.argv[3] === 'client') {
   let queuedReceipts = 0;
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
-  const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+  const proxy = extended ? Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
    const raw = await req.text();
    const body = JSON.parse(raw) as { startup?: Record<string, unknown> };
    const identifiers = startupIdentifiers();
@@ -35,21 +38,20 @@ if (process.argv[3] === 'client') {
     credentialAbsent: !raw.includes(ownerToken), authenticated: req.headers.get('authorization') === `Bearer ${ownerToken}` }));
    if (queuedMode) { queuedReceipts++; if (queuedReceipts === 2) release(); await barrier; }
    return await fetch(ownerUrl, { method: 'POST', headers: { authorization: req.headers.get('authorization')!, 'content-type': 'application/json' }, body: raw });
-  } });
+  } }) : undefined;
   const client = async (queued = false) => {
-   const child = Bun.spawn([process.execPath, import.meta.path, store, 'client', ...(queued ? ['queued'] : [])], { env: startupChildEnv({ ...process.env, MADARCH_STORE_OWNER_URL: proxy.url.origin }), stdout: 'pipe', stderr: 'inherit' });
+   const child = Bun.spawn([process.execPath, import.meta.path, store, 'client', ...(queued ? ['queued'] : [])], {
+    env: proxy === undefined ? startupChildEnv() : startupChildEnv({ ...process.env, MADARCH_STORE_OWNER_URL: proxy.url.origin }), stdout: 'pipe', stderr: 'inherit' });
    const output = await new Response(child.stdout).text();
    if (await child.exited !== 0) throw new Error('client failed');
    process.stdout.write(output);
   };
   try {
    await client(); await client();
-   queuedMode = true;
-   await client(true);
-   console.log(JSON.stringify({ queuedReceipts }));
+   if (proxy !== undefined) { queuedMode = true; await client(true); console.log(JSON.stringify({ queuedReceipts })); }
    const mismatch = randomUUID();
    const response = await fetch(ownerUrl, { method: 'POST', headers: { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ store, database: 'history', startup: { operation: mismatch, collection: startupIdentifiers()?.collection, keyId: 'different' } }) });
    console.log(JSON.stringify({ mismatch, status: response.status }));
-  } finally { proxy.stop(true); }
+  } finally { proxy?.stop(true); }
  });
 }
