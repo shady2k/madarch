@@ -1,4 +1,4 @@
-import { afterAll, expect } from 'bun:test';
+import { expect } from 'bun:test';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,11 +7,14 @@ import { createServer } from 'node:net';
 import { collectStartup, type StartupRecord } from './startup-trace-collector.js';
 const source = join(import.meta.dir, '..', 'scripts', 'madarch.ts');
 export const preload = join(import.meta.dir, 'fixtures', 'startup-boundary-preload.ts');
-const root = mkdtempSync(join(tmpdir(), 'startup-boundaries-'));
-chmodSync(root, 0o700);
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+/** Folders this module's fixtures made; removed when the process that made them exits. */
+const folders: string[] = [];
+process.once('exit', () => {
+ for (const folder of folders) { try { rmSync(folder, { recursive: true, force: true }); } catch { /* already removed */ } }
+});
 export function fixture(mode = 'direct') {
- const folder = mkdtempSync(join(root, 'case-')); const home = join(folder, 'products'); mkdirSync(home);
+ const folder = mkdtempSync(join(tmpdir(), 'startup-boundaries-')); chmodSync(folder, 0o700); folders.push(folder);
+ const home = join(folder, 'products'); mkdirSync(home);
  const context = join(folder, 'context'); const collection = randomUUID(); const key = randomBytes(32).toString('hex');
  writeFileSync(context, JSON.stringify({ version: 1, collection, key }), { mode: 0o600 });
  const receipts = join(folder, 'receipts'); const config = join(folder, 'config');
