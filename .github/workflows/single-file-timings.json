@@ -263,7 +263,7 @@
     "test/writer-journal.test.ts": 5800,
     "test/writer-russian.test.ts": 8400,
     "test/yaml-position.test.ts": 6700,
-    "test/e2e/run-tests.test.ts": 13577,
+    "test/e2e/run-tests.test.ts": 2605,
     "test/e2e/summarize-slow-tests.test.ts": 5303,
     "test/check-tests.test.ts": 6783,
     "test/measure/measure.test.ts": 5563,
