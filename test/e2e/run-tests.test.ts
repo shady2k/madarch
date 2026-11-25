@@ -7,7 +7,9 @@
  *
  * This test runs the runner on a fixture tree with a stand-in `bun` on PATH, so
  * it proves which files the runner chooses and what it forwards without running
- * any of them.
+ * any of them. It also proves the sixty-second hang guard: the runner adds
+ * `--timeout=60000` when the caller names no timeout of its own and leaves a
+ * caller's `--timeout` flag alone (madarch-x9a7.5).
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -173,7 +175,7 @@ describe('the test runner', () => {
         writeFileSync(manifest, JSON.stringify({ files: [{ path: 'test/c.test.ts', reason }] }));
         const result = run('--slow');
         expect(result.status).toBe(0);
-        expect(result.called).toEqual(['test', './test/c.test.ts']);
+        expect(result.called).toEqual(['test', './test/c.test.ts', '--timeout=60000']);
       }
     } finally {
       writeFileSync(manifest, original);
@@ -199,7 +201,7 @@ describe('the test runner', () => {
   test('runs only the slow list with --slow', () => {
     const result = run('--slow');
     expect(result.status).toBe(0);
-    expect(result.called).toEqual(['test', './test/c.test.ts']);
+    expect(result.called).toEqual(['test', './test/c.test.ts', '--timeout=60000']);
   });
 
   test('forwards --shard=i/n and the timing flags to bun', () => {
@@ -212,10 +214,25 @@ describe('the test runner', () => {
     expect(result.called).not.toContain('./test/c.test.ts');
   });
 
+  test('adds the sixty-second hang guard when the caller names no timeout', () => {
+    const result = run();
+    expect(result.status).toBe(0);
+    expect(result.called.filter((argument) => argument.startsWith('--timeout'))).toEqual(['--timeout=60000']);
+  });
+
+  test('keeps a caller-supplied timeout and adds no guard', () => {
+    for (const args of [['--timeout=1234'], ['--timeout', '2345']]) {
+      const result = run(...args);
+      expect(result.status).toBe(0);
+      expect(result.called.filter((argument) => argument.startsWith('--timeout'))).toEqual(args.filter((argument) => argument.startsWith('--timeout')));
+      expect(result.called.slice(-args.length)).toEqual(args);
+    }
+  });
+
   test('--only runs just the named file', () => {
     const result = run('--only', 'test/a.test.ts');
     expect(result.status).toBe(0);
-    expect(result.called).toEqual(['test', './test/a.test.ts']);
+    expect(result.called).toEqual(['test', './test/a.test.ts', '--timeout=60000']);
   });
 
   test('--only refuses a file the selected mode leaves out', () => {
