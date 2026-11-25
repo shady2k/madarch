@@ -3,6 +3,38 @@
 What madarch is made of, and how a model flows from a repository to a view.
 Decisions are named by number; they live in `docs/decisions/`.
 
+Target architecture principles that govern all changes in this repository (deviations are fixed in code, not in the strategy; changes require an owner decision):
+
+## Solution strategy
+
+- **One graph, one writer** — All entities and relationships live in one graph with a single write path; new data is written only through the single graph writer (`src/graph/write.ts`), with no side tables or parallel write paths (ADR 0022, 0033, 0034, 0039).
+  In practice: Write new graph data through `src/graph/write.ts` with no side tables or parallel write paths.
+  Carried by: [ADR 0022](../decisions/0022-architecture-extension-points.md), [ADR 0033](../decisions/0033-one-workflow-by-entity-kinds.md), [ADR 0034](../decisions/0034-one-graph-schema.md), [ADR 0039](../decisions/0039-core-graph-model.md).
+- **Edges for links, sourced assertions for values** — A reference between entities is stored only as a graph edge, never as a string or JSON field holding an ID; every value carries its source and assertion history (ADR 0039).
+  In practice: Store references as edges and keep each value's source and assertion history.
+  Carried by: [ADR 0039](../decisions/0039-core-graph-model.md).
+- **Product-agnostic engine** — Entity kinds, forms, templates, and workflows are declared by the product manifest and catalogue; engine code never hardcodes product kinds, ID prefixes, or product-specific field names (ADR 0021, 0036).
+  In practice: Declare product kinds, forms, templates, and workflows in the manifest and catalogue.
+  Carried by: [ADR 0021](../decisions/0021-product-repository-contract.md), [ADR 0036](../decisions/0036-one-page-mechanism-over-graphql.md).
+- **Storage boundaries** — Each of the four data classes has one home: authored knowledge in the product git repository, source code in its own repositories, extracted facts in the graph log, and derived indexes rebuilt locally without transfer (ADR 0023).
+  In practice: Keep authored knowledge, source code, extracted facts, and derived indexes in their assigned stores.
+  Carried by: [ADR 0023](../decisions/0023-data-storage-boundary.md).
+- **PostgreSQL everywhere** — Local and server modes run on the same storage engine (PostgreSQL), with no separate local database engine of another kind (ADR 0024).
+  In practice: Use PostgreSQL for both local and server storage.
+  Carried by: [ADR 0024](../decisions/0024-postgres-everywhere-embedded-locally.md).
+- **Single fill entry point and orchestrator** — Filling runs only through the declared stage registry and the orchestrator's `pg-boss` queue, with no alternative fill pipelines (ADR 0027, 0033).
+  In practice: Run fills through the stage registry and the orchestrator's `pg-boss` queue.
+  Carried by: [ADR 0027](../decisions/0027-fill-orchestrator.md), [ADR 0033](../decisions/0033-one-workflow-by-entity-kinds.md).
+- **Sandboxed plugins and one gateway per external source** — Ordinary plugins have no host access by default; git objects (by blob id), the filesystem, the network, and agents are each accessed only through one trusted core plugin for that boundary (ADR 0035, 0037, 0038).
+  In practice: Keep ordinary plugins sandboxed and route git, filesystem, network, and agent access through their respective trusted core plugins.
+  Carried by: [ADR 0035](../decisions/0035-extraction-plugins.md), [ADR 0037](../decisions/0037-file-text-from-git-by-blob-id.md), [ADR 0038](../decisions/0038-core-plugins-and-capabilities.md).
+- **One page mechanism over GraphQL** — Wiki pages are rendered from product templates in the browser over the single GraphQL read API (`/graphql`), with no per-kind server renderers or kind-specific routes (ADR 0036).
+  In practice: Render product templates in the browser and read the graph only through `/graphql`.
+  Carried by: [ADR 0036](../decisions/0036-one-page-mechanism-over-graphql.md).
+- **Greenfield replacement and offline operation** — A replaced mechanism is removed in the same work with no parallel legacy entry point; the engine runs locally and in air-gapped environments without required outbound network calls (ADR 0010, 0033).
+  In practice: Remove superseded entry points in the same change and keep local and air-gapped operation free of required outbound calls.
+  Carried by: [ADR 0010](../decisions/0010-single-offline-docker-image.md), [ADR 0033](../decisions/0033-one-workflow-by-entity-kinds.md).
+
 ## The parts
 
 **Model** (`src/model/`): reads a repository's intended model — YAML files the
