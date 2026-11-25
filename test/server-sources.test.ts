@@ -94,18 +94,24 @@ async function rawHistory(dir: string, stem: string): Promise<{ query<Row extend
   };
 }
 
-let folder: string;
+/** The folders the current case made: a case may make more than one, and every one of them is dropped after it. */
+let folders: string[] = [];
 
 afterEach(async () => {
-  if (folder !== undefined) {
-    await dropTestStoreDatabases(folder);
-    rmSync(folder, { recursive: true, force: true });
-    folder = undefined as unknown as string;
+  const made = folders;
+  folders = [];
+  for (const folder of made) {
+    try {
+      await dropTestStoreDatabases(folder);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   }
 });
 
 function scratchFolder(): string {
-  folder = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
+  folders.push(folder);
   return folder;
 }
 
