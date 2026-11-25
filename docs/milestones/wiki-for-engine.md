@@ -37,6 +37,22 @@ catalogue, with its description and fields, and a kind with no plugin of its
 own is filled by the one agent-fill plugin. The wiki, its API and MCP read only
 the graph (decision 0034, decision 0035 items 16-33).
 
+Trimmed 2026-11-25 (the owner's «Да, 1А, 2А.» in ALX-1694, resting on his order
+of the same day: «Я хочу, чтобы работа шла постепенно: мы сейчас делаем сам
+граф, саму основу — фундамент. После этого мы начинаем вместе заполнять вики по
+частям, по каждой сущности, и по мере того, как мы её заполняем, этот же граф
+используется для разработки. Мы здесь преследуем две цели: 1. Дать агентам
+инструменты, чтобы можно было анализировать код и планировать изменения через
+граф. 2. Показать архитектуру мне — и тогда дальнейшее развитие пойдёт гораздо
+легче.»). After foundation 0039 and `.148` land, this milestone ships only the
+minimal O1–O5 cycle (10 launch blockers, estimated 3–5 calendar days):
+entity-by-entity filling, showing madarch's core architecture in the wiki, and
+agent code analysis/planning through `madarch mcp`. O6 (the Files section
+treemap and reference screens) moves to the stage immediately after the O1–O5
+cycle starts (choice 1A), non-blocking polish and next-turn features move to
+`deferred`, and the finding intake filter plus a 15-finding forward guard are
+restored (choice 2A).
+
 ## Outcomes and acceptance
 
 O1: The catalogue and operations on entities: the kinds are declarations in the
@@ -70,38 +86,43 @@ that section's kinds and what they need; the dependency graph page shows each
 kind's state while the fill runs and after it; the CLI does the same.
 *Signal:* the owner fills one section and sees only it change.
 
-O4: madarch's architecture is seen now: madarch's own wiki shows its modules,
-entry points (CLI commands, HTTP routes, MCP tools), stores and database
-tables, glossary terms, and who imports, calls, reads and writes what. Where a
-plugin does not fill a kind yet, the coordinator states its entities through
-the operations of O1 and O5, as an author of its own, and a plugin's later fill
-replaces them.
+O4: madarch's architecture is seen now: madarch's own wiki shows its core
+architecture layer — modules, entry points (CLI commands, HTTP routes, MCP
+tools), stores and database tables, and who imports, calls, reads and writes
+what — filled incrementally entity by entity alongside the owner (remaining
+catalogue kinds are filled gradually during development). Where a plugin does
+not fill a kind yet, the coordinator states its entities through the operations
+of O1 and O5, as an author of its own, and a plugin's later fill replaces them.
 Serves: journeys 1, 4 and 7.
-*Check:* every module, entry point and database table of madarch has its page;
-each value names its author, a plugin or the coordinator.
+*Check:* the first incremental pass covers madarch's core architecture layer
+(modules, entry points, database tables and their relations); each value names
+its author, a plugin or the coordinator.
 *Signal:* the owner answers from madarch's wiki alone which modules read which
 tables.
 
 O5: MCP for agents: workers and the coordinator read the graph and write
-entities through `madarch mcp`.
+entities through `madarch mcp` to analyse code and plan changes.
 Serves: journey 7.
 *Check:* a worker answers a question about madarch's code through `madarch mcp`
 and its journal counts the questions the graph answered; an entity written
 through MCP appears in the wiki with its author.
 *Signal:* a worker's brief names `madarch mcp` and the worker uses it.
 
-O6: The Files section serves a reader as the owner's reference screens do: a
-map of the repository with area and colour switches, a file table with a
-filter, and a file page with its header (main authors, hotspot, figures) and
-the History and Co-change tabs (carried from the first plan; the owner: «Нам же
-нужен шаблон страницы файлов»).
-Serves: journey 4.
-*Check:* side by side with the owner's reference screens, each switch and the
-filter exercised; the figures of three files checked against git; every link on
-the Files pages opens its page.
-*Signal:* the owner finds a hotspot and its authors from the map in a minute.
-
 ## Exclusions
+
+- O6 — the full Files section reference screens (interactive treemap with area
+  and colour switches, filtered table, and History/Co-change tabs;
+  `madarch-j9ao*` and `madarch-u3vw.17`): moved to the stage immediately after
+  the O1–O5 cycle starts (owner's 2026-11-25 choice 1A, ALX-1694); basic file,
+  folder, commit and code pages are already on `main`.
+- Non-blocking work deferred in the 2026-11-25 cut (ALX-1694): strict UI-kit
+  linter and deduplication (`madarch-64o5.127`, `.130`), full i18n and
+  automatic content translation (`madarch-64o5.103`, `.108`, `madarch-stm0.5`),
+  role-based access control (`madarch-64o5.115`), full-text git blob search
+  (`madarch-64o5.100`), refactoring 0040 (`madarch-ninm*`), storage read cache
+  and secondary performance tuning, extended repository dashboard
+  (`madarch-64o5.70`), CLI alias cleanup, and non-blocking UI polish and
+  findings.
 
 - The move from br into madarch's database (the owner, 2026-11-11: «Убери
   переезд из br в раздел позже»): next horizon, by the import rules agreed on
@@ -144,9 +165,41 @@ madarch-8bdc.7 (changes through the agent), the reference graphs 8bdc.2.6 and
 writing features ztyq.7 to ztyq.9, pausing the writer (m38l.17), and two CLI and
 release bugs (madarch-v2vt, madarch-v4qi).
 
+### 2026-11-25 cut (ALX-1694)
+
+After auditing the 199 active `wiki-for-engine` items against `origin/main` and
+foundation stack 0039, the owner confirmed the minimal O1–O5 cut («Да, 1А, 2А.»,
+ALX-1694):
+
+- **Closed (89):** 86 already-landed items (64 `madarch-64o5.*` including
+  `madarch-64o5.146` `io-spans` with 0 violations and `madarch-64o5.11`, 15 old
+  `madarch-8bdc.*`, and 7 O1–O4 items) plus 3 superseded items (`64o5.40`,
+  `64o5.57`, `8bdc.2.16`).
+- **Left untouched in flight (18):** the current foundation stack 0039 and
+  `.148` (`ALX-12` / `ALX-1087`, with `madarch-x9a7.5` already closed).
+- **Kept active for launch (16):** the 6 O1–O5 epics (`madarch-47vw`,
+  `madarch-64o5`, `madarch-huq3`, `madarch-q3ak`, `madarch-stm0`,
+  `madarch-stm0.6`) and 10 launch blockers (`madarch-64o5.52`, `.72`, `.89`,
+  `.106`, `.123`, `.151`, `.152`, `.158`, `madarch-7okm`, `madarch-vmx9`).
+- **Deferred (76):** O6 Files section (7 items `madarch-j9ao*`, choice 1A) and
+  69 non-blocking items (UI-kit linter, i18n/translation, RBAC, full-text git
+  blobs, 0040 refactoring, cache/perf, UI/file polish including
+  `madarch-u3vw.17`, CLI aliases, sandbox/CI tails and non-blocking findings).
+
 ### Finding budget
 
-None. The owner removed the budget on 2026-11-13, after the demo walk turned up more findings than 15: «Да какой нафиг бюджет. У нас продукта по сути нет.» (`findingBudget` is null in `.shady2k/config.json`; every finding is filed into the milestone as it is found.) Earlier: 15, as in wiki-for-people.
+Restored on 2026-11-25 (owner's choice 2A, ALX-1694): only real blockers of the
+O1–O5 launch cycle (breaking entity-by-entity filling, showing madarch's
+architecture, or `madarch mcp`) enter `wiki-for-engine`; non-blocking findings
+go to backlog / `deferred`.
+
+Because `.shady2k/checks/check.mjs` counts non-deferred findings cumulatively
+across the milestone (41 already closed + 12 still open as of 2026-11-25 = 53
+recorded during the unlimited period since 2026-11-13), `.shady2k/config.json`
+sets `findingBudget: 68` (53 already recorded + 15 new-finding guard going
+forward) so the pre-commit gate stays green while enforcing the 15-finding cap
+on new intake. Earlier: 15 (2026-11-10), then `null` (2026-11-13, «Да какой
+нафиг бюджет. У нас продукта по сути нет.»).
 
 ### Target date
 
@@ -154,6 +207,13 @@ None set from outside the project.
 
 ## Next horizon
 
+- O6: the Files section reference screens (interactive treemap with area and
+  colour switches, filtered table, and file History/Co-change tabs;
+  `madarch-j9ao*` and `madarch-u3vw.17`) — first stage after the O1–O5 cycle
+  starts.
+- Deferred UI-kit linter/deduplication, full i18n and content translation,
+  role-based access control (`Person/Role/Permission`), full-text git blob
+  search, refactoring 0040, and non-blocking UI polish.
 - The move from br, and then working in madarch instead of br.
 - The public read-only wiki of madarch with a version selector, opened by
   `madarch help`.
