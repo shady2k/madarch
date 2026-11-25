@@ -5,14 +5,14 @@
 # and CI's `bun test test/` — runs started from inside `test/` do not get it.
 [test]
 preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
-# A test that names no bound of its own has ten seconds instead of Bun's five
-# (madarch-tzte.36): several take 5.0-6.0 s on GitHub's runners, and each one
-# that times out costs a shard rerun. The default is `setDefaultTimeout` in
-# test/deadline.ts, not `timeout = 10000` here: Bun 1.4.2 ignores that key, as a
-# number or as "10s" (measured: a test that sleeps 7 s still fails at 5 003 ms
-# with it set), while the preload's call takes effect. A test that names its own
-# bound keeps it, longer or shorter. The preload does not reach every file of a
-# run that holds several (measured 2026-10-20, madarch-cznn): a case with no
-# bound was stopped at 5 000 ms beside another test file. A case whose work is
-# long therefore names its own bound, and a slow case is usually one that opens
-# a database too many.
+# A test that names no bound of its own has a sixty-second hang guard instead of
+# Bun's five (madarch-tzte.36, madarch-x9a7.5): at least three times the worst
+# single case measured on the box (11.2 s), so a machine slower than GitHub's
+# runners does not stop a healthy case. It is set by `setDefaultTimeout` in
+# test/deadline.ts, not by `timeout = 60000` here: Bun 1.4.2 ignores that key, as
+# a number or as "60s" (measured: a test that sleeps 7 s still fails at 5 003 ms
+# with it set), while the preload's call takes effect; `scripts/run-tests.ts`
+# also passes `--timeout=60000` to `bun test` when the caller names no timeout
+# flag, so a run that holds several files is covered either way. The guard is no
+# licence for a slow test: the 30-second single-file rule (test/slow-files.json)
+# and the suite budget stay, and a test that names its own bound keeps it.

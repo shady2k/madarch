@@ -71,20 +71,22 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   temporary folder before and after the suites with
   `.shady2k/run-scratch-check.mjs`. A leftover run folder in the temp folder
   therefore means a run was killed; the next run sweeps it.
-- A test that names no bound of its own is meant to run under a ten-second
-  default rather than Bun's five (madarch-tzte.36): `setDefaultTimeout` in
-  `test/deadline.ts`, which both `bunfig.toml` files preload — not bunfig's
-  `[test] timeout`, which Bun 1.4.2 ignores (measured: a test that sleeps 7 s
-  still fails at 5 s with it set). The preload does not reach every file of a
-  run that holds several: measured on the pod 2026-10-20 (madarch-cznn), a
-  throwaway case that sleeps 6 s passed three times in a row under
-  `bun test test/tmp-probe-a.test.ts` and was stopped at 5 000 ms in
-  `bun test test/tmp-probe-a.test.ts` with a second test file of the suite beside it, and CI shard
-  run 39351539188 stopped a case with no bound at 5 036 ms while its own file's
-  cases naming 15 000 ran 5.9 s and passed. So a case whose work is long names
-  its own bound in the test; the five seconds are what an unnamed case really
-  runs under, in a shard or a full run alike. The default is not the fix for a
-  slow test either — the cause is usually the databases a case opens. Since
+- A test that names no bound of its own runs under a **sixty-second hang
+  guard** (madarch-x9a7.5, madarch-tzte.36), not Bun's five: `setDefaultTimeout`
+  in `test/deadline.ts`, which both `bunfig.toml` files preload, and
+  `scripts/run-tests.ts` passing `--timeout=60000` to `bun test` when the caller
+  names no timeout flag of its own — not bunfig's `[test] timeout`, which Bun
+  1.4.2 ignores (measured: a test that sleeps 7 s still fails at 5 s with it
+  set). The bound is a hang guard: at least three times the worst single case
+  measured on the box (11.2 s), so a machine slower than GitHub's runners does
+  not stop a healthy case at five seconds. It is no licence for a slow test:
+  the rule that a single file runs in at most 30 seconds (`test/slow-files.json`,
+  `SLOW_THRESHOLD_SECONDS`) and the suite budget (madarch-x9a7) stand, and a case
+  whose work is long still names its own bound in the test. Measured 2026-10-20
+  (madarch-cznn), a preload's default did not reach every file of a run that
+  held several — a throwaway case that sleeps 6 s passed alone and was stopped at
+  5 000 ms beside a second test file — which is why the runner passes the flag
+  as well. The cause of a slow case is usually the databases it opens. Since
   2026-11-07 a run holds **one PostgreSQL server**, started by the preload
   (`test/run-postgres.ts`) in the run's scratch folder, and a case opens a
   database on it (`createTestDatabaseOwner` in `test/test-database.ts`): the

@@ -16,6 +16,13 @@
  * single file, and a local convenience), refusing one the chosen mode leaves out. `MADARCH_SKIP_PERF` needs no handling here: it reaches the test files
  * through the environment, as it always has.
  *
+ * `bun test` runs under a sixty-second hang guard unless the caller names a
+ * bound of its own (madarch-x9a7.5): `--timeout=60000` is added after the
+ * forwarded flags when neither `--timeout=<ms>` nor `--timeout <ms>` is among
+ * them, and a caller's own flag is forwarded unchanged. The guard stops a hung
+ * case; it is no licence for a slow test, and the 30-second single-file rule
+ * and the suite budget stay as they are.
+ *
  * A path in the slow list that is not a test file of this tree exits 2: the list
  * names what exists, and a deleted test does not stay silently excluded.
  */
@@ -103,9 +110,22 @@ export function selectFiles(all: readonly string[], slow: SlowList, mode: 'defau
   return all.filter((path) => listed.has(path) === (mode === 'slow'));
 }
 
-/** The arguments `bun test` receives: the chosen files, then whatever the caller forwarded. */
+/** The hang guard `bun test` runs under when the caller names no bound of its own (madarch-x9a7.5). */
+export const DEFAULT_TIMEOUT_MS = 60_000;
+
+/** Whether the caller named a timeout: `--timeout=<ms>` or `--timeout <ms>`. */
+export function namesTimeout(forwarded: readonly string[]): boolean {
+  return forwarded.some((argument) => argument === '--timeout' || argument.startsWith('--timeout='));
+}
+
+/**
+ * The arguments `bun test` receives: the chosen files, then whatever the caller
+ * forwarded, then the sixty-second hang guard when the caller named no timeout of
+ * its own.
+ */
 export function bunArguments(files: readonly string[], forwarded: readonly string[]): string[] {
-  return ['test', ...files.map((path) => `./${path}`), ...forwarded];
+  const guard = namesTimeout(forwarded) ? [] : [`--timeout=${DEFAULT_TIMEOUT_MS}`];
+  return ['test', ...files.map((path) => `./${path}`), ...forwarded, ...guard];
 }
 
 function main(): void {
