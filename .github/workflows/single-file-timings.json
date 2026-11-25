@@ -221,7 +221,7 @@
     "test/restored-record-templates.test.ts": 29800,
     "test/roles-check.test.ts": 11100,
     "test/roles-two-and-two.test.ts": 7900,
-    "test/sandbox-probe.test.ts": 6600,
+    "test/sandbox-probe.test.ts": 6613,
     "test/selective-runtime.test.ts": 7800,
     "test/server-sources.test.ts": 19859,
     "test/server-templates.test.ts": 166400,
