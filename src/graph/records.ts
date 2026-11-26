@@ -6,7 +6,7 @@ import { withSpan } from '../obs/trace.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
 import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots } from './dispute-read.js';
-import { withAssertionContract, isDisputableProperty } from './system-contract.js';
+import { withAssertionContract, isDisputableProperty, vertexKindPresentSql, edgeKindPresentSql } from './system-contract.js';
 
 export interface AssertionRecord {
   id: number; uid: string; key: Record<string, unknown>; values: Record<string, unknown>;
@@ -34,7 +34,7 @@ export interface AssertionRecordSelector {
 export async function readKindsAssertions(tx: SqlExecutor, requests: readonly AssertionRecordRequest[], selector: AssertionRecordSelector = {}): Promise<AssertionRecord[][]> {
   return await withSpan('graph.records.batch', {}, async () => {
     const suppliedIdentities = requests.every(request => request.identities !== undefined);
-    const hasMerges = suppliedIdentities || (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    const hasMerges = suppliedIdentities || (await tx.query<{ present: boolean }>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
     const parameters: unknown[] = [];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
     let contextParameter: string | undefined;
@@ -66,7 +66,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       const result = await tx.query<Row & { now: string | Date; anchored: boolean; id: string | null }>(`
         WITH page_snapshot AS MATERIALIZED (
           SELECT ${selector.recordedAt === undefined ? 'transaction_timestamp()' : `$${(parameters?.length ?? 0) + 1}::timestamptz`} AS now,
-            EXISTS(SELECT 1 FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.dispute-anchor') AS anchored
+            ${edgeKindPresentSql('system.dispute-anchor')} AS anchored
         ) SELECT assertions.*,page_snapshot.now,page_snapshot.anchored
           FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE
           ORDER BY request_index,property_rank,recorded_sequence::bigint`, selector.recordedAt === undefined ? parameters : [...parameters ?? [], selector.recordedAt]);

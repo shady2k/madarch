@@ -2,6 +2,7 @@
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { assertionValueTableName } from './contract.js';
+import { vertexKindPresentSql } from './system-contract.js';
 export interface AssertionRow {
   readonly id: string;
   readonly subject: { readonly type: 'vertex'; readonly uid: string } | { readonly type: 'edge'; readonly id: string; readonly kind: string; readonly from: string; readonly to: string };
@@ -153,7 +154,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
            JOIN entity subject_kind ON subject_kind.id=subject.entity_id
            JOIN node edge_from ON edge_from.id=subject.from_node
            JOIN node edge_to ON edge_to.id=subject.to_node`;
-      const mergeExists = `EXISTS(SELECT 1 FROM node merge_node JOIN entity merge_kind ON merge_kind.id=merge_node.entity_id WHERE merge_kind.name='system.merge')`;
+      const mergeExists = vertexKindPresentSql('system.merge');
       const projected = sort === 'vertex' && selector?.projectMergedSubjects;
       const mapped = projected
         ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${param(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';

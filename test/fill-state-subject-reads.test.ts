@@ -10,7 +10,7 @@
  * earlier runs of 50 units each, of another product's chain, with `unit-parent`
  * edges and their operations: a read of P's run must not grow with them.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -143,7 +143,11 @@ function counted(owner: TestDatabaseOwner, counter: Counted): TestDatabaseOwner 
     graphContract: owner.graphContract,
     transaction: (kind, work) => owner.transaction(kind, async (tx) => {
       // Rows are the path the read takes, not the planner's choice on a small store (plan section 2, "counter tests").
+      // An index-only scan over an all-visible page fetches no heap tuple, and `idx_tup_fetch` counts heap fetches only,
+      // so the `VACUUM (ANALYZE)` above would hide every index the read walks — the case below shows the blind spot. With
+      // index-only scans off, each index read fetches its row and the counter sees the work.
       await tx.query('SET LOCAL enable_seqscan = off');
+      await tx.query('SET LOCAL enable_indexonlyscan = off');
       const start = Number((await tx.query<{ rows: string }>(ROWS)).rows[0]!.rows);
       const executor = {
         query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[] }> => {
@@ -196,44 +200,91 @@ const READS: readonly { readonly name: string; readonly read: (database: TestDat
 async function store(build: ((tx: SqlExecutor) => Promise<void>) | undefined): Promise<TestDatabaseOwner> {
   const owner = await createTestDatabaseOwner();
   if (build !== undefined) await owner.transaction('write', async (tx) => { await bindTestWriteCapability(tx, EMPTY_CONTRACT); await build(tx); });
+  // Both stores are measured in one state. The rows counted below are the tuples a plan fetches, and the plan follows the
+  // store's statistics and its visibility map, which autovacuum refreshes on its own clock: on this store the same read of
+  // `P-run` fetched 1886 rows before and 64593 rows after `ANALYZE`, and the runner's numbers (1502 in E, 1886 in F) are
+  // the same read in two such states. `VACUUM (ANALYZE)` gives both the state a maintained store is in, so the reads are
+  // compared where a page really runs, and a read that grows with the store still fails below. The checkpoint comes
+  // first: `VACUUM` marks a page all-visible only once that page is older than the last checkpoint.
+  await owner.run(async (tx) => { await tx.query('VACUUM (ANALYZE)'); });
+  await owner.run(async (tx) => { await tx.query('CHECKPOINT'); });
+  await owner.run(async (tx) => { await tx.query('VACUUM (ANALYZE)'); });
   return owner;
 }
 
 describe('the fill service state reads by subject', () => {
+  // One pair of stores for the two cases that read them: building F writes a hundred units through the graph and costs
+  // most of a case, and neither case writes to them.
+  let root = '';
+  let e: TestDatabaseOwner;
+  let f: TestDatabaseOwner;
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), 'madarch-subject-reads-'));
+    e = await store(buildRunOfFive);
+    f = await store(async (tx) => { await buildRunOfFive(tx); await buildPriorRuns(tx); });
+  }, 120_000);
+  afterAll(async () => {
+    await e?.close();
+    await f?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
   /**
    * Store E holds product P's run of 5 units; store F holds the same graph plus two earlier runs of 50 units.
    *
    * Rows are `seq_tup_read + idx_tup_fetch` of `pg_stat_xact_user_tables`, taken inside the read's own
-   * transaction with `SET LOCAL enable_seqscan = off`. The grown store must never read more: the read's cost
-   * follows its subject, not the store. The exact count can move a few percent because the shared assertion
-   * reader's access path is the planner's choice on a bigger `edge` table (the report of madarch-64o5.74 names
-   * the node, its two plans and the numbers); before this change the same reads grew elevenfold with the store
-   * (8 992 rows in E, 103 863 in F for `readRunPublicationCount`).
+   * transaction with `SET LOCAL enable_seqscan = off`, on two stores that took the same `VACUUM (ANALYZE)`. The grown
+   * store must never read more: the read's cost follows its subject, not the store. Before this change the same reads
+   * grew elevenfold with the store (8 992 rows in E, 103 863 in F for `readRunPublicationCount`), and the probes for a
+   * merge or a dispute anchor read every node and edge of the store once it carried statistics (64593 rows in F for one
+   * read of five units' run).
    */
   test('no public read of a run reads more rows beside two runs of fifty units', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'madarch-subject-reads-'));
-    const e = await store(buildRunOfFive);
-    const f = await store(async (tx) => { await buildRunOfFive(tx); await buildPriorRuns(tx); });
-    try {
-      const counts: Record<string, [number, number]> = {};
-      const failures: string[] = [];
-      for (const read of READS) {
-        try {
-          const [small, large] = [await measure(e, read.read), await measure(f, read.read)];
-          counts[read.name] = [small.rows, large.rows];
-          if (JSON.stringify(small.result) !== JSON.stringify(large.result)) failures.push(`${read.name}: the answers differ`);
-        } catch (error) {
-          counts[read.name] = [-1, -1];
-          failures.push(`${read.name}: ${(error as Error).message}`);
-        }
+    const counts: Record<string, [number, number]> = {};
+    const failures: string[] = [];
+    for (const read of READS) {
+      try {
+        const [small, large] = [await measure(e, read.read), await measure(f, read.read)];
+        counts[read.name] = [small.rows, large.rows];
+        if (JSON.stringify(small.result) !== JSON.stringify(large.result)) failures.push(`${read.name}: the answers differ`);
+      } catch (error) {
+        counts[read.name] = [-1, -1];
+        failures.push(`${read.name}: ${(error as Error).message}`);
       }
-      // The assertions are `grown: []` and `failures: []`; `counts` rides in the message only, so a failure names
-      // every read's two numbers.
-      const grown = Object.entries(counts).filter(([, [small, large]]) => large > small)
-        .map(([name, [small, large]]) => `${name}: ${String(small)} rows in E, ${String(large)} rows in F`);
-      expect({ grown, failures, counts }).toEqual({ grown: [], failures: [], counts });
-    } finally { await e.close(); await f.close(); rmSync(root, { recursive: true, force: true }); }
+    }
+    // The assertions are `grown: []` and `failures: []`; `counts` rides in the message only, so a failure names
+    // every read's two numbers.
+    const grown = Object.entries(counts).filter(([, [small, large]]) => large > small)
+      .map(([name, [small, large]]) => `${name}: ${String(small)} rows in E, ${String(large)} rows in F`);
+    expect({ grown, failures, counts }).toEqual({ grown: [], failures: [], counts });
   }, 120_000);
+
+  test('the row counter sees store-wide index work that an index-only scan hides', async () => {
+    // The blind spot of the counter above, on purpose: `VACUUM (ANALYZE)` marks the store's pages all-visible, an
+    // index-only scan over them fetches no heap tuple, and `seq_tup_read + idx_tup_fetch` then reads 0 for a walk over
+    // every edge of the store. That is why the measured transactions switch index-only scans off; this case holds both
+    // readings against the store's own edge count.
+    /**
+     * The rows the counter attributes to counting every edge, with index-only scans on or off. The sequential scan is
+     * taken away, so the arms differ in one plan choice: on an all-visible page the index-only scan fetches no heap
+     * tuple, and with index-only scans off every index read fetches its row.
+     */
+    const count = async (owner: TestDatabaseOwner, indexOnly: boolean): Promise<number> => await owner.transaction('snapshot', async (tx) => {
+      await tx.query('SET LOCAL enable_seqscan = off');
+      await tx.query(`SET LOCAL enable_indexonlyscan = ${indexOnly ? 'on' : 'off'}`);
+      const rows = async (): Promise<number> => Number((await tx.query<{ rows: string }>(ROWS)).rows[0]!.rows);
+      const start = await rows();
+      await tx.query('SELECT count(*) FROM edge');
+      return (await rows()) - start;
+    });
+    // The state the arms read, taken at the moment they read it: `VACUUM` writes the visibility map, and it marks a page
+    // all-visible only once that page is older than the last checkpoint.
+    await f.run(async (tx) => { await tx.query('CHECKPOINT'); });
+    await f.run(async (tx) => { await tx.query('VACUUM (ANALYZE)'); });
+    const edges = await f.run(async (tx) => Number((await tx.query<{ edges: string }>('SELECT count(*)::text AS edges FROM edge')).rows[0]!.edges));
+    const [hidden, counted, small] = [await count(f, true), await count(f, false), await count(e, false)];
+    console.log('index-only counter', JSON.stringify({ hidden, counted, edges, small }));
+    expect({ hidden, counted, grows: counted > small * 5 }).toEqual({ hidden: 0, counted: edges, grows: true });
+  }, 60_000);
 
   test('a publication read makes as many statements for fifty units as for five', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-subject-statements-'));

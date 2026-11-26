@@ -95,9 +95,31 @@ async function measureStore(size:number,scoped:boolean){
   const file=(i:number):VertexDraft=>({kind:'batch.file',key:{path:`file-${i}`},keyEdges:{repository},values:{text:`[[uid:${uid}]]`,size:i},evidence:[{target:support,locator:{start:0,end:content.length}}],...producer});
   const publish=(vertices:VertexDraft[])=>({vertices,edges:vertices.map(from=>({kind:'batch.related',from,to:repository,...producer})),removals:[]});
   await owner.transaction('write',tx=>publishGraphDrafts(tx,graph,publish(Array.from({length:size},(_,i)=>file(i)))));
+  // Both stores are measured in one state. `pg_stat_xact_user_tables` counts the tuples a plan fetches, and the plan
+  // follows the store's statistics and its visibility map, which autovacuum refreshes on its own clock: the same
+  // 50-file publication reads 1796 rows before and 1856 rows after `VACUUM (ANALYZE)`, so two stores built minutes
+  // apart are compared in different states by no change of this code (the runner measured 1796 and 1820 in one run and
+  // 1796 in the next). `VACUUM (ANALYZE)` gives both the state a maintained store is in, and it is taken here, at the
+  // moment the readings below are made, so the case holds whatever ran before it. The checkpoint comes first because
+  // `VACUUM` marks a page all-visible only once that page is older than the last checkpoint: with it, both stores stand
+  // in one state and the readings of the same batch are the same numbers.
+  await owner.run(async tx=>{await tx.query('VACUUM (ANALYZE)');});
+  await owner.run(async tx=>{await tx.query('CHECKPOINT');});
+  await owner.run(async tx=>{await tx.query('VACUUM (ANALYZE)');});
+  // The counter's blind spot, on the same store: on an all-visible page an index-only scan fetches no heap tuple, and
+  // `idx_tup_fetch` counts heap fetches only — so walking every edge reads 0 rows unless index-only scans are off,
+  // which is how the measured transaction below runs.
+  const blind=async(indexOnly:boolean):Promise<number>=>await owner.transaction('snapshot',async tx=>{
+   await tx.query('SET LOCAL enable_seqscan = off');
+   await tx.query(`SET LOCAL enable_indexonlyscan = ${indexOnly?'on':'off'}`);
+   const rows=async()=>Number((await tx.query<{reads:string}>(`SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::text AS reads FROM pg_stat_xact_user_tables WHERE relname IN ('node','edge')`)).rows[0]!.reads);
+   const before=await rows();await tx.query('SELECT count(*) FROM edge');return (await rows())-before;
+  });
+  const blindCounts={hidden:await blind(true),counted:await blind(false)};
   return await owner.transaction('write',async tx=>{
    if(scoped)bindWriteCapability(tx,{...requireWriteCapability(tx),scope:uid});
    await tx.query('SET LOCAL enable_seqscan = off');
+   await tx.query('SET LOCAL enable_indexonlyscan = off');
    // Server counters cover graph identities, attachments, headers and typed values,
    // but not the catalogue or authentication setup outside this invocation.
    const stats=async()=> (await tx.query<{reads:string;inserted:string}>(`SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::text AS reads,coalesce(sum(n_tup_ins) FILTER(WHERE relname='assertion'),0)::text AS inserted FROM pg_stat_xact_user_tables WHERE relname IN ('node','edge','assertion','assertion_vertex_subject','assertion_edge_subject') OR relname ~ '^a_[0-9a-f]{32}$'`)).rows[0]!;
@@ -105,20 +127,40 @@ async function measureStore(size:number,scoped:boolean){
    tx.query=async(sql,values)=>{statements++;return query(sql,values);};
    try{await publishGraphDrafts(tx,graph,publish([...Array.from({length:10},(_,i)=>file(size+i)),...Array.from({length:10},(_,i)=>file(i))]));}finally{tx.query=query;}
    const after=await stats();
-   return {reads:Number(after.reads)-Number(before.reads),statements,inserted:Number(after.inserted)-Number(before.inserted)};
+   return {reads:Number(after.reads)-Number(before.reads),statements,inserted:Number(after.inserted)-Number(before.inserted),blind:blindCounts};
   });
  }finally{await owner.close();}
 }
 for(const scoped of [false,true])test(`ALX-142: store reads stay equal for 50 and 500 files, scoped=${scoped}`,async()=>{
  const small=await measureStore(50,scoped),large=await measureStore(500,scoped);
  console.log('ALX-142 store counters',JSON.stringify({scoped,small,large}));
+ console.log('index-only counter',JSON.stringify({scoped,small:small.blind,large:large.blind}));
  // Unscoped publication skips the scope phase (binding.scope===binding.productUid,
  // src/graph/write.ts:478), so it costs 14 statements; a scoped publication costs one more.
  if(scoped){const unscoped=await measureStore(50,false);console.log('ALX-142 unscoped baseline',JSON.stringify(unscoped));expect(unscoped.statements).toBeGreaterThanOrEqual(14);expect(small.statements).toBe(unscoped.statements+1);expect(large.statements).toBe(unscoped.statements+1);}
  else {expect(small.statements).toBeGreaterThanOrEqual(14);expect(large.statements).toBeGreaterThanOrEqual(14);}
  // Ten fresh files: existence, path, text, size, parent and related edge.
  expect(small.inserted).toBe(60);expect(large.inserted).toBe(60);
- expect(large.statements).toBe(small.statements);expect(large.reads).toBe(small.reads);
+ expect(large.statements).toBe(small.statements);
+ // The reads follow the batch, never the store.
+ //
+ // Unscoped, nothing of the walk is filtered by a scope, so the same batch takes the same path on both stores and the
+ // two counts are equal exactly: five consecutive runs of this counter read 1799 rows on both stores, every time.
+ //
+ // Scoped, the walk's `graph_edge_active` filter is evaluated as the planner walks it, and one store's plan fetched 20
+ // rows of `edge` where the other's fetched 28: the two stores may not read the same number for the same batch (the
+ // runner measured 1796 against 1820, `test shard 2` of run 45867862179 — 1.3%). The bound is that spread with room,
+ // and it stays five times below the tenfold growth an O(store) read shows on this store: the presence probes read 13092
+ // rows of `edge` there, and the walk with nested loops off read 32310. Five consecutive runs of this counter read 1820
+ // rows on both stores here, so the allowance guards the runner's plan difference, never a grown store.
+ if(scoped){
+  expect(large.reads).toBeLessThanOrEqual(small.reads+Math.ceil(small.reads*0.15));
+  // The counter sees store-wide index work on the grown store, which is what index-only scans would hide: `hidden` is
+  // the same walk counted with index-only scans on, 0 rows on the 50-file store and 0 on the 500-file one, while
+  // `counted` reads 1560 and 15060 — the store's own edge count, growing with it.
+  expect({hidden:small.blind.hidden+large.blind.hidden}).toEqual({hidden:0});
+  expect(large.blind.counted).toBeGreaterThan(small.blind.counted*5);
+ } else expect(large.reads).toBe(small.reads);
 },120000);
 
 test('ALX-142: fixed admission phases name the first failing draft within each phase and roll back',async()=>{

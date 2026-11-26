@@ -1,7 +1,7 @@
 /** Writer-side dispute judgement and ordinary resolution assertions (0039 items 16,17,27). */
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, EvidenceDraft } from './contract.js';
-import { withAssertionContract, isDisputableProperty } from './system-contract.js';
+import { withAssertionContract, isDisputableProperty, vertexKindPresentSql } from './system-contract.js';
 import { loadResolutionAssertion, type DisputeView } from './dispute-read.js';
 import { loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { selectAssertions, candidateFingerprint, canonicalAssertionValue, resolutionMatches, applySemanticResolution, type AssertionRow } from './assertion-selection.js';
@@ -19,7 +19,7 @@ import { withSpan } from '../obs/trace.js';
 
 async function mergedAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],ids:readonly number[]|undefined,selectors:Selectors,mergePresent?:boolean):Promise<StoredAssertion[]> {
  return await withSpan('graph.dispute.merged-assertions',{},async()=>{
- const merged=mergePresent??(await tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+ const merged=mergePresent??(await tx.query<{present:boolean}>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
  const targets=ids===undefined?undefined:merged&&sort==='vertex'?(await tx.query<{id:number}>(`SELECT DISTINCT graph_merge_target(id,$2::bigint,$3::timestamptz,$4::timestamptz) AS id FROM unnest($1::bigint[]) subject(id)`,[ids,selectors.contexts[0],selectors.validAt,selectors.recordedAt])).rows.map(row=>Number(row.id)):ids;
  return await loadAssertions(tx,sort,kind,properties,targets,{...selectors,projectMergedSubjects:merged&&sort==='vertex'});
  });
@@ -232,7 +232,7 @@ export interface AffectedDisputeSlot {readonly sort:'vertex'|'edge';readonly kin
 export async function reconcileDisputes(tx:SqlExecutor,declared:GraphContract,affected?:readonly AffectedDisputeSlot[]|'all',propagate=true):Promise<void>{
  return await withSpan('graph.dispute.reconcile',{},async()=>{
  const contract=withAssertionContract(declared);const binding=requireWriteCapability(tx);
- const current=(await tx.query<{now:string;merged:boolean}>(`SELECT clock_timestamp()::text AS now,EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS merged`)).rows[0]!;const now=current.now;
+ const current=(await tx.query<{now:string;merged:boolean}>(`SELECT clock_timestamp()::text AS now,${vertexKindPresentSql('system.merge')} AS merged`)).rows[0]!;const now=current.now;
  const layers=await contextLayers(tx,String(binding.context));
  const selectors:Selectors={validAt:now,recordedAt:now,contexts:layers.map(layer=>Number(layer.id)),contextRecordedThrough:Object.fromEntries(layers.map(layer=>[Number(layer.id),layer.recordedThrough]))};
  const operationUid=binding.operationUid;

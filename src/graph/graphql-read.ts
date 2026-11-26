@@ -24,7 +24,7 @@ import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './d
 import { contextLayers } from './context.js';
 import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
-import { withAssertionContract } from './system-contract.js';
+import { withAssertionContract, vertexKindPresentSql } from './system-contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
@@ -505,7 +505,7 @@ export class ReadContext {
   private hasMerges=false;
   private async contextLayers(): Promise<void> {
     return await withSpan('graph.context.layers', {}, async () => {
-      this.hasMerges=(await this.tx.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+      this.hasMerges=(await this.tx.query<{present:boolean}>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
       const layers = await contextLayers(this.tx, String(this.contexts[0]));
       this.contexts = layers.map((layer) => Number(layer.id));
       this.contextRecordedThrough = Object.fromEntries(layers.map((layer) => [Number(layer.id), layer.recordedThrough]));

@@ -155,3 +155,21 @@ export function isDisputableProperty(sort:'vertex'|'edge',kind:string,property:s
   if(base===undefined || kind==='system.kind-applicability' && property==='state')return true;
   return property!=='$exists'&&!base.fields.some(field=>field.name===property);
 }
+
+/** A text literal for a presence probe's kind name, escaped here once rather than at every call site. */
+const sqlText=(value:string):string=>"'" + value.replaceAll("'","''") + "'";
+
+/**
+ * Whether the store holds any vertex of one kind, as a SQL predicate: one index probe from the kind's own row.
+ *
+ * The `node JOIN entity` pair this replaces reads every node once the store carries statistics — measured on a
+ * store of two fifty-unit runs, 3 519 node rows for the question "is there a merge at all", whose answer is the
+ * same on a store of five units — while the kind's row and one index probe cost the same on any store.
+ * `OFFSET 0` keeps the probe a plan of its own, the idiom of `write.ts` and `graph-definition.ts`.
+ */
+export const vertexKindPresentSql=(kind:string):string=>
+  `EXISTS(SELECT 1 FROM node present_node WHERE present_node.entity_id=(SELECT id FROM entity WHERE name=${sqlText(kind)}) OFFSET 0)`;
+
+/** The same question for an edge kind, through the index whose first column is each edge's kind. */
+export const edgeKindPresentSql=(kind:string):string=>
+  `EXISTS(SELECT 1 FROM edge present_edge WHERE present_edge.entity_id=(SELECT id FROM entity WHERE name=${sqlText(kind)}) OFFSET 0)`;

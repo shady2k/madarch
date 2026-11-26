@@ -43,6 +43,11 @@ export interface FillRoleOptions {
   readonly idle?: () => boolean;
   /** The process that started this one: the role ends when it is gone, so a server's fill process never outlives it. */
   readonly parentPid?: number;
+  /**
+   * Ends the file-read plugin sessions this process opened: the role's own module hands it in, so a reader that a plugin
+   * never closes is visible as a test's fixture rather than as a hang.
+   */
+  readonly closeReadSessions?: () => Promise<void>;
 }
 
 /** How long the role has to give its stores up once the process that started it is gone: within this, its servers stop. */
@@ -107,16 +112,30 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const openingErrors = new Map<string, string>();
   const openingRetries = new Map<string, { delay: number; after: number }>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
+  const closeReadSessions = options.closeReadSessions ?? closeFileTextSessions;
+  /**
+   * Ends the file-read sessions within the same budget the stores get: a plugin session that never closes would keep the
+   * role, and with it the store's PostgreSQL server, alive for as long as its process lives (madarch-8bdc.12), so the
+   * ending path waits for the close no longer than it waits for a store's own close (`ENDING_MS`).
+   */
+  const closeReadSessionsInTime = async (): Promise<void> => {
+    await Promise.race([closeReadSessions().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
+  };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
     if (state.ending) return;
     state.ending = true;
+    // The budget covers the whole ending and starts with it. The api role that started this one stops it with `SIGTERM`
+    // and kills it with `SIGKILL` 300 ms later (`src/server/http.ts`), so a wait before the stores' stop request — the
+    // file-read sessions' close, up to `ENDING_MS / 2` — would end this role with a store only it opened still running.
+    const deadline = Date.now() + ENDING_MS;
     // Nothing is started from here on: the start of a server is synchronous, and the stop below may not wait for one.
     refuseStarts();
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
-    await closeFileTextSessions();
-    const deadline = Date.now() + ENDING_MS;
+    // The sessions close beside the stores' stop, never before it: each has its own bound, and one that hangs must not
+    // hold the other up (a `SIGKILL` 300 ms later would leave the store's server behind).
+    const sessionsClosed = closeReadSessionsInTime();
     // Queues stop without holding up exit. Normal owner/run closes can enter the synchronous graceful server stop,
     // so the process-exit path uses only force shutdown below; giveUp keeps normal close behavior.
     void stopQueues(state);
@@ -130,8 +149,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       // until the role's deadline exits the process.
       await Promise.all([...databases].map(async (database) => await stopStoreForExit(database, { force: true })));
     })();
-    if (process.platform === 'win32') await cleanup;
-    else await Promise.race([cleanup, Bun.sleep(Math.max(0, deadline - Date.now()))]);
+    if (process.platform === 'win32') await Promise.all([cleanup, sessionsClosed]);
+    else await Promise.race([Promise.all([cleanup, sessionsClosed]), Bun.sleep(Math.max(0, deadline - Date.now()))]);
     process.exit(exitCode);
   };
   const watcher = options.parentPid === undefined ? undefined : setInterval(() => {
@@ -152,7 +171,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
     withoutSignals();
-    await closeFileTextSessions();
+    // The same order as `end`: the sessions close beside the stores' stop, each under its own bound.
+    const sessionsClosed = closeReadSessionsInTime();
     await stopQueues(state);
     for (const owner of [...state.owners]) {
       if (process.platform === 'win32') await owner.close();
@@ -165,6 +185,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       if (process.platform === 'win32') await stopStoreForExit(folder);
       else await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
     }
+    await sessionsClosed;
   };
   try {
     for (;;) {

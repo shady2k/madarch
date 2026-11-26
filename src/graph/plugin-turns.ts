@@ -13,6 +13,7 @@ import { endpointKindNames, type GraphContract, type VertexContract } from './co
 import { readKindAssertions, readKindsAssertions } from './records.js';
 import { edgeRowsIn, readRunNodeIn } from './fill-state.js';
 import { withSpan } from '../obs/trace.js';
+import { vertexKindPresentSql } from './system-contract.js';
 
 /** The SDK reference envelope carries natural keys and parent roles, not host uids. */
 export function sdkReference(reference: import('./contract.js').EntityRefDraft): import('../plugin/protocol.js').PluginEntityRef {
@@ -164,7 +165,7 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
   const vertex: VertexContract | undefined = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return [];
   return await withSpan('graph.producerEntities', {}, async () => await owner.transaction('snapshot', async tx => {
-    const hasMerges = (await tx.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.merge') AS present`)).rows[0]!.present;
+    const hasMerges = (await tx.query<{ present: boolean }>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
     // Restrict identities, not the final read's opinions or dispute selection.
     const existence = await loadAssertions(tx, 'vertex', kind, ['$exists'], undefined, { sourceUids: [sourceUid], projectMergedSubjects: hasMerges });
     const subjectIds = [...new Set(existence.filter(assertion => assertion.active && assertion.value === true).map(assertion => assertion.subjectId))];
