@@ -863,9 +863,17 @@ export class KnowledgeProduct {
 
   /** The valid time reads are made at: now, or the last commit read when a repository's dates stand after the clock. */
   private validAt = (): string => {
-    const now = (this.options.now?.() ?? new Date()).toISOString();
-    const latest = [...this.pins.values()].map((pin) => pin.effectiveTime).sort(byCodePoint).pop();
-    return latest !== undefined && latest > now ? latest : now;
+    const now = this.options.now?.() ?? new Date();
+    let bestMs = now.getTime();
+    let best = now.toISOString();
+    for (const pin of this.pins.values()) {
+      const ms = Date.parse(pin.effectiveTime);
+      if (Number.isFinite(ms) && ms > bestMs) {
+        bestMs = ms;
+        best = new Date(ms).toISOString();
+      }
+    }
+    return best;
   };
 
   /**
