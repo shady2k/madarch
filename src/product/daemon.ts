@@ -979,7 +979,6 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     };
     const { startServer } = await import('../server/http.js');
     phase('listener');
-    const listenerStarted = performance.now();
     const server = await startServer({
       productHome: home,
       knowledgeRoot: knowledgeRootOf(home),
@@ -997,7 +996,6 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       },
     });
     if (token !== undefined) clearStart(home, token);
-    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup listener ${(performance.now() - listenerStarted).toFixed(1)} ms`);
     // Valid declarations may take seconds to publish. The listener can answer truthfully meanwhile;
     // validation above is still a hard start gate, before any public socket is opened.
     const publication = (async () => {

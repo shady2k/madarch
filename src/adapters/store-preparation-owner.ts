@@ -79,16 +79,11 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     if (body.reset !== true && previous !== undefined && (stamp === undefined || previous === stamp)) { terminal('reused'); return; }
     prepared.get(store)?.delete(database);
     const owner = await ownerOf(store, body.database);
-    const started = performance.now();
-    try {
-      await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
-      if (contract !== undefined && body.database === undefined) {
-        for (const plugin of body.installedPlugins ?? []) {
-          await registerSystemSource(owner, contract, { type: 'plugin', installationKey: plugin.id, scope: owner.location, version: plugin.version });
-        }
+    await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+    if (contract !== undefined && body.database === undefined) {
+      for (const plugin of body.installedPlugins ?? []) {
+        await registerSystemSource(owner, contract, { type: 'plugin', installationKey: plugin.id, scope: owner.location, version: plugin.version });
       }
-    } finally {
-      if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
     }
     signal.throwIfAborted();
     const databases = prepared.get(store) ?? new Map<string, string>();

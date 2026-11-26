@@ -484,6 +484,7 @@
     "test/writer-journal.test.ts": 5800,
     "test/writer-russian.test.ts": 8400,
     "test/writer-set-based.test.ts": 4349,
-    "test/yaml-position.test.ts": 6700
+    "test/yaml-position.test.ts": 6700,
+    "test/startup-trace-plain-text.test.ts": 5320
   }
 }

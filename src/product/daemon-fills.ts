@@ -179,7 +179,6 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
         held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: contract };
         await createOrchestratorSchema({ transaction: publishing.transaction.bind(publishing) });
         await createOneGraphSchema(publishing, contract);
-        const started = performance.now();
         const terminal = startupBegin('catalogue.transaction', join(storeDatabasePath(folder), 'pgdata'));
         try {
           await publishValidatedManifests(publishing, validated, contract, signal);
@@ -187,7 +186,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
         } catch (error) {
           terminal('error');
           throw error;
-        } finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
+        }
       })();
       publications.add(work);
       void work.then(() => publications.delete(work), () => publications.delete(work));
