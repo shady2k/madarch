@@ -144,7 +144,7 @@ function setsConstraints(sql: string): boolean {
   const lexer = statementLexer;
   // Only a transaction that asked for the diagnostics reads a statement here, and
   // that transaction loaded the lexer first (`prepareGraphDiagnostics`).
-  if (lexer === undefined) throw new Error(`${import.meta.path}:${136}: the graph-check diagnostics read a statement before libpg-query was loaded`);
+  if (lexer === undefined) throw new Error(`${import.meta.path}:${147}: the graph-check diagnostics read a statement before libpg-query was loaded`);
   let tokens;
   try { tokens = lexer.scanSync(sql).tokens ?? []; } catch { return false; } // Let PostgreSQL report malformed SQL through the normal statement path.
   const kept = tokens.filter(token => token.tokenName !== 'C_COMMENT' && token.tokenName !== 'SQL_COMMENT');
