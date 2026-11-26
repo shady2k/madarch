@@ -387,7 +387,9 @@ async function serveCheck(): Promise<void> {
     await stopServer();
     if (process.platform === 'win32') await verifyWindowsProcessOwnership();
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
-    // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
+    // out of this fixture, not out of the engine. The fixture declares a product with nothing for plugins to fill:
+    // every kept field is a person's write, so Fill plans no unit, reports `coverage: 'nothing-found'`, completes
+    // `succeeded`, and the role reads answer empty lists.
     // The fixture stands before anything publishes this product a second time: a daemon that published the full
     // starter catalogue and then read the reduced one republishes it as a removal of ninety-odd kinds, and that
     // removal is what the temporary 0039 write slowdown makes cost minutes (measured on Linux x64 2026-11-26:
@@ -395,7 +397,7 @@ async function serveCheck(): Promise<void> {
     // fixture is committed here, so the first serve and then the daemon each read the reduced manifest once.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
     prepareStoreAcceptanceFixture(facts.folder);
-    console.log(`${manifest}:1: store acceptance fixture: the repository, directory, file, commit and author kinds with the edges they relate by and their semantic bindings, no plugins (Windows has no plugin sandbox)`);
+    console.log(`${manifest}:1: store acceptance fixture: the repository, directory, file, commit and author kinds with the edges they relate by and their semantic bindings, every field a person's write, no plugins (Windows has no plugin sandbox)`);
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
@@ -424,7 +426,9 @@ async function serveCheck(): Promise<void> {
       await new Promise((done) => setTimeout(done, 250));
     }
     if (!completed) throw new Error(`${facts.folder}:1: Fill did not finish within 180000 ms: ${last}`);
-    console.log(`Fill completed: ${last}`);
+    // Nothing was asked of a plugin here: the fixture declares every kept field a person's write, so the plan found 0
+    // units and said so (`coverage: 'nothing-found'`), which is a fill that succeeded with nothing to fill.
+    console.log(`Fill completed: the plugin-free fixture planned no unit, so this fill had nothing to fill, and it completed: ${last}`);
     const entry = await fetch(facts.url);
     if (!entry.ok || !(await entry.text()).includes('<div id="root"')) throw new Error(`npx madarch init: ${facts.url} is not the wiki app's page (HTTP ${entry.status})`);
     product = facts.folder;

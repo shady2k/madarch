@@ -1,6 +1,7 @@
 /**
- * The plugin-free store walk keeps a reduced catalogue: the kinds the engine's own
- * reads name, without any plugin.
+ * The plugin-free store walk declares a product with nothing for plugins to fill: the
+ * kinds the engine's own reads name, with every field a person's write, without any
+ * plugin.
  *
  * A store acceptance walk fills a product on a machine that cannot isolate a plugin
  * (Windows has no plugin sandbox), so the walk removes every plugin from the product's
@@ -13,6 +14,13 @@
  * and drops every other kind, edge and plugin. The catalogue's own metadata — its
  * purposes among them — stays: a purpose names no kind of its own and an engine read
  * still asks for it.
+ *
+ * Every field of a kept kind is marked a person's authored write (`producers: [person]`),
+ * which is what a product with no plugin says about the fields nothing here extracts:
+ * the fill such a product presses plans 0 units with `coverage: 'nothing-found'`,
+ * completes `succeeded`, and the role reads answer empty lists. A field that keeps a
+ * `binding` is that producer's alone — the fixture cannot also name a person for it —
+ * so a catalogue that binds a kept field is refused by name rather than rewritten.
  */
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,6 +28,17 @@ import { parse, stringify } from 'yaml';
 
 /** The kinds a plugin-free fill reads: the store's repositories, their trees and their history. */
 const STORE_KINDS = ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] as const;
+
+interface KindField {
+  readonly name: string;
+  readonly binding?: unknown;
+  readonly producers?: readonly string[];
+}
+
+interface KindFile {
+  readonly 'derives-from'?: readonly string[];
+  readonly fields?: readonly KindField[];
+}
 
 interface Catalog {
   readonly groups?: Record<string, { readonly parent?: string }>;
@@ -56,7 +75,7 @@ export function prepareStoreAcceptanceFixture(folder: string): void {
   const kinds = join(manifestFolder, 'kinds');
   const catalog = parse(readFileSync(join(manifestFolder, 'catalog.yaml'), 'utf8')) as Catalog;
   const files = kindFiles(kinds);
-  const declarations = new Map([...files].map(([name, path]) => [name, parse(readFileSync(path, 'utf8')) as { readonly 'derives-from'?: readonly string[] }]));
+  const declarations = new Map([...files].map(([name, path]) => [name, parse(readFileSync(path, 'utf8')) as KindFile]));
 
   // The kept kinds rest on the kinds they derive from, which the manifest requires too.
   const kept = new Set<string>();
@@ -79,6 +98,24 @@ export function prepareStoreAcceptanceFixture(folder: string): void {
     }
   };
   prune(kinds);
+
+  // A plugin-free product has nothing for a plugin to fill: every field of a kept kind is a person's authored write, so
+  // the plan leaves the kind to that person instead of refusing a catalogue no producer fills (madarch-64o5.74).
+  for (const name of [...kept].sort()) {
+    const path = files.get(name);
+    const declaration = declarations.get(name);
+    if (path === undefined || declaration === undefined) continue;
+    for (const field of declaration.fields ?? []) {
+      if (field.binding !== undefined) {
+        throw new Error(`${path}:1: kind "${name}": field "${field.name}" names a binding, and the store acceptance fixture declares nothing for a plugin to fill: a kept field is a person's write`);
+      }
+    }
+    const authored: KindFile = {
+      ...declaration,
+      fields: (declaration.fields ?? []).map((field) => ({ ...field, producers: ['person'] })),
+    };
+    writeFileSync(path, stringify(authored, { lineWidth: 0 }));
+  }
 
   // A protected kind (`system.*`) is declared by the engine, never by the product, so an edge that names one stands.
   const endpoints = (names: readonly string[]): string[] => names.filter(name => name === 'any' || name.startsWith('system.') || kept.has(name));

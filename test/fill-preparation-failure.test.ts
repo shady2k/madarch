@@ -5,9 +5,10 @@
  */
 import { expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parse, stringify } from 'yaml';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { runFill } from '../src/fill/run.js';
@@ -18,7 +19,6 @@ import { readProduct } from '../src/product/manifest.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 test('a fill that fails at store preparation ends its requested run failed, with the cause', async () => {
@@ -43,8 +43,56 @@ test('a fill that fails at store preparation ends its requested run failed, with
   }
 }, 120_000);
 
+/** Every kind declaration file the starter catalogue wrote, in code point order of their paths. */
+function kindFiles(folder: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(folder, { withFileTypes: true })) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) found.push(...kindFiles(path));
+    else if (entry.name.endsWith('.yaml')) found.push(path);
+  }
+  return found.sort();
+}
+
 /**
- * A fill whose stage plan refuses (a plugin-free catalogue, whose kinds no producer fills) is a fill that began: the run
+ * The starter catalogue with its plugins removed: the catalogue no longer names a plugin, and neither the lock nor the
+ * declaration folders the starter wrote stand. No deterministic producer and no agent plugin is left, so nothing in the
+ * manifest produces the kinds a fill asks for and the stage's plan refuses before a unit is planned — the same refusal a
+ * product whose fill has nothing to extract makes, built here rather than borrowed from the store walk's own fixture.
+ *
+ * A field the catalogue bound to a plugin (`imports@1.ecosystem`) names that plugin as its producer once the plugin is
+ * gone: the manifest stays sound, and the fill's plan is the one that says nothing in it produces those fields.
+ */
+function removePlugins(product: string): void {
+  const manifestFolder = join(product, 'madarch');
+  const catalogPath = join(manifestFolder, 'catalog.yaml');
+  const catalog = parse(readFileSync(catalogPath, 'utf8')) as Record<string, unknown>;
+  if (catalog['plugins'] === undefined) throw new Error(`${catalogPath}:1: the starter catalogue names no plugins, so the fill cannot be refused for their absence`);
+  delete catalog['plugins'];
+  writeFileSync(catalogPath, stringify(catalog, { lineWidth: 0 }));
+  rmSync(join(manifestFolder, 'plugins.lock'), { force: true });
+  rmSync(join(product, 'plugins'), { recursive: true, force: true });
+  const pluginBinding = /^([a-z][a-z0-9-]*)@\d+\.[a-z][a-z0-9_]*$/;
+  for (const path of kindFiles(join(manifestFolder, 'kinds'))) {
+    const declaration = parse(readFileSync(path, 'utf8')) as { readonly fields?: readonly Record<string, unknown>[] };
+    if (declaration.fields === undefined) continue;
+    let rewritten = false;
+    const fields = declaration.fields.map((field) => {
+      const held = field['binding'];
+      if (typeof held !== 'string') return field;
+      const named = held.match(pluginBinding);
+      if (named === null) throw new Error(`${path}:1: field "${String(field['name'])}" binds ${held}, which is no "<plugin>@<major>.<field>"`);
+      const rest: Record<string, unknown> = { ...field };
+      delete rest['binding'];
+      rewritten = true;
+      return { ...rest, producers: [named[1]!] };
+    });
+    if (rewritten) writeFileSync(path, stringify({ ...declaration, fields }, { lineWidth: 0 }));
+  }
+}
+
+/**
+ * A fill whose stage plan refuses (a catalogue whose kinds no producer fills) is a fill that began: the run
  * row stands `planning` and the press waits for its end. The process that ran it ends it `failed` with the refusal, so the
  * page names the cause, where a run left standing answers `queued` for ever and the walk's own bound is the only thing
  * that ends it (measured 2026-11-26: the clean-install walk polled 180 000 ms for a run that had failed after 2 s).
@@ -57,10 +105,10 @@ test('a fill whose stage plan refuses ends its run failed, with the cause, never
   try {
     const product = join(root, 'product');
     mkdirSync(product);
-    // The clean-install walk's own fixture: the starter catalogue reduced to the kinds the engine reads, with no plugin,
-    // so nothing in the manifest produces them and the stage's plan refuses before a unit is planned.
+    // The starter catalogue with its plugins removed: nothing in the manifest produces the kinds the fill asks for, so
+    // the stage's plan refuses before a unit is planned.
     seedStarterSet(product, 'everything');
-    prepareStoreAcceptanceFixture(product);
+    removePlugins(product);
     writeFileSync(join(product, 'workspace.yaml'), ['schemaVersion: 1', 'id: 5b0f1c3e-2d44-4a91-9f60-0c7a1e8b2d55', 'name: plugin-free-product', ''].join('\n'));
     const git = (...parameters: string[]): void => { execFileSync('git', parameters, { cwd: product, stdio: 'ignore' }); };
     git('init', '-q', '-b', 'main');
