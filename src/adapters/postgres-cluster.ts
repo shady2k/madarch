@@ -1269,8 +1269,8 @@ export function processStopped(pid: number, platform: NodeJS.Platform = process.
       span.setAttribute('file.bytes', Buffer.byteLength(held));
       return held;
     });
-    const at = stat.lastIndexOf(')');
-    return /^[Tt]$/u.test(stat.slice(at + 2, at + 3));
+    const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3);
+    return state === 'T' || state === 't';
   } catch { return false; }
 }
 
