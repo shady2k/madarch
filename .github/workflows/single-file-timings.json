@@ -4,7 +4,7 @@
     "test/acp-plugin-files.test.ts": 6700,
     "test/agent-exchange.test.ts": 6000,
     "test/agent-fill-bundle.test.ts": 12000,
-    "test/agent-fill-e2e.test.ts": 19200,
+    "test/agent-fill-e2e.test.ts": 31300,
     "test/agent-fill-graph-mcp.test.ts": 163304,
     "test/agent-graph-reads.test.ts": 10940,
     "test/agent-meter.test.ts": 14800,

@@ -3,8 +3,18 @@
   "measuredOn": "2026-11-26",
   "criterion": "Quarantine files with a measured single-file run over 30 s, plus measured-red files whose assertions or waiting failures require repair before returning to the blocking suite.",
   "source": "The ten green-slow entries the integration candidate added were re-measured on 2026-11-26 on box madarch-0039-fix2 (agent-linux-02, 4 vCPU, 8 GiB, image madarch-3) at that candidate's HEAD, one file at a time inside scripts/plugin-sandbox-cgroup.sh's delegated cgroup; those seconds are that machine's whole-file runs and are roughly three times a runner's. The runner measurements of run 45758277151 (ubuntu-24.04, ede4936b1) stay in each entry's defect text. Entries older than this measurement keep the note their own source names.",
-  "note": "The ten integration entries record the candidate's own measurement: on one box the fixture fill costs 8.1 times main's (155.6 s against main's median 19.3 s for the unchanged fixture of test/status-work.test.ts), so what these files measure is the fill, not the setup around it. Where a file stopped at a bound it names, its seconds are that run's wall time and therefore a floor. test/db-schema-path.test.ts was re-run with its two 300 s bounds raised to 900 s and finished 5 of 5 cases in 507 s, so the PARENT_DELETE_RESTRICTED refill failure reported from an earlier box does not reproduce at this candidate.",
+  "note": "The eleven integration entries record the candidate's own measurement: on one box the fixture fill costs 8.1 times main's (155.6 s against main's median 19.3 s for the unchanged fixture of test/status-work.test.ts), so what these files measure is the fill, not the setup around it. Where a file stopped at a bound it names, its seconds are that run's wall time and therefore a floor. test/db-schema-path.test.ts was re-run with its two 300 s bounds raised to 900 s and finished 5 of 5 cases in 507 s, so the PARENT_DELETE_RESTRICTED refill failure reported from an earlier box does not reproduce at this candidate.",
   "files": [
+    {
+      "path": "test/agent-fill-e2e.test.ts",
+      "seconds": 31.3,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.176",
+      "defect": "The two cases drive a whole agent fill through the api role and the plugin's own turns, and the file costs the 0039 fill's implementation, not its own setup. Runner-alone measurement in run 45809866011: 31.283 s; the same file took 38.304 s inside shard 1, over the 30 s bound.",
+      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL, and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping). Speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/agent-fill-e2e.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
+    },
     {
       "path": "test/agent-fill-graph-mcp.test.ts",
       "seconds": 163.3,
