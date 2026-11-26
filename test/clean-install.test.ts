@@ -17,7 +17,7 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
-  test('the plugin-free store fixture preserves starter template findings against its reduced schema', () => {
+  test('the plugin-free store fixture keeps the kinds and bindings a fill reads, and no plugin', () => {
     const product = join(scratch, 'store-fixture');
     mkdirSync(product);
     seedStarterSet(product, 'everything');
@@ -30,12 +30,14 @@ describe('clean install platform contracts', () => {
     expect(read.manifest.findings).toEqual([]);
     const rewritten = readFolderTemplates(product);
     const findings = checkProductTemplates(rewritten.files, rewritten.bodies, rewritten.findings, read.manifest);
-    // The repository is a relation of the code file since e3772a4ff, so the template names it `codeFileRepository`.
-    for (const field of ['codeFileRepository', 'path', 'language']) {
-      expect(findings.some((finding) => finding.file === 'templates/code-file.yaml' && finding.message.includes(field))).toBe(true);
-    }
+    // The repository is a relation of the code file since e3772a4ff, and the reduced catalogue declares it: the
+    // template resolves its `codeFileRepository` relation instead of naming a field the schema lacks.
+    expect(findings.filter((finding) => finding.file === 'templates/code-file.yaml')).toEqual([]);
     expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('codeFileRepository');
-    expect([...read.manifest.kinds.keys()]).toEqual(['code.file']);
+    // A fill of this product read the store's repositories, their trees and their history: the engine names those
+    // kinds through these roles (0039), and a manifest that drops them refuses the fill (madarch-64o5.74).
+    expect([...read.manifest.kinds.keys()].sort()).toEqual(['code.author', 'code.commit', 'code.directory', 'code.file', 'code.repository', 'product-profile']);
+    expect([...(read.manifest.semanticBindings?.keys() ?? [])].sort()).toEqual(['author', 'commit', 'directory', 'file', 'repository', 'source']);
     expect(read.manifest.plugins?.size ?? 0).toBe(0);
   });
 
