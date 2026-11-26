@@ -545,7 +545,7 @@ WITH assertion_headers AS MATERIALIZED (
         LEFT JOIN LATERAL (SELECT assertion_id,subject_edge_id FROM assertion_vertex_subject WHERE assertion_id=h.assertion_id OFFSET 0) av ON true
         LEFT JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE assertion_id=h.assertion_id OFFSET 0) ae ON true
         LEFT JOIN edge attachment ON attachment.id=av.subject_edge_id
-        LEFT JOIN entity kind ON kind.id=attachment.entity_id
+        LEFT JOIN LATERAL (SELECT name FROM entity WHERE id=attachment.entity_id OFFSET 0) kind ON true
         GROUP BY h.assertion_id
       ), provenance AS MATERIALIZED (
         SELECT e.from_node AS assertion_id,
@@ -556,8 +556,8 @@ WITH assertion_headers AS MATERIALIZED (
             OR (kind.name='system.assertion-operation' AND target_kind.name<>'system.operation')
             OR (kind.name='system.assertion-unit' AND target_kind.name<>'system.unit')) AS invalid
         FROM assertion_headers h CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=h.assertion_id OFFSET 0) e
-        JOIN entity kind ON kind.id=e.entity_id
-        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=e.to_node OFFSET 0) target ON true LEFT JOIN entity target_kind ON target_kind.id=target.entity_id
+        CROSS JOIN LATERAL (SELECT name FROM entity WHERE id=e.entity_id OFFSET 0) kind
+        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=e.to_node OFFSET 0) target ON true LEFT JOIN LATERAL (SELECT name FROM entity WHERE id=target.entity_id OFFSET 0) target_kind ON true
         GROUP BY e.from_node
       ), failures AS MATERIALIZED (
         SELECT h.assertion_id AS id,CASE
@@ -567,7 +567,7 @@ WITH assertion_headers AS MATERIALIZED (
           WHEN coalesce(provenance.sources,0)<>1 OR coalesce(provenance.authors,0)<>1 OR coalesce(provenance.operations,0)<1 THEN 88
           WHEN provenance.invalid THEN 106 ELSE 0 END AS code
         FROM assertion_headers h JOIN subjects ON subjects.assertion_id=h.assertion_id
-        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=h.assertion_id OFFSET 0) n ON true LEFT JOIN entity kind ON kind.id=n.entity_id
+        LEFT JOIN LATERAL (SELECT entity_id FROM node WHERE id=h.assertion_id OFFSET 0) n ON true LEFT JOIN LATERAL (SELECT name FROM entity WHERE id=n.entity_id OFFSET 0) kind ON true
         LEFT JOIN provenance ON provenance.assertion_id=h.assertion_id
       ) SELECT id,code INTO bad_id,violation FROM failures WHERE code<>0 ORDER BY id,code LIMIT 1;
 IF violation=77 THEN RAISE EXCEPTION '${import.meta.path}:77: assertion % requires exactly one subject',bad_id; END IF;
@@ -581,9 +581,9 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
         FROM (SELECT * FROM assertion WHERE assertion_id>=node_lower OFFSET 0) a
         LEFT JOIN LATERAL (SELECT * FROM assertion_vertex_subject WHERE assertion_id=a.assertion_id OFFSET 0) av ON true
         LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=av.subject_edge_id OFFSET 0) attachment ON true
-        LEFT JOIN LATERAL (SELECT * FROM node WHERE id=attachment.to_node OFFSET 0) target ON true LEFT JOIN entity vk ON vk.id=target.entity_id
+        LEFT JOIN LATERAL (SELECT * FROM node WHERE id=attachment.to_node OFFSET 0) target ON true LEFT JOIN LATERAL (SELECT name FROM entity WHERE id=target.entity_id OFFSET 0) vk ON true
         LEFT JOIN LATERAL (SELECT * FROM assertion_edge_subject WHERE assertion_id=a.assertion_id OFFSET 0) ae ON true
-        LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=ae.edge_id OFFSET 0) relation ON true LEFT JOIN entity ek ON ek.id=relation.entity_id
+        LEFT JOIN LATERAL (SELECT * FROM edge WHERE id=ae.edge_id OFFSET 0) relation ON true LEFT JOIN LATERAL (SELECT name FROM entity WHERE id=relation.entity_id OFFSET 0) ek ON true
       ) SELECT (SELECT jsonb_object_agg(assertion_id,expected) FROM headers WHERE operation='assert'),
         (SELECT jsonb_object_agg(expected,ids) FROM (SELECT expected,jsonb_agg(assertion_id) ids FROM headers WHERE operation='assert' AND expected IS NOT NULL GROUP BY expected) grouped),
         (SELECT min(assertion_id) FROM headers WHERE operation='assert' AND expected IS NULL)
@@ -597,7 +597,7 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
           SELECT id FROM node WHERE id>=node_lower
           UNION SELECT attachment.to_node FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
             CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) attachment
-        ) changed CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=changed.id OFFSET 0) n JOIN entity k ON k.id=n.entity_id
+        ) changed CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=changed.id OFFSET 0) n JOIN LATERAL (SELECT name FROM entity WHERE id=n.entity_id OFFSET 0) k ON true
         WHERE k.name=ANY(ARRAY[${keyedKinds.map(kind => literal(kind.name)).join(',')}]::text[]) GROUP BY k.name
       ) grouped;
       bad_id:=NULL;
