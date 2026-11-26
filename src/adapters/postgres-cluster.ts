@@ -1343,7 +1343,7 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
   if (answer.status !== 0) {
     // A server that answered no `SHOW data_directory` is still the postmaster the pid file names (madarch-64o5.74).
     const identified = postmasterFileIdentity(dataDir, pid, bin, platform);
-    observed?.(identified ? 'answered' : 'failed');
+    observed?.('failed');
     return identified;
   }
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) { observed?.('other'); return false; }
@@ -1404,8 +1404,7 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
           if (!alive(pid)) { stop.finish(); rmSync(pidFile, { force: true }); continue; }
           // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
           // must not be touched by it either.
-          const confirmed = postmasterOfDataDir(dataDir, pid, process.platform, result => stop.probe(result));
-          if (confirmed) stop.probe('answered', true);
+          const confirmed = postmasterOfDataDir(dataDir, pid, process.platform, result => stop.probe(result, result === 'answered'));
           if (!confirmed) {
             console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
             continue;

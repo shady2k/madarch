@@ -485,6 +485,7 @@
     "test/writer-russian.test.ts": 8400,
     "test/writer-set-based.test.ts": 4349,
     "test/yaml-position.test.ts": 6700,
-    "test/startup-trace-plain-text.test.ts": 5320
+    "test/startup-trace-plain-text.test.ts": 5320,
+    "test/startup-trace-stop-fallback.test.ts": 4178
   }
 }
