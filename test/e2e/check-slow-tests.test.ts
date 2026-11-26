@@ -151,16 +151,23 @@ test('alone speed comparison ignores listed-time noise and confirms the threshol
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 31101 } }, [path])).toEqual([]);
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 30900 } }, [path])).toEqual([]);
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 30899 } }, [path])).toEqual([]);
-  expect(growthFindings(list([{ ...entry, seconds: 30.05 }]), { ...evidence, files: { [path]: 30000 } }, [path], { ...evidence, files: { [path]: 30000 } }).join()).toContain('not slow');
+  expect(growthFindings(list([{ ...entry, seconds: 30.05 }]), { ...evidence, files: { [path]: 30000 } }, [path], { ...evidence, files: { [path]: 30000 } })).toEqual([]);
+  expect(growthFindings(list([{ ...entry, seconds: 30.05 }]), { ...evidence, files: { [path]: 15000 } }, [path], { ...evidence, files: { [path]: 15000 } }).join()).toContain('not slow');
 });
 
 test('two fast alone runs confirm the speed finding with both values', () => {
   const first = { ...evidence, files: { [path]: 6200 } };
-  const second = { ...evidence, files: { [path]: 30000 } };
+  const second = { ...evidence, files: { [path]: 15000 } };
   const result = growthFindings(list([entry]), first, [path], second).join();
   expect(result).toContain('31s');
   expect(result).toContain('6200ms');
-  expect(result).toContain('30000ms');
+  expect(result).toContain('15000ms');
+});
+test('a confirmation above the exit bound never refutes a speed claim', () => {
+  expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 15000 } }, [path], { ...evidence, files: { [path]: 15001 } })).toEqual([]);
+});
+test('a listed file measured between the exit and entry bounds on a slow runner keeps its place', () => {
+  expect(growthFindings(list([{ ...entry, seconds: 34.296 }]), { ...evidence, files: { [path]: 20077 } }, [path], { ...evidence, files: { [path]: 19998 } })).toEqual([]);
 });
 test('one fast alone run and one slow alone run is not a speed finding', () => {
   expect(growthFindings(list([entry]), { ...evidence, files: { [path]: 6200 } }, [path], { ...evidence, files: { [path]: 43000 } })).toEqual([]);

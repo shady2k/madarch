@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { readSlowList, testFiles } from './run-tests.js';
+import { readSlowList, SLOW_EXIT_SECONDS, testFiles } from './run-tests.js';
 
 const [timingsPath, logPath] = process.argv.slice(2);
 if (!timingsPath || !logPath || !process.env.GITHUB_STEP_SUMMARY) {
@@ -37,7 +37,7 @@ for (const entry of slow.files) {
   const observed = observations.get(entry.path) ?? 'UNCONFIRMED';
   const mismatch = (entry.result === 'red' && observed === 'GREEN') || (entry.result === 'green' && observed === 'RED');
   if (mismatch) contradiction = true;
-  const candidate = observed === 'GREEN' && Number.isFinite(ms) && ms! <= 30000;
+  const candidate = observed === 'GREEN' && Number.isFinite(ms) && ms! <= SLOW_EXIT_SECONDS * 1000;
   const claim = mismatch ? `claimed ${entry.result}, ran ${observed.toLowerCase()}`
     : observed === 'UNCONFIRMED' ? 'unconfirmed: no observed result'
     : 'claimed, measurement matches';

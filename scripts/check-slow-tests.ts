@@ -26,7 +26,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jsonArrayLocations, jsonValueLine } from './json-lines.js';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readSlowList, SLOW_LIST, SLOW_THRESHOLD_SECONDS, testFiles, type SlowList } from './run-tests.js';
+import { readSlowList, SLOW_EXIT_SECONDS, SLOW_LIST, SLOW_THRESHOLD_SECONDS, testFiles, type SlowList } from './run-tests.js';
 
 export interface Timings {
   readonly source: string;
@@ -70,9 +70,11 @@ export function growthPaths(slow: SlowList, timings: Timings, base: BaseChanges)
  * times; nightly summaries judge their outcomes instead of timing bound waits.
  * Initial adoption has no base manifests: 21 green files (~1347 s), not all 282
  * evidence paths. Normal PRs measure only their added/changed green claims.
- * Fresh times are noisy: run again only after <=30000 ms; both runs must be
- * <=30000 ms to contradict a speed claim. Listed seconds are not a fresh-run
- * target. The stable committed-evidence comparison alone keeps 100 ms tolerance.
+ * Fresh times are noisy: the second alone run is attempted only after a first
+ * one at or below SLOW_EXIT_SECONDS, and both runs must stay there to contradict
+ * a speed claim. Entry stays SLOW_THRESHOLD_SECONDS. Listed seconds are not a
+ * fresh-run target. The stable committed-evidence comparison alone keeps 100 ms
+ * tolerance.
  */
 export function growthMeasurementPaths(slow: SlowList, timings: Timings, base: BaseChanges): string[] {
   const green = new Set(slow.files.filter(entry => entry.result === 'green').map(entry => entry.path));
@@ -86,10 +88,10 @@ export function growthFindings(slow: SlowList, measured: Timings, paths: readonl
     const ms = measured.files[path];
     const entry = slow.files.find(entry => entry.path === path);
     if (!Number.isFinite(ms)) findings.push(`${at}: ${path} has no alone-run measurement`);
-    else if (entry && ms! <= SLOW_THRESHOLD_SECONDS * 1000 && confirmation) {
+    else if (entry && ms! <= SLOW_EXIT_SECONDS * 1000 && confirmation) {
       const second = confirmation.files[path];
       if (!Number.isFinite(second)) findings.push(`${location(confirmation.source, confirmation.text ?? '', path)}: ${path} has no confirmation measurement`);
-      else if (second! <= SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees: alone runs ${ms}ms and ${second}ms are both at or below 30000ms (not slow)`);
+      else if (second! <= SLOW_EXIT_SECONDS * 1000) findings.push(`${at}: ${path} listed time ${entry.seconds}s disagrees: alone runs ${ms}ms and ${second}ms are both at or below ${SLOW_EXIT_SECONDS * 1000}ms (half the 30 s threshold; not slow)`);
     } else if (!entry && ms! > SLOW_THRESHOLD_SECONDS * 1000) findings.push(`${at}: ${path} took ${ms}ms and is not in ${SLOW_LIST}`);
   }
   return findings;
@@ -247,7 +249,7 @@ function main(): void {
         const first = measure(1);
         if (!first) continue;
         const ms = first.files[path];
-        const confirmation = Number.isFinite(ms) && ms! <= SLOW_THRESHOLD_SECONDS * 1000 ? measure(2) : undefined;
+        const confirmation = Number.isFinite(ms) && ms! <= SLOW_EXIT_SECONDS * 1000 ? measure(2) : undefined;
         findings.push(...growthFindings(slow, first, [path], confirmation));
       }
     } finally { rmSync(folder, { recursive: true, force: true }); }
