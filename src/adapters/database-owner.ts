@@ -34,7 +34,6 @@ import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, types } from 'pg';
-import { loadModule, scanSync } from 'libpg-query';
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { GRAPH_CHECK_STATS, GRAPH_CHECK_DIAGNOSTIC_SCHEMA } from './schemas/graph-definition.js';
 import type { Pool, PoolConfig } from 'pg';
@@ -111,12 +110,30 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
 const graphDiagnosticClients = new WeakSet<Client>();
 type GraphCheckStats = Record<string, { calls: number; total_ms: number; self_ms: number }>;
 
+/**
+ * The lexer the diagnostics read statements with, once they have asked for it.
+ *
+ * `libpg-query` is imported dynamically, inside `prepareGraphDiagnostics`, and never
+ * at module load: the package instantiates its WebAssembly module the moment it is
+ * loaded, and a binary built by `bun build --compile` on another machine then asks
+ * for a `libpg-query.wasm` under that machine's `node_modules`. A compiled binary
+ * that runs an ordinary fill must therefore never touch the module at all; only
+ * `MADARCH_TRACE_GRAPH_CHECKS=1` does, and it needs the file beside the binary's
+ * own machine.
+ */
+type StatementLexer = Pick<typeof import('libpg-query'), 'scanSync'>;
+let statementLexer: StatementLexer | undefined;
+
 async function prepareGraphDiagnostics(client: Client): Promise<void> {
   if (graphDiagnosticClients.has(client)) return;
   // Session-local objects, created outside the business transaction. The last queued row samples the graph's
   // completed deferred triggers while their transaction counters still exist; no graph constraint is fired early.
   await withSpan('db.diagnostic.setup', { 'db.system': 'postgres', 'db.diagnostic.statements': 3 }, async () => {
-    await loadModule();
+    if (statementLexer === undefined) {
+      const libpgQuery = await import('libpg-query');
+      await libpgQuery.loadModule();
+      statementLexer = libpgQuery;
+    }
     await client.query(GRAPH_CHECK_DIAGNOSTIC_SCHEMA);
   });
   graphDiagnosticClients.add(client);
@@ -124,10 +141,14 @@ async function prepareGraphDiagnostics(client: Client): Promise<void> {
 
 /** PostgreSQL's lexer recognizes comments and whitespace without a second SQL grammar. */
 function setsConstraints(sql: string): boolean {
-  try {
-    const tokens = (scanSync(sql).tokens ?? []).filter(token => token.tokenName !== 'C_COMMENT' && token.tokenName !== 'SQL_COMMENT');
-    return tokens[0]?.text.toUpperCase() === 'SET' && tokens[1]?.text.toUpperCase() === 'CONSTRAINTS';
-  } catch { return false; } // Let PostgreSQL report malformed SQL through the normal statement path.
+  const lexer = statementLexer;
+  // Only a transaction that asked for the diagnostics reads a statement here, and
+  // that transaction loaded the lexer first (`prepareGraphDiagnostics`).
+  if (lexer === undefined) throw new Error(`${import.meta.path}:${136}: the graph-check diagnostics read a statement before libpg-query was loaded`);
+  let tokens;
+  try { tokens = lexer.scanSync(sql).tokens ?? []; } catch { return false; } // Let PostgreSQL report malformed SQL through the normal statement path.
+  const kept = tokens.filter(token => token.tokenName !== 'C_COMMENT' && token.tokenName !== 'SQL_COMMENT');
+  return kept[0]?.text.toUpperCase() === 'SET' && kept[1]?.text.toUpperCase() === 'CONSTRAINTS';
 }
 
 function graphCheckAttributes(before: GraphCheckStats, after: GraphCheckStats): Record<string, number> {
