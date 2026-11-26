@@ -1,6 +1,7 @@
 import {expect,test} from 'bun:test';
 import type {DatabaseOwner} from '../src/adapters/database-owner.js';
 import {assertionValueTableName} from '../src/graph/contract.js';
+import {vertexKindPresentSql} from '../src/graph/system-contract.js';
 import type {SqlExecutor} from '../src/sql-driver.js';
 import {commitFacts,fileFacts,listFiles,repositoryFacts} from '../src/graph/records.js';
 import {repositoryManifest} from './repository-contract-fixture.js';
@@ -28,7 +29,7 @@ function missingParentOwner(role:'repository'|'commit'):DatabaseOwner {
  const uid='00000000-0000-4000-8000-000000000001';
  const tx={query:async(sql:string,parameters?:readonly unknown[])=>{
   if(sql.includes('WITH anchors AS'))return {rows:[]};
-  if(sql.includes("k.name='system.merge'"))return {rows:[{present:false}]};
+  if(sql.includes(vertexKindPresentSql('system.merge')))return {rows:[{present:false}]};
   if(sql==='SELECT transaction_timestamp() AS now')return {rows:[{now}]};
   if(parameters?.[0]!=='manifest.catalogue')return {rows:[]};
   if(sql.includes('FROM node n'))return {rows:[{request_index:0,id:1,uid,key:{name:'product'},read_at:now}]};
