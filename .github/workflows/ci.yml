@@ -223,6 +223,81 @@ jobs:
             exit 1
           fi
 
+  # The ten files test/slow-files.json records as green-slow, measured over 30
+  # seconds alone on a runner in run 45758277151, run here one job each. The
+  # shards leave out every file the list names (the shard step here and
+  # scripts/run-tests.ts), so this required matrix is the blocking coverage of
+  # these ten. Four fixtures of the list run in partition-bootstrap, not in
+  # `checks`: git-partition-bootstrap, h3-real-reconciliation,
+  # disk-support-ownership and agent-fill-graph-mcp. Every other green-slow entry
+  # runs only in the nightly slow-tests.yml, as do main's own entries in the list.
+  # A job fails when its run selected no file, did not name it once as the run's
+  # own header, reported fewer passing cases than the file holds, or reported a
+  # failure: a green job that cannot show the file ran is not coverage.
+  slow-files:
+    name: slow file ${{ matrix.file }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { file: test/db-schema-path.test.ts, cases: 5 }
+          - { file: test/api-role-first-page.test.ts, cases: 1 }
+          - { file: test/owner-fill-path.test.ts, cases: 1 }
+          - { file: test/plugin-fill-scenarios.test.ts, cases: 6 }
+          - { file: test/ordinary-plugin-partition.test.ts, cases: 16 }
+          - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
+          - { file: test/imports-path.test.ts, cases: 5 }
+          - { file: test/roles-two-and-two.test.ts, cases: 1 }
+          - { file: test/status-work.test.ts, cases: 3 }
+          - { file: test/source-follows-fill.test.ts, cases: 2 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Run the complete file and prove its cases ran
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
+              return 1
+            fi
+          }
+          path='${{ matrix.file }}'
+          log="$RUNNER_TEMP/slow-file.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only "$path" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" "$path" '${{ matrix.cases }}'
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+
   checks:
     runs-on: ubuntu-24.04
     services:
@@ -331,10 +406,11 @@ jobs:
 
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.
-  # partition-bootstrap must succeed too: the slow-list growth check is not coverage.
+  # partition-bootstrap and slow-files must succeed too: the slow-list growth
+  # check is not coverage.
   test:
     if: always()
-    needs: [test-shard, checks, partition-bootstrap]
+    needs: [test-shard, checks, partition-bootstrap, slow-files]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -376,8 +452,9 @@ jobs:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           BOOTSTRAP_RESULT: ${{ needs.partition-bootstrap.result }}
+          SLOW_FILES_RESULT: ${{ needs.slow-files.result }}
         run: |
-          if [[ "$SHARDS_RESULT" != success || "$CHECKS_RESULT" != success || "$BOOTSTRAP_RESULT" != success ]]; then
-            echo "test-shard result: $SHARDS_RESULT; checks result: $CHECKS_RESULT; partition-bootstrap result: $BOOTSTRAP_RESULT" >&2
+          if [[ "$SHARDS_RESULT" != success || "$CHECKS_RESULT" != success || "$BOOTSTRAP_RESULT" != success || "$SLOW_FILES_RESULT" != success ]]; then
+            echo "test-shard result: $SHARDS_RESULT; checks result: $CHECKS_RESULT; partition-bootstrap result: $BOOTSTRAP_RESULT; slow-files result: $SLOW_FILES_RESULT" >&2
             exit 1
           fi
