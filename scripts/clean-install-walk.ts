@@ -386,18 +386,23 @@ async function serveCheck(): Promise<void> {
     // `not-filled` is not store readiness: startup publication may still be in initdb. Stop must end preparation too.
     await stopServer();
     if (process.platform === 'win32') await verifyWindowsProcessOwnership();
-    await checkForegroundServe(facts.folder, 'not-filled');
-    console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
-    const restarted = await runMadarch('start', ['--home', home, '--port', String(port)]);
-    if (restarted.status !== 0 || !await waitForProduct(facts.url)) throw new Error(`${facts.folder}:1: could not restart the daemon after the fresh foreground check (exit ${restarted.status})${daemonTail()}`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
+    // The fixture stands before anything publishes this product a second time: a daemon that published the full
+    // starter catalogue and then read the reduced one republishes it as a removal of ninety-odd kinds, and that
+    // removal is what the temporary 0039 write slowdown makes cost minutes (measured on Linux x64 2026-11-26:
+    // 2.9 s to publish the starter catalogue, and the reduced catalogue still unpublished after 120 s). The
+    // fixture is committed here, so the first serve and then the daemon each read the reduced manifest once.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
     prepareStoreAcceptanceFixture(facts.folder);
     console.log(`${manifest}:1: store acceptance fixture: the repository, directory, file, commit and author kinds with the edges they relate by and their semantic bindings, no plugins (Windows has no plugin sandbox)`);
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
+    await checkForegroundServe(facts.folder, 'not-filled');
+    console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
+    const restarted = await runMadarch('start', ['--home', home, '--port', String(port)]);
+    if (restarted.status !== 0 || !await waitForProduct(facts.url)) throw new Error(`${facts.folder}:1: could not restart the daemon after the fresh foreground check (exit ${restarted.status})${daemonTail()}`);
     // The preparation page's isolation question, answered on that page just before the person presses Fill there.
     await answerIsolation(facts.url);
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.
