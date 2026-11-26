@@ -33,6 +33,7 @@ import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
 import { readProduct } from '../product/manifest.js';
+import { raise } from '../model/raise.js';
 
 /** A run that failed before its host began is ended where the run's end lives (`graph/fill-orchestration.ts`). */
 export { failRequestedFill };
@@ -205,6 +206,18 @@ export interface FinishedKnowledgeStore {
 }
 
 /**
+ * Ends a run the fill began and then lost: only a run still standing — `created`, `planning`, `running`, `pausing` or
+ * `cancelling` — reaches `failed`, with the cause, and a run already terminal keeps the ending it has. The end row is
+ * written by the caller that holds the run's own answer; this is the row every reader of a live run reads.
+ */
+async function endUnfinishedRun(database: FillStateDatabase, runId: string, message: string): Promise<void> {
+  const run = await readRun(database, runId);
+  if (run === null || (TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return;
+  const failed = await advanceRun(database, { runId, event: { type: 'fail', at: Date.now(), cause: 'process-ended', detail: message } });
+  if (!failed.ok) raise(`fill-run: the run ${runId} could not be ended after its fill failed (${failed.refusal.reason}): ${message}`);
+}
+
+/**
  * Finishes one store after a run that settled: the repositories the graph now holds and what each was filled to, read
  * from the graph — the repository entity, its as-is edge and the counts of its rows. Nothing is written: a pin is not a
  * table of the fill's (stage 3: `knowledge_fill` is gone). The statistics a page plans from are left after it.
@@ -338,6 +351,12 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           // Repeated requests for a run already begun must not replace its existing end.
           await failRequestedFill(database, options.runId, message);
           recordEnd = false;
+        } else {
+          // A run the fill began and then lost ends here, in the process that ran it: a stage's plan that refuses, a
+          // stage's own error. The row left standing `planning` or `running` answers every reader `queued` or `running`
+          // for ever, and the press's page waits for an end no killed process writes (measured 2026-11-26: the
+          // clean-install walk polled 180 000 ms for a run whose plan had refused after 2 s).
+          await endUnfinishedRun(database, options.runId, message);
         }
         return { ok: false, state: 'failed', message, units: 0 };
       }
