@@ -165,8 +165,11 @@ afterAll(async () => {
 });
 
 test('the fixture fill stays within its measured query budget', () => {
-  expect(fillBudget.statements).toBeLessThanOrEqual(14_458);
-  expect(fillBudget.transactions).toBeLessThanOrEqual(453);
+  // Product repository extraction (29b6d567) adds the product repository to disk:code.file and git:code.commit,
+  // crossing GROUP_BYTES into two partition children each (10 -> 12 units), plus queue enqueue reservations (3225b3c3).
+  // Measured on this fixture after 747d89dd9 batching: 16,021-16,027 statements and 507 transactions.
+  expect(fillBudget.statements).toBeLessThanOrEqual(16_100);
+  expect(fillBudget.transactions).toBeLessThanOrEqual(510);
 });
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
