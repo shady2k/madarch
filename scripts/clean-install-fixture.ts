@@ -10,7 +10,9 @@
  * is required by this read". The reduced catalogue therefore keeps the code structure
  * and history kinds (repository, directory, file, commit, author) with the kinds they
  * derive from, the edges those kinds relate by and the semantic bindings over them,
- * and drops every other kind, edge, purpose and plugin.
+ * and drops every other kind, edge and plugin. The catalogue's own metadata — its
+ * purposes among them — stays: a purpose names no kind of its own and an engine read
+ * still asks for it.
  */
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,12 +51,6 @@ function kindFiles(kinds: string): Map<string, string> {
   return found;
 }
 
-/** The kind's group, as the folder layout declares it (`kinds/<area>/<group>/<kind>.yaml`). */
-function groupOf(kinds: string, path: string): string {
-  const segments = path.slice(kinds.length + 1).split('/');
-  return segments.slice(0, -1).join('.');
-}
-
 export function prepareStoreAcceptanceFixture(folder: string): void {
   const manifestFolder = join(folder, 'madarch');
   const kinds = join(manifestFolder, 'kinds');
@@ -73,10 +69,8 @@ export function prepareStoreAcceptanceFixture(folder: string): void {
   if (!kept.has('code.file')) throw new Error(`${join(manifestFolder, 'catalog.yaml')}:1: the product's catalogue declares no code.file, so the store acceptance fixture has nothing to keep`);
 
   // A kind is its file: the catalogue holds the metadata around those files.
-  const groups = new Set<string>();
   for (const [name, path] of files) {
-    if (!kept.has(name)) { rmSync(path); continue; }
-    groups.add(groupOf(kinds, path));
+    if (!kept.has(name)) rmSync(path);
   }
   const prune = (folder: string): void => {
     for (const name of readdirSync(folder)) {

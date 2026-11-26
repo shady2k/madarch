@@ -394,7 +394,7 @@ async function serveCheck(): Promise<void> {
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
     prepareStoreAcceptanceFixture(facts.folder);
-    console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
+    console.log(`${manifest}:1: store acceptance fixture: the repository, directory, file, commit and author kinds with the edges they relate by and their semantic bindings, no plugins (Windows has no plugin sandbox)`);
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
