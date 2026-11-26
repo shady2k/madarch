@@ -55,7 +55,7 @@ interface McpServerInfo {
 export const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: runningVersion() };
 
 /** What a message answers a tool call with: the host this server proxies to (`createUnitToolsHost`). */
-type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;
+type UnitToolCallForwarder = (tool: string, argumentsValue: unknown, requestId?: string) => Promise<UnitToolAnswer>;
 
 /** What this server serves and how one call is answered. */
 export interface UnitMcpOptions {
@@ -159,7 +159,7 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
       }
       let answered: UnitToolAnswer;
       try {
-        answered = await options.call(name, params['arguments']);
+        answered = await options.call(name, params['arguments'], JSON.stringify(held.id));
       } catch (thrown) {
         // A tool that throws answers *this* call and keeps the stream: the failure is the call's own content, as the
         // specification's `isError` result is, and the next call is served (madarch-ztyq.10 review).
@@ -167,8 +167,9 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
         return result(held.id, { content: [{ type: 'text', text: JSON.stringify({ error: { code: 'tool-failed', message } }) }], isError: true });
       }
       // The answer's own JSON is the content block, compact: the caps a read answers within are counts of
-      // the answer's own text, and a pretty-printed copy would be a longer text than the one they bounded.
-      return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }], isError: answered.isError });
+      // the answer's own text, and a pretty-printed copy would be a longer text than the one they bounded. A note the
+      // host hands with the answer — the fill's wrap notice — is a text block of its own, after it.
+      return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }, ...(answered.note === undefined ? [] : [{ type: 'text', text: answered.note }])], isError: answered.isError });
     }
     default:
       return error(held.id, METHOD_NOT_FOUND, `${JSON.stringify(method)} is no method of this server: it offers initialize, ping, tools/list and tools/call, and the tools are ${tools.map((tool) => tool.name).join(', ')} (src/fill/unit-mcp.ts)`);

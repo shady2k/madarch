@@ -24,3 +24,5 @@ labels:
 description:
   en: A trust zone groups components that trust each other to the same degree, such as a private network, a public edge or a management network. Crossing from one zone to another needs a control.
   ru: 'Зона доверия объединяет компоненты, которые доверяют друг другу в одинаковой степени: частная сеть, публичный край или сеть управления. Переход из одной зоны в другую требует контроля.'
+derives-from:
+- software-system

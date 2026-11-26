@@ -79,12 +79,13 @@ sections:
     after: byLanguage
     title: { en: By folder, ru: По папке }
     query: |
-      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        groupBy(field: "directory", limit: 20) { key count }
+      allCodeDirectory(first: 20) {
+        edges { node { label codeFileDirectoryOf { totalCount } } }
       }
     params:
-      path: groupBy
-      valuePath: count
+      path: edges
+      labelPath: node.label
+      valuePath: node.codeFileDirectoryOf.totalCount
   - id: largest
     component: bars
     on: root

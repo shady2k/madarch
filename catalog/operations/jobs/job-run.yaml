@@ -5,6 +5,7 @@ definition: A job run is one execution of a scheduled job, with its result and h
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -13,7 +14,36 @@ relation-constraints:
   - partOf
   in:
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the run started.
+- name: finished_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the run ended.
+- name: duration
+  type: duration-seconds
+  nullable: true
+  binding:
+    agent: How long the run took, in seconds.
+- name: result
+  type: text
+  nullable: true
+  binding:
+    agent: 'How the run ended: succeeded, failed or skipped.'
+- name: output
+  type: text
+  nullable: true
+  binding:
+    agent: What the run reported, in the words of its last line of output.
+key:
+- started_at
 labels:
   en:
     one: Job run
@@ -24,3 +54,10 @@ labels:
 description:
   en: 'A job run records one execution of a scheduled job: when it started, when it ended, whether it succeeded and what it produced. Comparing runs shows whether the schedule is kept and how the work grows.'
   ru: 'Запуск задачи фиксирует одно выполнение задачи по расписанию: когда началось и закончилось, удачно ли прошло и что создало. Сравнение запусков показывает, соблюдается ли расписание и как растёт работа.'
+
+key-edges:
+- role: job-run-job
+  edge: job-run-job
+  side: from
+derives-from:
+- scheduled-job

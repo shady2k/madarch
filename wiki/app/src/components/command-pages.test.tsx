@@ -39,20 +39,22 @@ const NAVIGATION = {
   purposes: [],
 };
 
-const ALPHA = { kind: 'demo.alpha', fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
-const BETA = { kind: 'demo.beta', fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
-const GAMMA = { kind: 'demo.gamma', fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
+const applicabilityFor = (kind: string) => ({ kind, state: 'not-searched' as const, reason: '', evidence: [], contested: false });
+
+const ALPHA = { kind: 'demo.alpha', applicability: applicabilityFor('demo.alpha'), fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
+const BETA = { kind: 'demo.beta', applicability: applicabilityFor('demo.beta'), fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
+const GAMMA = { kind: 'demo.gamma', applicability: applicabilityFor('demo.gamma'), fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
 
 const ALL_PLAN = {
   selectedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], order: ['disk', 'agent-fill'],
   units: [{ plugin: 'disk', kind: 'demo.alpha' }, { plugin: 'agent-fill', kind: 'demo.beta' }, { plugin: 'disk', kind: 'demo.gamma' }, { plugin: 'agent-fill', kind: 'demo.gamma' }],
   kinds: [ALPHA, BETA, GAMMA],
   needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }, { kind: 'demo.gamma', fields: ['definition'] }],
-  errors: [], skipped: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], added: [], pluginsOnly: false,
+  errors: [], skipped: [], emptyKinds: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], added: [], pluginsOnly: false,
 };
 
 function planFor(selected: readonly string[], pluginsOnly = false) {
-  const common = { requestedKinds: selected, added: [] as { kind: string; neededBy: string }[], pluginsOnly, errors: [] as unknown[], skipped: [] as { kind: string; fields: string[]; reason: string }[] };
+  const common = { emptyKinds: [], requestedKinds: selected, added: [] as { kind: string; neededBy: string }[], pluginsOnly, errors: [] as unknown[], skipped: [] as { kind: string; fields: string[]; reason: string }[] };
   if (selected.length === 3) return { plan: { ...ALL_PLAN, ...common } };
   if (selected.includes('demo.gamma')) {
     return { plan: { ...common, selectedKinds: ['demo.alpha', 'demo.gamma'], order: ['disk', 'agent-fill'], units: [], kinds: [ALPHA, GAMMA], needsAgent: [{ kind: 'demo.gamma', fields: ['definition'] }], added: [{ kind: 'demo.alpha', neededBy: 'demo.gamma' }] } };
@@ -104,13 +106,14 @@ const EXCHANGE = {
   opened: [{ at: new Date(Date.now() - 3000).toISOString(), repository: 'repo', path: 'docs/a.md', bytes: 42 }],
   openedDropped: 0,
   returned: { text: '{"vertices":[],"end":{"state":"complete"}}', bytes: 43, cut: false },
-  usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340, context: { used: 1200, size: 200000 }, turns: 1, reported: true },
+  usage: { inputTokens: 300, outputTokens: 40, cachedWriteTokens: 25, cachedReadTokens: 75, totalTokens: 340, context: { used: 1200, size: 200000 }, turns: 1, reported: true },
   stop: 'end_turn', failure: null,
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
 let runAnswer: unknown = RUN;
+let planAnswer: unknown = null;
 /** The agents `/api/agents` offers and the one this product saved; both installed and signed in unless a test says otherwise. */
 let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
   { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
@@ -217,6 +220,7 @@ beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
   runAnswer = RUN;
+  planAnswer = null;
   savedAgent = null;
   productSettings = { tokenCap: 200_000 };
   readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
@@ -238,11 +242,15 @@ beforeEach(async () => {
       const operation = typeof (body as { query?: unknown } | undefined)?.query === 'string' ? (body as { query: string }).query : '';
       if (operation.includes('fillRuns')) return answer(url.pathname, { data: { fillRuns: [runAnswer] } });
       if (operation.includes('fillStatus')) return answer(url.pathname, { data: { fillStatus: { fill: { state: 'idle' }, filled: true, incomplete: false, manifest: 'ok' } } });
-      if (operation.includes('fillPlan')) return answer(url.pathname, { data: { fillPlan: planFor([], false) } });
+      if (operation.includes('fillPlan')) {
+        const variables = (body as { variables?: { selected?: string[]; pluginsOnly?: boolean } }).variables;
+        const planned = (planAnswer ?? planFor(variables?.selected ?? [], variables?.pluginsOnly === true)) as { plan: unknown };
+        return answer(url.pathname, { data: { fillPlan: planned.plan } });
+      }
       if (operation.includes('products')) return answer(url.pathname, { data: { products: { current: 'portal', products: [] } } });
       return answer(url.pathname, { data: {} });
     }
-    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
+    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planAnswer ?? planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) {
       const asked = url.searchParams.get('agent') ?? 'claude-code';
@@ -333,6 +341,35 @@ function type(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
+
+test('the catalogue shows recorded applicability, its reason and ancestor without confusing zero with absence', async () => {
+  const absent = { kind: 'demo.beta', state: 'inapplicable', reason: 'В репозитории нет словаря', ancestor: 'demo.alpha', evidence: ['assertion-1'], contested: true };
+  planAnswer = { plan: { ...ALL_PLAN, kinds: [ALPHA, { ...BETA, applicability: absent }, { ...GAMMA, applicability: { ...absent, kind: 'demo.gamma', state: 'empty', ancestor: undefined, contested: false, reason: 'Поиск завершён без результатов' } }] } };
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    const beta = page.container.querySelector('[data-kind="demo.beta"]');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-state"]')?.textContent).toBe('Неприменимо');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-reason"]')?.textContent).toBe('Причина: В репозитории нет словаря');
+    expect(beta?.querySelector('[data-testid="catalogue-applicability-ancestor"]')?.textContent).toBe('Унаследовано от: Файлы');
+    expect(beta?.textContent).toContain('Есть разногласия');
+    expect(page.container.querySelector('[data-kind="demo.gamma"] [data-testid="catalogue-applicability-state"]')?.textContent).toBe('Ничего не найдено');
+  } finally { await page.close(); }
+});
+
+test('the preparation plan lists an inapplicable skip with the recorded reason and ancestor', async () => {
+  const applicability = { kind: 'demo.beta', state: 'inapplicable', reason: 'В репозитории нет словаря', ancestor: 'demo.alpha', evidence: ['assertion-1'], contested: false };
+  planAnswer = { plan: { ...ALL_PLAN, order: [], units: [], needsAgent: [], skipped: [{ kind: 'demo.beta', fields: ['definition'], reason: applicability.reason, applicability }] } };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.beta' });
+  try {
+    const skipped = page.container.querySelector('[data-testid="prepare-skipped"]');
+    expect(skipped?.textContent).toContain('Термины');
+    expect(skipped?.textContent).toContain('Неприменимо');
+    expect(skipped?.textContent).toContain('Причина: В репозитории нет словаря');
+    expect(skipped?.textContent).toContain('Унаследовано от: Файлы');
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-nothing"]')).not.toBeNull();
+  } finally { await page.close(); }
+});
 
 test('the catalogue reads by default, in the catalogue\'s words, with counts, «в продукте» and the plan\'s producers', async () => {
   const page = await render([section('catalogue', 'catalogue', {})]);
@@ -699,7 +736,7 @@ test('the run page shows each agent unit in detail: what it was given, did, retu
     expect(card?.querySelector('[data-testid="agent-opened"]')?.textContent).toContain('repo: docs/a.md');
     // What it returned, what it cost, and the raw record behind the words.
     expect(card?.querySelector('[data-testid="agent-answer"]')?.textContent).toContain('"state":"complete"');
-    expect(card?.querySelector('[data-testid="agent-tokens"]')?.textContent).toContain('Токены: 300 вход · 40 выход · 340 всего');
+    expect(card?.querySelector('[data-testid="agent-tokens"]')?.textContent).toContain('Токены: 300 вход · 40 выход · 25 запись кэша · 75 чтение кэша · 340 всего');
     expect(card?.querySelector('[data-testid="agent-raw"]')?.textContent).toContain('Сырой JSON');
     expect(card?.querySelector('[data-testid="agent-failure"]')).toBeNull();
   } finally {

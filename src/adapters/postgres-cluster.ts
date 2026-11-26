@@ -47,8 +47,7 @@ import { processStartTicks } from '../obs/startup-platform.js';
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { withSpanSync, withSpan } from '../obs/trace.js';
-import { constants, fstatSync, readSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, fstatSync, readSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -972,7 +971,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
       const held = readdirSync(dataDir);
       span.setAttribute('file.entries', held.length);
       return held;
-    }).length === 0) rmSync(preparingRecordPath(dataDir), { force: true });
+    }).length === 0) withSpanSync('fs.remove', { 'file.path': preparingRecordPath(dataDir) }, () => rmSync(preparingRecordPath(dataDir), { force: true }));
     throw error;
   }
 }
@@ -1257,12 +1256,33 @@ export function postmasterStill(dataDir: string, pid: number, startTime: string 
   return processStartTime(pid, platform) === startTime;
 }
 
+/** The installed Linux postmaster's kernel identity when its socket cannot answer (startup, authentication or shutdown). */
+function postmasterFileIdentity(dataDir: string, pid: number, bin: string, platform: NodeJS.Platform): boolean {
+  return withSpanSync('postgres.postmasterFileIdentity', {}, () => {
+    if (platform !== 'linux') return false;
+    const start = processStartTime(pid);
+    if (start === undefined) return false;
+    try {
+      // A command line alone is not identity: a shell script named postgres may carry exactly these arguments.
+      const executable = statSync(`/proc/${String(pid)}/exe`);
+      const installed = statSync(join(bin, postgresProgram('postgres', platform)));
+      if (executable.dev !== installed.dev || executable.ino !== installed.ino) return false;
+      const argv = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
+      if (!runsOnDataDir(argv[0] ?? '', argv, dataDir, platform)) return false;
+      if (argv.some((argument) => argument === '--single' || argument === '--boot' || argument === '--describe-config' || argument === '-C')) return false;
+      if (realPathOf(`/proc/${String(pid)}/cwd`) !== realPathOf(dataDir)) return false;
+      const record = readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n');
+      if (Number(record[0]) !== pid || realPathOf(record[1] ?? '') !== realPathOf(dataDir)) return false;
+      return postmasterStill(dataDir, pid, start, platform);
+    } catch { return false; }
+  });
+}
 /**
  * Whether the pid in `postmaster.pid` is the postmaster of exactly this data folder: the server is asked over its own
  * socket (or loopback TCP on Windows) for `SHOW data_directory`; it is ours only when it answers, the answer's real path is
  * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A server that answers only
- * that it is busy or shutting down is checked through its own files (`postmasterBusyIdentity`). A process that is not
- * confirmed is never signaled and `pg_ctl` is never run for it.
+ * that it cannot answer is checked against the installed executable, exact data folder and kernel identity on Linux.
+ * A process that is not confirmed is never signaled and `pg_ctl` is never run for it.
  */
 export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform, observed?: (probe: 'answered' | 'failed' | 'other' | 'skipped') => void): boolean {
   observed?.('skipped');
@@ -1299,9 +1319,14 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
     span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
     return answer;
   });
-  if (answer.status !== 0) { observed?.('failed'); return false; }
+  if (answer.status !== 0) {
+    // A server that answered no `SHOW data_directory` is still the postmaster the pid file names (madarch-64o5.74).
+    const identified = postmasterFileIdentity(dataDir, pid, bin, platform);
+    observed?.(identified ? 'answered' : 'failed');
+    return identified;
+  }
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) { observed?.('other'); return false; }
-  if (holderOf(dataDir) !== pid) return false;
+  if (holderOf(dataDir) !== pid) { observed?.('failed'); return false; }
   observed?.('answered');
   return true;
 }

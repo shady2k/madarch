@@ -7,14 +7,14 @@
  * `entities: [<id>...]` makes it the template of those entities, and `catalogue: [<kind>...]` makes it the page of that
  * kind's catalogue entry. The file's own name is its template name.
  */
-import { withSpanSync } from '../obs/trace.js';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import { readTemplate, type TemplateFile } from '../page-contract/template.js';
-import { generatedTableName } from './contract.js';
+import { readKindAssertions } from './records.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { withManifestContract } from './manifest-contract.js';
+import { withAssertionContract } from './system-contract.js';
 import { startSpan } from '../obs/trace.js';
-import { pageTemplateKind, type KindsManifest } from '../product/manifest/kinds.js';
-import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
+import { productPageTemplate } from '../knowledge/page-template-kind.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
@@ -39,33 +39,6 @@ export interface ProductTemplates {
   readonly catalogueOf: ReadonlyMap<string, string>;
   /** Every finding the files answered when they were read. */
   readonly findings: readonly TemplateFinding[];
-}
-
-/** Every file under the product's `templates/`, its template name, its text and its product-relative path. */
-export function templateFiles(folder: string): { name: string; body: string; path: string }[] {
-  const root = join(folder, 'templates');
-  const out: { name: string; body: string; path: string }[] = [];
-  return withSpanSync('templates.read', { 'file.path': root }, (span) => {
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) visit(path);
-      // Section 6: a page template is a YAML file of `templates/`. Another file beside them (a product's leftover
-      // Liquid template) is no page template, and the server neither reads it nor refuses the product for it.
-      else if (entry.isFile() && statSync(path).isFile() && /\.ya?ml$/u.test(entry.name)) {
-        const name = relative(root, path).replace(/\.[^.]*$/u, '');
-        out.push({ name, body: readFileSync(path, 'utf8'), path: `templates/${relative(root, path)}` });
-      }
-    }
-  };
-  try {
-    visit(root);
-  } catch {
-    return [];
-  }
-  span.setAttribute('templates.files', out.length);
-  return out.sort((left, right) => byCodePoint(left.name, right.name));
-  });
 }
 
 /**
@@ -101,32 +74,23 @@ export function templatesOf(files: readonly TemplateFile[], bodies: ReadonlyMap<
  */
 export async function readPublishedTemplates(executor: SqlExecutor, manifest: KindsManifest): Promise<{ templates: ProductTemplates; files: readonly TemplateFile[]; findings: readonly TemplateFinding[] }> {
   // The product's own kind wins; a product whose manifest names none publishes its templates as the catalogue's kind.
-  const kind = pageTemplateKind(manifest);
-  const declared = kind?.pageTemplate;
-  const fallback = cataloguePageTemplate();
-  const kindName = kind?.name ?? fallback.name;
-  const nameRole = declared?.['name'] ?? fallback.nameField;
-  const bodyRole = declared?.['body'] ?? fallback.bodyField;
-  const pathRole = declared?.['path'] ?? fallback.pathField;
-  const column = (field: string): string => `"${field.replaceAll('"', '""')}"`;
-  // A template is one page drawing another: its rows are the kind's, and the body is a declared text field.
+  const { name: kindName, nameField: nameRole, bodyField: bodyRole, pathField: pathRole } = productPageTemplate(manifest);
+  const contract = withAssertionContract(withManifestContract(graphContractOf(manifest)));
   const span = startSpan('graph.templates.read', { 'madarch.kinds': String(manifest.kinds.size) });
-  let found: { readonly rows: readonly { readonly name: string | null; readonly body: string | null; readonly path: string | null }[] };
+  let rows: Awaited<ReturnType<typeof readKindAssertions>>;
   try {
-    found = await executor.query<{ name: string | null; body: string | null; path: string | null }>(
-    `SELECT n.key->>$1 AS name, o.${column(bodyRole)} AS body, ${pathRole === undefined ? 'NULL' : `o.${column(pathRole)}`} AS path
-       FROM ${generatedTableName(kindName, 'vertex')} o JOIN node n ON n.id = o.node_id
-      WHERE o.state = 'open' AND o.context_id = 1 AND n.context_id = 1 AND NOT n.removed
-      ORDER BY n.key->>$1`, [nameRole]);
+    rows = await readKindAssertions(executor, 'vertex', kindName, [bodyRole, ...(pathRole === undefined ? [] : [pathRole])], { contract });
   } finally { span.end(); }
+  const found = rows.map(row => ({ name: row.key[nameRole], body: row.values[bodyRole], path: pathRole === undefined ? undefined : row.values[pathRole] }))
+    .sort((left, right) => byCodePoint(String(left.name), String(right.name)));
   const files: TemplateFile[] = [];
   const bodies = new Map<string, string>();
   const findings: TemplateFinding[] = [];
-  for (const row of found.rows) {
+  for (const row of found) {
     if (typeof row.name !== 'string' || row.name === '' || typeof row.body !== 'string') continue;
     // The file a template's name opens, product-relative as `templateFiles` names it: the findings' file names are read
     // against the product folder once, and the graph holds no second path.
-    const file = row.path ?? `templates/${row.name}.yaml`;
+    const file = typeof row.path === 'string' ? row.path : `templates/${row.name}.yaml`;
     const read = readTemplate(row.body, { name: row.name, file });
     findings.push(...read.findings);
     bodies.set(row.name, row.body);
@@ -134,4 +98,3 @@ export async function readPublishedTemplates(executor: SqlExecutor, manifest: Ki
   }
   return { templates: templatesOf(files, bodies, findings), files, findings };
 }
-

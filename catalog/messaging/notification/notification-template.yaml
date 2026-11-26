@@ -24,3 +24,6 @@ labels:
 description:
   en: A notification template holds the wording of a message with named places for the values that change, such as a name or an order number. Keeping it separate lets people edit the text without touching the code.
   ru: 'Шаблон уведомления хранит текст сообщения с именованными местами для меняющихся значений: имени или номера заказа. Отдельное хранение позволяет править текст, не трогая код.'
+derives-from:
+- feature
+- product-profile

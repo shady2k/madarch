@@ -7,19 +7,26 @@ import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { makeProduct } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { createTestDatabaseOwner } from './test-database.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
+import { createTestDatabaseOwner, prepareTestStore } from './test-database.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { runFill } from '../src/fill/run.js';
-import { generatedTableName } from '../src/graph/contract.js';
+import { sha256Hex } from '../src/graph/digest.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { readProgress } from '../src/graph/fill-orchestration.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
+import { successfulPluginSnapshot, pluginSnapshotVertices } from '../src/graph/plugin-turns.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 const field = (name: string) => ({ name, type: 'text', meaning: name, example: name, required: true });
 type Mode = 'normal' | 'large' | 'fail-second' | 'empty' | 'outside';
-const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+const keys = Array.from({ length: 23 }, (_, index) => String.fromCharCode(97 + index));
+const textBytes = 400_000;
+const sourceContent = 'Partition source.\n';
+const sourceDigest = sha256Hex(Buffer.from(sourceContent));
 const git = (folder: string, ...args: string[]) => execFileSync('git', ['-C', folder, ...args], { stdio: 'pipe' });
 
 function fixture() {
@@ -34,31 +41,33 @@ function fixture() {
   const contract = { vertices: ['Items', 'Summary'].map(kind => ({ kind, key: ['id'], fields: ['id', 'text'].map(field) })), edges: [] };
   writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'partitions', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version },
     produces: [{ kind: 'Items', fields: '*', reads: [], partition: 'key' }, { kind: 'Summary', fields: '*', reads: ['Items'] }] }));
-  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
+  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'partitions', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value', 'ownFacts'] } }));
   writeFileSync(join(plugin, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk';
 import { mode, revision } from './scenario.js';
 const contract=${JSON.stringify(contract)};
 await definePlugin({ name:'partitions', version:'1.0.0', contract, graph:true, graphReads:['value'],
   planOutput() { return {partitions: mode === 'empty' ? [] : ${JSON.stringify(keys)}.map(id => ({keys:[{id}]}))}; },
   async extract(unit, context) {
-    const evidence={repository:'repo',path:'source.md',lineStart:1,lineEnd:1};
+    const evidence={target:{kind:'system.content-snapshot',key:{digest:${JSON.stringify(sourceDigest)}}},digest:${JSON.stringify(sourceDigest)},path:'source.md',lineStart:1,lineEnd:1};
     if(unit.kind==='Summary') {
       const text=await context.graph.value('Items',{id:'a'},'text');
-      return {vertices:[{kind:'Summary',key:{id:'summary'},values:{text},evidence}],end:{state:'complete'}};
+      await context.facts.apply('summary',{vertices:[{kind:'Summary',key:{id:'summary'},values:{text},evidence}]});
+      return {end:{state:'complete'}};
     }
     const selected=unit.inputs.keys;
     if(!Array.isArray(selected)) throw new Error('extract must receive exact partition keys');
     if(mode==='fail-second' && selected.some(key=>key.id==='b')) throw new Error('second partition refused');
     const vertices=mode==='empty' ? [] : selected.map(key=>({kind:'Items',key:mode==='outside'?{id:'forbidden'}:key,
-      values:{text:mode==='large'?key.id.repeat(1024*1024):revision+':'+key.id},evidence}));
-    return {vertices,end:{state:'complete'}};
+      values:{text:mode==='large'?key.id.repeat(${textBytes}):revision+':'+key.id},evidence}));
+    for (const vertex of vertices) await context.facts.apply('item:'+vertex.key.id,{vertices:[vertex]});
+    return {end:{state:'complete'}};
   }
 });`);
   const kinds = Object.fromEntries(['Items', 'Summary'].map(kind => [kind, { source: 'graph', 'derives-from': kind === 'Summary' ? ['Items'] : [], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) }]));
   writeFolderManifest(product, stringify({ language: 'en', kinds, plugins: [{ id: 'partitions', version: 1, path: 'plugins/partitions', inputs: ['Items'], outputs: ['Items', 'Summary'], closure: ['plugins/partitions/plugin.json', 'plugins/partitions/contract.json', 'plugins/partitions/main.js', 'plugins/partitions/scenario.js'] }] }));
   let releaseHashes: string[] = [];
-  function change(mode: Mode, revision: string) {
-    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)};\n`);
+  function change(mode: Mode, revision: string, releaseNote = revision) {
+    writeFileSync(join(plugin, 'scenario.js'), `export const mode=${JSON.stringify(mode)}; export const revision=${JSON.stringify(revision)}; // ${releaseNote}\n`);
     const hash = closureOf(plugin).hash; releaseHashes = [hash];
     writeFileSync(join(product, 'madarch/plugins.lock'), stringify({ plugins: [{ id: 'partitions', path: 'plugins/partitions', version: '1.0.0', closure: hash }] }));
     git(product, 'add', '-A'); git(product, '-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid', 'commit', '-qm', revision);
@@ -70,22 +79,19 @@ await definePlugin({ name:'partitions', version:'1.0.0', contract, graph:true, g
 async function open() {
   const f = fixture();
   const owner = await createTestDatabaseOwner({ btreeGist: true });
-  await prepareStore(owner, { contract: await readPinnedGraphContract(f.product) });
+  const contract = await readPinnedGraphContract(f.product);
+  await prepareTestStore(owner, { contract });
+  await owner.transaction('write', async tx => {
+    await bindTestWriteCapability(tx, contract);
+    await publishGraphDrafts(tx, contract, { vertices: [{ kind:'system.content-snapshot', key:{digest:sourceDigest}, values:{content:sourceContent}, producer:'fixture', producerVersion:'1' }], removals:[] });
+  });
   const run = async (id: string, target = 'Items') => {
     const result = await runFill({ product: f.product, database: owner, home: f.home, runId: id, releaseHashes: f.releaseHashes,
-      targets: { kinds: [target] }, steps: ['plugin-turns'], prepareContract: async contract => { await prepareStore(owner, { contract }); } });
+      targets: { kinds: [target] }, steps: ['plugin-turns'], prepareContract: async contract => { await prepareTestStore(owner, { contract }); } });
     if (!result.ok) throw new Error(JSON.stringify(result));
-    if (result.state !== 'succeeded') {
-      const generations = await owner.transaction('snapshot', async tx => await tx.query(
-        'SELECT * FROM fill_unit_generation WHERE run_id=$1 ORDER BY unit_id,generation', [id]));
-      const events = await owner.transaction('snapshot', async tx => await tx.query(
-        'SELECT kind,summary FROM fill_event WHERE run_id=$1', [id]));
-      console.error('partition fill diagnostic', JSON.stringify({ id, product: f.product, result, generations: generations.rows, events: events.rows }));
-    }
     return result;
   };
-  const rows = async (kind = 'Items') => (await owner.transaction('snapshot', async tx => await tx.query<{ id: string; text: string }>(
-    `SELECT n.key->>'id' AS id,o.text FROM ${generatedTableName(kind, 'vertex')} o JOIN node n ON n.id=o.node_id WHERE o.state='open' ORDER BY n.key->>'id' COLLATE "C"`))).rows;
+  const rows = async (kind = 'Items') => owner.transaction('snapshot',async tx=>(await readKindAssertions(tx,'vertex',kind,['text'])).map(row=>({id:String(row.key['id']),text:String(row.values['text'])})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0));
   return { f, owner, run, rows };
 }
 
@@ -97,12 +103,12 @@ test('bounded partitions publish more than 8 MiB of complete content without rai
     const actual = await rows();
     expect(actual.map(row => row.id)).toEqual(keys);
     expect(actual.reduce((sum, row) => sum + Buffer.byteLength(row.text), 0)).toBeGreaterThan(8 * 1024 * 1024);
-    for (const row of actual) expect(row.text).toBe(row.id.repeat(1024 * 1024));
+    for (const row of actual) expect(row.text).toBe(row.id.repeat(textBytes));
     expect(await readProducerOutcomes(owner, { runId: 'large' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Items', outcome: 'completed', produced: keys.length })]));
   } finally { await owner.close(); }
 }, 300_000);
 
-test('a failed second partition retains the entire prior output and blocks dependants', async () => {
+test('a failed partition retains prior and accepted facts but blocks dependants', async () => {
   const { f, owner, run, rows } = await open();
   try {
     expect((await run('prior')).state).toBe('succeeded');
@@ -111,11 +117,8 @@ test('a failed second partition retains the entire prior output and blocks depen
     const failed = await run('failed', 'Summary');
     expect(failed.state).not.toBe('succeeded');
     expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
-    const failures = await owner.transaction('snapshot', async tx => await tx.query<{ summary: string }>(
-      "SELECT summary FROM fill_event WHERE run_id=$1 AND kind='unit-failed'", ['failed']));
-    expect(failures.rows.some(event => event.summary.includes('second partition refused'))).toBe(true);
-    // A failed generation keeps what its partitions wrote (decision 0039, item 13): the partitions that
-    // answered wrote their facts, the one that failed wrote none, and the kind's coverage is what fails.
+    expect((await readProgress(owner,'failed')).some(event=>event.kind==='unit-failed' && event.summary.includes('second partition refused'))).toBe(true);
+    // Accepted partitions remain visible even when a later partition fails.
     expect(await rows()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'a', text: 'replacement:a' }),
       expect.objectContaining({ id: 'b', text: 'first:b' }),
@@ -125,6 +128,27 @@ test('a failed second partition retains the entire prior output and blocks depen
     expect(before.length).toBe(keys.length);
     const outcomes = await readProducerOutcomes(owner, { runId: 'failed' });
     expect(outcomes.some(outcome => outcome.kind === 'Summary' && outcome.outcome === 'completed')).toBe(false);
+  } finally { await owner.close(); }
+}, 300_000);
+
+test('a named successful snapshot keeps every earlier partition after a later publication', async () => {
+  const { f, owner, run, rows } = await open();
+  try {
+    expect((await run('snapshot-first')).state).toBe('succeeded');
+    const snapshot = await successfulPluginSnapshot(owner, 'snapshot-first', 'partitions:Items');
+    expect(snapshot.unitUid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(Object.keys(snapshot).sort()).toEqual(['recordedAt', 'unitUid', 'validAt']);
+    expect(Number.isFinite(Date.parse(snapshot.recordedAt))).toBe(true);
+    expect(Number.isFinite(Date.parse(snapshot.validAt))).toBe(true);
+    const captured = { ...snapshot };
+    f.change('normal', 'second');
+    expect((await run('snapshot-second')).state).toBe('succeeded');
+    expect((await rows()).map(row => row.text)).toEqual(keys.map(id => `second:${id}`));
+    const snapshotVertices = await pluginSnapshotVertices(owner, snapshot, 'Items');
+    expect(snapshot).toEqual(captured);
+    for (const id of keys) expect(snapshotVertices.find(vertex => vertex.key['id'] === id)?.values['text']).toBe(`first:${id}`);
+    expect(snapshotVertices.map(vertex => [vertex.key['id'], vertex.values['text']]).sort((a,b)=>String(a[0])<String(b[0])?-1:String(a[0])>String(b[0])?1:0))
+      .toEqual(keys.map(id => [id, `first:${id}`]));
   } finally { await owner.close(); }
 }, 300_000);
 
@@ -149,9 +173,7 @@ test('a partition cannot publish a key outside its exact selected keys', async (
     const failed = await run('outside');
     expect(failed.state).not.toBe('succeeded');
     expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
-    const failures = await owner.transaction('snapshot', async tx => await tx.query<{ summary: string }>(
-      "SELECT summary FROM fill_event WHERE run_id=$1 AND kind='unit-failed'", ['outside']));
-    expect(failures.rows.some(event => event.summary.includes('output outside selected partition keys'))).toBe(true);
+    expect((await readProgress(owner,'outside')).some(event=>event.kind==='unit-failed' && event.summary.includes('outside selected partition keys'))).toBe(true);
     expect(await rows()).toEqual(before);
     expect((await rows()).some(row => row.id === 'forbidden')).toBe(false);
   } finally { await owner.close(); }

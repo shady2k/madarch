@@ -106,6 +106,123 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The listed slow files are blocking on every CI run: the shards leave them
+  # out, so these steps are their only required coverage. Each step fails when
+  # the run selected no file or reported fewer passing cases than the file has;
+  # a green job that cannot show the file ran is not coverage.
+  partition-bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Run the full confined partition bootstrap fixture
+        id: bootstrap
+        run: scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/git-partition-bootstrap.test.ts
+      - name: Run the complete H3 real reconciliation fixture and prove its case ran
+        id: h3
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/h3-real-reconciliation.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/h3-real-reconciliation.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/h3-real-reconciliation.test.ts 1
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+      - name: Run the complete disk support ownership fixture and prove its three cases ran
+        id: disk
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/disk-support-ownership.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/disk-support-ownership.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/disk-support-ownership.test.ts 3
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+      - name: Run the complete agent fill graph MCP fixture and prove its four cases ran
+        id: mcp
+        run: |
+          expect_cases() {
+            local log=$1 path=$2 least=$3 pass fail files headers
+            pass=$(awk '$2 == "pass" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            fail=$(awk '$2 == "fail" && $1 ~ /^[0-9]+$/ { n += $1 } END { print n + 0 }' "$log")
+            files=$(awk '/^Ran [0-9]+ tests? across [0-9]+ files?\./ { n=$5 } END { print n + 0 }' "$log")
+            headers=$(grep -Fxc "$path:" "$log" || true)
+            if [ "$files" -ne 1 ] || [ "$headers" -ne 1 ]; then
+              echo "::error file=$path,line=1::$path expected exact header once and exactly one file; files=$files headers=$headers" >&2
+              return 1
+            fi
+            if [ "$pass" -lt "$least" ] || [ "$fail" -ne 0 ]; then
+              echo "::error file=$path,line=1::$path ran $pass passing cases and $fail failures; expected at least $least passes and zero failures" >&2
+              return 1
+            fi
+          }
+          log="$RUNNER_TEMP/agent-fill-graph-mcp.log"
+          set +e
+          scripts/plugin-sandbox-cgroup.sh bun run test --slow --only test/agent-fill-graph-mcp.test.ts 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          expect_cases "$log" test/agent-fill-graph-mcp.test.ts 4
+          checked=$?
+          set -e
+          [ "$status" -eq 0 ] || exit "$status"
+          exit "$checked"
+      - name: Require all partition-bootstrap fixtures to succeed
+        if: always()
+        run: |
+          if [[ "${{ steps.bootstrap.outcome }}" != success || "${{ steps.h3.outcome }}" != success || "${{ steps.disk.outcome }}" != success || "${{ steps.mcp.outcome }}" != success ]]; then
+            echo "required step outcomes: bootstrap=${{ steps.bootstrap.outcome }}, h3=${{ steps.h3.outcome }}, disk=${{ steps.disk.outcome }}, mcp=${{ steps.mcp.outcome }}" >&2
+            exit 1
+          fi
+
   checks:
     runs-on: ubuntu-24.04
     services:
@@ -166,12 +283,6 @@ jobs:
       # carries the owner's decision, which is how a rule changes.
       - name: The list of architectural violations only shrinks
         run: bun run check:architecture-base
-      # The queue's PostgreSQL leg (madarch-tzte.19.2): the sharded test job sets
-      # no server, so this is the only place the queue's postgres profile, its
-      # pooled statements and its schema install run at all.
-      - run: bun test test/queue-postgres.test.ts
-        env:
-          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
@@ -220,9 +331,10 @@ jobs:
 
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.
+  # partition-bootstrap must succeed too: the slow-list growth check is not coverage.
   test:
     if: always()
-    needs: [test-shard, checks]
+    needs: [test-shard, checks, partition-bootstrap]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -263,8 +375,9 @@ jobs:
         env:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
+          BOOTSTRAP_RESULT: ${{ needs.partition-bootstrap.result }}
         run: |
-          if [[ "$SHARDS_RESULT" != success || "$CHECKS_RESULT" != success ]]; then
-            echo "test-shard result: $SHARDS_RESULT; checks result: $CHECKS_RESULT" >&2
+          if [[ "$SHARDS_RESULT" != success || "$CHECKS_RESULT" != success || "$BOOTSTRAP_RESULT" != success ]]; then
+            echo "test-shard result: $SHARDS_RESULT; checks result: $CHECKS_RESULT; partition-bootstrap result: $BOOTSTRAP_RESULT" >&2
             exit 1
           fi

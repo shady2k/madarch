@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A security target is the vendor''s statement about one product: the security problem it faces, the requirements it claims to meet and the evidence that it does. An evaluator judges the product against this statement.'
   ru: 'Цель безопасности — заявление изготовителя об одном продукте: какую проблему безопасности он решает, каким требованиям, по его утверждению, соответствует и какие есть доказательства. Оценщик судит продукт по этому заявлению.'
+derives-from:
+- protection-profile
+- security-control
+- software-system

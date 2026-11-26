@@ -4,6 +4,7 @@
  * secret of the adapter's environment.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,11 +24,13 @@ afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
 // A file's text is read by the blob the graph names (decision 0037): the graph holds the blob id, and the host's own
 // read answers its text, as the page and the plugin share one read path.
+const content = 'first\nsecond';
+const snapshot = { kind: 'content-snapshot', key: { digest: createHash('sha256').update(content).digest('hex') } };
 const graph = {
-  files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }],
-  value: async () => 'blob-1',
+  files: async () => [{ kind: 'code.file', key: { path: 'docs/a.md' }, keyEdges: { 'code.file-repository': { kind: 'repository', key: { name: 'repo' } } } }],
+  value: async (kind: string) => kind === snapshot.kind ? content : 'blob-1',
 };
-const result = { vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' as const } };
+const result = { vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { target: snapshot, path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' as const } };
 
 /** A connection whose one session streams a thought, a tool call and a message, and reads one graph file. */
 function scripted(): (spec: AcpAgentSpec, options: ConnectAcpOptions) => Promise<AcpConnection> {
@@ -62,7 +65,8 @@ describe('the agent unit exchange', () => {
     const bridge = new PluginAgentBridge({ prompt: 'Fill the kind from the documents.', roots: ['repo/docs'] }, {
       adapter: { id: 'fixture-agent', command: 'fixture', env: { API_TOKEN: 'secret-token-123' } },
       environment: { API_TOKEN: 'secret-token-123' },
-      readFile: async () => 'first\nsecond',
+      readFile: async () => content,
+      evidenceContracts: [{ name: snapshot.kind, evidence: { immutable: true, contentField: 'content', digestField: 'digest', digestAlgorithm: 'sha256' } }],
       exchange: { run: 'fill-1', traces },
       connect: scripted(),
     } as PluginAgentOptions, graph, outputs);
@@ -83,6 +87,7 @@ describe('the agent unit exchange', () => {
     expect(unit.durationMs).toBeGreaterThanOrEqual(0);
     // What it was given: the prompt as sent, the task object and the files it could open.
     expect(unit.given.prompt).toContain('Fill the kind from the documents.');
+    expect(unit.given.prompt).not.toContain('repo/docs/a.md');
     expect(unit.given.prompt).toContain('Task: {"kind":"summary","fields":["title"]}');
     expect(unit.given.task).toEqual({ kind: 'summary', fields: ['title'] });
     expect(unit.given.files).toEqual(['repo/docs/a.md']);

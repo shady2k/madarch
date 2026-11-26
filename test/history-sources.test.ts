@@ -29,6 +29,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Every close drops its database before it resolves (`test-database.ts`): the comparison is of a run whose drops are done.
   expect(await processDatabases()).toEqual(databaseBaseline);
 });
 

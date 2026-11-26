@@ -25,3 +25,6 @@ labels:
 description:
   en: 'A user story says who wants something, what they want and why it matters, in one or two sentences: as a customer, I want to save a card so that I can pay faster. It is a promise of a conversation, not a full specification.'
   ru: 'Пользовательская история говорит, кому что нужно и почему это важно, в одной-двух фразах: как клиент, я хочу сохранить карту, чтобы платить быстрее. Это повод для разговора, а не полная спецификация.'
+derives-from:
+- feature
+- persona

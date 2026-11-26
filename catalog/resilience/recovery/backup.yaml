@@ -24,3 +24,5 @@ labels:
 description:
   en: A backup is a copy of data, configuration or a whole system, stored where a failure of the original does not reach it. It is useful only if it can be restored within the time the business needs.
   ru: Резервная копия — копия данных, настроек или целой системы, хранимая там, куда отказ оригинала не достаёт. Она полезна, только если её можно восстановить за время, которое нужно бизнесу.
+derives-from:
+- backup-policy

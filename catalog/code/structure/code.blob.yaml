@@ -1,0 +1,57 @@
+id: practice.immutable-content
+purpose: structure
+audience:
+- developer
+- architect
+definition: An immutable content blob stores the UTF-8 text of a source snapshot under
+  its SHA-256 digest.
+sources:
+- https://www.rfc-editor.org/rfc/rfc6234
+acquisition:
+- extractor files
+relation-constraints:
+  out: []
+  in:
+  - evidences
+template-policy: none
+source: graph
+evidence:
+  immutable: true
+  digestField: digest
+  contentField: content
+  digestAlgorithm: sha256
+fields:
+- name: digest
+  type: text
+  producers:
+  - db-schema
+  - disk
+  - glossary
+  - imports
+  - test-quarantine
+- name: content
+  type: text
+  nullable: true
+  producers:
+  - db-schema
+  - disk
+  - glossary
+  - imports
+  - test-quarantine
+key:
+- digest
+labels:
+  en:
+    one: Content blob
+    many: Content blobs
+  ru:
+    one: Снимок содержимого
+    many: Снимки содержимого
+description:
+  en: A content blob preserves exact source text independently of a mutable file.
+    Its identity is the SHA-256 digest of the UTF-8 content.
+  ru: Снимок хранит точный текст источника независимо от изменяемого файла. Его идентификатор
+    — SHA-256 от содержимого в UTF-8.
+
+derives-from:
+- system.product

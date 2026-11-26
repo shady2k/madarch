@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A pipeline run records one pass of a pipeline over one revision: when it started, how long each stage took, what it produced and whether it succeeded. Failed runs show where a change stopped.'
   ru: 'Запуск конвейера фиксирует один проход конвейера по одной ревизии: когда он начался, сколько занял каждый этап, что получилось и удачно ли всё прошло. Неудачные запуски показывают, где остановилось изменение.'
+derives-from:
+- code.ci-workflow
+- runner

@@ -24,3 +24,5 @@ labels:
 description:
   en: A plan of action and milestones lists each weakness an assessment found, the fix planned for it, the person responsible and the date. It is how an organisation tracks the gap between what a control requires and what the system does.
   ru: План действий и вех перечисляет каждую слабость, найденную оценкой, запланированное исправление, ответственного и срок. По нему организация следит за разрывом между тем, что требует контроль, и тем, что делает система.
+derives-from:
+- assessment-result

@@ -5,16 +5,34 @@ definition: A data-job run is one execution of a data job, with the datasets it 
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasInput
   - hasOutput
   in:
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the run started.
+- name: finished_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the run ended.
+- name: status
+  type: text
+  nullable: true
+  binding:
+    agent: 'How the run ended: succeeded, failed or running.'
+key:
+- started_at
 labels:
   en:
     one: Data job run
@@ -25,3 +43,11 @@ labels:
 description:
   en: 'A data-job run records one execution of a job: when it started and ended, which datasets it read, which it wrote and whether it succeeded. Runs are what show whether a job is reliable and where the data came from.'
   ru: 'Запуск задачи данных фиксирует одно выполнение задачи: когда оно началось и закончилось, какие наборы данных прочитаны, какие записаны и удачно ли всё прошло. По запускам видно, надёжна ли задача и откуда взялись данные.'
+
+key-edges:
+- role: data-job-run-job
+  edge: data-job-run-job
+  side: from
+derives-from:
+- data-job
+- product-profile

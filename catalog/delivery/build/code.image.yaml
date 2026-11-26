@@ -9,10 +9,40 @@ acquisition:
 relation-constraints:
   out:
   - generates
+  - code.builds
   in:
   - generates
+  - partOf
+  - code.runs
 template-policy: page
 source: graph
+fields:
+- name: registry
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: repository
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: tag
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: digest
+  type: text
+  nullable: true
+  producers:
+  - operations
+key:
+- repository
+- tag
+derives-from:
+- code.dockerfile
+- product-profile
 labels:
   en:
     one: Image

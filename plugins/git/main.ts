@@ -19,32 +19,39 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; keys?: readonly { hash: string }[]; exclude?: readonly string[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
   if (!Array.isArray(inputs?.repositories)) throw new Error('git needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
+  const evidenceCommits: VertexResult[] = [];
+  const evidenceByRepository = new Map<string, { target: { kind: string; key: { hash: string } }; commit: string }>();
   const files = unit.kind === 'code.repository' ? [] : await context.graph.files('**/*');
-  const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
+  const known = new Set(files.map(file => `${String(file.keyEdges?.['code.file-repository']?.key['name'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
   const paths = new Set<string>();
-  const fileIdentity = (repository: string, path: string, commit: string, values: PathFacts): void => {
+  const fileIdentity = (repository: string, path: string, values: PathFacts): void => {
     // The product's own exclusions hold for the history as well as the tree: a dependency tree is not the product
     // (madarch-64o5.83).
     if (leftOut(inputs.exclude, path)) return;
     const identity = JSON.stringify([repository, path]);
     if (paths.has(identity)) return;
     paths.add(identity);
-    vertices.push({ kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
+    const file = { kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: repository } } } };
+    for (const [kind, hash] of [['code.file-added-in', values.added_in], ['code.file-removed-in', values.removed_in]] as const) if (hash !== null) edges.push({ kind, from: file, to: { kind: 'code.commit', key: { hash } }, evidence: { ...evidenceByRepository.get(repository)!, path } });
+    vertices.push({ kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: repository } } }, values: { commit_count: values.commit_count, last_change: values.last_change, added_at: values.added_at, removed_at: values.removed_at }, evidence: { ...evidenceByRepository.get(repository)!, path } });
   };
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('git extraction cancelled');
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
+    evidenceCommits.push({ kind: 'code.commit', key: { hash: pin.commit } });
     // This read is a real declared dependency, not a scheduling hint alone.
     await context.graph.value('code.repository', repository.key, 'url');
-    const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
     if (unit.kind === 'code.repository') {
       const gap = await shallowGapOf(pin);
+      const evidence = { target: { kind: 'code.commit', key: { hash: pin.commit } }, commit: pin.commit };
       vertices.push({ ...repository, values: { history_shallow: gap !== null }, evidence });
       context.progress(vertices.length, undefined, pin.repository);
       continue;
     }
     const history = await readRepositoryHistory(pin, { touched: unit.kind !== 'code.author', counts: unit.kind === 'code.commit' });
+    const evidence = { target: { kind: 'code.commit', key: { hash: pin.commit } }, commit: pin.commit };
+    evidenceByRepository.set(pin.repository, evidence);
     // Count exact-path changes once per commit the touched edges hold, merge commits included; a rename does not
     // transfer the old path's history.
     const changes = new Map<string, { commit_count: number; last_change: string | null }>();
@@ -97,7 +104,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     // deleted it. A path absent from the tree without a deletion ends at the pin, so `current = removed_at empty`
     // holds for every path.
     const fullPeriods = periodsOf([...history.commits]);
-    const tree = new Set(files.filter((file) => file.key['repository'] === pin.repository).map((file) => String(file.key['path'])));
+    const tree = new Set(files.filter((file) => file.keyEdges?.['code.file-repository']?.key['name'] === pin.repository).map((file) => String(file.key['path'])));
     for (const [path, period] of fullPeriods) {
       if (tree.has(path)) continue;
       const held = periods.get(path);
@@ -112,11 +119,10 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       ...(changes.get(path) ?? { commit_count: 0, last_change: null }),
       ...(periods.get(path) ?? emptyPeriod()),
     });
-    for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit, factsOf(String(file.key['path'])));
+    for (const file of files) if (file.keyEdges?.['code.file-repository']?.key['name'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), factsOf(String(file.key['path'])));
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
-    const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));
+    // Partition selection needs the full parent and evidence endpoints, including commits outside its keys.
     for (const [walk, held] of history.commits.entries()) {
-      if (unit.kind === 'code.commit' && hashes !== undefined && !hashes.has(held.hash)) continue;
       const commit = { kind: 'code.commit', key: { hash: held.hash } };
       const author = { kind: 'code.author', key: { name: held.authorName, email: held.authorEmail } };
       const [author_date, author_offset_min] = instantOf(held.authorDate);
@@ -131,11 +137,11 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
         // An edge whose end the product excludes has no vertex to point at, and the fill's partition planning refuses
         // such an edge: a path the kind leaves out gets neither a vertex nor an edge (madarch-64o5.83).
         if (leftOut(inputs.exclude, touched.path)) continue;
-        const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
-        fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
-        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
-        edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
-        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
+        const file = { kind: 'code.file', key: { path: touched.path }, keyEdges: { 'code.file-repository': repository } };
+        fileIdentity(pin.repository, touched.path, factsOf(touched.path));
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) fileIdentity(pin.repository, touched.previousPath, factsOf(touched.previousPath));
+        edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { target: commit, commit: held.hash, path: touched.path } });
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { path: touched.previousPath }, keyEdges: { 'code.file-repository': repository } }, discriminator: held.hash, evidence });
       }
     }
     for (const gap of history.gaps) problems.push(`${pin.repository}: ${gap.what}: ${gap.reason}`);
@@ -147,7 +153,11 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const selectedVertices = vertices.filter(vertex => vertex.kind === unit.kind).map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   const edgeOutputs = new Set(inputs.edgeOutputs.map(edge => JSON.stringify([edge.kind, edge.from, edge.to])));
   const selectedEdges = edges.filter(edge => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind])));
-  return { vertices: selectedVertices, edges: selectedEdges, end: problems.some(problem => !problem.endsWith('shallow-history')) ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
+  return {
+    vertices: [...evidenceCommits.filter(commit => !selectedVertices.some(vertex => vertex.kind === commit.kind && vertex.key['hash'] === commit.key['hash'])), ...selectedVertices],
+    edges: selectedEdges,
+    end: problems.some(problem => !problem.endsWith('shallow-history')) ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' },
+  };
 }
 
 export function instantOf(text: string): [string, number] {

@@ -8,11 +8,14 @@ import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
-import { openChain, advanceChain, createRun, readRun, readRuns, advanceRun, createUnit, readRunUnits, readRunUnitHistory } from '../src/fill/state-store.js';
+import { openChainIn, advanceChainIn, createRun, readRun, readRuns, advanceRun, readRunUnits, readRunUnitHistory, putFillVertexIn, readUnitGraphUidIn, fillEdge, replaceStaleGenerationIn } from '../src/graph/fill-state.js';
+import { createUnit } from './fill-unit-fixture.js';
+import { newUid } from '../src/graph/uid.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { readFillRunDetail } from '../src/knowledge/fill-runs.js';
 import { failRequestedFill } from '../src/knowledge/fill-run.js';
-import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
-import { recordUnitPlan } from '../src/fill/orchestrator-store.js';
+import { writeOrchestration, readFillEnd, writeFillEnd } from '../src/graph/fill-orchestration.js';
+import { recordUnitPlanIn } from '../src/graph/fill-orchestration.js';
 import type { KindDecl, PluginDecl, KindsManifest } from '../src/product/manifest/kinds.js';
 import { pluginsFillingKind } from '../src/fill/plugin-turns.js';
 import { parsePluginManifest } from '../src/plugin/closure.js';
@@ -24,7 +27,7 @@ afterAll(async () => { await owner?.close(); });
 test('a requested selection survives planning and is read by exact durable run id without a trace', async () => {
   await createRun(owner, { runId: 'requested', product: 'shop', at: 1000, selection: { selected: ['docs'], order: ['doc.term'] } });
   await advanceRun(owner, { runId: 'requested', event: { type: 'plan', at: 1100, configuration: 'fixture' } });
-  expect((await readRun(owner, 'requested'))?.context.selection).toEqual({ selected: ['docs'], order: ['doc.term'] });
+  expect((await readRun(owner, 'requested'))?.context.selection).toEqual({ selected: ['docs'], order: ['doc.term'], groups: [] });
   const detail = await readFillRunDetail(owner, 'requested', { now: 2000 });
   expect(detail).toMatchObject({ runId: 'requested', state: 'planning', selected: ['docs'], order: ['doc.term'], elapsedMs: 1000, remainingMs: null, records: 0, events: [], units: [] });
   expect(await readFillRunDetail(owner, 'missing', { now: 2000 })).toBeNull();
@@ -41,20 +44,27 @@ test('named run keeps generations after replacement and derives real facts, grou
   await advanceRun(owner, { runId: 'history', event: { type: 'plan', at: 1001, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'history', event: { type: 'start', at: 1002, stages: 2 } });
   for (const [unitId, stageUnitId, scopeKey] of [['terms-unit', 'terms:doc.term', 'doc.term'], ['remaining-unit', 'remaining', 'code.file']]) {
-    await createUnit(owner, { unitId: unitId!, product: 'shop', runId: 'history', stageId: 'fixture-stage', scopeKey: scopeKey!, inputsDigest: 'fixture', at: 1003 });
-    await recordUnitPlan(owner, { unitId: unitId!, generation: 1, runId: 'history', stageId: 'fixture-stage', stageUnitId: stageUnitId!, scope: scopeKey!, stagePosition: 0, planPosition: 0, at: 1003 });
+    await createUnit(owner, { unitId: unitId!, product: 'shop', runId: 'history', stageId: 'fixture-stage', scopeKey: scopeKey!, inputsDigest: 'fixture', retries: 0, at: 1003 });
+    await writeOrchestration(owner, tx => recordUnitPlanIn(tx, { unitId: unitId!, generation: 1, runId: 'history', stageId: 'fixture-stage', stageUnitId: stageUnitId!, scope: scopeKey!, stagePosition: 0, planPosition: 0, at: 1003 }));
   }
   await owner.transaction('write', async (tx) => {
-    await tx.query("UPDATE fill_unit_generation SET state = 'published', published_at = 1500 WHERE unit_id = 'terms-unit'");
-    await tx.query("INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ('terms-unit', 1, 'fixture', 7, 1500)");
+    const unitUid = await readUnitGraphUidIn(tx, 'terms-unit', 1);
+    if (unitUid === undefined) throw new Error('fixture unit is absent');
+    await putFillVertexIn(tx, 'system.unit', unitUid, { state: 'published', published_at: 1500, produced: 7 });
+    const operationUid = newUid();
+    await putFillVertexIn(tx, 'system.operation', operationUid, { key: 'complete', digest: 'fixture' }, [
+      fillEdge('system.operation-unit', 'system.operation', operationUid, 'system.unit', unitUid),
+    ]);
   });
   const detail = await readFillRunDetail(owner, 'history', { now: 2000 });
   expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, phase: 'running', final: false, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published', phase: 'done' }] });
   // A subsequent generation owns the unit's current pointer. History still reads this run's generation.
   await owner.transaction('write', async (tx) => {
-    await tx.query("INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at) SELECT unit_id, 2, 'newer', 'planned', inputs_digest, context, NULL, NULL, 3000 FROM fill_unit_generation WHERE unit_id = 'terms-unit' AND generation = 1");
-    await tx.query("UPDATE fill_unit SET generation = 2 WHERE unit_id = 'terms-unit'");
+    const unitUid = await readUnitGraphUidIn(tx, 'terms-unit', 1);
+    if (unitUid === undefined) throw new Error('fixture unit is absent');
+    await putFillVertexIn(tx, 'system.unit', unitUid, { state: 'stale', stale_at: 3000 });
   });
+  expect((await writeOrchestration(owner, tx => replaceStaleGenerationIn(tx, { unitId: 'terms-unit', runId: 'newer', inputsDigest: 'fixture', retries: 0, at: 3000 }))).ok).toBe(true);
   expect((await readRunUnitHistory(owner, 'history')).map((unit) => unit.unitId)).toContain('terms-unit');
   expect((await readRunUnits(owner, 'history')).map((unit) => unit.unitId)).not.toContain('terms-unit');
   expect((await readFillRunDetail(owner, 'history', { now: 2000 }))?.selected).toEqual(['doc.term']);
@@ -68,8 +78,8 @@ test('a stale historical scoped control cannot pause or stop a newer run', async
   for (const action of ['pause', 'stop'] as const) {
     expect(await product.controlFillRun('old-finished', action)).toMatchObject({ ok: false, status: 409, message: expect.stringMatching(/product\.ts:\d+:/) });
   }
-  // A control press on an ended run writes nothing: the run's own state is the whole control (decision 0039, item 12).
-  expect((await readRun(owner, 'old-finished'))?.state).toBe('failed');
+  const rows = await owner.transaction('snapshot', async (tx) => readKindAssertions(tx, 'vertex', 'system.run', ['control_action'], { contract: owner.graphContract }));
+  expect(rows.filter(row => row.values['control_action'] !== undefined)).toEqual([]);
   const foreignProduct = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(foreignProduct, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'not-shop' }) });
   expect(await foreignProduct.controlFillRun('history', 'stop')).toMatchObject({ ok: false, status: 404 });
@@ -92,14 +102,20 @@ test('paused Stop after worker exit uses canonical cancellation without loading 
   await createRun(owner, { runId: 'paused-run', product: 'shop', at: 7000, selection: { selected: ['doc.term'], order: ['doc.term'], groups: [{ kind: 'doc.term', group: null, plugin: 'fixture', stageUnitId: 'fixture-stage' }] } });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'plan', at: 7001, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'start', at: 7002, stages: 1 } });
-  await createUnit(owner, { unitId: 'paused-unfinished', product: 'shop', runId: 'paused-run', stageId: 'fixture-stage', scopeKey: 'fixture', inputsDigest: 'fixture', at: 7003 });
-  await recordUnitPlan(owner, { runId: 'paused-run', unitId: 'paused-unfinished', generation: 1, stageId: 'fixture-stage', stageUnitId: 'fixture-stage', scope: 'fixture', stagePosition: 0, planPosition: 0, at: 7003 });
+  await createUnit(owner, { unitId: 'paused-unfinished', product: 'shop', runId: 'paused-run', stageId: 'fixture-stage', scopeKey: 'fixture', inputsDigest: 'fixture', retries: 0, at: 7003 });
+  await writeOrchestration(owner, tx => recordUnitPlanIn(tx, { runId: 'paused-run', unitId: 'paused-unfinished', generation: 1, stageId: 'fixture-stage', stageUnitId: 'fixture-stage', scope: 'fixture', stagePosition: 0, planPosition: 0, at: 7003 }));
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'pause', at: 7004 } });
-  await advanceRun(owner, { runId: 'paused-run', event: { type: 'drain', at: 7005, evidence: { runnable: 1, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });
+  await advanceRun(owner, { runId: 'paused-run', event: { type: 'drain', at: 7005, evidence: { runnable: 1, inFlight: 0, waiting: 0, coverageMet: true } } });
   expect((await readRun(owner, 'paused-run'))?.state).toBe('paused');
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(product, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'shop' }) });
+  let domainReads = 0;
+  Object.assign(product, {
+    fillDatabase: async () => { domainReads += 1; return owner; },
+    manifestRead: async () => { throw new Error('paused Stop must not load product files'); },
+  });
   expect(await product.controlFillRun('paused-run', 'stop')).toMatchObject({ ok: true, runId: 'paused-run' });
+  expect(domainReads).toBe(1);
   expect((await readRun(owner, 'paused-run'))?.state).toBe('cancelled');
   expect((await readRunUnits(owner, 'paused-run'))[0]?.state).toBe('cancelled');
   const detail = await readFillRunDetail(owner, 'paused-run', { now: Date.now() });
@@ -124,11 +140,15 @@ test('global status follows canonical paused then stopped state rather than stal
   await advanceRun(owner, { runId: 'status-paused', event: { type: 'plan', at: 10001, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'status-paused', event: { type: 'start', at: 10002, stages: 1 } });
   await advanceRun(owner, { runId: 'status-paused', event: { type: 'pause', at: 10003 } });
-  await advanceRun(owner, { runId: 'status-paused', event: { type: 'drain', at: 10004, evidence: { runnable: 0, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });
+  await advanceRun(owner, { runId: 'status-paused', event: { type: 'drain', at: 10004, evidence: { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true } } });
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(product, { listeners: new Set(), revision: 0, reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'status-paused', product: () => ({ name: 'status-shop' }), loadPins: async () => undefined, warmReader: async () => undefined, open: async () => owner });
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'status-paused', state: 'paused' });
+  Object.assign(product, {
+    fillDatabase: async () => owner,
+    manifestRead: async () => { throw new Error('paused Stop must not load product files'); },
+  });
   await product.controlFillRun('status-paused', 'stop');
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'status-paused', state: 'stopped' });
@@ -143,14 +163,14 @@ test('global status follows canonical paused then stopped state rather than stal
 });
 
 test('held chain remains canonical global status when a later request is refused', async () => {
-  await openChain(owner, { product: 'held-shop', at: 12000 });
+  await writeOrchestration(owner, tx => openChainIn(tx, { product: 'held-shop', at: 12000 }));
   await createRun(owner, { runId: 'held-paused', product: 'held-shop', at: 12000 });
-  await advanceChain(owner, { product: 'held-shop', event: { type: 'start', runId: 'held-paused', at: 12001 } });
+  await writeOrchestration(owner, tx => advanceChainIn(tx, { product: 'held-shop', event: { type: 'start', runId: 'held-paused', at: 12001 } }));
   await advanceRun(owner, { runId: 'held-paused', event: { type: 'plan', at: 12002, configuration: 'fixture' } });
   await advanceRun(owner, { runId: 'held-paused', event: { type: 'start', at: 12003, stages: 1 } });
   await advanceRun(owner, { runId: 'held-paused', event: { type: 'pause', at: 12004 } });
-  await advanceRun(owner, { runId: 'held-paused', event: { type: 'drain', at: 12005, evidence: { runnable: 0, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });
-  await advanceChain(owner, { product: 'held-shop', event: { type: 'settle', at: 12006, evidence: { runnable: 1, inFlight: 0, waiting: 0, pendingPublications: 0 } } });
+  await advanceRun(owner, { runId: 'held-paused', event: { type: 'drain', at: 12005, evidence: { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true } } });
+  await writeOrchestration(owner, tx => advanceChainIn(tx, { product: 'held-shop', event: { type: 'settle', at: 12006, evidence: { runnable: 1, inFlight: 0, waiting: 0 } } }));
   await createRun(owner, { runId: 'held-refused', product: 'held-shop', at: 13000 });
   await failRequestedFill(owner, 'held-refused', 'chain held');
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
@@ -160,9 +180,9 @@ test('held chain remains canonical global status when a later request is refused
 });
 
 test('a locally queued request does not adopt the previous chain run before its worker claims it', async () => {
-  await openChain(owner, { product: 'queued-status-shop', at: 14000 });
+  await writeOrchestration(owner, tx => openChainIn(tx, { product: 'queued-status-shop', at: 14000 }));
   await createRun(owner, { runId: 'queued-previous', product: 'queued-status-shop', at: 14000 });
-  await advanceChain(owner, { product: 'queued-status-shop', event: { type: 'start', runId: 'queued-previous', at: 14001 } });
+  await writeOrchestration(owner, tx => advanceChainIn(tx, { product: 'queued-status-shop', event: { type: 'start', runId: 'queued-previous', at: 14001 } }));
   await createRun(owner, { runId: 'queued-request', product: 'queued-status-shop', at: 15000 });
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(product, {

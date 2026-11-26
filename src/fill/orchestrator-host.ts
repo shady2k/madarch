@@ -18,16 +18,19 @@ import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-ow
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
+import { unitJobAttemptSeconds } from './queue-limits.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
+import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { FactApplication, RunClaim } from './orchestrator.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   cancelRun,
   createOrchestrator,
   driveRun,
   stopHeartbeat,
+  beginRunHeartbeat,
+  type RunClaim,
   pauseRun,
   planRun,
   resumeRun,
@@ -37,14 +40,16 @@ import {
   type HumanEditGuard,
   type OrchestratorLimits,
   type ProgressSink,
+  type RunControlReader,
   type RunStatus,
   type UnitGraphReader,
   type UnitRef,
 } from './orchestrator.js';
-import { createOrchestratorSchema, readProgress, type RunSnapshot } from './orchestrator-store.js';
+import { createOrchestratorSchema, readProgress, type RunSnapshot } from '../graph/fill-orchestration.js';
 import type { QueueService } from './queue.js';
-import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
+import { readChain, readLatestRun, readRun, readRunUnits, type FillStateSnapshotDatabase } from '../graph/fill-state.js';
 import type { StageRegistry } from './registry.js';
+import type { UnitState } from './fsm.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 
 /** One product a fill runs for. */
@@ -55,6 +60,10 @@ export interface FillProduct {
 
 /** How one product's fill reads and writes. Every field is the caller's; nothing here guesses. */
 export interface ProductFillWiring {
+  /** Largest explicit plugin time bound in the pinned catalog; absent when none is declared. */
+  readonly pluginMaxMinutes?: number;
+  readonly graphContract: import('../graph/contract.js').GraphContract;
+  readonly operations:import('./orchestrator.js').UnitOperations;
   snapshot(): Promise<RunSnapshot> | RunSnapshot;
   configuration(): Promise<FillStageConfigurationRead | undefined> | FillStageConfigurationRead | undefined;
   graph(ref: UnitRef, transaction?: SqlExecutor): Promise<UnitGraphReader> | UnitGraphReader;
@@ -66,7 +75,6 @@ export interface ProductFillWiring {
    * claims are applied inside the publication's own transaction, so a unit publishes with its claims or not at all.
    * A wiring that leaves it out publishes no graph row.
    */
-  facts?: FactApplication;
 }
 
 interface ProductFill {
@@ -75,18 +83,12 @@ interface ProductFill {
 }
 
 export interface FillRunRequest {
+  readonly claim?: RunClaim;
   readonly product: FillProduct;
   readonly runId: string;
   readonly resume?: boolean;
   readonly workers?: number;
   readonly maxPasses?: number;
-  /**
-   * The run's own job, claimed by the process that asked for the fill: one job per
-   * pressed product in the store's queue, whose claim is the run's lock (decision
-   * 0039, item 12). The caller that claimed it settles it; a caller that names none
-   * drives a run no queue holds, and the run's own state is its only record.
-   */
-  readonly claim?: RunClaim;
 }
 
 export interface FillRunResult {
@@ -151,22 +153,17 @@ export interface FillOrchestratorServiceOptions {
   readonly workers?: number;
   readonly maxPasses?: number;
   readonly queueFactory?: (owner: DatabaseOwner) => Promise<QueueService>;
+  readonly control?: (product: FillProduct) => RunControlReader;
 }
 
 /** The units' queue's name in the process's database. */
 const DEFAULT_FILL_QUEUE = 'fill-units';
 
-/**
- * How long a run's own job may hold its claim, and how quiet it may be before the
- * queue treats the process that holds it as gone (decision 0039, item 12): a fill
- * that runs longer than the lease is a run to end and start again, and five missed
- * beats of `RUN_HEARTBEAT_MS` are a process that ended.
- */
+/** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
 export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
-export const RUN_JOB_HEARTBEAT_SECONDS = 30;
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
-const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
+const TERMINAL_UNIT_STATES: readonly (UnitState | 'superseded')[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
 
 /** The most wall-clock time a host spends waiting for a run's own retry moments before it reports the run as it stands. */
 const RETRY_WAIT_BUDGET_MS = 60_000;
@@ -175,7 +172,6 @@ const RETRY_WAIT_BUDGET_MS = 60_000;
 const RETRY_POLL_MS = 50;
 
 /** Applies an empty draft set: this step's stages publish through the record store, not a fact store. */
-const NO_FACTS: FactApplication = { apply: async () => 0 };
 
 async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
   let driven = await driveRun(orchestrator, request);
@@ -183,7 +179,7 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
   let waited = 0;
   while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
     const status = await runStatus(orchestrator, request.runId);
-    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.includes(unit.state));
+    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.some((state) => state === unit.state));
     if (live.length === 0) break;
     const due = live.flatMap((unit) => (unit.retryAt === null ? [] : [unit.retryAt]));
     const now = orchestrator.clock();
@@ -201,7 +197,7 @@ export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
   return await createDatabaseOwner({ store, connectOnly: true });
 }
 
-export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
+export async function fillProgressOf(database: FillStateSnapshotDatabase, product: string): Promise<FillProgressAnswer | null> {
   const latest = await readLatestRun(database, product);
   if (latest === null) return null;
   const units = await readRunUnits(database, latest.runId);
@@ -226,24 +222,13 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const lent = options.owner;
       if (lent === undefined) {
         if (databasePath === undefined) throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
-        await mkdir(dirname(databasePath), { recursive: true });
+        await withSpan('fs.mkdir', { 'file.path': dirname(databasePath) }, async () => await mkdir(dirname(databasePath), { recursive: true }));
       }
       const database = lent ?? await createDatabaseOwner({ store: databasePath!, connectOnly: true });
-      await createFillStateSchema(database);
+
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        // A unit's job carries its own attempt's bounds (decision 0039, item 12): the expiry is the attempt's
-        // lease, the queue's retry allowance is the generation's, and the retry delay is the wait between two
-        // attempts. The queue hands a job out again only after the attempt that held it ended or expired.
-        await opened.declare({
-          name: queueName,
-          leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
-          retries: limits.retries,
-          retryDelaySeconds: Math.max(0, Math.ceil(limits.retryDelayMs / 1000)),
-          retryBackoff: false,
-          singletons: true,
-        });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };
@@ -268,8 +253,12 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
+    const attemptSeconds = wiring.pluginMaxMinutes === undefined
+      ? limits.attemptSeconds
+      : Math.max(limits.attemptSeconds, unitJobAttemptSeconds(wiring.pluginMaxMinutes));
+    await queue.declare({ name: queueName, leaseSeconds: attemptSeconds, heartbeatSeconds: limits.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
     const built = createOrchestrator({
-      database: owner,
+      database: { transaction: owner.transaction.bind(owner), graphContract: wiring.graphContract },
       registry,
       queue,
       queueName,
@@ -278,8 +267,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
-      facts: wiring.facts ?? NO_FACTS,
+      operations:wiring.operations,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
+      control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
@@ -336,14 +326,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;
-      // The run's job is heartbeated while the run lasts, so the queue hands it to another process only after
-      // this one stopped (decision 0039, item 12).
-      if (request.claim !== undefined) orchestrator.heartbeat.claim = request.claim;
+      beginRunHeartbeat(orchestrator, request.runId, request.claim);
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, {
-        runId: request.runId,
-        ...(request.claim === undefined ? {} : { claim: request.claim }),
-      }));
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId, ...(request.claim === undefined ? {} : { claim: request.claim }) }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
         const held = await planRun(orchestrator, { runId: request.runId });

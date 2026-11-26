@@ -36,6 +36,11 @@ import { CATALOGUE_KIND, EVERY_ROLE } from '../../../src/page-contract/index.js'
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage, type OpenPage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind, NavigationPurpose, ProductChoice } from './client.js';
 
+const TOOLBAR_PLACEMENT = {
+  align: "end",
+  side: "left",
+} as const;
+
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
@@ -310,7 +315,7 @@ function RoleMenu({ role, roles, onRole }: { readonly role: string; readonly rol
           <ShellRoleLabel>{name(role)}</ShellRoleLabel>
         </ShellRoleButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={7}>
+      <DropdownMenuContent align={TOOLBAR_PLACEMENT.align} sideOffset={7}>
         <DropdownMenuLabel>{t('knowledge.roles.menu')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup value={role} onValueChange={onRole}>
@@ -332,7 +337,7 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
           <GlobeIcon aria-hidden="true" size={21} />
         </ShellLanguageButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={7}>
+      <DropdownMenuContent align={TOOLBAR_PLACEMENT.align} sideOffset={7}>
         <DropdownMenuLabel>{t('navigation.language')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup value={language} onValueChange={(value: string) => { if (value === 'en' || value === 'ru') onLanguage(value); }}>
@@ -506,7 +511,7 @@ export function PhoneNavigation({ open, onOpenChange, children }: { readonly ope
           <MenuIcon aria-hidden="true" size={24} />
         </ShellMenuButton>
       </SheetTrigger>
-      <ShellNavigationSheet side="left" title={t('navigation.aria')} closeLabel={t('navigation.close')} data-testid="phone-nav">
+      <ShellNavigationSheet side={TOOLBAR_PLACEMENT.side} title={t('navigation.aria')} closeLabel={t('navigation.close')} data-testid="phone-nav">
         {children}
       </ShellNavigationSheet>
     </Sheet>

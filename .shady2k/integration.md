@@ -443,7 +443,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   refresh the timings with
   `bun run test --timings=.github/workflows/test-timings.json --update-timings`.
   The stable `test` job is green only when all five shards, the separate checks
-  job, the union-of-test-files check and merge-base growth control pass.
+  job, the union-of-test-files check, merge-base growth control and the required
+  confined `partition-bootstrap` job running the full
+  `test/git-partition-bootstrap.test.ts` on every push pass. That file stays in
+  `test/slow-files.json`; the 30-second threshold is unchanged.
   Growth is every added slow entry and every changed single-file evidence row.
   The blocking `test` job measures only growth paths listed as green, because
   these claim speed. Each file runs alone once; only a first measurement at or

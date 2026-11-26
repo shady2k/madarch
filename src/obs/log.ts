@@ -47,7 +47,11 @@ function write(level: LogLevel, message: string, fields: LogFields, error?: unkn
     ? { name: error.name, message: error.message, ...(error.stack === undefined ? {} : { stack: error.stack }) }
     : { message: printable(error) };
   if (run !== undefined && !run.closed) {
-    try { appendFileSync(run.logFile, `${JSON.stringify(record)}\n`, 'utf8'); } catch { /* the log is evidence, not the work */ }
+    const line = `${JSON.stringify(record)}\n`;
+    try { appendFileSync(run.logFile, line, 'utf8'); } catch { /* the log is evidence, not the work */ }
+    if (run.outputLogFile !== undefined) {
+      try { appendFileSync(run.outputLogFile, line, 'utf8'); } catch { /* outside evidence must not fail the work */ }
+    }
   }
   if (run?.console === true || (run === undefined && (level === 'warn' || level === 'error'))) {
     const extras = Object.entries(fields).map(([key, value]) => `${key}=${printable(value)}`).join(' ');

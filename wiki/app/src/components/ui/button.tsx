@@ -8,7 +8,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactElement } from 'react'
 import { cn } from '@/lib/utils.js';
 
 type ButtonVariant = 'default' | 'ghost' | 'link' | 'outline';
-type ButtonSize = 'default' | 'sm' | 'content' | 'icon' | 'icon-sm';
+type ButtonSize = keyof typeof sizeClasses;
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -22,7 +22,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   outline: 'border border-line bg-transparent text-ink hover:enabled:bg-[var(--surface-hover)]',
 };
 
-const sizeClasses: Record<ButtonSize, string> = {
+const sizeClasses = {
   default: 'h-9 px-3 text-small',
   sm: 'h-7 px-2 text-small',
   content: 'h-auto p-0 text-left text-small',

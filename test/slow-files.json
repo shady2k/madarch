@@ -6,6 +6,16 @@
   "note": "Each retained file has a concrete observed failure or passing slow behavior, a behavior-preserving rewrite plan and an explicit blocking-suite exit. Reasons distinguish assertion/setup defects from actual waiting timeouts; measured seconds remain from pass A, not the later rerun.",
   "files": [
     {
+      "path": "test/agent-fill-graph-mcp.test.ts",
+      "seconds": 163.3,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.3",
+      "defect": "The four cases drive the same ACP turn through madarch's MCP server. Their real file, directory and content prerequisites are repeated test setup, not a shared filled store; the GitHub runner measurement confirms the complete file is green.",
+      "replacement": "Use a minimal manifest with real file, directory and content prerequisites to drive the same ACP turn through madarch's MCP server, not a shared filled store; preserve assertions at test/agent-fill-graph-mcp.test.ts:189,193,292,337.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/agent-fill-graph-mcp.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
+    },
+    {
       "path": "test/agent-usage-page.test.ts",
       "seconds": 59.1,
       "reason": "red-defect",
@@ -26,6 +36,26 @@
       "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/catalog-check.test.ts",
+      "seconds": 41.4,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but every case runs the catalog check as a subprocess over a starter manifest it rewrites, so seven cases pay a full check each: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Check the starter manifest and its edited variants in-process through the same parse and check the command calls, keeping one subprocess case for the command's exit, counts and file/line refusal text.",
+      "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/catalogue-starter-kinds.test.ts",
+      "seconds": 34.296,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its single acceptance case creates the whole `everything` template draft as a repository with a commit, validates and publishes the full starter catalogue into a fresh store, pages the catalogue 200 at a time, then asks one GraphQL query per kind across nineteen kinds; the stack added the whole file (create mode since dcbe85185), and it measured 34498 ms then 34296 ms alone in GitHub run 44913378966; speed-up owed.",
+      "replacement": "Create the `everything` draft and publish its catalogue once in a shared setup, reuse that store and published manifest across the assertions, and read the per-kind names and labels in one query that names the kinds instead of one request per kind.",
+      "exit": "Rewrite test/catalogue-starter-kinds.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/consistency-plugin.test.ts",
       "seconds": 144.2,
       "reason": "red-defect",
@@ -44,6 +74,16 @@
       "defect": "The simultaneous-first-runs case cannot reach its one-store and second-start-refusal assertions because planning raises selected kind product has no enabled producer.",
       "replacement": "Declare an enabled product producer, race the two starts against one store and assert exactly one accepted chain and a named refusal for the other.",
       "exit": "Rewrite test/daemon-one-store.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/disk-support-ownership.test.ts",
+      "seconds": 70.5,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.1",
+      "defect": "The three cases check supports and retractions through an ordered real-fill sequence: first fill, invalidate and unchanged replay, then a committed edit and invalidation, with operation cursors. The GitHub runner measurement confirms the full file is green.",
+      "replacement": "Use one ordered first-fill → invalidate/unchanged → committed edit/invalidate sequence with operation cursors, preserving the listed supports and retractions.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/disk-support-ownership.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/draft-starter-copy.test.ts",
@@ -196,6 +236,26 @@
       "exit": "Rewrite test/git-file-history.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/git-partition-bootstrap.test.ts",
+      "seconds": 55.278,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.74",
+      "defect": "Real confined Git fills cover repository-only bootstrap, the K child and P owner group, regrouping and forced extraction, and the missing-bootstrap negative control. These phases cost real fill work (about 20\u201325 seconds per fill under the acceptance workload); the file exceeds 30 seconds without mocks.",
+      "replacement": "Share the product/store/repository prefix between both variants, perform one fill per required phase while preserving bootstrap, first-child, owner, regrouping, forced-repeat and missing-bootstrap assertions, then repeat the independent single-file measurement.",
+      "exit": "Run this file successfully in the blocking suite after an independent single-file measurement at or below 30 seconds, then remove this entry. Reversible coordinator decision for ALX-1149; do not change the threshold or weaken confinement."
+    },
+    {
+      "path": "test/graph-merges.test.ts",
+      "seconds": 48.5,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its fourteen merge cases each prepare a store and press fills over equivalence and immutable-snapshot fixtures, and the stack added the whole file: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
+      "replacement": "Reuse one prepared store per equivalence set, split and merge through its recorded snapshots, and keep only the cases whose assertions need a separate fixture on their own store.",
+      "exit": "Rewrite test/graph-merges.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
       "path": "test/graph-records.test.ts",
       "seconds": 277.8,
       "reason": "red-defect",
@@ -236,6 +296,16 @@
       "exit": "Rewrite test/graphql-writes.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/h3-real-reconciliation.test.ts",
+      "seconds": 51.6,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.2",
+      "defect": "Its case runs four real Git commits through concurrent partition fills and asserts bootstrap, owner groups and no retractions or disputes. Repeated profile fixture setup and assertion reads are the optimization target, not removing scheduler passes; preserve concurrent children and the rest of test/h3-real-reconciliation.test.ts:23 onward.",
+      "replacement": "Profile fixture setup and repeated assertion reads while retaining the four-commit history, concurrent children, scheduler passes, group-boundary, bootstrap and no-retraction assertions in test/h3-real-reconciliation.test.ts:23 onward.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/h3-real-reconciliation.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
+    },
+    {
       "path": "test/knowledge-close-verdict.test.ts",
       "seconds": 45.0,
       "reason": "red-defect",
@@ -274,6 +344,26 @@
       "defect": "The init setup expects exit zero after product creation, but receives one because the new daemon never answers its selected port, preventing the first-fill assertions.",
       "replacement": "Start a fixture-backed daemon with an explicit readiness handshake, then assert init creates the selected template, connects the existing checkout and exposes a fill that can publish every offered entity.",
       "exit": "Rewrite test/madarch-init-e2e.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/manifest-publication.test.ts",
+      "seconds": 31.214,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but the stack grew it from roughly 300 lines to 1154: about thirty async cases each build a fixture folder with a git commit and its manifests, open a store and publish the catalogue, and the ALX-174 abort and queued-publication cases plus the two home-watcher cases wait on real filesystem events through 25 ms polls (880 added lines since dcbe85185); it measured 31039 ms then 31214 ms alone in GitHub run 44913378966; speed-up owed.",
+      "replacement": "Share one validated publication fixture and one prepared store per assertion group, publish its catalogue once per group and read the resulting state instead of republishing per case, and keep the watcher and interception cases on their own fixtures so the bounded waits they need stay.",
+      "exit": "Rewrite test/manifest-publication.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/owner-daemon-stop.test.ts",
+      "seconds": 84.352,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.74",
+      "defect": "The two live-daemon stop/restart regressions passed in an isolated 84.352-second file run; they start, publish and restart real product servers.",
+      "replacement": "Keep stop/restart and GraphQL assertions while reducing repeated server and catalogue setup.",
+      "exit": "Return to the blocking suite after a fresh green single-file run at or below 30 seconds."
     },
     {
       "path": "test/plugin-agent-fill.test.ts",
@@ -364,6 +454,16 @@
       "defect": "Manual problem creation cases time out and the Problems-page case raises PostgreSQL operator does not exist: text ->> unknown instead of creating or reopening its graph task.",
       "replacement": "Read typed graph assertions rather than applying JSON extraction to text, and assert idempotent problem/task identities, concurrent author retention, safe fingerprints and atomic missing-binding refusal.",
       "exit": "Rewrite test/problem-task.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/producer-lifecycle.test.ts",
+      "seconds": 31.739,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7",
+      "defect": "The file passes, but its one case runs a whole lifecycle: it creates a product and a scripted plugin, prepares a store, then runs eight fills (`bad`, `cached`, `partial`, `good`, `bad-again`, `inapplicable`, `bad-before-failed`, `failed`), each booting the plugin's Bun runtime and preparing the contract again, now on top of the stack's content-snapshot seeding, principal bindings and per-run opinion reads (101 added lines since dcbe85185); it measured 32256 ms then 31739 ms alone in GitHub run 44909420763; speed-up owed.",
+      "replacement": "Prepare the product, plugin and store once and give each fill the already prepared contract instead of re-preparing it, keep the ordered fill sequence in one case, and move the reader status and scoped-replacement assertions to cases that reuse the published store the sequence leaves.",
+      "exit": "Rewrite test/producer-lifecycle.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/product-cli-script.test.ts",

@@ -1,64 +1,68 @@
-/**
- * The producers' own results, as the run records them (decision 0039, item 11):
- * what a unit answered of its kind — completed, empty, unchanged or abstained,
- * with how many facts and why — is the unit generation's own record, kept in its
- * context when the generation publishes, and the generation's own state and the
- * run's events say why one ended failed. There is no draft set to read back
- * (item 13): the writes went through the one writer, and the record of what they
- * amounted to stands with the unit.
- */
 import type { SqlExecutor } from '../sql-driver.js';
-import { withSpan } from '../obs/trace.js';
-import type { OrchestratorDatabase } from '../fill/orchestrator-store.js';
-import { producerSucceeded, type ProducerOutcomeDraft, type ProducerRunOutcome } from '../fill/producer-outcomes.js';
+import type { FillStateSnapshotDatabase } from './fill-state.js';
+import { producerSucceeded, type ProducerOutcome, type ProducerRunOutcome } from '../fill/producer-outcomes.js';
+import { edgeRowsIn, readNodeIdIn, readRecordsIn, readRunGraphUidIn, readSubjectsByValueIn, readUnitsIn } from './fill-state.js';
+import type { AssertionRecord } from './records.js';
 
-type OutcomeRow = Record<string, unknown> & { run_id: string; unit_id: string; generation: unknown; scope_key: string; state: string; context: unknown; published: boolean; reason: string | null };
-
-/** The context a generation stores, read as an object: a row that is not one states no outcome. */
-function contextOf(value: unknown): Record<string, unknown> {
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; }
+/** The units a request is about: the run's own, the named unit's, or — for no subject — every unit. */
+async function producerUnits(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }, supplied?: { readonly runNodeId: number; readonly units: readonly AssertionRecord[] }): Promise<AssertionRecord[]> {
+  if (supplied !== undefined) {
+    const inherited = await edgeRowsIn(executor, 'system.run-inherited-unit', 'from', [supplied.runNodeId]);
+    const ownIds = new Set(supplied.units.map(unit => unit.id));
+    return [...supplied.units, ...await readUnitsIn(executor, [...new Set(inherited.map(edge => edge.to))].filter(id => !ownIds.has(id)))];
   }
-  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+  if (options.runId !== undefined) {
+    const uid = await readRunGraphUidIn(executor, options.runId);
+    if (uid === undefined) return [];
+    const run = await readNodeIdIn(executor, uid);
+    if (run === undefined) return [];
+    // The run's own units and the published units it inherited: both answer for this run.
+    const ids = [...(await edgeRowsIn(executor, 'system.unit-run', 'to', [run])).map((edge) => edge.from),
+      ...(await edgeRowsIn(executor, 'system.run-inherited-unit', 'from', [run])).map((edge) => edge.to)];
+    return await readUnitsIn(executor, [...new Set(ids)]);
+  }
+  if (options.unitId !== undefined) {
+    const subjects = await readSubjectsByValueIn(executor, 'system.unit', 'unit_name', options.unitId);
+    const units = await readUnitsIn(executor, subjects.map((subject) => subject.id));
+    return units.filter((unit) => options.generation === undefined || unit.values['generation'] === options.generation);
+  }
+  // No subject is named: every unit is what the request is about.
+  return await readUnitsIn(executor);
 }
 
-/** Reads the outcomes the run's generations recorded; a failed attempt records its own failure, never a private answer. */
-export async function readProducerOutcomesIn(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT COALESCE($1::text, g.run_id) AS run_id, g.unit_id, g.generation, u.scope_key, g.state, g.context,
-       ($1::text IS NOT NULL AND g.run_id <> $1) AS inherited,
-       (p.unit_id IS NOT NULL) AS published,
-       (SELECT e.summary FROM fill_event e WHERE e.unit_id = g.unit_id AND e.generation = g.generation
-         AND e.kind IN ('unit-failed', 'unit-blocked', 'unit-cancelled') ORDER BY e.seq DESC LIMIT 1) AS reason
-     FROM fill_unit_generation g JOIN fill_unit u ON u.unit_id = g.unit_id
-     LEFT JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-     WHERE u.stage_id = 'plugin-turns'
-       -- A split's child answers a part of its parent's kind, and the parent's own outcome counts what it answered:
-       -- the run's list answers the units it planned, so a child is read through its parent and not beside it.
-       AND NOT EXISTS (SELECT 1 FROM fill_unit_split s WHERE s.child_unit_id = g.unit_id AND s.child_generation = g.generation)
-       AND ($1::text IS NULL OR g.run_id = $1 OR EXISTS (
-       SELECT 1 FROM fill_event inherited WHERE inherited.run_id = $1 AND inherited.unit_id = g.unit_id
-         AND inherited.generation = g.generation AND inherited.kind = 'unit-inherited'))
-       AND ($2::text IS NULL OR g.unit_id = $2) AND ($3::integer IS NULL OR g.generation = $3)
-     ORDER BY g.unit_id COLLATE "C", g.generation, g.run_id COLLATE "C"`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await executor.query<OutcomeRow>(sql, [options.runId ?? null, options.unitId ?? null, options.generation ?? null]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
+/** Producer completion is an ordinary unit assertion, never a private draft read. */
+export async function readProducerOutcomesIn(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }, supplied?: { readonly runNodeId: number; readonly units: readonly AssertionRecord[] }): Promise<ProducerRunOutcome[]> {
+  const units = (await producerUnits(executor, options, supplied)).filter((unit) => unit.values.outcome !== undefined);
+  if (units.length === 0) return [];
+  // Each unit's run is its own edge, and the units it was inherited into are its own incoming edges.
+  const links = await edgeRowsIn(executor, 'system.unit-run', 'from', units.map((unit) => unit.id));
+  const runs = new Map((await readRecordsIn(executor, 'vertex', 'system.run', ['run_name'], links.map((link) => link.to))).map((run) => [run.id, run]));
+  const inherited = await edgeRowsIn(executor, 'system.run-inherited-unit', 'to', units.map((unit) => unit.id));
+  const inheriting = new Map((await readRecordsIn(executor, 'vertex', 'system.run', ['run_name'], inherited.map((link) => link.from))).map((run) => [run.id, run]));
+  const outcomes: ProducerRunOutcome[] = units.flatMap(unit => {
+    const values = unit.values;
+    const runEdges = links.filter(edge => edge.from === unit.id);
+    const run = runEdges.length === 1 ? runs.get(runEdges[0]!.to) : undefined;
+    if (runEdges.length !== 1 || run === undefined) throw new Error(`${import.meta.path}:17: producer unit ${unit.uid} requires exactly one active system.unit-run endpoint`);
+    const runId = String(run.values['run_name']);
+    const unitId = String(values['unit_name']);
+    const generation = Number(values['generation']);
+    if (options.unitId !== undefined && options.unitId !== unitId) return [];
+    if (options.generation !== undefined && options.generation !== generation) return [];
+    const outcome: ProducerRunOutcome = { runId, unitId, generation, plugin: String(values['producer']), kind: String(values['produced_kind']), outcome: values.outcome as ProducerOutcome, produced: Number(values['produced']),
+      ...(values['reason'] === undefined ? {} : { reason: String(values['reason']) }),
+      ...(values['producer_version'] === undefined ? {} : { producerVersion: String(values['producer_version']) }),
+    };
+    const aliases = inherited.filter(edge => edge.to === unit.id).map(edge => {
+      const inheritingRun = inheriting.get(edge.from);
+      if (inheritingRun === undefined) throw new Error(`${import.meta.path}:30: inherited producer unit ${unit.uid} has no active run endpoint`);
+      return { ...outcome, runId: String(inheritingRun.values['run_name']), ...(producerSucceeded(outcome.outcome) ? { outcome: 'unchanged' as const } : {}) };
+    });
+    return [outcome, ...aliases].filter(result => options.runId === undefined || result.runId === options.runId);
   });
-  return found.rows.flatMap((row) => {
-    const identity = { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) };
-    const outcome = contextOf(row.context)['unitOutcome'] as ProducerOutcomeDraft | null | undefined;
-    if (row.published) {
-      if (outcome === null || outcome === undefined) return [];
-      return [{ ...outcome, ...(row.inherited === true && producerSucceeded(outcome.outcome) ? { outcome: 'unchanged' as const } : {}), ...identity }];
-    }
-    if (!['failed', 'blocked', 'cancelled'].includes(row.state)) return [];
-    const cut = row.scope_key.indexOf(':');
-    return [{ ...identity, plugin: row.scope_key.slice(0, cut), kind: row.scope_key.slice(cut + 1).split('@')[0]!, outcome: 'failed' as const, produced: 0, reason: row.reason ?? `producer generation ${row.state}` }];
-  });
+  return outcomes.sort((a, b) => a.unitId < b.unitId ? -1 : a.unitId > b.unitId ? 1 : a.generation - b.generation || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
 }
 
-export async function readProducerOutcomes(database: OrchestratorDatabase, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
+export async function readProducerOutcomes(database: FillStateSnapshotDatabase, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
   return await database.transaction('snapshot', async (executor) => await readProducerOutcomesIn(executor, options));
 }

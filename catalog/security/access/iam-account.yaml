@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An IAM account is one identity a system recognises: a person''s login, a service''s account or an application''s identity. Permissions are attached to the account, and its activity can be attributed to it.'
   ru: 'Учётная запись IAM — одна идентичность, которую знает система: вход человека, учётная запись сервиса или приложения. Права привязаны к учётной записи, и её действия можно ей приписать.'
+derives-from:
+- software-system

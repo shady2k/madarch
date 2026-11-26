@@ -24,3 +24,6 @@ labels:
 description:
   en: A GitOps application is one workload that a GitOps agent keeps in line with a declaration stored in Git. The declaration is the truth, and the agent applies it whenever it or the cluster changes.
   ru: Приложение GitOps — одна нагрузка, которую агент GitOps держит в соответствии с объявлением, хранимым в Git. Объявление — источник истины, и агент применяет его всякий раз, когда меняется оно или кластер.
+derives-from:
+- desired-deployment
+- gitops-source

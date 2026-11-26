@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A course of action is the approach the organisation chooses to move towards its goals: a programme, a strategy, a sequence of projects. It says what will be done over time, rather than what state is wanted.'
   ru: 'Курс действий — подход, который организация выбирает, чтобы двигаться к целям: программа, стратегия, череда проектов. Он говорит, что будет делаться со временем, а не какое состояние нужно.'
+derives-from:
+- goal

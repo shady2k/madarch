@@ -15,6 +15,7 @@ import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { leaseStoreCluster, type ClusterLease } from '../src/adapters/database-owner.js';
+import { clusterQuery, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
 import { noteTestServerFailure, TEST_SERVER_VARIABLE } from './test-database.js';
 
 let lease: ClusterLease | undefined;
@@ -124,6 +125,35 @@ export async function ensureRunPostgres(): Promise<void> {
 /** The one start, shared by every case that asks while it runs. */
 let start: Promise<void> | undefined;
 
+/** The settings that make a database's DROP cheap on a server a run throws away (ALX-186, C1). */
+const NON_DURABLE_SETTINGS = ['fsync', 'full_page_writes', 'synchronous_commit'] as const;
+
+/**
+ * Makes the run's server non-durable, after it is leased and before any case opens a database on it: `DROP DATABASE`
+ * forces a checkpoint of the whole cluster, and on a durable server that checkpoint `fsync`s every dirty page — 1.2 s on
+ * a quiet cluster and 8.4 s with 240 MB of them (ALX-119). This server stands in the run's scratch folder and is
+ * deleted with it, so none of it is worth syncing to disk. A store folder a case opens for itself keeps the defaults:
+ * its data outlives the run.
+ *
+ * Only this server takes the settings. A reload applies them to the running postmaster, so the wait below reads them
+ * back from `pg_settings` instead of assuming the signal was served before the next statement.
+ */
+async function makeRunServerNonDurable(ref: ClusterLease['ref']): Promise<void> {
+  const cluster = { dataDir: ref.socketDir, socketDir: ref.socketDir, port: ref.port ?? CLUSTER_PORT, user: ref.user ?? CLUSTER_USER, bin: '', stop: async () => await Promise.resolve() };
+  for (const name of NON_DURABLE_SETTINGS) await clusterQuery(cluster, 'postgres', `ALTER SYSTEM SET ${name} = 'off'`);
+  await clusterQuery(cluster, 'postgres', 'SELECT pg_reload_conf()');
+  const until = Date.now() + 5_000;
+  for (;;) {
+    const rows = await clusterQuery<{ name: string; setting: string }>(cluster, 'postgres', 'SELECT name, setting FROM pg_settings WHERE name = ANY($1)', [NON_DURABLE_SETTINGS]);
+    if (rows.length === NON_DURABLE_SETTINGS.length && rows.every((row) => row.setting === 'off')) return;
+    if (Date.now() > until) {
+      const held = rows.map((row) => `${row.name}=${row.setting}`).join(', ');
+      throw new Error(`${join(tmpdir(), 'postgres', 'postgres.log')}:1: the run's PostgreSQL server did not take the non-durable settings within 5 s of pg_reload_conf(): ${held}`);
+    }
+    await Bun.sleep(20);
+  }
+}
+
 /** Starts the server now: what `ensureRunPostgres` runs once. */
 async function startRunPostgres(): Promise<void> {
   // The run's scratch is the temporary folder the preload points TMPDIR into (`run-scratch.ts`), and the server's store
@@ -132,6 +162,7 @@ async function startRunPostgres(): Promise<void> {
   try {
     lease = await leaseStoreCluster(store);
     process.env[TEST_SERVER_VARIABLE] = lease.ref.socketDir;
+    await makeRunServerNonDurable(lease.ref);
   } catch (error) {
     failure = error instanceof Error ? error : new Error(String(error));
     noteTestServerFailure(failure);

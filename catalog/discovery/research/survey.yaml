@@ -24,3 +24,6 @@ labels:
 description:
   en: A survey asks the same questions of many people and collects their answers, usually in writing or online. The answers show how common a view or a problem is, while interviews and observations explain why.
   ru: Опрос задаёт одним и тем же набором вопросов многим людям и собирает их ответы, обычно письменно или через интернет. Ответы показывают, насколько распространено мнение или затруднение, а интервью и наблюдения объясняют почему.
+derives-from:
+- person
+- research-question

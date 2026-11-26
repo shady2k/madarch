@@ -30,7 +30,7 @@
  */
 import { lineOf, parseManifest } from '../manifest.js';
 import { STAGE_ID_PATTERN } from '../../fill/stage.js';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { MANIFEST_FILE } from '../manifest.js';
 import { KINDS_FILE, KINDS_FOLDER, readKindsFrom } from './kinds.js';
 import type { FirstFillRead } from './workflows.js';
@@ -148,7 +148,7 @@ export function assertPluginTurnsEnabled(producers: readonly string[], workflow:
 /** The declarative files of the pinned product snapshot, read once for its fill. */
 export async function readFillManifests(snapshot: Parameters<typeof snapshotFiles>[0], folder: string) {
   const files = await snapshotFiles(snapshot);
-  await files.ensure([MANIFEST_FILE, KINDS_FILE, 'madarch/kinds.yaml', ...files.filesBelow(KINDS_FOLDER), WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
+  await files.ensure([MANIFEST_FILE, KINDS_FILE, 'madarch/kinds.yaml', ...files.filesBelow(KINDS_FOLDER), ...files.filesBelow('templates').filter((path) => ['.yaml', '.yml'].includes(extname(path))), WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
   const kindsRead = readKindsFrom(files, folder);
   return {
     files,

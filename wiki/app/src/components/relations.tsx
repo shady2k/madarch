@@ -7,7 +7,6 @@
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { titleIn } from '../../../../src/page-contract/index.js';
-import { relationWords } from '../../../../src/knowledge/relation-labels.js';
 import { useRef, useState } from 'react';
 import { Button } from './ui/button.js';
 import { PaginationBar, PaginationSummary } from './ui/filter-bar.js';
@@ -46,10 +45,12 @@ export function RelationsSection({ context }: { readonly context: SectionContext
   const canPage = (context.section.query ?? '').includes(`$${context.section.id}_after`);
   const next = nextOf(connection);
   const groups = named === undefined
-    ? groupOf(edgesOf(connection), context.language)
+    ? groupOf(edgesOf(connection))
     : [{
         key: `${named}\u0000${context.section.params['inverse'] === true ? 'in' : 'out'}`,
-        word: String((connection as Record<string, unknown> | undefined)?.['relationLabel'] ?? named),
+        // The words come from the published catalogue through the answer's `relationLabel`; a section that names an
+        // edge and receives no words shows none, never the edge's key (owner's decision, 2026-11-15).
+        word: String((connection as Record<string, unknown> | undefined)?.['relationLabel'] ?? ''),
         rows: uniqueRows(edgesOf(connection)),
         total: totalOf(connection) || uniqueRows(edgesOf(connection)).length,
       }];
@@ -82,12 +83,12 @@ export function RelationsSection({ context }: { readonly context: SectionContext
             const previous = cursors.current[page - 1];
             context.reload({ [`${context.section.id}_after`]: previous ?? null });
             setPage(page - 1);
-          }}>←</Button>
+          }}>{t('common.previousSymbol')}</Button>
           <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => {
             cursors.current = [...cursors.current.slice(0, page + 1), next.cursor];
             context.reload({ [`${context.section.id}_after`]: next.cursor ?? null });
             setPage(page + 1);
-          }}>→</Button>
+          }}>{t('common.nextSymbol')}</Button>
         </PaginationBar>
       ) : null}
     </>
@@ -108,7 +109,7 @@ function uniqueRows(rows: readonly Record<string, unknown>[]): Record<string, un
 }
 
 /** The rows of one connection, grouped by the relation they were read through, the fullest group first. */
-function groupOf(rows: readonly Record<string, unknown>[], language: string): RelationGroup[] {
+function groupOf(rows: readonly Record<string, unknown>[]): RelationGroup[] {
   const groups = new Map<string, RelationGroup>();
   for (const outer of rows) {
     // A connection's row is `{node}`; the relation's own fields stand on that node, or on the row itself for a list.
@@ -117,9 +118,9 @@ function groupOf(rows: readonly Record<string, unknown>[], language: string): Re
     const edge = typeof row.edge === 'string' ? row.edge : typeof row.relation === 'string' ? String(row.relation) : '';
     const inverse = row.inverse === true;
     const key = `${edge}\u0000${inverse ? 'in' : 'out'}`;
-    // A heading is a relation's words, from the shared vocabulary when the answer carries no label: never a raw key
-    // such as `manifestDependsOn` (madarch-64o5.96).
-    const heldGroup = groups.get(key) ?? { key, word: typeof row.label === 'string' && row.label !== '' ? row.label : relationWords(edge, language, inverse), rows: [] };
+    // A heading is a relation's words as the published catalogue declares them (owner's decision, 2026-11-15): the
+    // answer carries them, and the app holds no vocabulary and guesses none from the key.
+    const heldGroup = groups.get(key) ?? { key, word: typeof row.label === 'string' ? row.label : '', rows: [] };
     heldGroup.rows.push(outer);
     groups.set(key, heldGroup);
   }

@@ -5,15 +5,66 @@ definition: A defect is an imperfection in a work product that may cause a failu
 sources:
 - https://glossary.istqb.org/en_US/term/defect
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - affects
+  - fixedBy
+  - hasPart
+  - work.depends-on
   in:
   - foundBy
-template-policy: none
+  - partOf
+  - work.depends-on
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What is wrong, in one line, such as Checkout drops the basket; it is the
+      defect's key.
+- name: severity
+  type: text
+  nullable: true
+  binding:
+    agent: How bad the failure is, in the words the product grades its defects by.
+- name: steps
+  type: text
+  nullable: true
+  binding:
+    agent: What a person does and what they see, step by step.
+- name: expected
+  type: text
+  nullable: true
+  binding:
+    agent: What should have happened.
+- name: actual
+  type: text
+  nullable: true
+  binding:
+    agent: What happened instead.
+- name: status
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: 'Where the defect stands: open, being repaired, fixed, refused.'
+- name: priority
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: queue_position
+  type: integer
+  nullable: true
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.
+key:
+- name
 labels:
   en:
     one: Defect
@@ -24,3 +75,5 @@ labels:
 description:
   en: A defect is a flaw in something the team produced — code, a document, a design, a test — that can lead the product to fail. It is the cause; a failure is what a person sees when the defect is exercised.
   ru: 'Дефект — изъян в том, что сделала команда: коде, документе, проекте или тесте, — который может привести продукт к сбою. Это причина; сбой — то, что видит человек, когда дефект проявляется.'
+derives-from:
+- system.product

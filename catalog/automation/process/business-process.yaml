@@ -1,19 +1,46 @@
-id: practice.business-process
+id: bpmn.process
 purpose: operations
-audience: [analyst, platform-devops, operations]
-definition: A business process is a sequence of steps an organisation follows to reach a defined outcome, such as onboarding a customer or paying an invoice.
+audience: [analyst, platform-devops, operations, architect]
+definition: A business process is an ordered set of steps an organisation follows to reach a defined outcome, such as onboarding a customer or paying an invoice.
 sources:
 - https://www.omg.org/spec/BPMN/
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasPart
+  - triggers
   in:
   - defines
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the organisation gives this process, such as Onboarding a customer;
+      it is the process's key.
+- name: goal
+  type: text
+  nullable: true
+  binding:
+    agent: The outcome the process reaches when it ends, in one sentence, from the
+      steps and the events that close it in the graph.
+- name: trigger
+  type: text
+  nullable: true
+  binding:
+    agent: What starts the process, from the start event of the process in the graph.
+key:
+- name
+derives-from:
+- business-capability
+- role
 labels:
   en:
     one: Business process

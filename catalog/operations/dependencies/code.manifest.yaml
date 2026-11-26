@@ -9,6 +9,8 @@ acquisition:
 relation-constraints:
   out:
   - hasDependencyManifest
+  - dependsOn
+  - partOf
   in:
   - partOf
 template-policy: page
@@ -20,6 +22,39 @@ details:
 - module
 - goVersion
 - private
+fields:
+- name: path
+  type: path
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: ecosystem
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: name
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: version
+  type: version
+  nullable: true
+  producers:
+  - operations
+- name: private
+  type: boolean
+  nullable: true
+  producers:
+  - operations
+key:
+- path
+derives-from:
+- code.file
+- code.package
 labels:
   en:
     one: Manifest
@@ -30,3 +65,8 @@ labels:
 description:
   en: 'A manifest names a package, its version and the dependencies it needs, in the form its ecosystem uses: package.json, go.mod, pyproject.toml. It is the starting point from which the exact versions are resolved.'
   ru: 'Манифест называет пакет, его версию и нужные зависимости в форме своей экосистемы: package.json, go.mod, pyproject.toml. С него начинают, чтобы разрешить точные версии.'
+
+key-edges:
+- role: code.manifest-repository
+  edge: code.manifest-repository
+  side: from

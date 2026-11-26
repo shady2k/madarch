@@ -4,16 +4,19 @@ import { withSpanSync, withSpan } from '../obs/trace.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
+import { readPinnedGraphContract, readPinnedPluginInstallations } from './preparation-contract.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { readProduct } from './manifest.js';
 import { openFillDatabase, fillProgressOf, type FillActivity, type FillOrchestratorService, type FillProduct, type FillProgressAnswer, type FillRunControl, type FillRunControlAnswer, type FillRunRequest, type FillRunResult, type RefusedFillRun } from '../fill/orchestrator-host.js';
 import type { RunStatus } from '../fill/orchestrator.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
 import { fillIsolation } from '../plugin/sandbox-probe.js';
 
 export interface DaemonFills {
   /** Publishes validated metadata without starting a fill. */
-  publishManifests(validated: ValidatedManifests): Promise<void>;
+  publishManifests(validated: ValidatedManifests, signal?: AbortSignal): Promise<void>;
   /** Runs one product's fill through `runFill` and answers what the host answered. */
   run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
   /** One run's status, or null when the store holds no such run. */
@@ -34,6 +37,7 @@ export interface DaemonFills {
 interface HeldStore {
   readonly storeFolder: string;
   readonly owner: Awaited<ReturnType<typeof openFillDatabase>>;
+  fillState: FillStateDatabase;
   service?: FillOrchestratorService;
   /** True while one of this store's runs is in flight: the store's fill is one run at a time. */
   running?: boolean;
@@ -54,21 +58,41 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
    * second request waits for it rather than opening a second connection (madarch-8bdc.2.5, item 4c).
    */
   const opening = new Map<string, Promise<HeldStore>>();
+  const failedOpeningOwners = new Set<Awaited<ReturnType<typeof openFillDatabase>>>();
   let stopped = false;
+  let stopPromise: Promise<void> | undefined;
+  const publications = new Set<Promise<void>>();
+  const publicationAbort = new AbortController();
+  const ensureRunning = (): void => {
+    if (stopped) throw new Error(`${import.meta.path}:64: the daemon fills have stopped`);
+  };
   /** The store of one product, by the one function every caller resolves it with. */
   const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
   /** Opens one store's owner, or answers the opening already under way for it: one owner per store, whichever asks. */
-  const openStore = async (storeFolder: string): Promise<HeldStore> => {
+  const openStore = async (storeFolder: string, productFolder: string): Promise<HeldStore> => {
+    ensureRunning();
     const held = stores.get(storeFolder);
     if (held !== undefined) return held;
     const pending = opening.get(storeFolder);
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
       withSpanSync('fs.mkdir', { 'file.path': dirname(storeDatabasePath(storeFolder)) }, () => mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true }));
-      await requestStorePreparation(storeDatabasePath(storeFolder));
+      const contract = await readPinnedGraphContract(productFolder);
+      await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(productFolder));
+      ensureRunning();
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
-      await owner.ready;
-      const one: HeldStore = { storeFolder, owner };
+      try {
+        await owner.ready;
+        ensureRunning();
+      } catch (error) {
+        try { await owner.close(); }
+        catch (closeError) {
+          failedOpeningOwners.add(owner);
+          throw closeError;
+        }
+        throw error;
+      }
+      const one: HeldStore = { storeFolder, owner, fillState: { transaction: owner.transaction.bind(owner), graphContract: contract } };
       stores.set(storeFolder, one);
       return one;
     })();
@@ -84,12 +108,12 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
     const storeFolder = storeFolderOfProduct(productFolder);
     if (!existsSync(storeDatabasePath(storeFolder)) && !opening.has(storeFolder)) return undefined;
-    return await openStore(storeFolder);
+    return await openStore(storeFolder, productFolder);
   };
   /** The store a run writes: opened here, because a run writes what a read may not create. */
   const store = async (productFolder: string): Promise<HeldStore> => {
     if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
-    return await openStore(storeFolderOfProduct(productFolder));
+    return await openStore(storeFolderOfProduct(productFolder), productFolder);
   };
   const withService = async <T>(productFolder: string, work: (service: FillOrchestratorService) => Promise<T>): Promise<T | undefined> => {
     const held = await opened(productFolder);
@@ -108,7 +132,10 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const result = await runFill({
       product: request.product.folder,
       database: held.owner,
-      prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(held.storeFolder), contract),
+      prepareContract: async (contract) => {
+        await requestStorePreparation(storeDatabasePath(held.storeFolder), contract, await readPinnedPluginInstallations(request.product.folder));
+        held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: withManifestContract(contract) };
+      },
       runId: request.runId,
       home: held.storeFolder,
       store: held.storeFolder,
@@ -131,23 +158,40 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     return result;
   };
   return {
-    async publishManifests(validated: ValidatedManifests): Promise<void> {
-      const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
-      const { createFillStateSchema } = await import('../fill/state-store.js');
-      const { createOrchestratorSchema } = await import('../fill/orchestrator-store.js');
-      const { createOneGraphSchema } = await import('../graph/one-graph.js');
-      const { withManifestContract } = await import('../graph/manifest-contract.js');
-      const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
-      const folder = storeFolderOfProduct(validated.folder);
-      const contract = graphContractOf(validated.manifest);
-      await requestStorePreparation(storeDatabasePath(folder), contract);
-      const held = await store(validated.folder);
-      await createFillStateSchema(held.owner);
-      await createOrchestratorSchema(held.owner);
-      await createOneGraphSchema(held.owner, withManifestContract(contract));
-      const terminal = startupBegin('catalogue.transaction', join(storeDatabasePath(folder), 'pgdata'));
-      try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); terminal('ok'); }
-      catch (error) { terminal('error'); throw error; }
+    publishManifests(validated: ValidatedManifests, requestedSignal?: AbortSignal): Promise<void> {
+      const signal = requestedSignal === undefined ? publicationAbort.signal : AbortSignal.any([publicationAbort.signal, requestedSignal]);
+      const work = (async () => {
+        signal.throwIfAborted();
+        ensureRunning();
+        const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
+        const { createOrchestratorSchema } = await import('../graph/fill-orchestration.js');
+        const { createOneGraphSchema } = await import('../graph/one-graph.js');
+        const { publishValidatedManifests, publicationDatabaseOwner } = await import('../graph/manifest-publication.js');
+        signal.throwIfAborted();
+        const folder = storeFolderOfProduct(validated.folder);
+        const declared = graphContractOf(validated.manifest);
+        const contract = withManifestContract(declared);
+        await requestStorePreparation(storeDatabasePath(folder), declared, await readPinnedPluginInstallations(validated.folder));
+        signal.throwIfAborted();
+        const held = await store(validated.folder);
+        signal.throwIfAborted();
+        const publishing = publicationDatabaseOwner(held.owner, signal);
+        held.fillState = { transaction: held.owner.transaction.bind(held.owner), graphContract: contract };
+        await createOrchestratorSchema({ transaction: publishing.transaction.bind(publishing) });
+        await createOneGraphSchema(publishing, contract);
+        const started = performance.now();
+        const terminal = startupBegin('catalogue.transaction', join(storeDatabasePath(folder), 'pgdata'));
+        try {
+          await publishValidatedManifests(publishing, validated, contract, signal);
+          terminal('ok');
+        } catch (error) {
+          terminal('error');
+          throw error;
+        } finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
+      })();
+      publications.add(work);
+      void work.then(() => publications.delete(work), () => publications.delete(work));
+      return work;
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const held = await store(request.product.folder);
@@ -176,44 +220,57 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       if (held.service !== undefined) return await held.service.progress(folder);
       const read = readProduct(resolve(folder));
       if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
-      return await fillProgressOf(held.owner, read.product.name);
+      return await fillProgressOf(held.fillState, read.product.name);
     },
     async filled(folder: string): Promise<boolean> {
       const held = await opened(folder);
       if (held === undefined) return false;
-      const { hasSuccessfulFill } = await import('../fill/state-store.js');
-      return await hasSuccessfulFill(held.owner);
+      const read = readProduct(resolve(folder));
+      if (!read.ok) throw new Error(`the filled state of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
+      const { hasSuccessfulFill } = await import('../graph/fill-state.js');
+      return await hasSuccessfulFill(held.fillState, read.product.name);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
       const held = await opened(request.product.folder);
       if (held === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
       if (held.service !== undefined) return await held.service.activity({ product: request.product });
-      const { readChain, readRun } = await import('../fill/state-store.js');
-      const chain = await readChain(held.owner, request.product.name);
+      const { readChain, readRun } = await import('../graph/fill-state.js');
+      const chain = await readChain(held.fillState, request.product.name);
       if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
       const activeRunId = chain.context.activeRunId ?? null;
-      const active = activeRunId === null ? null : await readRun(held.owner, activeRunId);
+      const active = activeRunId === null ? null : await readRun(held.fillState, activeRunId);
       return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
     },
     async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl; readonly product?: string }): Promise<FillRunControlAnswer | null> {
       const answer = await withService(request.productFolder, async (service) => await service.control(request)).catch(() => undefined);
       return answer ?? null;
     },
-    async stop(): Promise<void> {
-      if (stopped) return;
+    stop(): Promise<void> {
+      if (stopPromise !== undefined) return stopPromise;
       stopped = true;
-      let failure: unknown;
-      for (const held of stores.values()) {
-        if (held.service !== undefined) {
-          const service = held.service;
-          held.service = undefined;
-          try { await service.stop(); } catch (error) { failure ??= error; }
+      publicationAbort.abort(new Error(`${import.meta.path}:253: the daemon is stopping; manifest publication was cancelled`));
+      stopPromise = (async () => {
+        await Promise.allSettled([...publications]);
+        await Promise.allSettled([...opening.values()]);
+        let failure: unknown;
+        for (const owner of failedOpeningOwners) {
+          try {
+            await owner.close();
+            failedOpeningOwners.delete(owner);
+          } catch (error) { failure ??= error; }
         }
-        try { await held.owner.close(); } catch (error) { failure ??= error; }
-      }
-      stores.clear();
-      opening.clear();
-      if (failure !== undefined) throw failure;
+        for (const held of stores.values()) {
+          if (held.service !== undefined) {
+            const service = held.service;
+            held.service = undefined;
+            try { await service.stop(); } catch (error) { failure ??= error; }
+          }
+          try { await held.owner.close(); } catch (error) { failure ??= error; }
+        }
+        stores.clear();
+        if (failure !== undefined) throw failure;
+      })();
+      return stopPromise;
     },
   };
 }

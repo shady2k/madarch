@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A release gate is one condition on the way forward: all tests green, a security scan clean, a person''s approval, a smoke test in the previous environment. Release stops at the gate until the condition is met or someone overrides it.'
   ru: 'Шлюз выпуска — одно условие на пути дальше: все тесты зелёные, проверка безопасности чистая, есть согласие человека или дымовой тест в предыдущей среде. Выпуск стоит у шлюза, пока условие не выполнено или кто-то не отменит его.'
+derives-from:
+- acceptance-criterion
+- release

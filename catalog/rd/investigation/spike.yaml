@@ -24,3 +24,5 @@ labels:
 description:
   en: A spike is a time-boxed investigation into a technical unknown, such as whether a library can handle the load or how an old system behaves. It ends with an answer, not with production code.
   ru: 'Исследование — ограниченная по времени работа над технической неизвестностью: выдержит ли библиотека нагрузку или как ведёт себя старая система. Оно заканчивается ответом, а не рабочим кодом.'
+derives-from:
+- considered-option

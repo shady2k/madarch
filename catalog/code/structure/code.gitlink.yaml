@@ -15,17 +15,8 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: repository
-  type: text
-  producers:
-  - disk
 - name: path
-  type: text
-  producers:
-  - disk
-- name: other_repository
-  type: text
-  nullable: true
+  type: path
   producers:
   - disk
 - name: commit_hash
@@ -34,7 +25,6 @@ fields:
   producers:
   - disk
 key:
-- repository
 - path
 derives-from:
 - code.repository
@@ -48,3 +38,8 @@ labels:
 description:
   en: A submodule is a folder a repository borrows from another repository at a pinned commit, such as a shared library. The parent records which commit it expects, so the borrowed code changes only when someone updates that record.
   ru: Подмодуль — папка, которую репозиторий берёт из другого репозитория на закреплённом коммите, например общую библиотеку. Родитель записывает ожидаемый коммит, поэтому заимствованный код меняется, только когда эту запись обновляют.
+
+key-edges:
+- role: code.gitlink-repository
+  edge: code.gitlink-repository
+  side: from

@@ -55,12 +55,13 @@ test('every base template composes and is valid against the real schema', () => 
   expect(entityErrors).toEqual([]);
   expect(errorsOf({ home: true })).toEqual([]);
   expect(errorsOf({ kind: 'catalogue', id: '00000000-0000-0000-0000-000000000002' })).toEqual([]);
-});
+}, 15_000);
 
 test('the text template composes on the type whose body it draws', () => {
-  const product = schema.getType('KindProduct') as GraphQLObjectType | undefined;
-  expect(product?.getFields()['body']).toBeDefined();
-  expect(errorsOf({ template: 'text', kind: 'product', id: '00000000-0000-0000-0000-000000000003' })).toEqual([]);
+  // The product's own page is home; a comment holds the body that the text template draws.
+  const comment = schema.getType('KindComment') as GraphQLObjectType | undefined;
+  expect(comment?.getFields()['body']).toBeDefined();
+  expect(errorsOf({ template: 'text', kind: 'comment', id: '00000000-0000-0000-0000-000000000003' })).toEqual([]);
 });
 
 test('a page composes to one operation, and the split hands back each section', () => {

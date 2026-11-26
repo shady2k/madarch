@@ -76,6 +76,17 @@ function lsTree(folder: string, commit: string): { path: string; mode: string; b
   });
 }
 
+test('the tree pass distinguishes an absent remote from an explicitly recorded empty remote', async () => {
+  const folder = repositoryAt('recorded-remotes');
+  git(folder, 'commit', '--allow-empty', '-qm', 'empty tree');
+  const held = pin(folder);
+  const { url: _url, ...withoutRemote } = held;
+  expect((await readRepositoryTree(withoutRemote)).repository.url).toBeNull();
+  for (const url of ['', 'git@example.org:team/repo.git', '../local repo']) {
+    expect((await readRepositoryTree({ ...held, url })).repository.url).toBe(url);
+  }
+});
+
 describe('a submodule', () => {
   let outer = '';
   let innerCommit = '';

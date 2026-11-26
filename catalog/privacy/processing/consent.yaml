@@ -24,3 +24,6 @@ labels:
 description:
   en: Consent is a clear, informed and voluntary yes from a person to one or more uses of their personal data. It must be as easy to withdraw as to give, and the processing may continue only while it stands.
   ru: Согласие — ясное, осознанное и добровольное разрешение человека на одно или несколько использований его персональных данных. Отозвать его должно быть так же просто, как дать, и обработка возможна, только пока оно действует.
+derives-from:
+- person
+- processing-activity

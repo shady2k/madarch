@@ -24,3 +24,6 @@ labels:
 description:
   en: 'Licence cost is the money paid for the right to use software: subscriptions, per-seat fees, support contracts and one-off licences. It is counted apart from usage-based cloud spending because it is agreed in advance.'
   ru: 'Стоимость лицензий — деньги за право пользоваться программным обеспечением: подписки, плата за рабочее место, договоры поддержки и разовые лицензии. Её считают отдельно от оплаты облака по факту потребления, потому что она согласована заранее.'
+derives-from:
+- cost-record
+- license-agreement

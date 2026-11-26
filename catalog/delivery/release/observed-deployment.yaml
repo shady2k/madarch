@@ -23,3 +23,6 @@ labels:
 description:
   en: 'An observed deployment records the state the platform reports: which version is running, how many copies, on which nodes and in what health. Comparing it with the desired state shows whether the deployment took effect.'
   ru: 'Наблюдаемое развёртывание записывает состояние, которое сообщает платформа: какая версия работает, сколько копий, на каких узлах и в каком состоянии. Сравнение с желаемым показывает, подействовало ли развёртывание.'
+derives-from:
+- deployment
+- deployment-node

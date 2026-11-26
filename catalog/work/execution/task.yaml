@@ -6,99 +6,24 @@ sources:
 - https://scrumguides.org/scrum-guide.html
 - https://support.atlassian.com/jira-software-cloud/docs/create-a-work-item-and-a-subtask/
 acquisition:
+- agent-from-graph
 - conversation
 relation-constraints:
   out:
+  - work.depends-on
   - hasPart
   - refines
+  - partOf
+  - ownedBy
+  - task.contains
   in:
   - partOf
-  - refines
+  - hasPart
+  - work.depends-on
+  - task.contains
 template-policy: page
 source: graph
-fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
 origin: person
-import-folder: docs/tasks
-nav: own-page
 details:
 - status
 - question
@@ -111,6 +36,67 @@ details:
 - closed_by
 - closed_at
 - file
+fields:
+- name: tracker
+  type: text
+  binding:
+    agent: The tracker the task is written in, such as the product’s own journal or
+      a Git host.
+- name: key
+  type: text
+  labels:
+    en: Key
+    ru: Ключ
+  binding:
+    agent: The identifier the tracker gives the task; tracker and key together are
+      the task's natural key.
+- name: title
+  type: text
+  binding:
+    agent: What the task is, in one line, as its author words it.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What has to change and how a reader sees that it is done, in the words
+      of the task.
+- name: status
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: Where the task stands, as the tracker keeps it.
+- name: priority
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: scope
+  type: text
+  nullable: true
+  binding:
+    agent: What the task covers and what it leaves out, in one or two sentences.
+- name: done_criterion
+  type: text
+  nullable: true
+  binding:
+    agent: What has to hold for the task to be done, in the words of its acceptance.
+- name: labels
+  type: value-set-value-list
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:value-set-value-list:v1
+  nullable: true
+  binding:
+    agent: The labels the task carries, by the keys of those value-set entries in the graph.
+- name: queue_position
+  type: integer
+  nullable: true
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.
+key:
+- tracker
+- key
+nav: own-page
 labels:
   en:
     one: Task
@@ -121,4 +107,5 @@ labels:
 description:
   en: 'A task is one piece of work a person or an agent plans and then does: it states what has to change, what result counts as done and who carries it out. Tasks are usually grouped under a larger unit of work, such as a user story, a stage or a release.'
   ru: 'Задача — единица работы с очерченной областью и критерием готовности, которую поручают человеку или агенту. В ней сказано, что нужно изменить, какой результат считается достигнутым и кто её выполняет. Обычно задачи входят в более крупную единицу работы: историю пользователя, этап или выпуск.'
-key: []
+derives-from:
+- system.product

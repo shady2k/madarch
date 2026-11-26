@@ -1,4 +1,3 @@
-import { withSpan } from '../obs/trace.js';
 /**
  * The queue's pg-boss adapter (decision 0027, "Queue"): `QueueService`
  * (`src/fill/queue.ts`) served by pg-boss, running on the process's one
@@ -25,26 +24,15 @@ import { withSpan } from '../obs/trace.js';
  * nobody declared is refused by this adapter, naming the queue, rather than by
  * the SQL that then could not name it.
  *
- * Enqueue order is the adapter's own promise, so the adapter gives every job a
- * place of its own when it is enqueued. pg-boss picks a claim's batch by
- * priority and then by the job's creation time, and resolves two jobs of one
- * creation instant in no order at all — its own source says so, and its ids are
- * random, so they carry no order either. A creation instant is the store's
- * clock, which is coarse on some backends and is one transaction's for every
- * statement inside that transaction, so equal-priority jobs enqueued one after
- * another regularly shared an instant and came back in a random order (found by
- * CI on this change's first landing). Each enqueue therefore takes the next
- * stamp of its queue — at least a millisecond past the queue's previous one,
- * kept in a table of the queue's own schema — and writes it as the job's
- * creation time inside the enqueue's own transaction, so no two jobs of a queue
- * share a place and the store's own selection is the enqueue order. The claim
- * still orders the batch it is handed, for a store that answers it unordered
- * and for a row written beside this adapter.
+ * The adapter stamps enqueue order in pg-boss’s creation time; pg-boss owns
+ * limited selection, lease locking, expiry and retries (0039 item 24).
  */
 import { PgBoss } from 'pg-boss';
 import type { CommandResponse, Db, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
-import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ENQUEUE_STAMP_TABLE, ownerDatabase, QUEUE_SCHEMA_STAMP, queueOptions } from './queue-definition.js';
+import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ownerDatabase, QUEUE_SCHEMA_STAMP, queueOptions } from './queue-definition.js';
 export { DEFAULT_QUEUE_SCHEMA } from './queue-definition.js';
+import { withSpan } from '../obs/trace.js';
+import { raise } from '../model/raise.js';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
 import { requireSchema } from './store-readiness.js';
@@ -62,14 +50,6 @@ import type {
 
 /** The most dead letters one read answers: the bound the database itself takes for a list read. */
 const MAX_DEAD_LETTERS = 100_000;
-
-/**
- * The least distance between two enqueues' stamps. A stored instant carries
- * microseconds, but every reader of it here is a JavaScript `Date`, which
- * carries milliseconds, so a gap has to be a whole millisecond for two jobs'
- * places to be told apart once they are read back.
- */
-const ENQUEUE_STAMP_STEP = "interval '1 millisecond'";
 
 export interface PgBossQueueOptions {
   /** The process's database owner, opened once and lent: the queue never opens a second database. */
@@ -101,13 +81,7 @@ export interface PgBossQueueOptions {
 function transactionDatabase(transaction: OuterTransaction): Db {
   return {
     executeSql: async (text: string, values?: unknown[]) => {
-      const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const sql = text;
-        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-        const result = await transaction.query(sql, values);
-        span.setAttribute('db.rows', result.rows.length);
-        return result;
-      });
+      const { rows } = await withSpan('db.pg-boss-queue.transactionDatabase', { 'db.system': 'postgres' }, async () => await transaction.query(text, values));
       return { rows };
     },
   };
@@ -146,19 +120,23 @@ function reasonOf(output: object | null): string | null {
 
 class PgBossQueue implements QueueService {
   private readonly declared = new Map<string, QueueDeclaration>();
+  private stopping: Promise<void> | undefined;
+  private readonly detach: () => void;
 
   constructor(
     private readonly boss: PgBossInstance,
-    /** The owner the enqueue stamp's table and every transaction of it live on. */
+    /** The owner of every queue transaction. */
     private readonly owner: DatabaseOwner,
-    /** The schema pg-boss's tables — and the enqueue stamps — live in. */
+    /** The schema of pg-boss's own tables. */
     private readonly schema: string,
-  ) {}
+  ) {
+    this.detach = owner.onClose(async () => { await this.stop(); });
+  }
 
   private declarationOf(queue: string): QueueDeclaration {
     const declaration = this.declared.get(queue);
     if (declaration === undefined) {
-      throw new Error(`the queue "${queue}" was never declared on the database owner "${this.owner.location}": declare it before enqueuing, claiming or settling work in it`);
+      raise(`the queue "${queue}" was never declared on the database owner "${this.owner.location}": declare it before enqueuing, claiming or settling work in it`);
     }
     return declaration;
   }
@@ -183,11 +161,11 @@ class PgBossQueue implements QueueService {
     assertDeclaration(judged, this.declared);
     const existing = await this.boss.getQueue(judged.name);
     if (existing === null) {
-      throw new Error(`the queue "${judged.name}" is not prepared in ${this.owner.location}: prepare the store with this queue declaration before opening its clients`);
+      raise(`the queue "${judged.name}" is not prepared in ${this.owner.location}: prepare the store with this queue declaration before opening its clients`);
     }
     const holdsSingletons = existing !== null && existing.policy === 'exclusive';
     if (existing !== null && holdsSingletons !== (judged.singletons === true)) {
-      throw new Error(
+      raise(
         `the queue "${judged.name}" was already created ${holdsSingletons ? 'holding one unfinished job per singleton key' : 'holding no singletons'}, and a queue's singleton rule cannot change after it is created: take the change to a queue of its own name, or declare it as it stands`,
       );
     }
@@ -203,7 +181,7 @@ class PgBossQueue implements QueueService {
       });
     } catch (error) {
       // The declaration did not land, so this client does not hold it.
-      throw new Error(`the queue "${judged.name}" settings were not applied, so it stands as it was: ${error instanceof Error ? error.message : String(error)}`);
+      raise(`the queue "${judged.name}" settings were not applied, so it stands as it was: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.declared.set(judged.name, judged);
   }
@@ -211,23 +189,18 @@ class PgBossQueue implements QueueService {
   async enqueue<Data>(request: EnqueueRequest<Data>): Promise<EnqueueResult> {
     const declaration = this.declarationOf(request.queue);
     if (declaration.singletons === true && request.singletonKey === undefined) {
-      throw new Error(`the queue "${request.queue}" holds one unfinished job per singleton key, and the enqueue named none: pass the key the job is unique by`);
+      raise(`the queue "${request.queue}" holds one unfinished job per singleton key, and the enqueue named none: pass the key the job is unique by`);
     }
     if (request.singletonKey === '') {
-      throw new Error(`the enqueue into the queue "${request.queue}" named an empty singleton key: a key is the name a job is unique by, and the queue folds an empty one with no key at all, so it would hold every job of the queue back`);
+      raise(`the enqueue into the queue "${request.queue}" named an empty singleton key: a key is the name a job is unique by, and the queue folds an empty one with no key at all, so it would hold every job of the queue back`);
     }
     if (declaration.singletons !== true && request.singletonKey !== undefined) {
-      throw new Error(`the queue "${request.queue}" holds no singletons, and the enqueue named the singleton key "${request.singletonKey}": a key only holds a job back on a queue declared with singletons`);
+      raise(`the queue "${request.queue}" holds no singletons, and the enqueue named the singleton key "${request.singletonKey}": a key only holds a job back on a queue declared with singletons`);
     }
     if (request.priority !== undefined && !Number.isInteger(request.priority)) {
-      throw new Error(`the enqueue into the queue "${request.queue}" named the priority ${String(request.priority)}: a priority is a whole number, higher claimed first`);
+      raise(`the enqueue into the queue "${request.queue}" named the priority ${String(request.priority)}: a priority is a whole number, higher claimed first`);
     }
-    // The job's row and its place are written together or not at all: a job whose
-    // place failed to be written would tie on its instant with another and lose
-    // the very order this adapter promises, so a caller's transaction is used
-    // where one is given and one short write transaction of the owner's is
-    // opened where none is.
-    const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => {
+    const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => await withSpan('queue.enqueue', { 'madarch.queue': request.queue }, async () => {
       const id = await this.boss.send({
         name: request.queue,
         data: request.data as object,
@@ -239,63 +212,73 @@ class PgBossQueue implements QueueService {
         },
       });
       if (id === null) return { created: false, id: null };
-      await this.stampEnqueuedAt(transaction, request.queue, id);
+      // Raise in PostgreSQL so catching this refusal cannot commit the
+      // provisional send in an unsupported caller transaction.
+      await transaction.query(`DO $$ BEGIN
+        IF current_setting('transaction_isolation') <> 'read committed' THEN
+          RAISE EXCEPTION 'queue enqueue reservations require a READ COMMITTED transaction';
+        END IF;
+      END $$`);
+      // Sample the clock once. Retained predecessors include our earlier sends
+      // in every state, but never this send's provisional pg-boss timestamp.
+      const initial = await transaction.query<{ floor: string; slot: string | null }>(
+        `SELECT ceil(extract(epoch FROM clock_timestamp()) * 1000)::bigint::text AS floor,
+          ceil(extract(epoch FROM (SELECT max(created_on) FROM ${this.schema}.job
+            WHERE name = $1 AND id <> $2::uuid)) * 1000 + 1)::bigint::text AS slot`,
+        [request.queue, id],
+      );
+      const floor = BigInt(initial.rows[0]!.floor);
+      let slot = initial.rows[0]!.slot === null ? floor : BigInt(initial.rows[0]!.slot);
+      if (slot < floor) slot = floor;
+      for (;;) {
+        // Two-int advisory keys do not overlap bigint keys (pg-boss SHA keys,
+        // graph hashes and schema locks). The only other two-int repo key is
+        // (739141, 1). Reserve the negative first-key band around -2^30:
+        // first = -2^30 + floor(epoch_ms / 2^31), second = epoch_ms mod 2^31.
+        // PostgreSQL's entire finite timestamptz range fits that negative band.
+        // This is store-wide, across queue names and queue schemas; no holder
+        // is ever waited for. Transaction end releases all its reservations.
+        const reserved = await transaction.query<{ acquired: boolean }>(
+          `SELECT pg_try_advisory_xact_lock(
+            (-1073741824 + floor($1::numeric / 2147483648))::integer,
+            ($1::numeric - floor($1::numeric / 2147483648) * 2147483648)::integer) AS acquired`,
+          [slot.toString()],
+        );
+        if (!reserved.rows[0]!.acquired) { slot += 1n; continue; }
+        // A new READ COMMITTED statement is essential: a producer could commit
+        // between our initial read and the successful nonblocking reservation.
+        const retained = await transaction.query<{ slot: string | null }>(
+          `SELECT ceil(extract(epoch FROM max(created_on)) * 1000 + 1)::bigint::text AS slot
+            FROM ${this.schema}.job WHERE name = $1 AND id <> $2::uuid`,
+          [request.queue, id],
+        );
+        const next = retained.rows[0]!.slot === null ? floor : BigInt(retained.rows[0]!.slot);
+        // slot starts at or above floor and only increases throughout this loop.
+        if (next > slot) {
+          slot = next > floor ? next : floor;
+          continue;
+        }
+        break;
+      }
+      await transaction.query(
+        `UPDATE ${this.schema}.job SET created_on = timestamptz 'epoch' + $3::bigint * interval '1 millisecond'
+          WHERE name = $1 AND id = $2::uuid`,
+        [request.queue, id, slot.toString()],
+      );
       return { created: true, id };
-    };
-    return request.transaction === undefined ? this.owner.transaction('write', enqueued) : enqueued(request.transaction);
-  }
-
-  /**
-   * Gives the job the queue's next place, as its creation time: at least a
-   * millisecond past the queue's previous one, and never behind the clock. The
-   * upsert holds the queue's stamp row until the enqueue's transaction ends, so
-   * two enqueues of one queue take their places in the order they reach the row,
-   * whatever else runs beside them, and the place is written in the same
-   * statement that takes it.
-   */
-  private async stampEnqueuedAt(transaction: OuterTransaction, queue: string, id: string): Promise<void> {
-    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const sql = `WITH next AS (
-         INSERT INTO ${this.schema}.${ENQUEUE_STAMP_TABLE} AS stamp (queue, enqueued_at)
-         VALUES ($1, $2::timestamptz)
-         ON CONFLICT (queue) DO UPDATE SET enqueued_at = GREATEST(stamp.enqueued_at + ${ENQUEUE_STAMP_STEP}, $2::timestamptz)
-         RETURNING enqueued_at
-       )
-       UPDATE ${this.schema}.job AS job
-         SET created_on = (SELECT enqueued_at FROM next)
-         WHERE job.name = $1 AND job.id = $3::uuid
-       RETURNING job.id`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-      const result = await transaction.query<{ id: string }>(
-      sql,
-      [queue, new Date().toISOString(), id],
-    );
-      span.setAttribute('db.rows', result.rows.length);
-      return result;
     });
-    // The one place this promise could be lost without a word: a statement that
-    // matched no row. Raising it here fails the enqueue — and the caller's
-    // transaction with it — rather than answering a job whose order is not the
-    // queue's to give.
-    if (rows.length === 0) {
-      throw new Error(`the job "${id}" of the queue "${queue}" was created but its place in the queue's order was not written: the queue's own table answered no row for it, so the enqueue order this queue promises cannot be kept`);
-    }
+    return request.transaction === undefined ? this.owner.transaction('write', enqueued) : enqueued(request.transaction);
   }
 
   async claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]> {
     this.declarationOf(request.queue);
     const limit = request.limit ?? 1;
     if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(`the claim of the queue "${request.queue}" asked for ${String(request.limit)} jobs: a claim takes a whole number of jobs, at least 1`);
+      raise(`the claim of the queue "${request.queue}" asked for ${String(request.limit)} jobs: a claim takes a whole number of jobs, at least 1`);
     }
-    // pg-boss picks the batch by priority (highest first) and creation time — the
-    // place this adapter gave the job when it was enqueued — but the rows an
-    // `UPDATE … RETURNING` hands back are in no promised order, so the batch is
-    // ordered here: highest priority, then oldest, then by id in code point order.
-    // The last key is the fallback for a job this adapter did not enqueue, which
-    // may share another's instant; it keeps two claims of the same rows answering
-    // the same order. The metadata carries the priority and the time it reads.
-    const jobs = await withSpan('queue.fetch', { 'db.system': 'postgres', 'queue.name': request.queue, 'queue.limit': limit }, async (span) => { const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true }); span.setAttribute('db.rows', jobs.length); return jobs; });
+    // pg-boss selects by priority and created_on before LIMIT. Adapter enqueues
+    // have distinct millisecond places; external ties sort only selected IDs.
+    const jobs = await withSpan('queue.claim', { 'madarch.queue': request.queue }, async () => await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true }));
     return jobs
       .slice()
       .sort((left, right) => right.priority - left.priority || left.createdOn.getTime() - right.createdOn.getTime() || byCodePoint(left.id, right.id))
@@ -323,9 +306,38 @@ class PgBossQueue implements QueueService {
   private jobOf(queue: string, job: ClaimedJob): JobAttempt {
     this.declarationOf(queue);
     if (job.queue !== queue) {
-      throw new Error(`the job "${job.id}" was claimed from the queue "${job.queue}", and it was given to the queue "${queue}": settle or heartbeat a job in the queue it was claimed from`);
+      raise(`the job "${job.id}" was claimed from the queue "${job.queue}", and it was given to the queue "${queue}": settle or heartbeat a job in the queue it was claimed from`);
     }
     return attemptOf(job);
+  }
+
+  async fence(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean> {
+    this.jobOf(job.queue, job);
+    return await withSpan('queue.fence', { 'madarch.queue': job.queue, 'madarch.attempt': job.attempt }, async () => {
+      // Lock first, then sample database time: a lock wait must not accept an
+      // attempt using the statement's earlier snapshot time. The lock also
+      // serializes pg-boss complete, retry, cancellation and expiry transitions.
+      const locked = await transaction.query<{ id: string }>(
+        `SELECT id FROM ${this.schema}.job WHERE name = $1 AND id = $2::uuid FOR UPDATE`,
+        [job.queue, job.id],
+      );
+      if (locked.rows.length === 0) return false;
+      return await this.isActive(job, transaction);
+    });
+  }
+
+  async isActive(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean> {
+    this.jobOf(job.queue, job);
+    return await withSpan('queue.is-active', { 'madarch.queue': job.queue, 'madarch.attempt': job.attempt }, async () => {
+      const checked = await transaction.query<{ accepted: boolean }>(
+        `SELECT state = 'active' AND retry_count = $3
+          AND started_on + expire_seconds * interval '1 second' > clock_timestamp()
+          AND (heartbeat_seconds IS NULL OR heartbeat_on + heartbeat_seconds * interval '1 second' > clock_timestamp()) AS accepted
+         FROM ${this.schema}.job WHERE name = $1 AND id = $2::uuid`,
+        [job.queue, job.id, job.attempt],
+      );
+      return checked.rows[0]?.accepted === true;
+    });
   }
 
   async heartbeat(queue: string, job: ClaimedJob): Promise<boolean> {
@@ -342,7 +354,7 @@ class PgBossQueue implements QueueService {
     const attempt = this.jobOf(queue, job);
     const answer = await this.boss.fail(queue, attempt, { value: { message: reason } }, transaction === undefined ? undefined : { db: transactionDatabase(transaction) });
     if (!settled(answer)) {
-      throw new Error(`the job "${job.id}" of the queue "${queue}" was not failed: its attempt ${String(job.attempt)} is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`);
+      raise(`the job "${job.id}" of the queue "${queue}" was not failed: its attempt ${String(job.attempt)} is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`);
     }
     // The answer is what the settlement did, and pg-boss judges it on the job's
     // own allowance (`retry_count < retry_limit`), which the job carries from
@@ -363,7 +375,7 @@ class PgBossQueue implements QueueService {
     }
     const limit = options?.limit ?? MAX_DEAD_LETTERS;
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_DEAD_LETTERS) {
-      throw new Error(`the read of the queue "${queue}"'s dead letters asked for ${String(options?.limit)} of them: a limit is a whole number between 1 and ${String(MAX_DEAD_LETTERS)}`);
+      raise(`the read of the queue "${queue}"'s dead letters asked for ${String(options?.limit)} of them: a limit is a whole number between 1 and ${String(MAX_DEAD_LETTERS)}`);
     }
     // The queue lists its dead letters oldest first and offers no order of its
     // own, so the whole list is read — at most the bound the database takes for
@@ -393,14 +405,22 @@ class PgBossQueue implements QueueService {
   }
 
   async job<Output = unknown>(queue: string, id: string): Promise<{ readonly state: 'created' | 'retry' | 'active' | 'completed' | 'cancelled' | 'failed'; readonly output?: Output } | null> {
-    const held = await this.boss.getJobById<object>(queue, id);
-    if (held === null) return null;
-    const output = (held as { output?: unknown }).output;
-    return { state: held.state, ...(output === null || output === undefined ? {} : { output: output as Output }) };
+    return await withSpan('queue.job.read', { 'madarch.queue': queue }, async () => {
+      const held = await this.boss.getJobById<object>(queue, id);
+      if (held === null) return null;
+      const output = (held as { output?: unknown }).output;
+      return { state: held.state, ...(output === null || output === undefined ? {} : { output: output as Output }) };
+    });
   }
 
   async stop(): Promise<void> {
-    await this.boss.stop({ graceful: false });
+    // One stop, answered to every caller: the owner this client is lent to stops
+    // it as it closes (madarch-64o5.74), and a case that stopped it on its own
+    // path before that asks a second time.
+    if (this.stopping !== undefined) return await this.stopping;
+    this.detach();
+    this.stopping = this.boss.stop({ graceful: false });
+    return await this.stopping;
   }
 }
 
@@ -429,6 +449,13 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     if (options.log !== undefined) options.log(line);
     else console.error(line);
   });
-  await boss.start();
-  return new PgBossQueue(boss, owner, schema);
+  try {
+    await boss.start();
+  } catch (error) {
+    // A start that failed halfway may have armed a pass already: stop what it armed.
+    await boss.stop({ graceful: false }).catch(() => undefined);
+    throw error;
+  }
+  const queue = new PgBossQueue(boss, owner, schema);
+  return queue;
 }

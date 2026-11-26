@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - providesApi
+  - implements
   in:
   - providesApi
 template-policy: page
@@ -18,7 +19,37 @@ details:
 - path
 - ports
 - statusOk
-- service
+fields:
+- name: path
+  type: path
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: method
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: ports
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
+  nullable: true
+  producers:
+  - operations
+- name: status_ok
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- path
+derives-from:
+- code.route
+- code.service
 labels:
   en:
     one: Health endpoint
@@ -29,3 +60,8 @@ labels:
 description:
   en: A health endpoint answers a simple request with whether the service can serve traffic, and often which dependencies it has reached. A load balancer or a cluster uses it to decide whether to send work.
   ru: Проверка здоровья отвечает на простой запрос тем, может ли сервис обслуживать трафик, и часто — какие зависимости он видит. По ней балансировщик или кластер решает, направлять ли ему работу.
+
+key-edges:
+- role: code.health-endpoint-service
+  edge: code.health-endpoint-service
+  side: from

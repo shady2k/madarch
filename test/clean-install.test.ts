@@ -30,10 +30,11 @@ describe('clean install platform contracts', () => {
     expect(read.manifest.findings).toEqual([]);
     const rewritten = readFolderTemplates(product);
     const findings = checkProductTemplates(rewritten.files, rewritten.bodies, rewritten.findings, read.manifest);
-    for (const field of ['repository', 'path', 'language']) {
+    // The repository is a relation of the code file since e3772a4ff, so the template names it `codeFileRepository`.
+    for (const field of ['codeFileRepository', 'path', 'language']) {
       expect(findings.some((finding) => finding.file === 'templates/code-file.yaml' && finding.message.includes(field))).toBe(true);
     }
-    expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('repository');
+    expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('codeFileRepository');
     expect([...read.manifest.kinds.keys()]).toEqual(['code.file']);
     expect(read.manifest.plugins?.size ?? 0).toBe(0);
   });

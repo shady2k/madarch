@@ -11,7 +11,7 @@ sections:
     ru: Сведения
   query: |
     name
-    repository
+    codeDatabaseRepository(first: 1) { edges { node { node { id label } } } }
     contested
   params:
     rows:
@@ -22,7 +22,7 @@ sections:
     - label:
         en: Repository
         ru: Репозиторий
-      path: repository
+      path: codeDatabaseRepository.edges.0.node.node.label
 - id: tables
   component: text
   title:

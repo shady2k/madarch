@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /// <reference path="./ambient.d.ts" />
 /**
  * The `db-schema` plugin (decision 0035, items 3 and 8; task madarch-47vw.3): it reads the SQL the code holds and answers
@@ -182,7 +183,7 @@ function constantTextOf(constant: PgNode): string | undefined {
   const sval = only(constant, 'sval');
   if (sval !== undefined) {
     const text = stringOf({ String: sval }) ?? '';
-    return `'${text.replace(/'/g, "''")}'`;
+    return `'${text.replaceAll("'", "''")}'`;
   }
   if (constant['ival'] !== undefined) return String(integerOf(constant['ival']));
   const fval = constant['fval'];
@@ -438,8 +439,10 @@ function keyColumnsOf(constraint: PgNode): string[] {
 }
 
 /** One place's evidence, as a claim or a vertex names it. */
-function evidenceOf(place: Place): { repository: string; path: string; lineStart: number; lineEnd: number } {
-  return { repository: place.repository, path: place.path, lineStart: place.lineStart, lineEnd: place.lineEnd };
+const repositoryRef = (name: string) => ({ kind: 'code.repository', key: { name } });
+
+function evidenceOf(place: Place): { target: ReturnType<typeof repositoryRef>; path: string; lineStart: number; lineEnd: number } {
+  return { target: repositoryRef(place.repository), path: place.path, lineStart: place.lineStart, lineEnd: place.lineEnd };
 }
 
 /** The column a table holds, made on first sight so a later ALTER TABLE can add to it. */
@@ -731,10 +734,10 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
         const file = definitions[index]!;
         // The text is the blob the graph names, read through the host (decision 0037): this plugin holds no environment,
         // and the host routes the read to the core plugin that owns git's store (decision 0038).
-        const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob');
+        const blob = await context.graph.value<string | null>(file.kind, file.key, 'blob', file.keyEdges);
         if (typeof blob !== 'string' || blob === '') { contents[index] = undefined; continue; }
         try {
-          const read = await context.read({ repository: String(file.key['repository'] ?? ''), blob });
+          const read = await context.read({ repository: String(file.keyEdges?.['code.file-repository']?.key['name'] ?? ''), blob });
           contents[index] = read.binary ? undefined : read.text;
         } catch {
           // A read the host cannot answer leaves this file out: the other files' facts stand.
@@ -743,7 +746,7 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       }
     }));
     for (const [index, file] of definitions.entries()) {
-      const repository = String(file.key['repository'] ?? '');
+      const repository = String(file.keyEdges?.['code.file-repository']?.key['name'] ?? '');
       const path = String(file.key['path'] ?? '');
       const content = contents[index];
       if (typeof content === 'string' && content !== '') files.push({ repository, path, content });
@@ -770,18 +773,26 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     context.progress(at + 1, files.length, file.path);
   }
   const result = answerOf(model);
+  const snapshots = files.map(file => ({ digest: createHash('sha256').update(file.content).digest('hex'), content: file.content, about: [{ kind: 'code.file', key: { path: file.path }, keyEdges: { 'code.file-repository': repositoryRef(file.repository) } }] }));
+  for (const fact of [...(result.vertices ?? []), ...(result.edges ?? [])]) if (fact.evidence !== undefined) {
+    const content = files.find(file => file.repository === fact.evidence!.target.key['name'] && file.path === fact.evidence!.path)?.content;
+    if (content === undefined) throw new Error('schema evidence source content is missing');
+    const digest = createHash('sha256').update(content).digest('hex');
+    Object.assign(fact, { evidence: { ...fact.evidence, target: { kind: 'code.blob', key: { digest } }, digest } });
+  }
+  Object.assign(result, { vertices: [...new Map(snapshots.map(snapshot => [snapshot.digest, { kind: 'code.blob', key: { digest: snapshot.digest }, values: { content: snapshot.content } }])).values(), ...(result.vertices ?? [])], edges: [...snapshots.flatMap(snapshot => snapshot.about.map(to => ({ kind: 'code.blob-about', from: { kind: 'code.blob', key: { digest: snapshot.digest } }, to }))), ...(result.edges ?? [])] });
   if (inputs.contract === undefined) return result;
-  const output = inputs.contract.vertices.find((vertex) => vertex.kind === unit.kind);
+  const output = inputs.contract.vertices.find((vertex) => vertex.kind === unit.kind || vertex.kind === 'code.blob');
   if (output === undefined) throw new Error(`no selected output contract for ${unit.kind}`);
   const fields = new Set(output.fields.map((field) => field.name));
   const edgeOutputs = new Set((inputs.edgeOutputs ?? []).map((edge) => JSON.stringify([edge.kind, edge.from, edge.to])));
   return {
     ...result,
-    vertices: result.vertices?.filter((vertex) => vertex.kind === unit.kind).map((vertex) => ({
+    vertices: result.vertices?.filter((vertex) => vertex.kind === unit.kind || vertex.kind === 'code.blob').map((vertex) => ({
       ...vertex,
-      ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }),
+      ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => vertex.kind === 'code.blob' || fields.has(field))) }),
     })),
-    edges: result.edges?.filter((edge) => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind]))),
+    edges: result.edges?.filter((edge) => edge.kind === 'code.blob-about' || edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind]))),
   };
 }
 
@@ -790,43 +801,46 @@ function answerOf(model: Model): UnitResult {
   const vertices: VertexResult[] = [];
   const edges: EdgeResult[] = [];
   const databases = [...model.databases.values()].filter((database) => database.tables.size > 0).sort((left, right) => compare(left.name, right.name));
+  const databaseRef = (database: Database) => ({ kind: DATABASE_KIND, key: { name: database.name }, keyEdges: { 'code.database-repository': repositoryRef(database.repository) } });
+  const tableRef = (database: Database, name: string) => ({ kind: TABLE_KIND, key: { name }, keyEdges: { 'code.table-database': databaseRef(database) } });
+  const columnRef = (database: Database, table: string, name: string) => ({ kind: COLUMN_KIND, key: { name }, keyEdges: { 'code.column-table': tableRef(database, table) } });
   for (const database of databases) {
-    vertices.push(vertexOf(DATABASE_KIND, { name: database.name }, databaseValuesOf(database), database.place));
+    vertices.push({ ...databaseRef(database), evidence: evidenceOf(database.place) });
     const tables = [...database.tables.values()].sort((left, right) => compare(left.name, right.name));
     for (const table of tables) {
-      const tableKey = tableKeyOf(database.name, table.name);
-      vertices.push(vertexOf(TABLE_KIND, { database: database.name, name: table.name }, tableValuesOf(database, table), table.place));
-      // The file's key is its repository and its path, as the graph answered it: the writer lifts the repository's name
-      // to the reference the graph declares, so the plugin states the key it was given.
-      edges.push({ kind: DECLARED_IN, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: 'code.file', key: { repository: table.place.repository, path: table.place.path } }, evidence: evidenceOf(table.place) });
-      const columns = [...table.columns.values()].sort((left, right) => compare(left.name, right.name));
-      for (const column of columns) {
-        vertices.push(vertexOf(COLUMN_KIND, { table: tableKey, name: column.name }, columnValuesOf(tableKey, column), column.place));
-        edges.push({ kind: HAS_COLUMN, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: COLUMN_KIND, key: { table: tableKey, name: column.name } }, evidence: evidenceOf(table.place) });
+      const ref = tableRef(database, table.name);
+      vertices.push({ ...ref, values: tableValuesOf(database, table), evidence: evidenceOf(table.place) });
+      edges.push({ kind: DECLARED_IN, from: ref, to: { kind: 'code.file', key: { path: table.place.path }, keyEdges: { 'code.file-repository': repositoryRef(table.place.repository) } }, evidence: evidenceOf(table.place) });
+      for (const column of [...table.columns.values()].sort((left, right) => compare(left.name, right.name))) {
+        const child = columnRef(database, table.name, column.name);
+        vertices.push({ ...child, values: columnValuesOf('', column), evidence: evidenceOf(column.place) });
+        edges.push({ kind: HAS_COLUMN, from: ref, to: child, evidence: evidenceOf(column.place) });
       }
-      const indexes = [...table.indexes.values()].sort((left, right) => compare(left.name, right.name));
-      for (const index of indexes) {
-        vertices.push(vertexOf(INDEX_KIND, { table: tableKey, name: index.name }, indexValuesOf(tableKey, index), index.place));
-        edges.push({ kind: HAS_INDEX, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: INDEX_KIND, key: { table: tableKey, name: index.name } }, evidence: evidenceOf(index.place) });
+      for (const index of [...table.indexes.values()].sort((left, right) => compare(left.name, right.name))) {
+        const child = { kind: INDEX_KIND, key: { name: index.name }, keyEdges: { 'code.index-table': ref } };
+        vertices.push({ ...child, values: indexValuesOf('', index), evidence: evidenceOf(index.place) });
+        edges.push({ kind: HAS_INDEX, from: ref, to: child, evidence: evidenceOf(index.place) });
+        for (const [position, name] of index.columns.entries()) {
+          if (!table.columns.has(name)) {
+            model.problems.push({ repository: index.place.repository, path: index.place.path, line: index.place.lineStart, message: `index ${index.name} names missing column ${name}` });
+            continue;
+          }
+          edges.push({ kind: 'code.index-columns', from: child, to: columnRef(database, table.name, name), discriminator: String(position), values: { position }, evidence: evidenceOf(index.place) });
+        }
       }
     }
     for (const table of tables) {
-      // Repeated references from ALTER statements describe one relation.
       const stated = new Set<string>();
       for (const reference of table.references) {
         const identity = JSON.stringify([reference.column, reference.targetTable, reference.target_column, reference.constraint]);
         if (stated.has(identity)) continue;
         stated.add(identity);
         const target = database.tables.get(reference.targetTable);
-        if (target === undefined) continue;
-        edges.push({
-          kind: FOREIGN_KEY,
-          from: { kind: COLUMN_KIND, key: { table: tableKeyOf(database.name, table.name), name: reference.column } },
-          to: { kind: COLUMN_KIND, key: { table: tableKeyOf(database.name, target.name), name: reference.target_column } },
-          discriminator: reference.column,
-          values: { column: reference.column, target_column: reference.target_column, constraint: reference.constraint },
-          evidence: evidenceOf(reference.place),
-        });
+        if (target === undefined || !target.columns.has(reference.target_column) || !table.columns.has(reference.column)) {
+          model.problems.push({ repository: reference.place.repository, path: reference.place.path, line: reference.place.lineStart, message: `foreign key names missing column ${reference.targetTable}.${reference.target_column}` });
+          continue;
+        }
+        edges.push({ kind: FOREIGN_KEY, from: columnRef(database, table.name, reference.column), to: columnRef(database, target.name, reference.target_column), discriminator: reference.column, values: { constraint: reference.constraint, target_column: reference.target_column }, evidence: evidenceOf(reference.place) });
       }
     }
   }
@@ -840,29 +854,14 @@ function answerOf(model: Model): UnitResult {
   };
 }
 
-/** A table's key value inside a column or index key: its database and its name, as one path. */
-function tableKeyOf(database: string, table: string): string {
-  return `${database}/${table}`;
-}
-
 // ---- one entity's values ---------------------------------------------------------------------
 
 /**
  * One entity's field values, by field name. They are assembled here, in one function per kind, and nowhere else: protocol
- * `madarch.plugins/2` answers one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
+ * `madarch.plugins/3` reconciles one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
  * a move to it changes `vertexOf` and the declaration's field markers alone, never the reading below.
  */
 type Values = Readonly<Record<string, unknown>>;
-
-/** One entity as the plugin answers it: its kind, its key, its values and the place it was read at. */
-function vertexOf(kind: string, key: Readonly<Record<string, string>>, values: Values, place: Place): VertexResult {
-  return { kind, key, values, evidence: evidenceOf(place) };
-}
-
-/** A database's values: the repository whose SQL names it. */
-function databaseValuesOf(database: Database): Values {
-  return { repository: database.repository };
-}
 
 /** A table's values: the schema the SQL names (null for `public`). Its database stands in its key, not as a value. */
 function tableValuesOf(_database: Database, table: Table): Values {
@@ -876,7 +875,7 @@ function columnValuesOf(_tableKey: string, column: Column): Values {
 
 /** An index's values: whether it is unique, the columns it covers and a partial index's predicate. Its table is its key. */
 function indexValuesOf(_tableKey: string, index: Index): Values {
-  return { unique: index.unique, columns: index.columns, where: index.where };
+  return { unique: index.unique, where: index.where };
 }
 
 /** Code point order, as the host orders keys. */
@@ -891,24 +890,25 @@ type Field = { readonly name: string; readonly type: 'text' | 'integer' | 'bigin
 
 /** One field the plugin states, as its contract and the manifest binding name it. */
 function field(name: string, type: Field['type'], meaning: string, example: unknown, required: boolean): Field {
-  return { name, type, meaning, example, required };
+  return { name, type, meaning, example, required, ...(type === 'json' ? { schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } } } : {}) };
 }
 
 const CONTRACT = {
   vertices: [
+{"kind": "code.blob", "key": ["digest"], "fields": [{"name": "digest", "type": "text", "meaning": "SHA-256 of the exact UTF-8 content.", "example": "0000000000000000000000000000000000000000000000000000000000000000", "required": true}, {"name": "content", "type": "text", "meaning": "The immutable source text.", "example": "source", "required": true}], "evidence": {"immutable": true, "digestField": "digest", "contentField": "content", "digestAlgorithm": "sha256"}},
     {
       kind: DATABASE_KIND,
+      keyEdges: [{ role: 'code.database-repository', edge: 'code.database-repository', direction: 'from', onDelete: 'restrict' }],
       key: ['name'],
       fields: [
         field('name', 'text', 'The database a code repository\'s SQL writes to, named after the repository.', 'madarch', true),
-        field('repository', 'text', 'The product\'s repository whose code holds the SQL.', 'madarch', true),
       ],
     },
     {
       kind: TABLE_KIND,
-      key: ['database', 'name'],
+      key: ['name'],
+      keyEdges: [{ role: 'code.table-database', edge: 'code.table-database', direction: 'from', onDelete: 'restrict' }],
       fields: [
-        field('database', 'text', 'The database the table stands in, by its name.', 'madarch', true),
         field('name', 'text', 'The table\'s name, schema-qualified when the SQL names a schema other than public.', 'node', true),
         field('schema', 'text', 'The schema the table stands in, when the SQL names one other than public.', 'graph', false),
         field('unsupported', 'text', 'Unsupported SQL and ambiguous declarations that prevent a complete table description.', 'unsupported expression index', false),
@@ -916,9 +916,9 @@ const CONTRACT = {
     },
     {
       kind: COLUMN_KIND,
-      key: ['table', 'name'],
+      keyEdges: [{ role: 'code.column-table', edge: 'code.column-table', direction: 'from', onDelete: 'restrict' }],
+      key: ['name'],
       fields: [
-        field('table', 'text', 'The table that holds the column, as its database and its name.', 'madarch/node', true),
         field('name', 'text', 'The column\'s name.', 'kind_id', true),
         field('type', 'text', 'The column\'s type, as the SQL writes it.', 'bigint', true),
         field('nullable', 'boolean', 'Whether the column admits null.', false, true),
@@ -930,30 +930,32 @@ const CONTRACT = {
     },
     {
       kind: INDEX_KIND,
-      key: ['table', 'name'],
+      keyEdges: [{ role: 'code.index-table', edge: 'code.index-table', direction: 'from', onDelete: 'restrict' }],
+      key: ['name'],
       fields: [
-        field('table', 'text', 'The table the index covers, as its database and its name.', 'madarch/edge', true),
         field('name', 'text', 'The index\'s name.', 'edge_once', true),
         field('unique', 'boolean', 'Whether the index is unique.', true, true),
-        field('columns', 'json', 'The columns the index covers, in order.', ['kind_id', 'from_node'], true),
         field('where', 'text', 'The predicate of a partial index, as the SQL writes it; null when it covers every row.', 'parent IS NULL', false),
       ],
     },
   ],
   edges: [
-    { kind: HAS_COLUMN, from: TABLE_KIND, to: COLUMN_KIND },
-    { kind: HAS_INDEX, from: TABLE_KIND, to: INDEX_KIND },
+{"kind": "code.blob-about", "from": "code.blob", "to": ["code.file", "code.repository"], "cardinality": {"from": "many", "to": "many"}, "labels": {"en": {"out": "captures", "in": "captured by"}, "ru": {"out": "снимок", "in": "снят в"}}, "fields": []},
+    ...[['code.database-repository', DATABASE_KIND, 'code.repository'], ['code.table-database', TABLE_KIND, DATABASE_KIND], ['code.column-table', COLUMN_KIND, TABLE_KIND], ['code.index-table', INDEX_KIND, TABLE_KIND]].map(([kind, from, to]) => ({ kind: kind!, from: from!, to: to!, cardinality: { from: 'many' as const, to: 'one' as const }, labels: { en: { out: 'belongs to', in: 'contains' }, ru: { out: 'принадлежит', in: 'содержит' } } })),
+    { cardinality: {from:'many',to:'many'}, labels:{en:{out:'includes',in:'included in'},ru:{out:'содержит',in:'входит в'}}, kind: 'code.index-columns', from: INDEX_KIND, to: COLUMN_KIND, fields: [field('position', 'integer', 'The column position in the index.', 0, true)] },
+    { cardinality:{from:'many',to:'one'},labels:{en:{out:'has column',in:'column of'},ru:{out:'содержит столбец',in:'столбец таблицы'}}, kind: HAS_COLUMN, from: TABLE_KIND, to: COLUMN_KIND },
+    { cardinality:{from:'many',to:'one'},labels:{en:{out:'has index',in:'index of'},ru:{out:'содержит индекс',in:'индекс таблицы'}}, kind: HAS_INDEX, from: TABLE_KIND, to: INDEX_KIND },
     {
+      cardinality:{from:'many',to:'many'},labels:{en:{out:'references',in:'referenced by'},ru:{out:'ссылается на',in:'имеет ссылку от'}},
       kind: FOREIGN_KEY,
       from: COLUMN_KIND,
       to: COLUMN_KIND,
       fields: [
-        field('column', 'text', 'The column that holds the key.', 'kind_id', true),
-        field('target_column', 'text', 'The column it references.', 'id', true),
         field('constraint', 'text', 'The name the SQL gives the foreign key, when it names one.', 'edge_kind_id_fkey', false),
+        field('target_column', 'text', 'The referenced column name.', 'id', true),
       ],
     },
-    { kind: DECLARED_IN, from: TABLE_KIND, to: 'code.file' },
+    { cardinality:{from:'many',to:'many'},labels:{en:{out:'declared in',in:'declares'},ru:{out:'объявлена в',in:'объявляет'}}, kind: DECLARED_IN, from: TABLE_KIND, to: 'code.file' },
   ],
 };
 

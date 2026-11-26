@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A supplier agreement is the contract between the product''s organisation and a supplier: what the supplier provides, at what quality, for what price and with which security and reporting duties. It is what the organisation can rely on when the supplier''s part fails.'
   ru: 'Соглашение с поставщиком — договор между организацией продукта и поставщиком: что поставщик предоставляет, какого качества, за какую цену и какие обязанности по безопасности и отчётности несёт. На него организация опирается, если часть работы поставщика подводит.'
+derives-from:
+- supplier

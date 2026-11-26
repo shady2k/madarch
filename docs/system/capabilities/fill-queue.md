@@ -348,9 +348,8 @@ answer no dead letters.
 The queue shall run inside the compiled madarch binary on the embedded PGlite
 database: the binary shall carry the files that database's build reads, and a
 test shall build a binary with `bun build --compile` and run the queue's own
-operations in it. The same queue behaviour shall hold on PostgreSQL, where a
-server is configured, and the PostgreSQL leg shall be skipped with that variable
-named as its reason where none is.
+operations in it. The same queue behaviour shall hold on the test run’s PostgreSQL server,
+without requiring an externally configured server.
 
 ### Scenario: compiled
 - Given: a binary built with `bun build --compile` from an entry that opens the process's PGlite owner and serves the queue on it
@@ -358,6 +357,6 @@ named as its reason where none is.
 - Then: the first reports the job created, claimed as attempt 0 under the queue's lease and failed for retry, and the second claims the same job as attempt 1, completes it and finds the queue empty and the dead letter queue empty
 
 ### Scenario: postgres
-- Given: a PostgreSQL server named by `MADARCH_TEST_POSTGRES_URL`
+- Given: the PostgreSQL server started for the test run
 - When: every scenario above runs against an owner on that server
-- Then: each answers as it does on PGlite; without that variable the run is skipped, saying that it names no server
+- Then: each answers as it does on PGlite, including when `MADARCH_TEST_POSTGRES_URL` is unset

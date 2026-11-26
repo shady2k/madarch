@@ -85,6 +85,14 @@ declares 520. Every entity is of exactly one kind (the file
 graph, a catalogue entity (ru: сущность каталога), with its own page.
 _Avoid_: entity type, type (outside the GraphQL schema)
 
+**Publication fingerprint**:
+A mark on the product's manifest catalogue that identifies the semantic inputs
+of a completed publication: declarations, snapshots, starter values, contract,
+product page, publication revision and engine version. It is a claim about the
+graph, not just a hash of files. The mark is written in the same transaction as
+every change it certifies. The fast path reads it under the same graph write
+lock. One transaction is one publication generation.
+
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
 relations, zones, data categories, data entities, scenarios, environments and
@@ -230,6 +238,14 @@ judged assertions, rationale and evidence, and the assertion it writes into the
 disputed slot in the resolution stream.
 _Avoid_: answer (closes an open question of the earlier model), pin
 
+**Question state** (ru: состояние вопроса):
+The writer's verdict on a dispute question, recorded as an assertion history on the
+question vertex (decision 0039, item 27): `OPEN` while sources disagree, or while
+the value shown differs from the one its latest resolution chose; `RESOLVED` while
+a resolution matches the current candidates; `DISMISSED` when the disagreement
+ended and nothing shown contradicts a resolution. Only `OPEN` carries the
+«требует уточнения» badge.
+
 **Resolution stream** (ru: поток решений):
 The source stream of a principal's resolution source — a source with the role
 `resolution`, distinct from that principal's ordinary source — so a resolution
@@ -270,6 +286,13 @@ A temporary replacement of one source's facts, used to check a pull request
 without changing the graph.
 
 ## The system's own parts
+
+**Ready (daemon)**:
+The daemon has run the plugin sandbox probe, stopped database servers left
+by a crash, checked product manifests, and opened its listener. No public
+socket opens before these start steps finish. The client confirms readiness
+with the child's HMAC answer at `/api/daemon`, not its pid or start-phase file.
+Catalogue publication may still be pending after the daemon is ready.
 
 **Core**:
 The logic that joins facts, derives relations, evaluates rules and answers
@@ -339,7 +362,9 @@ graph. (Decisions 0018, 0036.)
 
 **Product repository**:
 One product's knowledge kept as Markdown and YAML in a git repository of its
-own, apart from the product's code; before it has a name it is a draft.
+own, apart from the product's code; before it has a name it is a draft. Its
+files reach the graph through the files plugin, like a code repository's; the
+product's kinds and their exclusions decide what is published.
 
 **Draft product**:
 A product repository created by `madarch init` outside Git: a folder `idea-YYYY-MM-DD`

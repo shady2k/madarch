@@ -24,3 +24,5 @@ labels:
 description:
   en: An accessibility rule, as the W3C Accessibility Conformance Testing format defines it, states the input, the check and the expected outcome for one kind of content. Because the rule is written precisely, different tools can agree on what passes.
   ru: Правило доступности, как его определяет формат W3C Accessibility Conformance Testing, задаёт вход, проверку и ожидаемый результат для одного вида содержимого. Благодаря точной формулировке разные инструменты сходятся в том, что считается пройденным.
+derives-from:
+- accessibility-success-criterion

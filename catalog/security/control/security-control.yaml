@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A security control states one thing a system should do or check to reduce a risk: verify authentication, validate input, protect data in storage. OWASP ASVS groups such controls by chapter and gives each a level that says how strict it is.'
   ru: 'Контроль безопасности формулирует, что система должна делать или проверять, чтобы снизить риск: подтверждать вход, проверять входные данные, защищать данные в хранилище. OWASP ASVS группирует такие контроли по главам и даёт каждому уровень строгости.'
+derives-from:
+- system.product

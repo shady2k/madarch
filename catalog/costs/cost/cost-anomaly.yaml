@@ -24,3 +24,6 @@ labels:
 description:
   en: A cost anomaly is spending that is unusually high or low compared with the recent past or the plan, such as a sudden jump from one service. It names the resource behind the change, so someone can check whether it is a fault or a legitimate increase.
   ru: 'Аномалия затрат — трата, которая резко отличается от недавней или от плана: например, внезапный рост по одному сервису. Она называет ресурс, вызвавший изменение, чтобы кто-то проверил, ошибка это или законный рост.'
+derives-from:
+- budget
+- cost-record

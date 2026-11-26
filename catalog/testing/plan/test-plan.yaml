@@ -24,3 +24,5 @@ labels:
 description:
   en: A test plan states what testing must establish, which levels and techniques will be used, what environments and data are needed, who does it and when. It also records the risks the plan is not covering.
   ru: План тестирования говорит, что должны установить тесты, какие уровни и приёмы будут применены, какие среды и данные нужны, кто это делает и когда. В нём также записаны риски, которые план не покрывает.
+derives-from:
+- test-objective

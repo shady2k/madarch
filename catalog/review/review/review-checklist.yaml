@@ -24,3 +24,6 @@ labels:
 description:
   en: A review checklist lists the points a reviewer should check before approving a change, such as tests, error handling, security and documentation. It makes the review the same for everyone and reminds the reviewer of what is easy to miss.
   ru: 'Контрольный список просмотра перечисляет то, что проверяющий должен посмотреть до одобрения изменения: тесты, обработку ошибок, безопасность, документацию. Он делает просмотр одинаковым для всех и напоминает о том, что легко пропустить.'
+derives-from:
+- code-convention
+- secure-development-practice

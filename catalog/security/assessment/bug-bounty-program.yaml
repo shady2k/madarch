@@ -24,3 +24,5 @@ labels:
 description:
   en: A bug bounty programme invites independent researchers to look for weaknesses in the product and pays for valid reports, by severity. Its scope, its rules and its response times are published, so researchers know what is in play.
   ru: Программа поиска уязвимостей приглашает независимых исследователей искать слабости в продукте и платит за действительные сообщения по их важности. Её область, правила и сроки ответа публикуют, чтобы исследователи знали, что в игре.
+derives-from:
+- system.product

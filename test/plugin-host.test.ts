@@ -14,7 +14,7 @@
  * lacks either, every case is skipped with the reason printed, never passed.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,10 @@ import { checkConformance } from '../src/plugin/conformance.js';
 import { PluginHost, RequestLog, runUnits, type PluginSession, type UnitOutcome } from '../src/plugin/host.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { bwrapForUse } from '../src/plugin/bwrap-install.js';
+import type { FactsOperation } from '../src/plugin-sdk.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
+import { closeTrace, openTrace, runInTrace } from '../src/obs/trace.js';
+import { readTraceSpans } from '../src/obs/trace-report.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 
@@ -48,7 +51,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; unresolved?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ references: readonly import('../src/plugin/protocol.js').PluginGraphUnresolvedReference[]; next?: string }>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ opinions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedOpinion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly inspect?: (host: PluginHost) => void; readonly operations?: { apply(unitId: string, key: string, operation: FactsOperation): Promise<unknown> }; readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ assertions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedAssertion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -59,9 +62,11 @@ async function open(folder: string, options: { readonly work?: string; readonly 
     releaseHashes: options.releaseHashes ?? [closureOf(folder).hash],
     limits: { ...LIMITS, ...(options.limits ?? {}) },
     cgroupParent: options.cgroupParent ?? parent,
-    ...(options.graph === undefined ? {} : { graph: options.graph }),
+    graph: { files: async () => [], value: async () => null, ownFacts: async () => ({ vertices: [], edges: [] }), ...options.graph },
     ...(options.requests === undefined ? {} : { requests: options.requests }),
+    operations: options.operations ?? { async apply() { return { accepted:true }; } },
   });
+  options.inspect?.(host);
   return await host.open();
 }
 
@@ -71,11 +76,12 @@ function unit(behavior: string): { unitId: string; kind: string; key: Record<str
 }
 
 /** Runs one behaviour and closes the session: the outcome, and the session's numbers read before it closed. */
-async function behaviour(behavior: string, limits: Partial<typeof LIMITS> = {}): Promise<{ outcome: UnitOutcome; counters: UnitOutcome extends never ? never : ReturnType<PluginSession['counters']> }> {
-  const session = await open(probeFolder, { limits });
+async function behaviour(behavior: string, limits: Partial<typeof LIMITS> = {}): Promise<{ outcome: UnitOutcome; operations: FactsOperation[]; counters: UnitOutcome extends never ? never : ReturnType<PluginSession['counters']> }> {
+  const operations: FactsOperation[] = [];
+  const session = await open(probeFolder, { limits, operations: { async apply(_unitId, _key, operation) { operations.push(operation); return { accepted:true }; } } });
   try {
     const outcome = await session.runUnit(unit(behavior));
-    return { outcome, counters: session.counters() };
+    return { outcome, operations, counters: session.counters() };
   } finally {
     await session.close();
   }
@@ -207,6 +213,18 @@ describe('the handshake', () => {
 });
 
 describe('the bounds of one message and one unit', () => {
+  hostTest('operation traces record field names and outcome without graph values', async () => {
+    const trace = openTrace({ store: scratch(), runId: 'operation-fields' });
+    let answer: Awaited<ReturnType<typeof behaviour>>;
+    try { answer = await runInTrace(trace, async () => await behaviour('normal')); } finally { closeTrace(trace); }
+    expect(answer.outcome.state).toBe('extracted');
+    const operationSpan = readTraceSpans(trace.file).find(span => span.name === 'plugin.operation.apply')!;
+    expect(operationSpan.attributes['madarch.unit']).toBe('normal');
+    expect(operationSpan.attributes['madarch.operation.vertex_fields']).toBe(JSON.stringify([{ kind: 'probe', fields: ['language', 'size'] }]));
+    expect(operationSpan.attributes['madarch.operation.outcome']).toBe('answered');
+  }, 60_000);
+
+
   hostTest('a plugin that floods its output fails the unit on one message', async () => {
     const { outcome } = await behaviour('flood');
     expect(outcome.state).toBe('not-extracted');
@@ -216,14 +234,18 @@ describe('the bounds of one message and one unit', () => {
   }, 60_000);
 
   hostTest('the same fixture answers a normal unit, held to its declaration', async () => {
-    const { outcome } = await behaviour('normal');
+    const { outcome, operations } = await behaviour('normal');
     expect(outcome.state).toBe('extracted');
     if (outcome.state !== 'extracted') return;
-    expect(outcome.result.vertices.map((vertex) => vertex.kind)).toEqual(['probe']);
-    expect(outcome.result.vertices[0]?.values).toEqual({ size: 12, language: 'typescript' });
-    expect(outcome.result.vertices[0]?.evidence?.path).toBe('probe/normal.ts');
-    expect(outcome.result.edges.map((edge) => edge.kind)).toEqual(['probe-link']);
-    expect(outcome.result.removals.map((removal) => removal.key['id'])).toEqual(['gone']);
+    expect(operations).toHaveLength(1);
+    expect(outcome.result).not.toHaveProperty('vertices');
+    expect(outcome.result).not.toHaveProperty('edges');
+    const operation = operations[0]!;
+    expect(operation.vertices!.map((vertex) => vertex.kind)).toEqual(['probe']);
+    expect(operation.vertices![0]?.values).toEqual({ size: 12, language: 'typescript' });
+    expect(operation.vertices![0]?.evidence?.path).toBe('probe/normal.ts');
+    expect(operation.edges!.map((edge) => edge.kind)).toEqual(['probe-link']);
+    expect(operation.removals!.map((removal) => removal.key['id'])).toEqual(['gone']);
     expect(outcome.result.end).toEqual({ state: 'complete' });
   }, 60_000);
 });
@@ -236,6 +258,134 @@ describe('the heartbeat', () => {
     expect(outcome.cause.code).toBe('heartbeat-missed');
     expect(outcome.cause.message).toContain(String(LIMITS.heartbeatMs));
   }, 60_000);
+
+  hostTest('a unit waiting for an unanswered facts.apply is not failed for silence', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300 },
+      operations: { async apply() { await Bun.sleep(750); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit(unit('operation-wait'));
+      expect(outcome.state).toBe('extracted');
+      if (outcome.state !== 'extracted') return;
+      expect(outcome.result.end).toEqual({ state: 'complete' });
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('the silence clock starts again when the host answers facts.apply', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 500 },
+      operations: { async apply() { await Bun.sleep(1_200); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit({ unitId: 'operation-then-silence', kind: 'probe', key: { id: 'operation-then-silence', behavior: 'operation-then-silence', silenceMs: 300 } });
+      expect(outcome.state).toBe('extracted');
+      if (outcome.state !== 'extracted') return;
+      expect(outcome.result.end).toEqual({ state: 'complete' });
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('silence longer than the bound after an answered facts.apply still fails the unit', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300 },
+      operations: { async apply() { await Bun.sleep(750); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit({ unitId: 'operation-then-silence', kind: 'probe', key: { id: 'operation-then-silence', behavior: 'operation-then-silence', silenceMs: 900 } });
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state !== 'not-extracted') return;
+      expect(outcome.cause.code).toBe('heartbeat-missed');
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('cancel settles a unit waiting for facts.apply and clears its pending count', async () => {
+    let entered!: () => void;
+    let release!: (value: unknown) => void;
+    const applying = new Promise<void>((resolve) => { entered = resolve; });
+    const response = new Promise<unknown>((resolve) => { release = resolve; });
+    let host!: PluginHost;
+    const session = await open(probeFolder, {
+      inspect: (opened) => { host = opened; },
+      limits: { heartbeatMs: 5_000, unitMs: 10_000 },
+      operations: { async apply() { entered(); return await response; } },
+    });
+    try {
+      const running = session.runUnit(unit('operation-hang'));
+      await applying;
+      const held = host['inFlight'].get('operation-hang')!;
+      expect(held.pendingOperations).toBe(1);
+      await session.cancel();
+      const outcome = await running;
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('session-cancelled');
+      expect(held.pendingOperations).toBe(0);
+      expect(host['inFlight'].size).toBe(0);
+      release({ accepted: true });
+      await response;
+      // Let the host's operation response and its finally callback finish.
+      await Bun.sleep(0);
+      expect(held.pendingOperations).toBe(0);
+      expect(host['inFlight'].size).toBe(0);
+      expect(await running).toBe(outcome);
+      await session.close();
+      expect(await running).toBe(outcome);
+    } finally {
+      release({ accepted: true });
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('cancel settles and kills the tree when writing stderr.log fails during facts.apply', async () => {
+    let entered!: () => void;
+    const applying = new Promise<void>((resolve) => { entered = resolve; });
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 5_000, unitMs: 10_000 },
+      operations: { async apply() { entered(); return await new Promise(() => undefined); } },
+    });
+    let logFile: string | undefined;
+    try {
+      const running = session.runUnit({ ...unit('operation-hang'), key: { behavior: 'operation-hang', stderr: 'cancel diagnostic' } });
+      await applying;
+      for (let attempt = 0; attempt < 100 && session.stderr().totalBytes === 0; attempt += 1) await Bun.sleep(10);
+      const stderr = session.stderr();
+      expect(stderr.totalBytes).toBeGreaterThan(0);
+      logFile = stderr.file;
+      rmSync(logFile);
+      symlinkSync('/dev/full', logFile);
+      expect(() => session.stderr()).toThrow('ENOSPC');
+      await session.cancel();
+      const outcome = await running;
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('session-cancelled');
+      for (let attempt = 0; attempt < 200 && session.counters().pidsCurrent !== 0; attempt += 1) await Bun.sleep(10);
+      expect(session.counters().pidsCurrent).toBe(0);
+    } finally {
+      if (logFile !== undefined) rmSync(logFile, { force: true });
+      await session.close();
+    }
+  }, 30_000);
+
+  hostTest('the unit deadline still bounds a unit waiting for facts.apply', async () => {
+    const session = await open(probeFolder, {
+      limits: { heartbeatMs: 300, unitMs: 700 },
+      operations: { async apply() { await new Promise(() => undefined); return { accepted: true }; } },
+    });
+    try {
+      const outcome = await session.runUnit(unit('operation-hang'));
+      expect(outcome.state).toBe('not-extracted');
+      if (outcome.state !== 'not-extracted') return;
+      expect(outcome.cause.code).toBe('unit-timeout');
+      expect(outcome.durationMs).toBeGreaterThanOrEqual(600);
+    } finally {
+      await session.close();
+    }
+  }, 30_000);
 
   hostTest('a plugin paused longer than the heartbeat deadline does not time out', async () => {
     const session = await open(probeFolder);
@@ -389,18 +539,17 @@ describe('the sandbox refuses a way out', () => {
   hostTest('the consistency reads are answered when the contract declares them', async () => {
     const folder = join(FIXTURES, 'plugin-graph');
     const address = (kind: string, key: Record<string, string>, label: string) => ({ kind, key, label });
-    const reference = { id: 'row-1', referrer: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'repository', target: address('code.repository', { name: 'missing' }, 'missing'), producer: 'git-tree@1' };
     const end = { edge: { kind: 'code.contains' }, from: address('code.directory', { path: 'src' }, 'src'), to: address('code.file', { path: 'a.ts' }, 'a.ts'), removed: ['to' as const] };
-    const opinion = { entity: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'language', producer: 'linguist@9.5.0', opinion: '7' };
+    const opinion = { entity: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'language', producer: 'linguist@9.5.0', assertion: '7' };
     const session = await open(folder, {
       graph: {
         files: async () => [], value: async () => null,
-        unresolved: async () => ({ references: [reference] }), removedEnds: async () => ({ edges: [end] }), unevidenced: async () => ({ opinions: [opinion] }),
+        removedEnds: async () => ({ edges: [end] }), unevidenced: async () => ({ assertions: [opinion] }),
       },
     });
     try {
       const outcome = await session.runUnit({ unitId: 'read-consistency', kind: 'probe', key: { id: 'x', behavior: 'read-consistency' } });
-      expect(partialCause(outcome)).toContain('read-consistency: 1 refs, 1 ends, 1 opinions');
+      expect(partialCause(outcome)).toContain('read-consistency: 1 ends, 1 opinions');
     } finally {
       await session.close();
     }
@@ -504,17 +653,17 @@ describe('the answer against the declaration', () => {
   }, 60_000);
 
   hostTest('a partial unit carrying removals has them dropped', async () => {
-    const { outcome } = await behaviour('partial-removal');
+    const { outcome, operations } = await behaviour('partial-removal');
     expect(outcome.state).toBe('extracted');
     if (outcome.state !== 'extracted') return;
     expect(outcome.result.end.state).toBe('partial');
-    expect(outcome.result.removals).toEqual([]);
-    expect(outcome.result.removalsDropped).toBe(1);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]!.removals ?? []).toEqual([]);
     const complete = await behaviour('normal');
     expect(complete.outcome.state).toBe('extracted');
     if (complete.outcome.state !== 'extracted') return;
-    expect(complete.outcome.result.removals.length).toBe(1);
-    expect(complete.outcome.result.removalsDropped).toBe(0);
+    expect(complete.operations).toHaveLength(1);
+    expect(complete.operations[0]!.removals).toHaveLength(1);
   }, 90_000);
 });
 
@@ -538,7 +687,7 @@ describe('the commands', () => {
     });
     expect(done.code, done.stderr).toBe(0);
     expect(done.stdout).toContain('check: conforms');
-    expect(done.stdout).toContain('unit normal: extracted 1 vertices and 1 edges, complete');
+    expect(done.stdout).toContain('unit normal: complete,');
     expect(done.stderr).toContain('Plugins run unconfined');
     expect(existsSync(join(work, 'no-tools'))).toBe(false);
     expect(existsSync(join(work, 'no-cgroup'))).toBe(false);
@@ -571,6 +720,7 @@ describe('the commands', () => {
           pluginFolder: ${JSON.stringify(probeFolder)}, repository: ${JSON.stringify(probeFolder)},
           workRoot: ${JSON.stringify(work)} + '/' + n, trust: 'validation',
           cgroupParent: ${JSON.stringify(join(work, 'no-cgroup'))},
+          operations: { async apply() { return { accepted:true }; } },
         }).open();
         try {
           const outcome = await session.runUnit(${JSON.stringify(unit('normal'))});
@@ -598,7 +748,7 @@ describe('the commands', () => {
     const done = await command(['check', join(FIXTURES, 'plugin-probe'), '--unit', JSON.stringify(unit('normal')), '--work', scratch()]);
     expect(done.code).toBe(0);
     expect(done.stdout).toContain('check: conforms');
-    expect(done.stdout).toContain('unit normal: extracted 1 vertices and 1 edges, complete');
+    expect(done.stdout).toContain('unit normal: complete,');
   }, 120_000);
 
   hostTest('madarch plugin run refuses a closure no release carries, naming the approval it needs', async () => {
@@ -631,7 +781,7 @@ describe('the concurrency setting', () => {
 
   hostTest('units handed to one plugin keep their answers, and every answer comes back validated', async () => {
     const deafFolder = join(FIXTURES, 'plugin-deaf');
-    const results = await runUnits({ repository: probeFolder, workRoot: scratch(), trust: 'production', releaseHashes: [probeClosure.hash, closureOf(deafFolder).hash], limits: LIMITS, settings: { pluginsAtOnce: 1, unitsPerPlugin: 2 }, cgroupParent: parent }, [
+    const results = await runUnits({ operations: { async apply() { return { accepted:true }; } }, repository: probeFolder, workRoot: scratch(), trust: 'production', releaseHashes: [probeClosure.hash, closureOf(deafFolder).hash], limits: LIMITS, settings: { pluginsAtOnce: 1, unitsPerPlugin: 2 }, cgroupParent: parent }, [
       { pluginFolder: probeFolder, unit: unit('normal') },
       { pluginFolder: probeFolder, unit: { ...unit('normal'), unitId: 'second', key: { id: 'second', behavior: 'partial-removal' } } },
       { pluginFolder: deafFolder, unit: unit('normal') },

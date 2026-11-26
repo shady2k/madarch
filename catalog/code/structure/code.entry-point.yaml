@@ -5,20 +5,36 @@ definition: An entry point is where a process of the system starts running.
 sources:
 - https://c4model.com/abstractions
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - partOf
+  - triggers
   in:
   - hasPart
 template-policy: page
 source: graph
 details:
-- file
 - language
 - service
-- symbol
 - starts
+fields:
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the entry point is written in.
+- name: starts
+  type: text
+  nullable: true
+  binding:
+    agent: 'How the run starts: a command, a server that listens, a scheduled call,
+      a message that arrives.'
+key: []
+derives-from:
+- code.file
+- code.symbol
 labels:
   en:
     one: Entry point
@@ -29,3 +45,11 @@ labels:
 description:
   en: 'An entry point is the place execution begins: a program''s main function, a command, an HTTP handler a server calls, a scheduled job. From it, a reader can follow the code into the work the process does.'
   ru: 'Точка входа — место, где начинается выполнение: главная функция программы, команда, обработчик HTTP, который вызывает сервер, или задача по расписанию. От неё читатель может пройти по коду в работу процесса.'
+
+key-edges:
+- role: code.entry-point-file
+  edge: code.entry-point-file
+  side: from
+- role: code.entry-point-symbol
+  edge: code.entry-point-symbol
+  side: from

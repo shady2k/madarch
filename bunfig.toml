@@ -4,7 +4,7 @@
 # folder the run starts in, so the isolation covers `bun test`, `bun run test`
 # and CI's `bun test test/` — runs started from inside `test/` do not get it.
 [test]
-preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
+preload = ["./test/run-scratch.ts", "./test/deadline.ts", "./test/plugin-sandbox-guard.ts"]
 # A test that names no bound of its own has a sixty-second hang guard instead of
 # Bun's five (madarch-tzte.36, madarch-x9a7.5): at least three times the worst
 # single case measured on the box (11.2 s), so a machine slower than GitHub's

@@ -5,17 +5,34 @@ definition: A dependency cycle is a ring of files or modules that import one ano
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
+  - hasPart
   - dependsOn
   in:
-  - dependsOn
+  - partOf
 template-policy: page
 source: graph
 details:
 - level
 - size
+fields:
+- name: level
+  type: text
+  nullable: true
+  binding:
+    agent: 'Whether the ring stands between folders, modules or services: file, module or service.'
+- name: size
+  type: integer
+  nullable: true
+  binding:
+    agent: How many members the ring holds, from the edges between them.
+key: []
+derives-from:
+- code.file
+- code.module
 labels:
   en:
     one: Dependency cycle

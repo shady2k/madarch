@@ -9,6 +9,8 @@ acquisition:
 relation-constraints:
   out:
   - partOf
+  - mentions
+  - documents
   in:
   - hasPart
 template-policy: page
@@ -17,6 +19,43 @@ details:
 - heading
 - level
 - path
+fields:
+- name: anchor
+  type: text
+  labels:
+    en: Anchor
+    ru: Якорь
+  producers:
+  - operations
+- name: heading
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: level
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: path
+  type: path
+  nullable: true
+  producers:
+  - operations
+- name: line_start
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: line_end
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- anchor
+derives-from:
+- document
 labels:
   en:
     one: Document section
@@ -27,3 +66,8 @@ labels:
 description:
   en: A document section is one part of a document, beginning at a heading and running to the next heading of the same or higher level. It groups related statements, so a reader or a tool can refer to that part by its heading.
   ru: Раздел документа — часть документа, которая начинается с заголовка и идёт до следующего заголовка того же или более высокого уровня. Он объединяет связанные утверждения, чтобы на эту часть можно было сослаться по заголовку.
+
+key-edges:
+- role: code.document-section-document
+  edge: code.document-section-document
+  side: from

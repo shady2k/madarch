@@ -3,14 +3,14 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { fillTargets } from '../src/knowledge/fill-targets.js';
 
 const text = `kinds:
-  source:
+  input:
     source: graph
     
     derives-from: []
   summary:
     source: graph
     
-    derives-from: [source]
+    derives-from: [input]
   report:
     source: graph
     
@@ -22,7 +22,7 @@ test('selection fills only requested kinds and transitive prerequisites', () => 
   expect(parsed.findings).toEqual([]);
   const answer = fillTargets(parsed, ['summary']);
   expect(answer.ok).toBe(true);
-  if (answer.ok) expect(answer.targets.order).toEqual(['source', 'summary']);
+  if (answer.ok) expect(answer.targets.order).toEqual(['input', 'summary']);
 });
 
 

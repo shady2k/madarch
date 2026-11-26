@@ -10,7 +10,7 @@ const { formatValue } = await import('./components/format.js');
 await import('./i18n.js');
 afterAll(() => { GlobalRegistrator.unregister(); });
 
-test('members expose stable anchors and linked readers, with an explicit incomplete-list count', async () => {
+for (const typed of [false, true]) test(`${typed ? 'typed edge' : 'related'} members expose stable anchors and linked readers, with an explicit incomplete-list count`, async () => {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   const context = {
@@ -20,7 +20,9 @@ test('members expose stable anchors and linked readers, with an explicit incompl
       ],
     } },
     data: { edges: [{ node: { id: 'field-1', kind: 'sample.member', label: 'title', readers: {
-      edges: [{ node: { id: 'reader-1', kind: 'sample.reader', label: 'readTitle' } }], totalCount: 4,
+      edges: [{ node: typed
+        ? { id: 'edge-1', node: { id: 'reader-1', kind: 'sample.reader', label: 'readTitle' } }
+        : { id: 'reader-1', kind: 'sample.reader', label: 'readTitle' } }], totalCount: 4,
       pageInfo: { hasNextPage: true, endCursor: 'next' },
     } } }], totalCount: 1, pageInfo: { hasNextPage: false } },
     language: 'en', base: '', busy: false, variables: {}, open: () => undefined, reload: () => undefined,
@@ -39,4 +41,3 @@ test('co-change shares are percentages, not ratios or guessed counts', () => {
   expect(formatValue(100 / 3, 'percent', 'en')).toBe('33.3%');
   expect(formatValue(null, 'percent', 'en')).toBe('');
 });
-

@@ -86,7 +86,7 @@ describe('the meter counts what the agent reports', () => {
       ['definition', 800, 200, 1000, 0.02, 1, true],
       ['name', 1200, 300, 1500, 0.03, 1, true],
     ]);
-    expect(meter.spent()).toEqual({ tokens: 2500, cost: [{ amount: 0.05, currency: 'USD' }] });
+    expect(meter.spent()).toEqual({ tokens: 2500, inputTokens: 2000, outputTokens: 500, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 2500, cost: [{ amount: 0.05, currency: 'USD' }] });
     // The context the adapter updated is kept beside the spend, for the trace.
     expect(meter.context()).toEqual({ used: 150, size: 200_000 });
   });
@@ -102,7 +102,67 @@ describe('the meter counts what the agent reports', () => {
     expect(meter.rows()[0]?.turns).toBe(2);
   });
 
-  test('an agent that reports no usage is a row that says so, never a zero', async () => {
+  test('cache reads are counted and shown, and a token cap counts input, output and cache writes only', async () => {
+    // The owner's decision of 2026-11-15 («Только токены без кэша»): an agent re-sends a large prompt from its cache at
+    // every step, and those reads are shown beside the other three and never spent against the cap.
+    const session = await sessionOf({ steps: [{ end: { stopReason: 'end_turn', usage: { inputTokens: 100, outputTokens: 50, cachedWriteTokens: 30, cachedReadTokens: 1_000_000, totalTokens: 1_000_180 } } }] });
+    const meter = meterOf({ budget: new AgentRunBudget({ tokens: 200 }) });
+    const turn = await meter.runTurn(session, 'a turn that re-reads its cache', { field: 'definition' });
+    expect(turn.stop).toBeUndefined();
+    expect(meter.spent()).toEqual({
+      tokens: 180, inputTokens: 100, outputTokens: 50, cachedWriteTokens: 30, cachedReadTokens: 1_000_000, totalTokens: 1_000_180,
+      cost: [],
+    });
+    expect(meter.rows()[0]).toMatchObject({ inputTokens: 100, outputTokens: 50, cachedWriteTokens: 30, cachedReadTokens: 1_000_000, stopped: null });
+    // Four fifths of the cap are spent: the agent is told, once, to finish with what it has.
+    const notice = meter.wrapNotice();
+    expect(notice).toContain('spent 180 tokens of the fill run\'s 200-token cap (90%)');
+    expect(notice).toContain('Finish with what you have');
+    expect(meter.overBudget()).toBeUndefined();
+  });
+
+  test('input, output and cache writes cross the cap even when the cache reads are counted nowhere', async () => {
+    const session = await sessionOf({ steps: [{ end: { stopReason: 'end_turn', usage: { inputTokens: 400, outputTokens: 150, cachedWriteTokens: 0, cachedReadTokens: 2_000_000, totalTokens: 2_000_550 } } }] });
+    const budget = new AgentRunBudget({ tokens: 500 });
+    const meter = meterOf({ budget });
+    const turn = await meter.runTurn(session, 'a turn past the cap', { field: 'definition' });
+    expect(turn.stop).toMatchObject({ scope: 'run', bound: 'tokens', spent: 550, limit: 500 });
+    expect(turn.stop?.message).toContain('550 tokens (input, output and cache writes; cache reads are not counted)');
+    expect(budget.tokens).toBe(550);
+    // A later unit of the same run asks for no prompt past the cap: its own meter reads the shared counter.
+    expect(meterOf({ budget }).overBudget()).toMatchObject({ scope: 'run', bound: 'tokens', spent: 550, limit: 500 });
+  });
+
+  test('a turn that streams text is counted live: the cap stops it before the turn ends, by estimate', async () => {
+    // ACP gives no token counts until the turn ends, and this agent reports its usage only on completion: the cap must
+    // be held by what the stream carries, each chunk's tokens estimated from its text (owner's decision, 2026-11-15).
+    const session = await sessionOf({
+      steps: [
+        { say: 'word '.repeat(2_000) },
+        { end: { stopReason: 'end_turn', usage: { inputTokens: 10_100, outputTokens: 0, totalTokens: 10_100 } } },
+      ],
+    });
+    const budget = new AgentRunBudget({ tokens: 100 });
+    const meter = meterOf({ budget });
+    const turn = await meter.runTurn(session, 'a long answer', { field: 'definition' });
+    expect(turn.result.stopReason).toBe('cancelled');
+    expect(turn.stop).toMatchObject({ scope: 'run', bound: 'tokens', limit: 100 });
+    expect(turn.stop?.message).toContain('by estimate');
+    expect(budget.tokens).toBeGreaterThanOrEqual(100);
+    expect(meter.rows()[0]?.stopped).toBe('tokens');
+  });
+
+  test('a cache-only report spends nothing against the cap: capped tokens are input, output and cache writes', async () => {
+    const budget = new AgentRunBudget({ tokens: 100 });
+    const meter = meterOf({ budget });
+    const stop = await meter.endTurn({ usage: { inputTokens: 0, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 1000, totalTokens: 1000 } });
+    expect(stop).toBeUndefined();
+    expect(meter.spent().tokens).toBe(0);
+    expect(meter.spent().cachedReadTokens).toBe(1000);
+    expect(budget.tokens).toBe(0);
+  });
+
+  test('an agent that reports no usage is a row that says so, its spend the estimate of what it streamed', async () => {
     const where = folder();
     const connection = await connectAcpAgent({ id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'no-usage'] }, { cwd: where });
     connections.push(connection);
@@ -111,7 +171,11 @@ describe('the meter counts what the agent reports', () => {
     const meter = meterOf();
     await meter.runTurn(session, 'a turn that reports nothing', { field: 'definition', model: 'sonnet' });
     const [row] = meter.rows();
-    expect(row).toMatchObject({ field: 'definition', model: 'sonnet', inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: null, turns: 1, reported: false });
+    // The row says its numbers are not a report (`reported: false`), and its spend is what the streamed text estimates:
+    // an agent that never reports is still counted, never a silent zero.
+    expect(row).toMatchObject({ field: 'definition', model: 'sonnet', outputTokens: 0, cost: null, turns: 1, reported: false });
+    expect(row?.inputTokens).toBeGreaterThan(0);
+    expect(row?.totalTokens).toBe(row?.inputTokens);
   });
 
   test('a model the agent switches to is a row of its own', async () => {
@@ -135,7 +199,7 @@ describe('a bound the product or the fill declared stops the run', () => {
     const turn = await meter.runTurn(session, 'a turn that spends past its bound', { field: 'definition' });
     expect(turn.result.stopReason).toBe('end_turn');
     expect(turn.stop).toMatchObject({ scope: 'plugin', bound: 'tokens', spent: 5000, limit: 4000 });
-    expect(turn.stop?.message).toContain('src/fill/agent-meter.ts:AgentMeter: the plugin run glossary:doc.term spent 5,000 tokens in the kind doc.term');
+    expect(turn.stop?.message).toContain('src/fill/agent-meter.ts:AgentMeter: the plugin run glossary:doc.term spent 5,000 tokens (input, output and cache writes; cache reads are not counted) in the kind doc.term');
     expect(turn.stop?.message).toContain("past the 4,000-token bound the product's manifest declares for one run of the plugin");
     expect(meter.rows()[0]?.stopped).toBe('tokens');
   });
@@ -174,7 +238,7 @@ describe('the spend in the store\'s mechanism tables', () => {
   function row(overrides: Partial<AgentUsageRecord> = {}): AgentUsageRecord {
     return {
       run: 'fill-1', unit: 'glossary:doc.term', plugin: 'glossary', pluginVersion: '1.0.0', kind: 'doc.term', field: 'definition',
-      model: 'sonnet', inputTokens: 800, outputTokens: 200, totalTokens: 1000, cost: { amount: 0.02, currency: 'USD' },
+      model: 'sonnet', inputTokens: 800, outputTokens: 200, cachedWriteTokens: 50, cachedReadTokens: 4_000, totalTokens: 1000, cost: { amount: 0.02, currency: 'USD' },
       turns: 1, reported: true, stopped: null, ...overrides,
     };
   }
@@ -190,7 +254,7 @@ describe('the spend in the store\'s mechanism tables', () => {
     ]);
     const usage = await readKindUsage(owner, 'doc.term');
     expect(usage.kind).toBe('doc.term');
-    expect(usage.total).toEqual({ inputTokens: 2900, outputTokens: 750, totalTokens: 3650, cost: [{ amount: 0.03, currency: 'USD' }], runs: 2 });
+    expect(usage.total).toEqual({ inputTokens: 2900, outputTokens: 750, cachedWriteTokens: 150, cachedReadTokens: 12_000, totalTokens: 3650, cost: [{ amount: 0.03, currency: 'USD' }], runs: 2 });
     expect(usage.moreRuns).toBe(false);
     // The newest run first: it was written last.
     expect(usage.runs.map((run) => run.run)).toEqual(['fill-2', 'fill-1']);
@@ -261,7 +325,7 @@ describe('the run\'s trace', () => {
     expect(report.agentUsage.turns).toBe(1);
     expect(report.agentUsage.cost).toEqual([{ currency: 'USD', amount: 0.5 }]);
     expect(report.agentUsage.lines[0]).toMatchObject({ kind: 'doc.term', field: 'definition', model: 'sonnet', plugin: 'glossary', stopped: { bound: 'cost', scope: 'plugin' } });
-    expect(renderTraceReport(report)).toContain('Agent usage: 1 prompt turns, 0 tokens in, 0 out, 0 total, cost 0.5 USD');
+    expect(renderTraceReport(report)).toContain('Agent usage: 1 prompt turns, 0 tokens in, 0 out, 0 written to cache, 0 read from cache, 0 total, cost 0.5 USD');
   });
 
   test('a turn\'s tokens are the increment the trace adds, never the run\'s cumulative report twice', async () => {
@@ -315,11 +379,11 @@ describe('the bounds a product declares for its plugins', () => {
     return { folder: where, text };
   }
 
-  test('a plugin\'s declared token and cost bounds are read as its own, with no finding', () => {
-    const { folder: where, text } = product(', bounds: { tokens: 200000, cost: { amount: 1.50, currency: USD } }');
+  test('a plugin\'s declared token, cost and time bounds are read as its own, with no finding', () => {
+    const { folder: where, text } = product(', bounds: { tokens: 200000, cost: { amount: 1.50, currency: USD }, minutes: 45 }');
     const read = parseKinds(text, 'madarch/catalog.yaml', where);
     expect(read.findings).toEqual([]);
-    expect(read.plugins?.get('g')?.bounds).toEqual({ tokens: 200_000, cost: { amount: 1.5, currency: 'USD' } });
+    expect(read.plugins?.get('g')?.bounds).toEqual({ tokens: 200_000, cost: { amount: 1.5, currency: 'USD' }, minutes: 45 });
   });
 
   test('a bound the engine cannot hold a run to is the manifest\'s error, named with its line, and no plugin is loaded with it', () => {
@@ -329,6 +393,7 @@ describe('the bounds a product declares for its plugins', () => {
       [', bounds: { cost: { amount: 0, currency: USD } }', '"bounds.cost" is { amount: <a positive number>, currency: <the unit the agent reports> }'],
       [', bounds: { cost: { amount: 1 } }', '"bounds.cost" is'],
       [', bounds: { tokens: 10, mood: yes }', '"mood" is not a bound'],
+      [', bounds: { minutes: 0 }', '"bounds.minutes" is the most wall-clock minutes one agent unit may take'],
       [', bounds: {}', '"bounds" declares no bound'],
       [', bounds: 7', '"bounds" is { tokens: <whole number>'],
     ];
