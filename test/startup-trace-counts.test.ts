@@ -62,8 +62,11 @@ test('startup timing counts actual synchronous writes separately from logs and O
  const fixtureNames = (spans: Span[]) => spans.filter(span => span.name.startsWith('fixture.')).map(span => span.name).sort();
  expect(fixtureNames(off.spans)).toEqual(['fixture.nested', 'fixture.work']);
  expect(fixtureNames(on.spans)).toEqual(['fixture.nested', 'fixture.prepare', 'fixture.startup', 'fixture.work']);
- expect(off.spans.filter(span => !span.name.startsWith('fixture.'))).toEqual([]);
- const platformReads = on.spans.filter(span => !span.name.startsWith('fixture.'));
+ // The run's own closing summary is no startup instrumentation: the timestamp guard must not count it, and the
+ // platform reads below are the startup edges alone.
+ const instrumentation = (spans: Span[]) => spans.filter(span => !span.name.startsWith('fixture.') && span.name !== 'trace.summary');
+ expect(instrumentation(off.spans)).toEqual([]);
+ const platformReads = instrumentation(on.spans);
  if (process.platform === 'linux') {
   // Startup clock/domain discovery reads /proc/self once, then each edge reads its process identity.
   expect(platformReads).toHaveLength(5);

@@ -1257,12 +1257,32 @@ export function postmasterStill(dataDir: string, pid: number, startTime: string 
   return processStartTime(pid, platform) === startTime;
 }
 
+/**
+ * Whether the kernel reports this process stopped (`T` for a signal, `t` for a tracer). A stopped postmaster answers
+ * nothing and only a signal would end it, so it is never one the file identity may verify.
+ */
+export function processStopped(pid: number, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'linux') return false;
+  try {
+    const stat = withSpanSync('fs.read', { 'file.path': `/proc/${String(pid)}/stat` }, (span) => {
+      const held = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
+    const at = stat.lastIndexOf(')');
+    return /^[Tt]$/u.test(stat.slice(at + 2, at + 3));
+  } catch { return false; }
+}
+
 /** The installed Linux postmaster's kernel identity when its socket cannot answer (startup, authentication or shutdown). */
 function postmasterFileIdentity(dataDir: string, pid: number, bin: string, platform: NodeJS.Platform): boolean {
   return withSpanSync('postgres.postmasterFileIdentity', {}, () => {
     if (platform !== 'linux') return false;
     const start = processStartTime(pid);
     if (start === undefined) return false;
+    // A stopped server is unresponsive rather than unanswerable: only a signal would end it, and the files say nothing
+    // about whether it may be signaled.
+    if (processStopped(pid, platform)) return false;
     try {
       // A command line alone is not identity: a shell script named postgres may carry exactly these arguments.
       const executable = statSync(`/proc/${String(pid)}/exe`);
