@@ -21,7 +21,7 @@ import { wikiWords } from './wiki-words.js';
 import { stopChildWithin } from './child-stop.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf, templateMenuLines } from '../knowledge/starter-templates.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
@@ -639,12 +639,26 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
             const refused = portRefusal(parsedOwnerCommand.port ?? DEFAULT_PORT, parsedOwnerCommand.host ?? DEFAULT_HOST);
             if (refused !== undefined) { console.error(refused.message); return refused.outcome === 'refused' ? 2 : 1; }
           }
+          // A workspace manifest that stands in the folder but cannot be used is this command's own refusal, as the
+          // manifests below are (madarch-64o5.197): its place in the product folder, its line and the reason, and exit 2
+          // before any store work. A folder that holds no manifest at all keeps the manifestless start.
+          if (!read.ok && !isExistingDirectoryWithoutManifest(folder)) {
+            console.error(`${relative(folder, read.file)}:${read.line}: ${read.message}`);
+            return 2;
+          }
           // A manifestless folder has no graph-backed product to activate.
           if (read.ok) {
             const { readPinnedGraphContract, readPinnedPluginInstallations } = await import('./preparation-contract.js');
             const { validateProductManifests } = await import('../graph/manifest-publication.js');
             const manifests = validateProductManifests(folder);
-            if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+            // A manifest that cannot be used is this command's own refusal, printed whole and without the runtime's
+            // stack: each problem names its file inside the product folder, its line and what is wrong, and the run
+            // ends before any store work (madarch-64o5.197). 2 is the exit the module's contract gives a manifest
+            // that cannot be used, the same one every other serve refusal takes.
+            if (!manifests.ok) {
+              for (const finding of manifests.findings) console.error(`${relative(folder, finding.file)}:${finding.line}: ${finding.message}`);
+              return 2;
+            }
             // Standalone serve has no daemon publisher: activate before its connect-only API role.
             await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder), await readPinnedPluginInstallations(folder));
           }

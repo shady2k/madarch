@@ -48,6 +48,8 @@ describe('the plugin lock', () => {
       ['plugins:\n  - { id: alpha, version: 1.0.0, closure: ' + HASH + ', path: plugins/alpha, mood: yes }\n', 'is not a field of a plugin lock entry'],
       ['plugins: 7\n', 'is a list of'],
       ['something: 1\n', 'holds "plugins" and nothing else'],
+      // The conversion of an unresolved alias throws; the reader answers with the alias and its line instead.
+      ['plugins: *missing\n', 'the alias *missing names no anchor of the document'],
     ];
     for (const [lock, message] of cases) {
       const read = readPluginLock(product(lock));
@@ -56,6 +58,8 @@ describe('the plugin lock', () => {
         expect(read.file).toBe('madarch/plugins.lock');
         expect(read.line).toBeGreaterThan(0);
         expect(read.message).toContain(message);
+        // The location is the finding's own: the reason never carries it, so a reader prints it once.
+        expect(read.message).not.toContain('plugins.lock');
       }
     }
   });

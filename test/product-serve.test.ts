@@ -1,8 +1,7 @@
-import { basename } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdtempSync, mkdirSync, readdirSync, symlinkSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
@@ -253,6 +252,29 @@ function product(base: string, name = 'demo', template?: StarterTemplate): strin
   seedStarterSet(folder, template?.id, template === undefined ? undefined : [template]);
   gitCheckout(folder);
   return folder;
+}
+
+/**
+ * A product whose two kind files each hold one fault, the way the O1 acceptance met them (madarch-64o5.197): the
+ * manifest reads far enough to collect every finding, so a test adds one more file beside them.
+ */
+function brokenKindsProduct(id: string): string {
+  const folder = join(scratchFolder(), id);
+  mkdirSync(join(folder, 'madarch/kinds/fixture/fixture'), { recursive: true });
+  writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: ${id}\nname: Broken kinds\n`);
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), 'groups:\n  fixture:\n    en: Fixture\n    ru: Пример\n  fixture.fixture:\n    en: Fixture\n    ru: Пример\n    parent: fixture\n');
+  // One fault per kind file, the way the O1 acceptance met them.
+  writeFileSync(join(folder, 'madarch/kinds/fixture/fixture/broken.one.yaml'), 'source: nonsense\nfolder: docs/one\nkey: [slug]\nfields:\n  - { name: slug, type: text }\n');
+  writeFileSync(join(folder, 'madarch/kinds/fixture/fixture/broken.two.yaml'), 'source: markdown\nfolder: docs/two\ntemplate-policy: nope\nkey: [slug]\nfields:\n  - { name: slug, type: text }\n');
+  return folder;
+}
+
+/** The refusal is the command's own: no machine path, no compiled source excerpt, no runtime stack. */
+function expectCleanDiagnostic(run: { readonly stderr: string }, folder: string): void {
+  expect(run.stderr).not.toContain(folder);
+  expect(run.stderr).not.toContain('$bunfs');
+  expect(run.stderr).not.toMatch(/^ +at /m);
+  expect(run.stderr).not.toContain('Bun v');
 }
 
 /** An app folder the command builds in when MADARCH_APP points it there: its build is a no-op script. */
@@ -595,17 +617,72 @@ describe('madarch serve: an existing product served', () => {
     await serve.finish();
   }, 30_000);
 
-  test('a manifest refusal names the manifest file and its line', () => {
+  test('a malformed workspace manifest is refused by its place in the product, its line and the reason', () => {
     const base = scratchFolder();
     const folder = join(base, 'bad');
     mkdirSync(join(folder, 'docs'), { recursive: true });
+    // An unclosed flow sequence on the second line (madarch-64o5.197).
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: [unclosed\n');
-    const built = builtApp(base);
-    const run = runCommand(['serve', '--product', folder, '--no-open'],
-      { MADARCH_HOME: base, MADARCH_APP: built }, base);
+    const run = runCommand(['serve', '--product', folder, '--no-open'], { MADARCH_HOME: base }, base);
     expect(run.status).toBe(2);
-    expect(run.stderr).toContain(join(folder, 'workspace.yaml'));
-    expect(run.stderr).toMatch(/line \d/);
+    const lines = run.stderr.split('\n');
+    expect(lines.some((line) => line.startsWith('workspace.yaml:2: ') && line.length > 'workspace.yaml:2: '.length)).toBeTrue();
+    // The workspace manifest takes the same product-relative diagnostic as the kinds and the lock.
+    expectCleanDiagnostic(run, folder);
+  });
+
+  test('a malformed kind file is refused naming its relative file, line and reason, without a runtime stack', () => {
+    const folder = brokenKindsProduct('broken-kinds');
+    const run = runCommand(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: dirname(folder) }, dirname(folder));
+    // A manifest that cannot be used is the command's refusal (2), reported whole on standard error.
+    expect(run.status).toBe(2);
+    const lines = run.stderr.split('\n');
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.one.yaml:1: kind "broken.one": "source" is "graph", "markdown" or "document", got "nonsense"');
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.two.yaml:3: kind "broken.two": "template-policy" is a field of the entity catalog, and the manifest declares no "catalog"');
+    expectCleanDiagnostic(run, folder);
+  });
+
+  test('a plugin lock holding an unexpected field is reported once, by its place in the product and its line', () => {
+    const folder = brokenKindsProduct('broken-lock');
+    writeFileSync(join(folder, 'madarch/plugins.lock'), `plugins:\n  - { id: alpha, version: 1.0.0, closure: ${'a'.repeat(64)}, path: plugins/alpha, unexpected: true }\n`);
+    const run = runCommand(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: dirname(folder) }, dirname(folder));
+    expect(run.status).toBe(2);
+    const findings = run.stderr.split('\n').filter((line) => line.startsWith('madarch/plugins.lock:'));
+    // The two lock readers see one finding: its place once, its reason without the machine's path.
+    expect(findings).toEqual(['madarch/plugins.lock:2: "unexpected" is not a field of a plugin lock entry: the fields are id, version, closure and path']);
+    expect(run.stderr).toContain('madarch/kinds/fixture/fixture/broken.one.yaml:1:');
+    expectCleanDiagnostic(run, folder);
+  });
+
+  test('an unresolved YAML alias in the plugin lock is a finding beside the malformed kind, not a thrown conversion', () => {
+    const folder = brokenKindsProduct('broken-alias');
+    writeFileSync(join(folder, 'madarch/plugins.lock'), 'plugins: *missing\n');
+    const run = runCommand(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: dirname(folder) }, dirname(folder));
+    expect(run.status).toBe(2);
+    const lines = run.stderr.split('\n');
+    expect(lines).toContain('madarch/plugins.lock:1: the alias *missing names no anchor of the document: an anchor is set before the alias that uses it');
+    // The malformed kind beside it is still reported: one unreadable file hides no other finding.
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.one.yaml:1: kind "broken.one": "source" is "graph", "markdown" or "document", got "nonsense"');
+    expectCleanDiagnostic(run, folder);
+  });
+
+  test.skipIf(typeof process.getuid !== 'function' || process.getuid() === 0)('an unreadable template is a finding at its first line, and the findings already collected stand', () => {
+    const folder = brokenKindsProduct('broken-template');
+    mkdirSync(join(folder, 'templates'), { recursive: true });
+    const template = join(folder, 'templates/unreadable.yaml');
+    writeFileSync(template, 'template: [unclosed\n');
+    chmodSync(template, 0o000);
+    // The ordinary user is the one who cannot read it; a run that may read everything cannot make this case.
+    let readable = true;
+    try { readFileSync(template); } catch { readable = false; }
+    expect(readable).toBeFalse();
+    const run = runCommand(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: dirname(folder) }, dirname(folder));
+    expect(run.status).toBe(2);
+    const lines = run.stderr.split('\n');
+    expect(lines).toContain('templates/unreadable.yaml:1: the template file cannot be read');
+    // The malformed kind beside it is still reported: the failed read ends neither the run's answer nor the list.
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.one.yaml:1: kind "broken.one": "source" is "graph", "markdown" or "document", got "nonsense"');
+    expectCleanDiagnostic(run, folder);
   });
 
   test('a builder that cannot be launched names the cause, not just exit null', () => {
