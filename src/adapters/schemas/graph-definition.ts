@@ -347,6 +347,10 @@ export function generateContractStatements(declared: GraphContract) {
     if (relationKinds.length > 0) {
       const failures: string[] = [];
       const refusals: string[] = [];
+      const boundedSides: string[] = [];
+      const mergeAliases = (vertex: string): string => `
+        CROSS JOIN LATERAL (SELECT from_node FROM edge WHERE to_node=${vertex} AND entity_id=merge_member_kind_id OFFSET 0) membership
+        CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE from_node=membership.from_node AND entity_id=merge_member_kind_id OFFSET 0) member`;
       for (const [index, kind] of relationKinds.entries()) {
         const edgeKind = literal(kind.name);
         const vertexId = keyEdgeNames.includes(kind.name) ? 'raw_id' : 'id';
@@ -355,34 +359,42 @@ export function generateContractStatements(declared: GraphContract) {
         const endpointCode = index * 2 + 1;
         const cardinalityCode = endpointCode + 1;
         failures.push(`WHEN EXISTS(
-          SELECT 1 FROM active_edges e WHERE e.id=ANY(checked_edges) AND e.kind=${edgeKind} AND (
+          SELECT 1 FROM active_edges e WHERE e.kind=${edgeKind} AND e.id IN (SELECT unnest(checked_edges)) AND (
             NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.${vertexId}=e.from_node AND f.kind=ANY(ARRAY[${from.map(literal).join(',')}]::text[]))
             OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.${vertexId}=e.to_node AND t.kind=ANY(ARRAY[${to.map(literal).join(',')}]::text[])))) THEN ${endpointCode}`);
         for (const [direction, ends, bound] of [['from',from,kind.cardinality.to],['to',to,kind.cardinality.from]] as const) {
           if (bound === 'many') continue;
+          const atFrom = direction === 'from';
+          boundedSides.push(`(${edgeKind},${atFrom},ARRAY[${ends.map(literal).join(',')}]::text[])`);
           failures.push(`WHEN EXISTS(
             SELECT 1 FROM active_vertices n LEFT JOIN active_edges e
               ON e.context_id=n.context_id AND e.${direction}_node=n.${vertexId} AND e.kind=${edgeKind}
-            WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
+            WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[]) AND EXISTS(
+              SELECT 1 FROM cardinality_vertices target WHERE target.kind=${edgeKind} AND target.at_from=${atFrom} AND target.vertex_id=n.raw_id)
             GROUP BY n.context_id,n.${vertexId} HAVING count(DISTINCT (e.from_node,e.to_node,e.discriminator)) FILTER (WHERE e.id IS NOT NULL) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN ${cardinalityCode}`);
         }
         refusals.push(`IF violation=${endpointCode} THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
           IF violation=${cardinalityCode} THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
       }
+      // Drop the previous signature when preparing a store that already has decision 0039's storage.
+      statements.push('DROP FUNCTION IF EXISTS graph_relation_violation(bigint[],bigint[],bigint[],bigint[],bigint[],bigint[],text[],text[],bigint,boolean,timestamptz)');
       // Keep this parameterized statement on one generic plan across boundary instants and passes.
       statements.push(`CREATE OR REPLACE FUNCTION graph_relation_violation(
         checked_vertices bigint[],counted_edges bigint[],checked_edges bigint[],checked_contexts bigint[],
         vertex_kind_ids bigint[],edge_kind_ids bigint[],vertex_kinds text[],edge_kinds text[],
-        source_kind_id bigint,merge_present boolean,instant timestamptz
+        source_kind_id bigint,merge_present boolean,instant timestamptz,cardinality_targets jsonb
       ) RETURNS integer LANGUAGE plpgsql SET plan_cache_mode=force_generic_plan AS $$
         DECLARE violation integer; BEGIN
-WITH vertex_groups AS MATERIALIZED (
+WITH cardinality_vertices AS MATERIALIZED (
+        SELECT * FROM jsonb_to_recordset(cardinality_targets) AS target(kind text,at_from boolean,vertex_id bigint)
+      ), vertex_groups AS MATERIALIZED (
         SELECT vertex_kinds[array_position(vertex_kind_ids,n.entity_id)] AS name,array_agg(n.id) AS ids
         FROM unnest(checked_vertices) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM node WHERE id=candidate.id OFFSET 0) n
         WHERE n.entity_id=ANY(vertex_kind_ids) GROUP BY n.entity_id
       ), edge_groups AS MATERIALIZED (
         SELECT edge_kinds[array_position(edge_kind_ids,e.entity_id)] AS name,array_agg(e.id) AS ids
-        FROM unnest(counted_edges) candidate(id) CROSS JOIN LATERAL (SELECT id,entity_id FROM edge WHERE id=candidate.id OFFSET 0) e
+        FROM (SELECT unnest(counted_edges) AS id UNION SELECT unnest(checked_edges)) candidate
+        CROSS JOIN LATERAL (SELECT id,entity_id FROM edge WHERE id=candidate.id OFFSET 0) e
         GROUP BY e.entity_id
       ), active_edges AS MATERIALIZED (
         SELECT ctx.id AS context_id,k.name AS kind,e.id,e.discriminator,
@@ -402,85 +414,133 @@ WITH vertex_groups AS MATERIALIZED (
         RETURN violation;
       END $$`);
       relationChecks.push(`
-      SELECT coalesce(array_agg(DISTINCT subject), '{}') INTO changed_vertices FROM (
+      -- Only existence assertions affect activity. Merge allocations can also project individual edge assertions.
+      SELECT coalesce(array_agg(subject), '{}') INTO changed_vertices FROM (
         SELECT n.id AS subject FROM (SELECT * FROM node WHERE id>=node_lower OFFSET 0) n
           WHERE n.entity_id=ANY(vertex_kind_ids)
-        UNION SELECT attachment.to_node FROM (SELECT * FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
+        UNION SELECT attachment.to_node FROM (SELECT assertion_id,property FROM assertion WHERE assertion_id>=node_lower OFFSET 0) a
+          CROSS JOIN LATERAL (SELECT subject_edge_id FROM assertion_vertex_subject WHERE assertion_id=a.assertion_id OFFSET 0) s
           CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) attachment
           CROSS JOIN LATERAL (SELECT entity_id FROM node WHERE id=attachment.to_node OFFSET 0) n
-          WHERE s.assertion_id>=node_lower AND n.entity_id=ANY(vertex_kind_ids)
+          WHERE a.property='$exists' AND n.entity_id=ANY(vertex_kind_ids)
       ) changed;
-      SELECT coalesce(array_agg(DISTINCT subject), '{}') INTO changed_edges FROM (
+      SELECT coalesce(array_agg(subject), '{}') INTO changed_edges FROM (
         SELECT e.id AS subject FROM (SELECT * FROM edge WHERE id>=edge_lower OFFSET 0) e
           WHERE e.entity_id=ANY(edge_kind_ids)
-        UNION SELECT s.edge_id FROM (SELECT * FROM assertion_edge_subject WHERE assertion_id>=node_lower OFFSET 0) s CROSS JOIN LATERAL (SELECT entity_id FROM edge WHERE id=s.edge_id OFFSET 0) e
-           WHERE s.assertion_id>=node_lower AND e.entity_id=ANY(edge_kind_ids)
+        UNION SELECT s.edge_id FROM (SELECT assertion_id,property FROM assertion WHERE assertion_id>=node_lower OFFSET 0) a
+          CROSS JOIN LATERAL (SELECT edge_id FROM assertion_edge_subject WHERE assertion_id=a.assertion_id OFFSET 0) s
+          CROSS JOIN LATERAL (SELECT entity_id FROM edge WHERE id=s.edge_id OFFSET 0) e
+          WHERE (merge_present OR a.property='$exists') AND e.entity_id=ANY(edge_kind_ids)
       ) changed;
       IF merge_present THEN
+        SELECT id INTO merge_member_kind_id FROM entity WHERE name='system.merge-member';
         -- Structural membership includes undone links and allocation destinations.
-        WITH RECURSIVE membership AS MATERIALIZED (
-          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
-            WHERE k.name='system.merge-member'
-        ), touched AS (
-          SELECT attachment.to_node AS id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
-            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
-            WHERE s.assertion_id>=node_lower AND k.name IN ('system.merge','system.merge-allocation')
-        ), seeds(id) AS (
+        SELECT coalesce(array_agg(DISTINCT attachment.to_node),'{}') INTO changed_merge_metadata
+        FROM (SELECT subject_edge_id FROM assertion_vertex_subject WHERE assertion_id>=node_lower OFFSET 0) s
+        CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=s.subject_edge_id OFFSET 0) attachment
+        CROSS JOIN LATERAL (SELECT entity_id FROM node WHERE id=attachment.to_node OFFSET 0) n
+        WHERE n.entity_id IN (SELECT id FROM entity WHERE name IN ('system.merge','system.merge-allocation'));
+        WITH RECURSIVE seeds(id) AS (
           SELECT unnest(changed_vertices)
-          UNION SELECT e.to_node FROM touched t JOIN edge e ON e.from_node=t.id JOIN entity k ON k.id=e.entity_id
-            WHERE k.name IN ('system.merge-member','system.merge-allocation-member')
-          UNION SELECT member.member FROM touched t JOIN edge link ON link.from_node=t.id
-            JOIN entity k ON k.id=link.entity_id AND k.name='system.merge-allocation-merge'
-            JOIN membership member ON member.merge_id=link.to_node
-          UNION SELECT endpoint.id FROM unnest(changed_edges) changed(id) JOIN edge e ON e.id=changed.id
+          UNION SELECT e.to_node FROM unnest(changed_merge_metadata) t(id) CROSS JOIN LATERAL (
+            SELECT to_node FROM edge WHERE from_node=t.id AND entity_id IN (
+              merge_member_kind_id,(SELECT id FROM entity WHERE name='system.merge-allocation-member')
+            ) OFFSET 0
+          ) e
+          UNION SELECT member.to_node FROM unnest(changed_merge_metadata) t(id)
+            CROSS JOIN LATERAL (
+              SELECT to_node FROM edge WHERE from_node=t.id AND entity_id=(SELECT id FROM entity WHERE name='system.merge-allocation-merge') OFFSET 0
+            ) link
+            CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE from_node=link.to_node AND entity_id=merge_member_kind_id OFFSET 0) member
+        ), members(id) AS (
+          SELECT id FROM seeds UNION SELECT member.to_node FROM members m ${mergeAliases('m.id')}
+        ) SELECT coalesce(array_agg(id),'{}') INTO changed_vertices FROM members;
+      END IF;
+      IF cardinality(changed_vertices)>0 OR cardinality(changed_edges)>0 THEN
+      SELECT coalesce(array_agg(id),'{}') INTO checked_edges FROM (
+        SELECT unnest(changed_edges) AS id
+        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT id FROM edge WHERE from_node=v.id AND entity_id=ANY(edge_kind_ids) OFFSET 0) e
+        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT id FROM edge WHERE to_node=v.id AND entity_id=ANY(edge_kind_ids) OFFSET 0) e
+      ) checked;
+      ${boundedSides.length === 0 ? "cardinality_targets := '[]'; counted_edges := '{}'; cardinality_vertex_ids := '{}';" : `
+      -- A changed vertex can acquire a lower bound even with no edge. A changed edge
+      -- can affect only its own kind at its bounded ends. A merge can also change
+      -- projected ends of incident edges without changing their assertion streams.
+      WITH RECURSIVE bounded_sides AS MATERIALIZED (
+        SELECT k.id AS entity_id,side.* FROM (VALUES ${boundedSides.join(',')}) side(kind,at_from,vertex_kinds)
+        CROSS JOIN LATERAL (SELECT id FROM entity WHERE name=side.kind OFFSET 0) k
+      ), vertices AS (
+        SELECT v.id,k.name FROM unnest(changed_vertices) v(id)
+        CROSS JOIN LATERAL (SELECT entity_id FROM node WHERE id=v.id OFFSET 0) n
+        CROSS JOIN LATERAL (SELECT name FROM entity WHERE id=n.entity_id OFFSET 0) k
+      ), seeds(kind,entity_id,at_from,vertex_id) AS (
+        SELECT side.kind,side.entity_id,side.at_from,v.id FROM vertices v
+          JOIN bounded_sides side ON v.name=ANY(side.vertex_kinds)
+        UNION
+        SELECT side.kind,side.entity_id,side.at_from,CASE WHEN side.at_from THEN e.from_node ELSE e.to_node END
+          FROM unnest(CASE WHEN merge_present THEN checked_edges ELSE changed_edges END) changed(id)
+          CROSS JOIN LATERAL (SELECT entity_id,from_node,to_node FROM edge WHERE id=changed.id OFFSET 0) e
+          JOIN bounded_sides side ON side.entity_id=e.entity_id
+      ), targets(kind,entity_id,at_from,vertex_id) AS MATERIALIZED (
+        SELECT * FROM seeds
+        UNION
+        SELECT t.kind,t.entity_id,t.at_from,member.to_node FROM targets t ${mergeAliases('t.vertex_id')}
+      ), counted AS (
+        SELECT e.id FROM targets t CROSS JOIN LATERAL (
+          SELECT id FROM edge WHERE from_node=t.vertex_id AND entity_id=t.entity_id AND t.at_from OFFSET 0
+        ) e
+        UNION
+        SELECT e.id FROM targets t CROSS JOIN LATERAL (
+          SELECT id FROM edge WHERE to_node=t.vertex_id AND entity_id=t.entity_id AND NOT t.at_from OFFSET 0
+        ) e
+      ) SELECT (SELECT coalesce(jsonb_agg(jsonb_build_object('kind',kind,'at_from',at_from,'vertex_id',vertex_id)),'[]') FROM targets),
+        (SELECT coalesce(array_agg(DISTINCT vertex_id),'{}') FROM targets),
+        (SELECT coalesce(array_agg(id),'{}') FROM counted)
+      INTO cardinality_targets,cardinality_vertex_ids,counted_edges;`}
+      SELECT coalesce(array_agg(id),'{}') INTO checked_vertices FROM (
+        SELECT unnest(cardinality_vertex_ids) AS id
+        UNION SELECT e.from_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node FROM edge WHERE id=v.id OFFSET 0) e
+        UNION SELECT e.to_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT to_node FROM edge WHERE id=v.id OFFSET 0) e
+      ) checked;
+      IF merge_present THEN
+        WITH RECURSIVE members(id) AS (
+          SELECT unnest(checked_vertices) UNION SELECT member.to_node FROM members m ${mergeAliases('m.id')}
+        ) SELECT coalesce(array_agg(id),'{}') INTO checked_vertices FROM members;
+      END IF;
+      SELECT coalesce(array_agg(assertion_id),'{}') INTO checked_assertions FROM (
+        SELECT a.assertion_id FROM unnest(checked_vertices) v(id)
+          CROSS JOIN LATERAL (SELECT id FROM edge WHERE to_node=v.id AND entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0) e
+          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
+          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion WHERE assertion_id=s.assertion_id AND property='$exists' OFFSET 0) a
+        UNION
+        SELECT a.assertion_id FROM (SELECT unnest(counted_edges) AS id UNION SELECT unnest(checked_edges)) e
+          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=e.id OFFSET 0) s
+          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion WHERE assertion_id=s.assertion_id AND (merge_present OR property='$exists') OFFSET 0) a
+      ) checked;
+      IF merge_present THEN
+        -- Counts distinguish complete projected edges. Either end of a counted edge can change that identity.
+        WITH RECURSIVE seeds(id) AS (
+          SELECT unnest(checked_vertices)
+          UNION SELECT endpoint.id FROM unnest(counted_edges) c(id)
+            CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=c.id OFFSET 0) e
             CROSS JOIN LATERAL (VALUES(e.from_node),(e.to_node)) endpoint(id)
         ), members(id) AS (
-          SELECT id FROM seeds UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
-            JOIN membership b ON b.merge_id=a.merge_id
-        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO changed_vertices FROM members;
-      END IF;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_edges FROM (
-        SELECT unnest(changed_edges) AS id
-        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
-           WHERE e.entity_id=ANY(edge_kind_ids)
-        UNION SELECT e.id FROM unnest(changed_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE to_node=v.id OFFSET 0) e
-           WHERE e.entity_id=ANY(edge_kind_ids)
-      ) checked;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_vertices FROM (
-        SELECT unnest(changed_vertices) AS id
-        UNION SELECT e.from_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
-        UNION SELECT e.to_node FROM unnest(checked_edges) v(id) CROSS JOIN LATERAL (SELECT from_node,to_node FROM edge WHERE id=v.id OFFSET 0) e
-      ) checked;
-      IF merge_present THEN
-        WITH RECURSIVE membership AS MATERIALIZED (
-          SELECT e.from_node AS merge_id,e.to_node AS member FROM edge e JOIN entity k ON k.id=e.entity_id
-            WHERE k.name='system.merge-member'
-        ), members(id) AS (
-          SELECT unnest(checked_vertices) UNION SELECT b.member FROM members m JOIN membership a ON a.member=m.id
-            JOIN membership b ON b.merge_id=a.merge_id
-        ) SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_vertices FROM members;
-      END IF;
-      SELECT coalesce(array_agg(DISTINCT id),'{}') INTO counted_edges FROM (
-        SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE from_node=v.id OFFSET 0) e
-           WHERE e.entity_id=ANY(edge_kind_ids)
-        UNION SELECT e.id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT * FROM edge WHERE to_node=v.id OFFSET 0) e
-           WHERE e.entity_id=ANY(edge_kind_ids)
-      ) counted;
-      SELECT coalesce(array_agg(DISTINCT assertion_id),'{}') INTO checked_assertions FROM (
-        SELECT s.assertion_id FROM unnest(checked_vertices) v(id) CROSS JOIN LATERAL (SELECT id FROM edge WHERE to_node=v.id OFFSET 0) e
-          CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
-        UNION SELECT s.assertion_id FROM unnest(counted_edges) e(id) CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=e.id OFFSET 0) s
-      ) checked;
-      IF merge_present THEN
-        SELECT ARRAY(SELECT DISTINCT id FROM (
-          SELECT unnest(checked_assertions) AS id
-          UNION SELECT s.assertion_id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id
-            JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
-            WHERE k.name IN ('system.merge','system.merge-allocation') AND (
-              s.assertion_id>=node_lower OR EXISTS(SELECT 1 FROM edge member JOIN entity mk ON mk.id=member.entity_id
-                WHERE member.from_node=n.id AND mk.name IN ('system.merge-member','system.merge-allocation-member')
-                  AND member.to_node=ANY(checked_vertices)))
-        ) assertions) INTO checked_assertions;
+          SELECT id FROM seeds UNION SELECT member.to_node FROM members m ${mergeAliases('m.id')}
+        ), metadata(id) AS (
+          SELECT unnest(changed_merge_metadata)
+          UNION SELECT e.from_node FROM members m CROSS JOIN LATERAL (
+            SELECT from_node FROM edge WHERE to_node=m.id AND entity_id IN (
+              merge_member_kind_id,(SELECT id FROM entity WHERE name='system.merge-allocation-member')
+            ) OFFSET 0
+          ) e
+        ) SELECT ARRAY(
+          SELECT unnest(checked_assertions)
+          UNION SELECT s.assertion_id FROM metadata n
+            CROSS JOIN LATERAL (
+              SELECT id FROM edge WHERE to_node=n.id AND entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0
+            ) attachment
+            CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=attachment.id OFFSET 0) s
+        ) INTO checked_assertions;
       END IF;
       SELECT coalesce(array_agg(DISTINCT id),'{}') INTO checked_contexts FROM (
         WITH RECURSIVE affected(id) AS (
@@ -500,9 +560,10 @@ WITH vertex_groups AS MATERIALIZED (
         ) SELECT DISTINCT at FROM boundaries ORDER BY at
       LOOP
         violation:=graph_relation_violation(checked_vertices,counted_edges,checked_edges,checked_contexts,
-          vertex_kind_ids,edge_kind_ids,vertex_kinds,edge_kinds,source_kind_id,merge_present,instant);
+          vertex_kind_ids,edge_kind_ids,vertex_kinds,edge_kinds,source_kind_id,merge_present,instant,cardinality_targets);
       ${refusals.join('\n')}
-      END LOOP;`);
+      END LOOP;
+      END IF;`);
     }
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -531,7 +592,8 @@ WITH vertex_groups AS MATERIALIZED (
         context_lower bigint := coalesce(nullif(current_setting('madarch.graph_context_lower',true),'')::bigint,9223372036854775807);
         changed_vertices bigint[]; changed_edges bigint[]; checked_edges bigint[]; checked_vertices bigint[];
         counted_edges bigint[]; checked_assertions bigint[]; checked_contexts bigint[]; instant timestamptz;
-        vertex_kind_ids bigint[]; edge_kind_ids bigint[]; source_kind_id bigint;
+        vertex_kind_ids bigint[]; edge_kind_ids bigint[]; source_kind_id bigint; merge_member_kind_id bigint;
+        cardinality_targets jsonb; cardinality_vertex_ids bigint[]; changed_merge_metadata bigint[];
         vertex_kinds text[] := ARRAY[${vertexKinds.map(literal).join(',')}]::text[];
         edge_kinds text[] := ARRAY[${relationKinds.map(kind => literal(kind.name)).join(',')}]::text[]; BEGIN
       revision := current_setting('madarch.graph_revision',true);

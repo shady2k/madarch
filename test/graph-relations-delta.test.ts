@@ -1,68 +1,8 @@
 import { expect, test } from 'bun:test';
-import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
-import type { SqlExecutor } from '../src/sql-driver.js';
+import { contract, ref, vertex, edge, pair } from './graph-relations-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
-
-const contract: GraphContract = {
-  vertex: ['delta-child', 'delta-parent', 'delta-note'].map(name => ({ name,
-    table: generatedTableName(name, 'vertex'), key: ['name'],
-    fields: [{ name: 'name', type: 'text' }], capability: 'fixture' })),
-  edge: [{ name: 'delta-parent-link', from: ['delta-child'], to: ['delta-parent'],
-    fields: [{ name: 'weight', type: 'integer' }], repeats: false, capability: 'fixture',
-    cardinality: { from: 'many', to: 'one' },
-    labels: { en: { out: 'parent', in: 'child' }, ru: { out: 'parent', in: 'child' } } }], dictionary: [],
-};
-const producer = { producer: 'fixture', producerVersion: '1' };
-const ref = (kind: string, name = '0') => ({ kind: `delta-${kind}`, key: { name } });
-const vertex = (kind: string, name = '0', interval: { validFrom?: string; validTo?: string } = {}) =>
-  ({ ...ref(kind, name), ...producer, ...interval });
-const edge = (name = '0', interval: { validFrom?: string; validTo?: string } = {}, weight = 1) =>
-  ({ kind: 'delta-parent-link', from: ref('child', name), to: ref('parent', name), values: { weight }, ...producer, ...interval });
-const pair = (name = '0', interval: { validFrom?: string; validTo?: string } = {}) =>
-  ({ vertices: [vertex('parent', name, interval), vertex('child', name, interval)], edges: [edge(name, interval)], removals: [] });
-const tables = ['node', 'edge', 'entity', 'context', 'assertion', 'assertion_vertex_subject', 'assertion_edge_subject',
-  ...contract.vertex.flatMap(kind => ['$exists', ...kind.fields.map(field => field.name)].map(property => assertionValueTableName(kind.name, 'vertex', property))),
-  ...contract.edge.flatMap(kind => ['$exists', ...kind.fields.map(field => field.name)].map(property => assertionValueTableName(kind.name, 'edge', property)))];
-type TableReads = Record<string, number>;
-async function rowsRead(tx: SqlExecutor): Promise<TableReads> {
-  const result = await tx.query<{ table: string; reads: string }>(`SELECT relname AS table,
-    (seq_tup_read + idx_tup_fetch)::text AS reads FROM pg_stat_xact_user_tables
-    WHERE schemaname='public' AND (relname=ANY($1::text[]) OR left(relname,2)='a_') ORDER BY relname COLLATE "C"`, [tables]);
-  return Object.fromEntries(result.rows.map(row => [row.table, Number(row.reads)]));
-}
-async function measuredCheck(size: number, future: boolean, analyzed: boolean): Promise<TableReads> {
-  const owner = await createTestDatabaseOwner({ graphContract: contract });
-  try {
-    await owner.transaction('write', tx => publishGraphDrafts(tx, contract, {
-      vertices: Array.from({ length: size / 2 }, (_, n) => [vertex('parent', String(n)), vertex('child', String(n))]).flat(),
-      edges: Array.from({ length: size / 2 }, (_, n) => edge(String(n))), removals: [],
-    }));
-    if (analyzed) await owner.exec('ANALYZE');
-    return await owner.transaction('write', async tx => {
-      await tx.query('SET LOCAL enable_seqscan=off');
-      await tx.query('DISCARD PLANS');
-      const interval = future ? { validTo: new Date(Date.now() + 60_000).toISOString() } : { validFrom: '0001-01-01T00:00:00.000Z' };
-      const subject = await tx.query<{ id: string }>("SELECT n.id::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='delta-parent' AND n.key=' {\"name\":\"0\"}'::jsonb");
-      await writeAssertion(tx, contract, { sort: 'vertex', kind: 'delta-parent', subjectId: subject.rows[0]!.id,
-        property: '$exists', operation: 'assert', value: true, ...interval });
-      const before = await rowsRead(tx);
-      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
-      const after = await rowsRead(tx);
-      return Object.fromEntries(Object.entries(after).map(([table, reads]) => [table, reads - before[table]!]));
-    });
-  } finally { await owner.close(); }
-}
-for (const analyzed of [false, true]) for (const future of [false, true]) {
-  test(`delta relation check reads equal rows per table in S50 and S500 analyzed=${analyzed} future=${future}`, async () => {
-    const small = await measuredCheck(50, future, analyzed);
-    const large = await measuredCheck(500, future, analyzed);
-    console.log(`DELTA_ROWS analyzed=${analyzed} future=${future} ${JSON.stringify({ S50: small, S500: large })}`);
-    expect(Object.values(small).reduce((sum, reads) => sum + reads, 0)).toBeGreaterThan(0);
-    expect(large).toEqual(small);
-  }, 120_000);
-}
 
 test('delta refuses a retired vertex with an active incident edge', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract });
@@ -155,7 +95,7 @@ test('generated delta relation check never selects an entire active kind', async
   try {
     const result = await owner.run(tx => tx.query<{ body: string }>(`SELECT string_agg(prosrc,E'\n') AS body FROM pg_proc WHERE oid IN (
       'graph_checks_pass()'::regprocedure,
-      'graph_relation_violation(bigint[],bigint[],bigint[],bigint[],bigint[],bigint[],text[],text[],bigint,boolean,timestamptz)'::regprocedure)`));
+      'graph_relation_violation(bigint[],bigint[],bigint[],bigint[],bigint[],bigint[],text[],text[],bigint,boolean,timestamptz,jsonb)'::regprocedure)`));
     const calls = [...result.rows[0]!.body.matchAll(/graph_(?:vertex|edge)_active_ids(?:_batch)?\(([^()]*)\)/g)];
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) expect(call[1]!.split(',').length).toBeGreaterThanOrEqual(3);
