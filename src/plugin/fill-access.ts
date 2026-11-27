@@ -45,7 +45,9 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
       return { vertices: facts.vertices.filter((vertex) => vertex.kind === scope.output).map((vertex) => ({ ...vertex,
         ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => scope.fields.includes(field))) }),
       })), edges: facts.edges.filter((edge) => scope.edges.includes(edge.kind)),
-        ...(facts.revisions === undefined ? {} : { revisions: facts.revisions.filter((revision) => revision.subject.sort === 'vertex' ? revision.subject.kind === scope.output : scope.edges.includes(revision.subject.kind)) }) };
+        ...(facts.revisions === undefined ? {} : { revisions: facts.revisions.filter((revision) => revision.subject.sort === 'vertex' ? revision.subject.kind === scope.output : scope.edges.includes(revision.subject.kind)) }),
+        // The answer states what it covered, narrowed to the same output kind and edge kinds the invocation may read.
+        ...(facts.coverage === undefined ? {} : { coverage: { ...(facts.coverage.vertices === undefined ? {} : { vertices: facts.coverage.vertices }), edges: facts.coverage.edges.filter((kind) => scope.edges.includes(kind)) } }) };
     } }),
     // The host authorizes writer consistency records by graphReads, not catalogue content prerequisites.
     ...(graph.removedEnds === undefined ? {} : { removedEnds: (...args: Parameters<NonNullable<GraphAnswerer['removedEnds']>>) => graph.removedEnds!(...args) }),

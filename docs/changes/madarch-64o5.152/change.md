@@ -1,7 +1,7 @@
 # A plugin's reconcile is decided from the sequences it read
 
 Change: madarch-64o5.152
-Base: b770f117cfccb1bf0e518eec700e29deb02d2e5f
+Base: aeacd745e
 Tasks: madarch-64o5.152
 Kind: behavior
 
@@ -18,11 +18,19 @@ nothing: a unit that added a fact, withdrew it and added it again in one run lef
 addition was byte-identical to the first. And a statement of the same subjects between the read and the write was
 never refused, so a batch planned from a graph that had already moved was published as if nothing had.
 
-`graph.ownFacts` now answers, beside the facts it lists, the last recorded sequence of this source's stream for every
-covered subject — the unit's own kind and the edge kinds the read covers, retracted subjects included, because a
-retraction is a statement of the stream too. A subject the answer names no sequence for is one this source never
-asserted, and a batch that touches it states that absence. A support vertex of another kind carries no precondition:
-the read answered facts of the unit's kind, so it made no claim about that subject.
+`graph.ownFacts` now answers, beside the facts it lists, the last recorded sequence of this source's stream for the
+subjects its read covered — the unit's kind inside the read's keys, an own-kind support the read resolved, and the
+edges of the kinds the unit writes, retracted subjects included, because a retraction is a statement of the stream too.
+It also names what that coverage is, and coverage is the one rule both sides keep: a subject inside it that the answer
+names no sequence for is one this source never asserted, and a batch that touches it states that absence; a subject
+outside it — a support of the unit kind in a partition the read did not key, a support of another kind, an edge of a
+kind the read does not own — is one the read said nothing about, so the batch carries no precondition for it. A
+position the answer does name is always stated, wherever its subject stands: a resolved support of the unit kind
+carries the sequence the stream holds, never a claim that it was never asserted.
+
+A read bounded by paths cannot enumerate the keys it looked at, so it covers no key by default and vouches only for
+the subjects it returns. Every subject the answer returns is covered, the path read from its evidence where the kind
+keys by something else, so such a read plans from a position the stream holds rather than from an absence it never saw.
 
 Each batch of a reconcile carries those preconditions, and the key of the operation is the digest of the operation
 together with them. A second `add` after a `remove` therefore carries the retraction's sequence and is a different
@@ -56,6 +64,13 @@ in the digest derived from it — the clarification of item 24 says exactly that
 The check has to be per subject and per source. A scope-wide revision would make every batch of one read conflict
 with its neighbours, and a subject-wide revision across all sources would make a plugin stale whenever another
 producer stated the same entity — neither is what the reconcile was decided from.
+
+Coverage is what keeps a precondition honest. The SDK cannot tell a subject the read looked at and found absent from
+one the read never looked at, so the read states the difference itself: it answers what it covered, and a batch claims
+absence only inside that. A support of the unit kind in a neighbouring partition is the case that makes this visible.
+A git fill split into partitions writes the parent commit as a support, while the partition that owns that commit
+already asserted it; a claim of absence for the support made the first fill of any repository with more than one
+partition fail after three conflicts, which is why no support outside the read's coverage claims anything.
 
 Identity, not uid: the protocol's own rule (0035, item 3) is that a plugin names an entity by kind and key and never
 by a node id the host hands out, so a precondition is named the same way. The graph derives a subject's uid from its

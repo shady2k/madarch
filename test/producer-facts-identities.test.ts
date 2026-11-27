@@ -61,7 +61,7 @@ test('mixed reconciliation kinds share one structural identity statement and ret
     };
     const facts = await producerFacts(observed, contract, TEST_SOURCE_UID,
       ['fixture.group', 'fixture.empty', 'fixture.item'], ['fixture.member', 'fixture.empty-link', 'fixture.link']);
-    const { revisions, ...held } = facts;
+    const { revisions, coverage: _coverage, ...held } = facts;
     expect(held).toEqual({
       vertices: [
         { ...ref('fixture.group', 'group'), values: { text: 'group value' } },

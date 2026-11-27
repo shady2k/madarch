@@ -10,7 +10,7 @@ import { sha256Hex } from '../src/graph/digest.js';
 import { generatedTableName, type GraphContract, type VertexDraft } from '../src/graph/contract.js';
 import { producerFacts } from '../src/graph/producer-facts.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
-import { reconcileFacts } from '../src/plugin-sdk.js';
+import { batchPreconditions, reconcileFacts } from '../src/plugin-sdk.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
 
@@ -184,7 +184,7 @@ test('batched producer facts are byte-identical to the old reader for key edges,
     expect(expected.edges).toHaveLength(5);
     expect(expected.vertices.every(vertex => vertex.keyEdges?.repository?.kind === 'code.repository' && vertex.evidence?.commit === 'fixture-commit')).toBe(true);
     const actual = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-link', 'code.file-repository']);
-    const { revisions: _revisions, ...held } = actual;
+    const { revisions: _revisions, coverage: _coverage, ...held } = actual;
     expect(JSON.stringify(held)).toBe(JSON.stringify(expected));
   } finally { await owner.close(); }
 }, 30_000);
@@ -256,6 +256,73 @@ test('producer facts filter partition keys and evidence paths before returning o
     expect(paths.vertices.map(vertex => vertex.key)).toEqual([{ path: 'src/c.ts' }]);
     expect(paths.edges.map(edge => edge.from.key)).toEqual([{ path: 'src/c.ts' }]);
     const empty = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', ownedEdges: [{ kind: 'code.file-repository', from: 'code.file', to: 'code.repository' }], keys: [] });
-    expect(empty).toEqual({ vertices: [], edges: [], revisions: [] });
+    expect(empty).toEqual({ vertices: [], edges: [], revisions: [], coverage: { vertices: { kind: 'code.file', keys: [] }, edges: ['code.file-repository'] } });
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('a read of one partition names the position of an own-kind support it resolved', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
+  try {
+    // src/a.ts stands in the neighbouring partition; the link from this partition's key makes the read resolve it.
+    await publishFiles(owner, ['src/a.ts', 'src/b.ts']);
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, partitionContract);
+      await publishGraphDrafts(tx, partitionContract, { vertices: [], removals: [], edges: [
+        { kind: 'code.file-link', from: fileRef('src/b.ts'), to: fileRef('src/a.ts'), discriminator: 'line:2', producer: 'reader', producerVersion: '1' },
+      ] }, 1);
+    });
+    const scope = { kind: 'code.file', ownedEdges: [{ kind: 'code.file-link', from: 'code.file', to: 'code.file' }], keys: [{ path: 'src/b.ts' }], supportKeys: true };
+    const read = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-link'], scope);
+    expect(read.vertices.map(vertex => vertex.key['path']).sort()).toEqual(['src/a.ts', 'src/b.ts']);
+    const positions = read.revisions.flatMap(revision => revision.subject.sort === 'vertex' ? [[String(revision.subject.key['path']), revision.recordedSequence] as const] : []);
+    expect(positions.map(([path]) => path).sort()).toEqual(['src/a.ts', 'src/b.ts']);
+    // A batch that touches the support carries the sequence the stream holds, never a claim that it was never asserted.
+    expect(batchPreconditions({ vertices: [fileRef('src/a.ts')] }, 'code.file', read)).toEqual([
+      { subject: { sort: 'vertex', kind: 'code.file', key: { path: 'src/a.ts' }, keyEdges: { repository } }, recordedSequence: positions.find(([path]) => path === 'src/a.ts')![1] },
+    ]);
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('a reconciliation answer states the subjects it covered, and a batch claims nothing about one it did not', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
+  try {
+    // The neighbouring partition asserted src/a.ts; this partition's own key stands in no assertion of its own yet.
+    await publishFiles(owner, ['src/a.ts']);
+    const scope = { kind: 'code.file', ownedEdges: [{ kind: 'code.file-link', from: 'code.file', to: 'code.file' }], keys: [{ path: 'src/b.ts' }], supportKeys: true };
+    const before = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-link'], scope);
+    expect(before.vertices).toEqual([]);
+    expect(before.revisions).toEqual([]);
+    expect(before.coverage).toEqual({ vertices: { kind: 'code.file', keys: [{ path: 'src/b.ts' }] }, edges: ['code.file-link'] });
+    // The batch this read decides adds the partition's key, the neighbouring support and the link between them. src/a.ts
+    // already stands in the other partition's stream, so the batch must claim nothing about it: the read did not cover it.
+    const conditions = batchPreconditions({
+      vertices: [{ ...fileRef('src/b.ts'), values: { text: 'contents of src/b.ts' } }, fileRef('src/a.ts')],
+      edges: [{ kind: 'code.file-link', from: fileRef('src/b.ts'), to: fileRef('src/a.ts'), discriminator: 'line:2' }],
+    }, 'code.file', before);
+    expect(conditions).toEqual([
+      { subject: { sort: 'edge', kind: 'code.file-link', from: fileRef('src/b.ts'), to: fileRef('src/a.ts'), discriminator: 'line:2' } },
+      { subject: { sort: 'vertex', kind: 'code.file', key: { path: 'src/b.ts' }, keyEdges: { repository } } },
+    ]);
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('a path-limited read names the position of every subject it returns, the path in its evidence', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, contract);
+      await publishGraphDrafts(tx, contract, {
+        vertices: [
+          { kind: 'fixture.snapshot', key: { digest }, values: { content: retained }, producer: 'reader', producerVersion: '1' },
+          item('inside', 'selected'),
+          { ...item('outside', 'elsewhere'), evidence: [{ target: { kind: 'fixture.snapshot', key: { digest } }, locator: { path: 'elsewhere/items.ts', lineStart: 2, lineEnd: 4 } }] },
+        ], removals: [] }, 1);
+    });
+    const read = await producerFacts(owner, contract, TEST_SOURCE_UID, ['fixture.item'], [], { kind: 'fixture.item', paths: ['src'] });
+    expect(read.vertices.map(vertex => vertex.key['name'])).toEqual(['inside']);
+    // The subject the answer returns carries the position the stream holds, read from the path its evidence names.
+    expect(read.revisions.map(revision => revision.subject.sort === 'vertex' ? revision.subject.key['name'] : '')).toEqual(['inside']);
+    // A path-limited read cannot enumerate the keys it covered, so it vouches for no absent subject.
+    expect(read.coverage).toEqual({ vertices: { kind: 'fixture.item', keys: [] }, edges: [] });
   } finally { await owner.close(); }
 }, 30_000);

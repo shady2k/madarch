@@ -114,6 +114,24 @@ export const PluginSubjectRevision = Type.Object(
   { additionalProperties: false, description: 'One subject and the last recorded sequence of this source\'s stream for it.' },
 );
 
+/**
+ * What a reconciliation read covered (0039 item 24): the subjects a missing position speaks for. The unit kind is
+ * covered inside `keys` — every key of the kind when the read names no keys, and no key at all when a path bounds the
+ * read, because such a read cannot enumerate the keys it looked at. An own-kind support the read resolved, and every
+ * edge of the named kinds, carry their position in `revisions` instead. A subject outside the coverage is one the read
+ * did not look at, so a batch makes no claim about it.
+ */
+export const PluginReconciliationCoverage = Type.Object(
+  {
+    vertices: Type.Optional(Type.Object({
+      kind: Type.String({ minLength: 1, description: 'The unit kind the read answered.' }),
+      keys: Type.Optional(Type.Array(PluginKeyValues, { description: 'The partition keys the read was limited to; absent, every key of the kind; an empty list, no key at all.' })),
+    }, { additionalProperties: false, description: 'The unit kind the read answered and the keys it was limited to.' })),
+    edges: Type.Array(Type.String({ minLength: 1 }), { description: 'The edge kinds whose positions the answer holds.' }),
+  },
+  { additionalProperties: false, description: 'The subjects one reconciliation read covered: a position absent from the answer for a subject inside this coverage means this source never asserted it, and for one outside it means the read did not cover it.' },
+);
+
 /** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
 export const PluginGraphOwnFactsRequest = Type.Object({
   unitId: Type.String({ minLength: 1 }),
@@ -122,7 +140,8 @@ export const PluginGraphOwnFactsRequest = Type.Object({
 export const PluginGraphOwnFactsResult = Type.Object({
   vertices: Type.Array(PluginVertexResult),
   edges: Type.Array(PluginEdgeResult),
-  revisions: Type.Optional(Type.Array(PluginSubjectRevision, { description: 'The last recorded sequence of this source\'s stream for every subject of the kinds the read covered, standing or retracted; absent, the answer names none and a batch decided from it carries no preconditions.' })),
+  revisions: Type.Optional(Type.Array(PluginSubjectRevision, { description: 'The last recorded sequence of this source\'s stream for every subject the read covered, standing or retracted; absent, the answer names none and a batch decided from it carries no preconditions.' })),
+  coverage: Type.Optional(PluginReconciliationCoverage),
 }, { additionalProperties: false });
 
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
@@ -571,6 +590,7 @@ export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsReques
 export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
 export type PluginSubject = Static<typeof PluginSubject>;
 export type PluginSubjectRevision = Static<typeof PluginSubjectRevision>;
+export type PluginReconciliationCoverage = Static<typeof PluginReconciliationCoverage>;
 export type PluginPrecondition = Static<typeof PluginPrecondition>;
 export type PluginFactsApplyRequest = Static<typeof PluginFactsApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;

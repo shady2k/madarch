@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { batchPreconditions, reconcileFacts, type EdgeResult, type VertexResult } from '../src/plugin-sdk.js';
+import { batchPreconditions, reconcileFacts, type EdgeResult, type KeyValues, type SubjectRevision, type VertexResult } from '../src/plugin-sdk.js';
 
 const scope = { repository: 'fixture', commit: 'current', parent: { kind: 'code.repository', key: { name: 'fixture' } } };
 const vertex = (name: string, value: unknown): VertexResult => ({ kind: 'item', key: { name }, keyEdges: { repository: { kind: 'code.repository', key: { name: 'fixture' } } }, values: { value }, evidence: { target: { kind: 'blob', key: { digest: 'retained' } } } });
@@ -68,13 +68,16 @@ describe('reconcile batch preconditions (0039 item 24)', () => {
   const probe = (id: string): VertexResult => ({ kind: 'item', key: { id } });
   const support = (id: string): VertexResult => ({ kind: 'support', key: { id } });
   const link = (from: string, to: string, discriminator?: string): EdgeResult => ({ kind: 'link', from: { kind: 'item', key: { id: from } }, to: { kind: 'item', key: { id: to } }, ...(discriminator === undefined ? {} : { discriminator }) });
+  /** What one read answered: its positions, and what it covered — every key of the kind unless it names keys. */
+  const read = (revisions: readonly SubjectRevision[] = [], keys?: readonly KeyValues[], edges: readonly string[] = ['link']) => ({
+    revisions,
+    coverage: { vertices: { kind: 'item', ...(keys === undefined ? {} : { keys }) }, edges },
+  });
+  const held = (id: string) => ({ subject: { sort: 'vertex' as const, kind: 'item', key: { id } }, recordedSequence: '11' });
 
   test('names the read sequence of every touched subject of the unit kind and of every touched edge', () => {
-    const revisions = [
-      { subject: { sort: 'vertex' as const, kind: 'item', key: { id: 'held' } }, recordedSequence: '11' },
-      { subject: { sort: 'edge' as const, kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }, recordedSequence: '12' },
-    ];
-    expect(batchPreconditions({ vertices: [probe('held'), probe('added'), support('supported')], edges: [link('held', 'added')], removals: [probe('retired')] }, revisions, 'item')).toEqual([
+    const revisions = [held('held'), { subject: { sort: 'edge' as const, kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }, recordedSequence: '12' }];
+    expect(batchPreconditions({ vertices: [probe('held'), probe('added'), support('supported')], edges: [link('held', 'added')], removals: [probe('retired')] }, 'item', read(revisions))).toEqual([
       { subject: { sort: 'edge', kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }, recordedSequence: '12' },
       { subject: { sort: 'vertex', kind: 'item', key: { id: 'added' } } },
       { subject: { sort: 'vertex', kind: 'item', key: { id: 'held' } }, recordedSequence: '11' },
@@ -82,13 +85,38 @@ describe('reconcile batch preconditions (0039 item 24)', () => {
     ]);
   });
 
-  test('an unreported subject of the unit kind states its absence, and a support kind carries no claim', () => {
-    expect(batchPreconditions({ vertices: [support('supported')] }, [{ subject: { sort: 'vertex', kind: 'item', key: { id: 'held' } }, recordedSequence: '3' }], 'item')).toEqual([]);
-    expect(batchPreconditions({ removals: [probe('retired')] }, [], 'item')).toEqual([{ subject: { sort: 'vertex', kind: 'item', key: { id: 'retired' } } }]);
+  test('an unreported subject inside the coverage states its absence, and one outside it carries no claim', () => {
+    // No keys: the read covered every key of the unit kind, so an unreported subject of it was never asserted.
+    expect(batchPreconditions({ removals: [probe('retired')] }, 'item', read())).toEqual([{ subject: { sort: 'vertex', kind: 'item', key: { id: 'retired' } } }]);
+    // The read answered one support kind only, so another support kind carries no claim.
+    expect(batchPreconditions({ vertices: [support('supported')] }, 'item', read([held('held')]))).toEqual([]);
+    // Keys narrow the vertices the read covered: a support of the unit kind outside them, unnamed by the answer, is a
+    // subject the read did not cover. An edge of a kind the read did not answer is the same.
+    const narrow = read([], [{ id: 'held' }, { id: 'added' }], ['link']);
+    expect(batchPreconditions({
+      vertices: [probe('held'), probe('added'), probe('neighbour')],
+      edges: [link('held', 'added'), { kind: 'other', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }],
+    }, 'item', narrow)).toEqual([
+      { subject: { sort: 'edge', kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } } },
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'added' } } },
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'held' } } },
+    ]);
+  });
+
+  test('a position the answer names is used wherever it stands, covered by a key or not', () => {
+    const named = read([{ subject: { sort: 'vertex', kind: 'item', key: { id: 'neighbour' } }, recordedSequence: '5' }], [{ id: 'held' }]);
+    expect(batchPreconditions({ vertices: [probe('neighbour')] }, 'item', named)).toEqual([
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'neighbour' } }, recordedSequence: '5' },
+    ]);
+  });
+
+  test('an answer that names no coverage claims no absence, and still uses the positions it names', () => {
+    expect(batchPreconditions({ vertices: [probe('added')] }, 'item', {})).toEqual([]);
+    expect(batchPreconditions({ vertices: [probe('held')] }, 'item', { revisions: [held('held')] })).toEqual([held('held')]);
   });
 
   test('a repeated subject and an empty discriminator name one subject, never two conditions', () => {
     const subject = { sort: 'edge' as const, kind: 'link', from: { kind: 'item', key: { id: 'a' } }, to: { kind: 'item', key: { id: 'b' } } };
-    expect(batchPreconditions({ edges: [link('a', 'b', ''), { ...link('a', 'b'), discriminator: '' }] }, [{ subject, recordedSequence: '4' }], 'item')).toEqual([{ subject, recordedSequence: '4' }]);
+    expect(batchPreconditions({ edges: [link('a', 'b', ''), { ...link('a', 'b'), discriminator: '' }] }, 'item', read([{ subject, recordedSequence: '4' }]))).toEqual([{ subject, recordedSequence: '4' }]);
   });
 });

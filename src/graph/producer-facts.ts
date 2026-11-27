@@ -3,7 +3,7 @@ import { SQL_TRANSACTION_KINDS } from '../sql-driver.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, EntityRefDraft } from './contract.js';
-import type { PluginVertexResult, PluginEdgeResult, PluginEvidence, PluginKeyValues, PluginSubjectRevision } from '../plugin/protocol.js';
+import type { PluginVertexResult, PluginEdgeResult, PluginEvidence, PluginKeyValues, PluginSubjectRevision, PluginReconciliationCoverage } from '../plugin/protocol.js';
 import { canonicalKey } from '../plugin/results.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
 import { withSpan } from '../obs/trace.js';
@@ -58,7 +58,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
   readonly keys?: readonly PluginKeyValues[];
   readonly supportKeys?: boolean;
   readonly paths?: readonly string[];
-}): Promise<{ vertices: PluginVertexResult[]; edges: PluginEdgeResult[]; revisions: PluginSubjectRevision[] }> {
+}): Promise<{ vertices: PluginVertexResult[]; edges: PluginEdgeResult[]; revisions: PluginSubjectRevision[]; coverage: PluginReconciliationCoverage }> {
   return await withSpan('graph.producer-facts', { sourceUid }, async () => await owner.transaction(SQL_TRANSACTION_KINDS.snapshot, async tx => {
     const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
     const selector = { validAt: now, recordedAt: now, contexts: [1] };
@@ -139,13 +139,6 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
       return scope.paths === undefined || (typeof path === 'string' && scope.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`)));
     };
     const scoped = held.filter(item => inScope(item));
-    // The sequences the answer names are the subjects the read covers: a subject outside the read's scope is its own
-    // business, and answering it would grow every reconciliation answer by a partition it never touches.
-    const sequenceInScope = (sequence: SubjectSequence, sort: 'vertex' | 'edge'): boolean => {
-      const row = identityById.get(sequence.id)!;
-      return inScope({ sort, name: row.name, row, own: [] });
-    };
-    const coveredSequences = { vertices: sequences.vertices.filter(sequence => sequenceInScope(sequence, 'vertex')), edges: sequences.edges.filter(sequence => sequenceInScope(sequence, 'edge')) };
     const supportIds = new Set<number>();
     if (scope?.supportKeys === true && keys !== undefined) for (const item of scoped) {
       if (item.link?.kind === scope.kind) supportIds.add(Number(item.link.id));
@@ -156,6 +149,17 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     }
     const scopedItems = new Set(scoped);
     const selected = held.filter(item => scopedItems.has(item) || (item.sort === 'vertex' && supportIds.has(Number(item.row.id)) && inScope(item, true)));
+    // The sequences the answer names are the subjects the read covers (0039 item 24): everything the answer returns — the
+    // unit kind inside the read's keys, and an own-kind support the read resolved — plus a subject the scope admits
+    // though nothing of it stands, so a later assertion of it is planned from the retraction its stream carries. A
+    // subject outside the read's scope is its own business: answering it would grow every answer by a partition the read
+    // never touched.
+    const returned = new Set(selected.map(item => `${item.sort}:${Number(item.row.id)}`));
+    const subjectInScope = (sequence: SubjectSequence, sort: 'vertex' | 'edge'): boolean => {
+      const row = identityById.get(sequence.id)!;
+      return returned.has(`${sort}:${sequence.id}`) || inScope({ sort, name: row.name, row, own: [] });
+    };
+    const coveredSequences = { vertices: sequences.vertices.filter(sequence => subjectInScope(sequence, 'vertex')), edges: sequences.edges.filter(sequence => subjectInScope(sequence, 'edge')) };
     const idsByKind = new Map<string, Set<number>>();
     const need = (kind: string, id: number): void => {
       let ids = idsByKind.get(kind);
@@ -225,6 +229,14 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
         to: reference(byEnd.get(Number(item.row.to_node))!.kind, Number(item.row.to_node)),
         ...(item.row.discriminator === '' ? {} : { discriminator: item.row.discriminator }), values, ...(evidence === undefined ? {} : { evidence }) });
     }
-    return { vertices, edges, revisions };
+    // Decision 0039 item 24: the answer states what it covered, so a batch claims absence only where the read looked. A
+    // path bounds the subjects by evidence the answer cannot enumerate, so such a read covers no key by default and
+    // vouches only for the positions it names.
+    const coverageKeys = scope !== undefined && scope.paths !== undefined ? [] : scope?.keys;
+    const coverage: PluginReconciliationCoverage = {
+      ...(kinds.length === 1 ? { vertices: { kind: kinds[0]!, ...(coverageKeys === undefined ? {} : { keys: [...coverageKeys] }) } } : {}),
+      edges: [...edgeKinds],
+    };
+    return { vertices, edges, revisions, coverage };
   }));
 }

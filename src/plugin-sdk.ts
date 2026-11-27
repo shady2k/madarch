@@ -122,16 +122,32 @@ export interface ReconciliationScope {
   readonly commit?: string;
 }
 
+/**
+ * What one reconciliation read covered (0039 item 24): the subjects a missing position speaks for. The unit kind is
+ * covered inside `keys` — every key of the kind when the read names no keys, and no key at all when a path bounded the
+ * read, because such a read cannot enumerate the keys it looked at. An own-kind support the read resolved, and every
+ * edge of the named kinds, carry their position in `revisions` instead. A subject outside this coverage is one the read
+ * did not look at, so a batch makes no claim about it.
+ */
+export interface ReconciliationCoverage {
+  readonly vertices?: { readonly kind: string; readonly keys?: readonly KeyValues[] };
+  readonly edges: readonly string[];
+}
+
 /** Only the authenticated plugin's current facts in a covered scope. */
 export interface OwnFacts {
   readonly vertices: readonly VertexResult[];
   readonly edges: readonly EdgeResult[];
   /**
-   * The last recorded sequence of this source's stream for every subject of the kinds the read covered, whether the
-   * subject stands or was retracted (0039 item 24). Absent, the answer made no claim about sequences, and a batch
-   * decided from it carries no preconditions.
+   * The last recorded sequence of this source's stream for every subject the read covered, whether the subject stands
+   * or was retracted (0039 item 24). Absent, the answer named none, and a batch decided from it carries no preconditions.
    */
   readonly revisions?: readonly SubjectRevision[];
+  /**
+   * The subjects the read covered. Absent, the answer claims no absence: a batch decided from it carries a precondition
+   * only for a subject the answer named a position for.
+   */
+  readonly coverage?: ReconciliationCoverage;
 }
 
 /** One subject a graph read and a batch name: a vertex by kind and key, an edge by kind and ends (0035, item 3). */
@@ -196,19 +212,28 @@ function edgeSubject(fact: EdgeResult): SubjectRef {
 /**
  * Decision 0039 item 24 (clarification of 2026-11-18): a batch carries the sequence its read saw for every subject it
  * touches, and the key of the operation is derived from the operation together with those preconditions. A subject of
- * the reconciled kind or of an edge kind the answer named no revision for is one this source never asserted, and the
- * batch states that absence — so a repeated `add` after a retraction carries the retraction's sequence and becomes a
- * different operation. A support vertex of another kind carries no precondition: the read answered facts of the unit's
- * kind, so it made no claim about that subject.
+ * the reconciled kind inside the read's keys, or an edge of a kind the read answered, that the answer named no position
+ * for is one this source never asserted, and the batch states that absence — so a repeated `add` after a retraction
+ * carries the retraction's sequence and becomes a different operation. A support of the unit kind outside the keys, a
+ * support of another kind, and an edge of a kind the read did not answer are outside the read's coverage: the read said
+ * nothing about them, so the batch claims nothing, while a position the answer does name is always stated.
  */
-export function batchPreconditions(operation: FactsOperation, revisions: readonly SubjectRevision[], kind: string): Precondition[] {
-  const known = new Map(revisions.map((revision) => [canonical(revision.subject), revision.recordedSequence]));
+export function batchPreconditions(operation: FactsOperation, kind: string, facts: Pick<OwnFacts, 'revisions' | 'coverage'>): Precondition[] {
+  const known = new Map((facts.revisions ?? []).map((revision) => [canonical(revision.subject), revision.recordedSequence]));
+  const covers = (subject: SubjectRef): boolean => {
+    const coverage = facts.coverage;
+    if (coverage === undefined) return false;
+    if (subject.sort === 'edge') return coverage.edges.includes(subject.kind);
+    return coverage.vertices !== undefined && subject.kind === coverage.vertices.kind
+      && (coverage.vertices.keys === undefined || coverage.vertices.keys.some((key) => canonical(key) === canonical(subject.key)));
+  };
   const conditions = new Map<string, Precondition>();
   const add = (subject: SubjectRef): void => {
     const held = canonical(subject);
     if (conditions.has(held)) return;
     const recordedSequence = known.get(held);
-    conditions.set(held, recordedSequence === undefined ? { subject } : { subject, recordedSequence });
+    if (recordedSequence !== undefined) { conditions.set(held, { subject, recordedSequence }); return; }
+    if (covers(subject)) conditions.set(held, { subject });
   };
   for (const fact of operation.vertices ?? []) if (fact.kind === kind) add(vertexSubject(fact));
   for (const fact of operation.removals ?? []) if (fact.kind === kind) add(vertexSubject(fact));
@@ -860,7 +885,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
                 if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
                 // 0039 item 24: the key is the digest of the canonical request, its preconditions included, so a batch
                 // decided from a different read is a different operation and never the receipt of an earlier one.
-                const preconditions = current.revisions === undefined ? [] : batchPreconditions(operation, current.revisions, unit.kind);
+                const preconditions = batchPreconditions(operation, unit.kind, current);
                 const request = { unitId: unit.unitId, key: `reconcile-${createHash('sha256').update(canonical({ operation, preconditions })).digest('hex')}`, operation, ...(preconditions.length === 0 ? {} : { preconditions }) };
                 await askHost('facts.apply', request);
                 for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));

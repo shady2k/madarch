@@ -63,6 +63,7 @@ function streamWriter() {
           vertices: [...facts.values()].filter(fact => fact.present).map(fact => ({ kind: fact.kind, key: fact.key, ...(fact.values === undefined ? {} : { values: fact.values }) })),
           edges: [],
           revisions: [...facts.values()].map(fact => ({ subject: { sort: 'vertex' as const, kind: fact.kind, key: fact.key }, recordedSequence: String(fact.sequence) })),
+          coverage: { vertices: { kind: 'Probe' }, edges: [] },
         };
       },
       files: async () => [],

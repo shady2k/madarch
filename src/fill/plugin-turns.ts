@@ -558,10 +558,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const scoped = {
         vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence, vertex.kind === unit.kind.name && supportKeys.has(canonicalEntity(vertex)))),
         edges,
-        // Every subject of the covered kinds keeps its stream position, whether the fact stands or was retracted: the
-        // reconcile batch a later read decides is keyed by it (0039 item 24). Support vertices of other kinds are never
-        // covered by this answer, so a batch claims nothing about them.
+        // Every subject the read covered keeps its stream position, whether the fact stands or was retracted, and the
+        // answer states which subjects those are: the reconcile batch a later read decides claims absence only for them
+        // (0039 item 24). Support vertices of other kinds are never covered by this answer, so a batch claims nothing
+        // about them.
         revisions: facts.revisions,
+        coverage: facts.coverage,
       };
       priorFactCount = scoped.vertices.length + scoped.edges.length;
       return scoped;
