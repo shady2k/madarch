@@ -49,7 +49,7 @@ test('unmerging with an edge allocation checks the incoming bound at the far end
     const parent = { kind: 'other', key: { name: 'bounded-parent' } };
     await f.execute(f.a, tx => publishGraphDrafts(tx, declared, {
       vertices: [{ ...parent, values: { synonyms: [] }, ...producer }],
-      edges: [{ kind, from: { kind: 'sample', key: alias!.key }, to: parent, ...producer }],
+      edges: [{ kind, from: { kind: 'sample', key: {}, uid: alias!.uid }, to: parent, ...producer }],
       removals: [],
     }));
     const [standing] = await f.owner.transaction('snapshot', tx =>
@@ -60,7 +60,7 @@ test('unmerging with an edge allocation checks the incoming bound at the far end
     // Later assertions on the survivor need an explicit allocation at unmerge.
     await f.execute(f.a, tx => publishGraphDrafts(tx, declared, {
       vertices: [],
-      edges: [{ kind, from: { kind: 'sample', key: survivor!.key }, to: parent, ...producer }],
+      edges: [{ kind, from: { kind: 'sample', key: {}, uid: survivor!.uid }, to: parent, ...producer }],
       removals: [],
     }));
     const projected = await f.owner.transaction('snapshot', tx =>
@@ -75,7 +75,7 @@ test('unmerging with an edge allocation checks the incoming bound at the far end
     // The split leaves one link per member, both pointing into the same bounded parent.
     await expect(f.execute(f.r, tx => unmerge(tx, declared, f.r, {
       mergeUid: merge.uid,
-      reason: 'Allocate the later edge to its authoring member',
+      reason: 'Allocate the later edge to its original source vertex',
       evidence: f.input.evidence,
       allocations: [{ assertionUid: assertion.id, memberUid: survivor!.uid, direction: 'from' }],
     }))).rejects.toThrow(`CARDINALITY_INVALID for ${kind}`);
