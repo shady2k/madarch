@@ -1353,6 +1353,15 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       const plan = await planOf(orchestrator, unit);
       const joined = await settleJoin(orchestrator, { unit, plan, runId: run.runId, at });
       if (joined !== null) swept.push(joined);
+      continue;
+    }
+    if (unit.state === 'running') {
+      // A unit standing `running` with no unfinished job holding its key has no attempt in flight: the worker
+      // that started it is gone and the queue's own maintenance settled its claim, so nothing will finish the
+      // attempt and no step of the machine can leave the state it left behind. The sweep ends it the way a
+      // lapsed lease is ended — its retry, or its failure when no retry is left (madarch-vmx9).
+      const ended = await endEndedAttempt(orchestrator, { unit, at, reason: 'its attempt ended with no state and no claim of it in the queue' });
+      if (ended.swept !== null) swept.push(ended.swept);
     }
   }
   return { swept, refused };
@@ -1920,10 +1929,80 @@ async function attemptUnitPhases(
   }
 }
 
-async function claimLapsed(orchestrator: FillOrchestrator, unit: UnitRecord, job: ClaimedJob, stageReason?: string): Promise<WorkOutcome> {
+/** What ending an attempt nothing will finish did. */
+interface EndedAttempt {
+  /** The step the sweep took, or null when the unit moved, or the queue still owns an attempt for it. */
+  readonly swept: SweptUnit | null;
+  /** True when the queue job the caller held was settled with the step. */
+  readonly settledJob: boolean;
+}
+
+/**
+ * Ends an attempt nothing will finish: a unit stands `running` while the claim of its attempt is gone.
+ * The worker that started it died, its lease lapsed by time, or the queue's own maintenance settled the
+ * claim, and the generation is left in a state no step of the machine can leave — so the run that planned
+ * it can never settle (`madarch-vmx9`). The machine's own `lease-expired` retry is the step that ends such
+ * an attempt: the retry is scheduled, and the wake its moment brings enqueues it, or the generation fails
+ * when it has no retry left. Both are one transaction, and a claim the caller holds is settled in that
+ * same transaction.
+ *
+ * A caller holding no claim asks the queue instead, and a key the queue still holds is an attempt this
+ * pass must not end.
+ */
+async function endEndedAttempt(
+  orchestrator: FillOrchestrator,
+  request: {
+    readonly unit: UnitRecord;
+    readonly at: number;
+    readonly reason: string;
+    readonly job?: ClaimedJob<{ readonly unitId: string; readonly generation: number }>;
+  },
+): Promise<EndedAttempt> {
+  const database = orchestrator.database;
+  const unit = request.unit;
+  let stored: FillProgressEvent | undefined;
+  const answered = await writeOrchestration(database, async tx => {
+    await lockFillScope(tx, unit.runId);
+    const current = await readUnitIn(tx, unit.unitId);
+    if (current === null || current.state !== 'running' || current.generation !== unit.generation) return { swept: null, settledJob: false } as const;
+    // The claim in hand is the attempt's own job, and the queue judges a settle by the job's state and its
+    // retry count, never by its lease: an attempt whose lease lapsed by time therefore settles the job it
+    // still holds, here, in the transaction that takes the step, and its key is free for the retry the step
+    // schedules. A job the queue handed to a later attempt, or settled on its own, refuses that settle — and
+    // the key the queue still holds then answers that an attempt for the unit is in force, which this pass
+    // must not end under.
+    const settledJob = request.job === undefined ? false : await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: request.reason }, tx);
+    if (await orchestrator.queue.holdsUnfinished(orchestrator.queueName, unit.unitId, tx)) return { swept: null, settledJob: false } as const;
+    const retryAt = request.at + orchestrator.limits.retryDelayMs;
+    let swept: SweptUnit;
+    if (current.context.retriesLeft > 0) {
+      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'retry', at: request.at, generation: current.generation, cause: 'lease-expired', retryAt, fence: null } });
+      if (!step.ok) throw new Error(`${new URL(import.meta.url).pathname}:1991: LAPSE_CONFLICT ${step.refusal.reason}`);
+      stored = await appendProgressIn(tx, { runId: unit.runId, at: request.at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${unit.unitId} stood running with no attempt in flight; its lease is ended and its retry is due at ${retryAt}: ${request.reason}` });
+      swept = { unitId: unit.unitId, outcome: 'retried', reason: request.reason };
+    } else {
+      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'fail', at: request.at, generation: current.generation, fence: current.context.fence, cause: 'retries-exhausted' } });
+      if (!step.ok) throw new Error(`${new URL(import.meta.url).pathname}:1996: FAILURE_CONFLICT ${step.refusal.reason}`);
+      stored = await appendProgressIn(tx, { runId: unit.runId, at: request.at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} stood running with no attempt in flight and no retry left: ${request.reason}` });
+      swept = { unitId: unit.unitId, outcome: 'failed', reason: request.reason };
+    }
+    return { swept, settledJob } as const;
+  });
+  if (stored !== undefined) await orchestrator.sink?.(stored);
+  return answered;
+}
+
+async function claimLapsed(orchestrator: FillOrchestrator, unit: UnitRecord, job: ClaimedJob<{ readonly unitId: string; readonly generation: number }>, stageReason?: string): Promise<WorkOutcome> {
   const refusal = { code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the claim of job ${job.id} lapsed during ${unit.unitId}${stageReason === undefined ? '' : `: ${stageReason}`}` };
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-refused', summary: `${refusal.code}: ${refusal.reason}. The queue no longer held its claim, so the queue's own maintenance owns it` });
-  return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal, job: 'none' };
+  // The refused attempt wrote nothing at all, and the claim it holds is the attempt's own job: a lease that
+  // lapsed by time still leaves that job the worker's to settle, so the generation is ended here — its retry,
+  // or its failure when no retry is left — and the job is settled in the same transaction, freeing the unit's
+  // key for the retry. A claim the queue already handed on or settled refuses the settle, and then only a key
+  // no job of the queue holds ends the attempt; otherwise the queue's own maintenance owns it (madarch-vmx9).
+  const ended = await endEndedAttempt(orchestrator, { unit, at: orchestrator.clock(), reason: refusal.reason, job });
+  if (ended.swept !== null) annotateSpan({ 'madarch.endedAttempt': ended.swept.outcome });
+  return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal, job: ended.settledJob ? 'completed' : 'none' };
 }
 
 /** Sends one attempt into a retry wait, or fails the generation when no retry is left. */

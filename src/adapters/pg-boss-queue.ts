@@ -340,6 +340,29 @@ class PgBossQueue implements QueueService {
     });
   }
 
+  async holdsUnfinished(queue: string, singletonKey: string, transaction?: OuterTransaction): Promise<boolean> {
+    const declaration = this.declarationOf(queue);
+    if (declaration.singletons !== true) {
+      raise(`the read of the unfinished jobs of the queue "${queue}" named the singleton key "${singletonKey}", and the queue holds no singletons: a key only holds a job back on a queue declared with singletons`);
+    }
+    if (singletonKey === '') {
+      raise(`the read of the unfinished jobs of the queue "${queue}" named an empty singleton key: the queue folds an empty key with no key at all, so the answer would be about every job of the queue`);
+    }
+    return await withSpan('queue.holds-unfinished', { 'madarch.queue': queue }, async () => {
+      // `state` is pg-boss's own enum, declared created, retry, active, completed, cancelled, failed, so
+      // `state <= 'active'` is exactly the predicate its exclusive index reads: the key is held while a job
+      // of it is created, waiting or claimed.
+      const read = async (executor: Pick<OuterTransaction, 'query'>): Promise<boolean> => {
+        const held = await executor.query<{ held: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM ${this.schema}.job WHERE name = $1 AND COALESCE(singleton_key, '') = $2 AND state <= 'active') AS held`,
+          [queue, singletonKey],
+        );
+        return held.rows[0]?.held === true;
+      };
+      return transaction === undefined ? await this.owner.transaction('snapshot', read) : await read(transaction);
+    });
+  }
+
   async heartbeat(queue: string, job: ClaimedJob): Promise<boolean> {
     const answer = await this.boss.touch(queue, this.jobOf(queue, job));
     return settled(answer);
