@@ -105,6 +105,9 @@ export async function assertProducedApplicability(tx: SqlExecutor, contract: Gra
 
 /** Terminal producer status cites its immutable outcome assertion as the searched scope. */
 export async function assertOutcomeApplicability(tx: SqlExecutor, contract: GraphContract, outcome: import('../fill/producer-outcomes.js').ProducerOutcomeDraft, evidenceUid: string, scope: string): Promise<void> {
+  // A completion never restates what the turn already stated: an inapplicable answer asserted its own mark with the
+  // places it searched and the agent's evidence, and a stored inapplicable mark stays as the turn found it.
+  if (outcome.outcome === 'inapplicable') return;
   await withSpan('graph.applicability.outcome', {}, async () => {
     const {readPublishedManifest} = await import('./manifest-publication.js');
     const manifest = await readPublishedManifest(tx);

@@ -14,7 +14,7 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { fillProductProfile } from '../src/graph/product-profile.js';
 import { createGitSnapshotSource } from '../src/plugin/repository-snapshot.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
-import { assertApplicability, cascadeApplicability, storedApplicability } from '../src/graph/applicability.js';
+import { assertApplicability, assertOutcomeApplicability, cascadeApplicability, storedApplicability } from '../src/graph/applicability.js';
 import { readKindAssertions } from '../src/graph/records.js';
 
 for (const kubernetes of [false,true]) test(`0039.35: pinned fixture ${kubernetes ? 'with':'without'} Kubernetes markers, explicit cascade only`,async () => {
@@ -100,6 +100,16 @@ edges:
     await assertApplicability(tx,contract,'cluster','inapplicable','Searched another snapshot',evidence);
    });
    expect((await storedApplicability(owner,contract)).find(mark=>mark.kind==='cluster')?.contested).toBe(true);
+   // A turn that finds the kind already inapplicable completes as inapplicable, and that completion never restates the
+   // stored mark: the agent's search, its reason and its evidence stand (ALX-1856, the agent-turn path).
+   const stored = (await storedApplicability(owner,contract)).find(mark=>mark.kind==='cluster')!;
+   expect(stored.state).toBe('inapplicable');
+   await owner.transaction('write',async tx=>{
+    await startupBinding(tx,contract,'mock-agent');
+    await assertOutcomeApplicability(tx,contract,{plugin:'mock-agent',kind:'cluster',outcome:'inapplicable',produced:0,reason:'No applicable document'},stored.evidence[0]!,stored.reason);
+   });
+   const kept = (await storedApplicability(owner,contract)).find(mark=>mark.kind==='cluster')!;
+   expect({state:kept.state,reason:kept.reason,evidence:kept.evidence}).toEqual({state:stored.state,reason:stored.reason,evidence:stored.evidence});
   }
 
  }finally{await owner.close();rmSync(folder,{recursive:true,force:true});}

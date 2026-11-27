@@ -1,6 +1,6 @@
 /** Observable producer results, published as ordinary system.unit assertions. */
 
-export type ProducerOutcome = 'completed' | 'unchanged' | 'empty' | 'abstained' | 'failed';
+export type ProducerOutcome = 'completed' | 'unchanged' | 'empty' | 'inapplicable' | 'abstained' | 'failed';
 export interface ProducerOutcomeDraft {
   readonly plugin: string;
   readonly kind: string;
@@ -16,6 +16,8 @@ export interface ProducerRunOutcome extends ProducerOutcomeDraft {
 }
 
 export function producerSucceeded(outcome: ProducerOutcome): boolean {
-  return outcome === 'completed' || outcome === 'unchanged' || outcome === 'empty';
+  // An inapplicable answer is a search that found no applicable place, so the producer did its work: the kind's absence
+  // is its result, not a silence of the producer.
+  return outcome === 'completed' || outcome === 'unchanged' || outcome === 'empty' || outcome === 'inapplicable';
 }
 

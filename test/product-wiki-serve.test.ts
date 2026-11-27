@@ -148,6 +148,13 @@ describe('serveWiki with a product or a manifestless directory', () => {
       const held = await fetch(`${result.url}/api/source?repo=source&path=README.md`);
       expect(held.status).toBe(200);
       expect((await held.json() as { text: string }).text).toBe('# Linked source\n');
+      // The same text through the page's own read (decision 0037): `source` in a GraphQL query asks the queue inside the
+      // read worker, whose snapshot holds no queue of its own, so the worker opens one beside it (0039, item 1's defect).
+      const queried = await fetch(`${result.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ source(repository: "source", path: "README.md") { text } }' }) });
+      expect(queried.status).toBe(200);
+      const answered = await queried.json() as { data?: { source: { text: string } | null }; errors?: unknown[] };
+      expect(answered.errors).toBeUndefined();
+      expect(answered.data?.source?.text).toBe('# Linked source\n');
       // The words came through the queue: the fill role answered the read this test served.
       expect(files.served()).toBeGreaterThan(0);
     } finally {

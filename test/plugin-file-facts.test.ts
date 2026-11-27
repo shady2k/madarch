@@ -332,3 +332,33 @@ for (const [label, count, stem] of [
     });
   }, 60_000);
 }
+
+test('disk states the product reference to each pinned repository, and none without a product (0039, item 1)', async () => {
+  await fixture(async ({ root, commit }) => {
+    writeFileSync(join(root, 'README.md'), '# Fixture\n');
+    const pin = commit('files', '2026-01-01T00:00:00Z');
+    const held = unit(root, pin, diskContract.outputs);
+    const base = held.inputs as { edgeOutputs: { kind: string; from: string; to: string }[] };
+    const product = { kind: 'product', key: { name: 'fixture-product' } };
+    const repositoryUnit = { ...held, kind: 'code.repository', inputs: {
+      ...(held.inputs as Record<string, unknown>),
+      edgeOutputs: [...base.edgeOutputs, { kind: 'product.uses-repository', from: 'product', to: 'code.repository' }],
+      product,
+    } } as unknown as Unit;
+    const result = await diskExtract(repositoryUnit, context());
+    expect(result.end?.state).toBe('complete');
+    const uses = (result.edges ?? []).filter(edge => edge.kind === 'product.uses-repository');
+    expect(uses).toHaveLength(1);
+    expect(uses[0]!.from).toEqual(product);
+    expect(uses[0]!.to).toEqual({ kind: 'code.repository', key: { name: 'fixture' } });
+    // The edge cites the inventory snapshot the repository vertex stands on, so a rule that admits the vertex admits the edge.
+    const repositoryVertex = (result.vertices ?? []).find(vertex => vertex.kind === 'code.repository');
+    expect(repositoryVertex).toBeDefined();
+    expect(uses[0]!.evidence).toEqual(repositoryVertex!.evidence);
+    const withoutProduct = await diskExtract({ ...repositoryUnit, inputs: { ...(repositoryUnit.inputs as Record<string, unknown>), product: undefined } } as unknown as Unit, context());
+    expect((withoutProduct.edges ?? []).filter(edge => edge.kind === 'product.uses-repository')).toHaveLength(0);
+    // The product's own checkout is pinned under its own id, and a product does not refer to itself.
+    const ownCheckout = await diskExtract({ ...repositoryUnit, inputs: { ...(repositoryUnit.inputs as Record<string, unknown>), productRepository: 'fixture' } } as unknown as Unit, context());
+    expect((ownCheckout.edges ?? []).filter(edge => edge.kind === 'product.uses-repository')).toHaveLength(0);
+  });
+}, 60_000);

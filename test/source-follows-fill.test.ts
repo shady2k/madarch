@@ -172,6 +172,19 @@ test('the fixture fill stays within its measured query budget', () => {
   expect(fillBudget.transactions).toBeLessThanOrEqual(510);
 });
 
+test('a page query answers a source read through the read worker, not inside its snapshot', async () => {
+  await publishBlob('src/a.ts', blobOf('src/a.ts'));
+  const api = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home) });
+  try {
+    // `source` asks the store's read queue from the read worker (decision 0037): the queue stands on an owner of its own,
+    // because the worker's `executeGraphql` holds a read-only snapshot that cannot carry a `pg-boss` queue (ALX-1856).
+    const answered = await api.graphql({ query: '{ source(repository: "code", path: "src/a.ts") { text } }' });
+    const body = answered.body as { data?: { source: { text: string } | null } | null; errors?: readonly unknown[] };
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.source?.text).toBe('export const a = 1;\n');
+  } finally { await api.close(); }
+}, 180_000);
+
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
   const first = headOf();
   await publishBlob('src/a.ts', blobOf('src/a.ts'));

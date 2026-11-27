@@ -4495,6 +4495,7 @@ edges:
     to:
       min: 0
       max: null
+  capability: disk
 - name: profile-product
   from:
   - product-profile
