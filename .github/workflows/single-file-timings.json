@@ -55,7 +55,7 @@
     "test/citation-contract.test.ts": 1353,
     "test/clean-install.test.ts": 7900,
     "test/consistency-plugin.test.ts": 144200,
-    "test/current-evidence.test.ts": 2099,
+    "test/current-evidence.test.ts": 5146,
     "test/daemon-one-store.test.ts": 41600,
     "test/daemon-ready-timeout.test.ts": 16530,
     "test/daemon-start-wait.test.ts": 1362,
@@ -496,6 +496,6 @@
     "test/writer-set-based.test.ts": 4349,
     "test/yaml-position.test.ts": 6700,
     "test/foundation-slice-e2e.test.ts": 1117,
-    "test/server-observability.test.ts": 29900
+    "test/wiki-refusal-boundary.test.ts": 1346
   }
 }

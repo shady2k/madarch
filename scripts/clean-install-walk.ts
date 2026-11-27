@@ -260,7 +260,11 @@ async function checkCleanStartApi(base: string): Promise<void> {
   if (!(await read('')).includes('<div id="root"')) throw new Error(`GET ${base} did not return the wiki app shell`);
   const selected = kinds.map(({ kind }) => kind);
   for (const pluginsOnly of [false, true]) {
-    await read('api/fill-plan', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ selected, pluginsOnly }) });
+    const body = await read('api/fill-plan', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ selected, pluginsOnly }) });
+    const { plan } = JSON.parse(body) as { plan?: { errors?: unknown } };
+    if (!Array.isArray(plan?.errors) || plan.errors.length !== 0) {
+      throw new Error(`POST ${base}api/fill-plan with pluginsOnly=${pluginsOnly} expected a plan with an empty errors array: ${body}`);
+    }
   }
   const count = JSON.parse(await read('api/problems?count=1')) as { open?: number };
   const listing = JSON.parse(await read('api/problems')) as { problems?: unknown[] };
@@ -362,7 +366,7 @@ async function serveCheck(): Promise<void> {
       catch (error) { return `\n${path}:1: cannot read log: ${String(error)}`; }
     }).join('\n');
   };
-  const checkForegroundServe = async (product: string, manifest: 'not-filled' | 'ok', verifyCleanStart = false): Promise<void> => {
+  const checkForegroundServe = async (product: string, productsHome: string, manifest: 'not-filled' | 'ok', verifyCleanStart = false): Promise<void> => {
     const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
     // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
     const closed = new Promise<void>((done, reject) => { server.once('close', () => done()); server.once('error', reject); });
@@ -378,7 +382,7 @@ async function serveCheck(): Promise<void> {
           const ownsRoot = server.exitCode === null && server.signalCode === null
             ? (line: string) => line.includes(product)
             : 'stores-only' as const;
-          if (!stopWindowsDaemon({ pid: server.pid, home }, ownsRoot, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
+          if (!stopWindowsDaemon({ pid: server.pid, home: productsHome }, ownsRoot, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
         } else {
           // The serve and everything it started are one process group. A role that will not leave, or one whose
           // descendant still holds the serve's output open, must not become a wait with no end: the walk names it.
@@ -435,16 +439,23 @@ async function serveCheck(): Promise<void> {
     const cleanPort = await freePort();
     if (cleanPort === 0) throw new Error(`${cleanHome}:1: no free port for clean start`);
     let folder: string;
+    let initFailed = false;
     try {
       const created = await runMadarch('init', [repo, '--home', cleanHome, '--port', String(cleanPort), '--template', 'everything', '--json', '--no-open']);
       if (created.status !== 0) throw new Error(`${repo}:1: clean start init failed (exit ${created.status}): ${created.stderr.trim()}`);
       const facts = JSON.parse(created.stdout.trim().split('\n').at(-1) ?? '') as { folder?: string; reused?: boolean };
       if (typeof facts.folder !== 'string' || facts.reused !== false) throw new Error(`${repo}:1: clean start init returned no new product folder: ${created.stdout}`);
       folder = facts.folder;
+    } catch (error) {
+      initFailed = true;
+      throw error;
     } finally {
-      await stopServer(cleanHome);
+      try { await stopServer(cleanHome); } catch (error) {
+        if (!initFailed) throw error;
+        console.error(`${cleanHome}:1: clean start cleanup failed: ${String(error)}`);
+      }
     }
-    await checkForegroundServe(folder, 'not-filled', true);
+    await checkForegroundServe(folder, cleanHome, 'not-filled', true);
   }
   const port = await freePort();
   let failure: Error | undefined;
@@ -502,7 +513,7 @@ async function serveCheck(): Promise<void> {
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
-    await checkForegroundServe(facts.folder, 'not-filled');
+    await checkForegroundServe(facts.folder, home, 'not-filled');
     console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
     const restarted = await runMadarch('start', ['--home', home, '--port', String(port)]);
     if (restarted.status !== 0 || !await waitForProduct(facts.url)) throw new Error(`${facts.folder}:1: could not restart the daemon after the fresh foreground check (exit ${restarted.status})${daemonTail()}`);
@@ -545,7 +556,7 @@ async function serveCheck(): Promise<void> {
   }
   if (failure !== undefined) throw failure;
   if (product === '') throw new Error('the walk read no product folder from the facts madarch init printed');
-  await checkForegroundServe(product, 'ok');
+  await checkForegroundServe(product, home, 'ok');
   console.log(`$ npx madarch serve --product ${product} --port 0 --no-open  (the foreground serve names its own free port)`);
   console.log(`walk passed (plugin-free store fixture, Fill completed): npx madarch init --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
   await removeWork();

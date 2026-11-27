@@ -66,7 +66,7 @@ import { productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
 import { manifestPublicationReady } from '../product/manifest-publication-state.js';
-import { releaseRoot } from '../product-wiki/release-assets.js';
+import { stripEngineLocation } from './engine-location.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -235,21 +235,10 @@ function makeJson(status: number, body: unknown): Response {
   return Response.json(body, { status });
 }
 
-const engineLocationRoots = [
-  joinPath(releaseRoot(), 'src').replaceAll('\\', '/') + '/',
-  joinPath(releaseRoot(), 'scripts').replaceAll('\\', '/') + '/',
-  '/$bunfs/',
-  'B:/~BUN/',
-];
-
 /** A wiki refusal keeps engine locations in the request log and product locations in the response. */
 function wikiRefused(status: number, error: Refusal): Handled {
   const { logMessage, ...clientError } = error;
-  const separator = error.message.indexOf(': ');
-  const location = error.message.slice(0, separator).replaceAll('\\', '/');
-  const message = separator >= 0 && engineLocationRoots.some((root) => location.startsWith(root))
-    ? error.message.slice(separator + 2)
-    : error.message;
+  const message = stripEngineLocation(error.message);
   return { response: Response.json({ message, error: { ...clientError, message } }, { status }), refusal: logMessage ?? error.message };
 }
 
