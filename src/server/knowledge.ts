@@ -188,7 +188,7 @@ export function createKnowledgePart(
         return refused(500, { message: error.message });
       }
       errorLog(`the knowledge wiki could not ${what}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-      return refused(500, { message: `${here()}: the wiki could not ${what}; the cause is in the server's log` });
+      return refused(500, { message: `the wiki could not ${what}; the cause is in the server's log` });
     }
   };
   /**

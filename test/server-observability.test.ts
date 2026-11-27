@@ -51,8 +51,12 @@ describe('the request watchdog', () => {
 
 describe('the server logs and traces its requests', () => {
   let root = '';
+  let product = '';
   let server: StartedServer | undefined;
   let trace = '';
+  let choicesFailure: string | Error = '';
+  const requests: string[] = [];
+  const failures: string[] = [];
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'madarch-observability-'));
     const home = join(root, 'products');
@@ -69,10 +73,16 @@ describe('the server logs and traces its requests', () => {
     writeFileSync(join(repository, 'README.md'), '# Code\n');
     execFileSync('git', ['add', '-A'], { cwd: repository, env });
     execFileSync('git', ['commit', '-qm', 'the tree'], { cwd: repository, env });
-    const folder = makeProduct(home, 'traced', repository, 'traced-code');
+    product = makeProduct(home, 'traced', repository, 'traced-code');
     process.env.MADARCH_WATCHDOG_MS = '1';
-    server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined, knowledgeRoot: join(root, 'state') });
-    void folder;
+    server = await startPreparedServer({
+      productHome: home, appFolder: app, port: 0, knowledgeRoot: join(root, 'state'),
+      log: (line) => requests.push(line), errorLog: (line) => failures.push(line),
+      knowledgeChoicesQuery: async () => {
+        if (choicesFailure instanceof Error) throw choicesFailure;
+        return { ok: false, message: choicesFailure };
+      },
+    });
     trace = join(root, 'state', 'traces', `server-${String(process.pid)}.jsonl`);
   }, 120_000);
   afterAll(() => {
@@ -100,6 +110,36 @@ describe('the server logs and traces its requests', () => {
     expect(lines).toContain('http.request.start');
     expect(lines).toContain('http.request.end');
   }, 60_000);
+
+  test('wiki refusals keep engine locations in the log and product locations in the response', async () => {
+    const url = `${server!.url}/products/traced/api/agent-choices?agent=codex`;
+    const message = 'the fixture could not list models';
+    const productLocation = `${join(product, 'madarch', 'catalog.yaml')}:11`;
+    for (const [location, shown] of [
+      [`${join(import.meta.dir, '..', 'src', 'server', 'knowledge.ts')}:123:4`, message],
+      [`${join(import.meta.dir, '..', 'scripts', 'madarch.ts')}:1`, message],
+      ['/$bunfs/root/madarch-linux-x64:123:4', message],
+      ['B:\\~BUN\\root\\madarch.exe:123:4', message],
+      [productLocation, `${productLocation}: ${message}`],
+    ] as const) {
+      const full = `${location}: ${message}`;
+      choicesFailure = full;
+      const response = await fetch(url);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ message: shown, error: { message: shown } });
+      expect(requests.some((line) => line.endsWith(full))).toBe(true);
+    }
+  });
+
+  test('an unexpected wiki API failure sends a plain 500 and logs the stack', async () => {
+    const cause = '/$bunfs/root/madarch-linux-x64:123:4: the model request failed';
+    choicesFailure = new Error(cause);
+    const response = await fetch(`${server!.url}/products/traced/api/agent-choices?agent=codex`);
+    const message = "the wiki could not ask the agent for its models; the cause is in the server's log";
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ message, error: { message } });
+    expect(failures.some((line) => line.includes(cause) && line.includes(' at '))).toBe(true);
+  });
 });
 
 
