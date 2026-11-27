@@ -129,6 +129,30 @@ describe('structured document anchors', () => {
     expect(slowReads).toBe(0);
   });
 
+  test('a document resolves a stub commit by hash when its subject is absent', async () => {
+    const guide = { ...document(), uid: 'doc-uid' };
+    const commit = { ...guide, key: 'code.commit:abc', uid: 'commit-uid', kind: 'code.commit', properties: { hash: 'abc' } };
+    const graph = {
+      list: async (kind: string) => {
+        const rows = [guide, commit].filter((row) => row.kind === kind);
+        return { rows, total: rows.length, next: null };
+      },
+      relationEdges: async (kind: string) => kind === 'revision'
+        ? { rows: [{ from: guide, to: commit, properties: {} }], total: 1 }
+        : { rows: [], total: 0 },
+    };
+    const manifest = { file: '/product/catalog.yaml', semanticBindings: new Map([
+      ['document', {
+        kind: 'guide', fields: { path: 'path', content: 'content', anchors: 'anchors' },
+        edges: { repository: { kind: 'belongs', direction: 'from', line: 1 }, commit: { kind: 'revision', direction: 'from', line: 1 } },
+        line: 1,
+      }],
+      ['repository', { kind: 'vault', fields: { name: 'alias' }, line: 1 }],
+      ['commit', { kind: 'code.commit', fields: { hash: 'hash', subject: 'subject' }, line: 1 }],
+    ]) } as unknown as import('../src/product/manifest/kinds.js').KindsManifest;
+    expect(graphDocument(await documentOpinions(graph, manifest), null, 'guide.md')?.properties.commit).toBe('abc');
+  });
+
   test('ranges, titles and excerpts come only from the structured opinion', () => {
     expect(documentSections(document())).toEqual([{ anchor: 'chosen', ...section }]);
   });
