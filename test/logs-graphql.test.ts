@@ -33,11 +33,26 @@ const MANIFEST = `kinds:
       - { name: title, type: text, producers: [start] }
 `;
 
-/** One page of every log, as the page's own operation asks for it: a JSON field, no selection set. */
-const LOGS_QUERY = 'query Logs($sources: [String!], $level: String, $run: String, $q: String, $from: Int, $before: Int, $limit: Int) { logs(sources: $sources, level: $level, run: $run, q: $q, from: $from, before: $before, limit: $limit) }';
+/**
+ * One page of every log, as the page's own operation asks for it: a JSON field, no selection set. The operation mirrors
+ * `wiki/app/src/components/logs-query.ts`, and a moment is epoch milliseconds there too, so `from` and `before` are the
+ * schema's `Float` (madarch-64o5.200): a 32-bit `Int` refuses a real date before the read starts.
+ */
+const LOGS_QUERY = 'query Logs($sources: [String!], $level: String, $run: String, $q: String, $from: Float, $before: Float, $limit: Int) { logs(sources: $sources, level: $level, run: $run, q: $q, from: $from, before: $before, limit: $limit) }';
+
+/**
+ * What the page sends when a reader leaves every filter alone (madarch-64o5.200): each filter the page does not hold is
+ * an explicit null, which GraphQL's nullable arguments pass to the reader as it came. The page sends this at its first
+ * load and when the level filter is reset, and the reader must read it as no filter at all.
+ */
+const NO_FILTER: Readonly<Record<string, unknown>> = { sources: null, level: null, run: null, q: null, from: null, before: null, limit: null };
+
+/** The two engine records' own moments, in epoch milliseconds: a real time, past what a 32-bit GraphQL `Int` carries. */
+const STARTED = Date.parse('2026-11-27T18:00:00.000Z');
+const WARNED = Date.parse('2026-11-27T18:00:01.000Z');
 
 interface LogsAnswer {
-  readonly entries: readonly { readonly source: string; readonly level: string; readonly message: string; readonly code: string | null }[];
+  readonly entries: readonly { readonly at: number | null; readonly source: string; readonly level: string; readonly message: string; readonly code: string | null }[];
   readonly more: boolean;
   readonly scanned: number;
   readonly truncated: boolean;
@@ -122,5 +137,53 @@ test('a read that matches no record answers a structured empty page, not an erro
     // The reader still learns which sources and levels the page can ask for; no fill run stands behind the store yet.
     expect(page.runs).toEqual([]);
     expect(page.sources).toEqual(['engine', 'fill', 'plugin', 'agent', 'store', 'trace']);
+    // The typed empty page answers the page's own shape, so the screen draws its empty state rather than a failure.
+    expect(page.levels).toEqual(['debug', 'info', 'warn', 'error']);
+  } finally { await api.close(); }
+}, 60_000);
+
+test('the page\'s own explicit nulls answer the whole page, for All levels and a reset filter alike', async () => {
+  const api = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home) });
+  try {
+    // The first load of the screen: every filter null. Before the correction the reader refused `level: null` with
+    // `"level" is one of debug, info, warn, error, got null`, so the screen failed before it drew a row.
+    const all = await logsOf(api, { ...NO_FILTER });
+    expect(all.entries.map((entry) => entry.message)).toEqual(['fill started', 'the plugin read a file its parser does not know']);
+    // A selected level beside the same nulls keeps the entries that level and louder.
+    const warnings = await logsOf(api, { ...NO_FILTER, level: 'warn' });
+    expect(warnings.entries.map((entry) => entry.message)).toEqual(['the plugin read a file its parser does not know']);
+    // A reset back to All is the same ask again, and answers the whole page.
+    const reset = await logsOf(api, { ...NO_FILTER, level: null });
+    expect(reset.entries.map((entry) => entry.message)).toEqual(['fill started', 'the plugin read a file its parser does not know']);
+  } finally { await api.close(); }
+}, 60_000);
+
+test('a window carries epoch milliseconds: the lower bound, the older page and the live tail', async () => {
+  const api = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home) });
+  try {
+    // A date filter sends a real moment in milliseconds, which a 32-bit GraphQL `Int` could not carry: the page's own
+    // "from" and "to" arguments would have been refused with `Int cannot represent non 32-bit signed integer value`.
+    expect(STARTED).toBeGreaterThan(2 ** 31 - 1);
+    // The lower bound excludes what stands at or before it and keeps what is after: `from` is exclusive.
+    const after = await logsOf(api, { ...NO_FILTER, from: STARTED });
+    expect(after.entries.map((entry) => entry.message)).toEqual(['the plugin read a file its parser does not know']);
+    const fromBeforeBoth = await logsOf(api, { ...NO_FILTER, from: STARTED - 1 });
+    expect(fromBeforeBoth.entries.map((entry) => entry.message)).toEqual(['fill started', 'the plugin read a file its parser does not know']);
+    // The second page asks for what is older than the oldest moment the first one holds (`older()` in the screen).
+    const first = await logsOf(api, { ...NO_FILTER, limit: 1 });
+    expect(first.entries.map((entry) => entry.message)).toEqual(['the plugin read a file its parser does not know']);
+    expect(first.more).toBe(true);
+    const older = await logsOf(api, { ...NO_FILTER, before: first.entries[0]!.at! });
+    expect(older.entries.map((entry) => entry.message)).toEqual(['fill started']);
+    expect(older.more).toBe(false);
+    // The live tail asks for what is newer than the newest moment the page holds, and answers a page, not a refusal.
+    const newest = first.entries[0]!.at!;
+    expect(newest).toBe(WARNED);
+    const tail = await logsOf(api, { ...NO_FILTER, from: newest });
+    expect(tail.entries).toEqual([]);
+    expect(tail.more).toBe(false);
+    // The page size stays the schema's bounded `Int`: a larger ask is answered, and the reader caps it.
+    const wide = await logsOf(api, { ...NO_FILTER, limit: 5_000 });
+    expect(wide.entries.map((entry) => entry.message)).toEqual(['fill started', 'the plugin read a file its parser does not know']);
   } finally { await api.close(); }
 }, 60_000);

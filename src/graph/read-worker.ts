@@ -101,7 +101,10 @@ function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<stri
     for (const name of sources) {
       if (typeof name !== 'string' || !(LOG_SOURCES as readonly string[]).includes(name)) throw new Error(`${import.meta.path}:1: "sources" is one of ${LOG_SOURCES.join(', ')}, got ${JSON.stringify(name)}`);
     }
-    const level = asked.level;
+    // The page states a filter it does not apply as an explicit null (madarch-64o5.200): the operation's variables carry
+    // `level: null` for "All levels" and when the level filter is reset, and a nullable GraphQL argument hands that null
+    // to the reader as it came. An absent filter and a null one are the same ask, so a null reads as absent.
+    const level = asked.level ?? undefined;
     if (level !== undefined && (typeof level !== 'string' || !(LOG_LEVELS as readonly string[]).includes(level))) throw new Error(`${import.meta.path}:1: "level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}`);
     const whole = (key: string): number | undefined => {
       const held = asked[key];
@@ -117,7 +120,7 @@ function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<stri
       ...(level === undefined ? {} : { level: level as import('../knowledge/logs.js').LogLevel }),
       ...(run === undefined ? {} : { run }),
       ...(text === undefined ? {} : { q: text }),
-      ...(from === undefined ? {} : { since: from }),
+      ...(from === undefined ? {} : { from }),
       ...(before === undefined ? {} : { before }),
       ...(limit === undefined ? {} : { limit }),
     });
