@@ -2,6 +2,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, KeyValueDraft } from './contract.js';
 import type { SqlExecutor } from '../sql-driver.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
 import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
@@ -288,7 +289,7 @@ async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: numbe
 }
 
 /** Evaluate current assertion support without rewriting its independent historical validity. */
-export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery & { readonly manifest?: Pick<KindsManifest, 'semanticBindings'> } = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
   const limit = query.limit ?? 200;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${import.meta.path}:181: evidence page limit must be an integer from 1 to 1000`);
   return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => {
@@ -338,7 +339,7 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
       after = links.at(-1)!.cursor;
     }
     if (candidates.length === 0) return { rows: [] };
-    const manifest = await readPublishedManifest(tx);
+    const manifest = query.manifest ?? await readPublishedManifest(tx);
     const support = evidenceSupportRoles(manifest?.semanticBindings);
     const page = candidates.slice(0, limit).map(candidate => ({
       ...candidate,

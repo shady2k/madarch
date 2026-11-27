@@ -34,8 +34,9 @@ check current existence and source activity. A page counts current attachments, 
 is sound. The historical proof and current applicability are evaluated independently, as in decision 0039 items 19
 and 31.
 
-The listing only evaluates evidence applicability when the published catalogue enables that rule. The file index,
-dismissals, Markdown opinions, and document endpoints are independent reads and can be prepared concurrently.
+The listing only evaluates evidence applicability when the published catalogue enables that rule. It passes the
+catalogue it already read to the evidence check. Evidence and code rules run concurrently, as do the file index,
+dismissals, Markdown opinions, and document endpoints.
 
 ## Out of scope
 
