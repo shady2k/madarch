@@ -279,10 +279,13 @@ type CurrentEvidenceLink = EvidencePosition & {
   readonly target_key: Record<string, KeyValueDraft>;
 };
 
+function invalidEvidenceCursor(cursor: string): never {
+  raise(`evidence cursor ${cursor} names no stored attachment`);
+}
+
 async function evidencePosition(tx: SqlExecutor, cursor: string): Promise<EvidencePosition> {
   const [assertionUid, linkUid, ...rest] = cursor.split(':');
-  const message = `evidence cursor ${cursor} names no stored attachment`;
-  if (!assertionUid || !linkUid || rest.length !== 0) raise(message);
+  if (!assertionUid || !linkUid || rest.length !== 0) invalidEvidenceCursor(cursor);
   return await withSpan('graph.currentEvidence.cursor', {}, async () => {
     const { rows } = await tx.query<EvidencePosition>(`
       SELECT e.from_node,e.to_node,e.discriminator,e.context_id
@@ -290,7 +293,7 @@ async function evidencePosition(tx: SqlExecutor, cursor: string): Promise<Eviden
       WHERE e.uid=CASE WHEN pg_input_is_valid($1::text,'uuid') THEN $1::uuid END
         AND origin.uid=CASE WHEN pg_input_is_valid($2::text,'uuid') THEN $2::uuid END
         AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')`, [linkUid, assertionUid]);
-    return rows[0] ?? raise(message);
+    return rows[0] ?? invalidEvidenceCursor(cursor);
   });
 }
 
