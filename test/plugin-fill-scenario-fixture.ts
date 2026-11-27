@@ -83,8 +83,9 @@ export async function open(f: ReturnType<typeof fixture>) {
       producer: 'scenario-input', producerVersion: '1',
     })), removals: [] });
   });
-  const run = async (target: string | readonly string[], runId: string, limits: NonNullable<RunFillOptions['limits']> = {}) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
-    steps: ['plugin-turns'], targets: { kinds: typeof target === 'string' ? [target] : target }, runId, limits,
+  const run = async (target: string | readonly string[], runId: string, options: { readonly limits?: NonNullable<RunFillOptions['limits']>; readonly sink?: RunFillOptions['sink'] } = {}) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
+    steps: ['plugin-turns'], targets: { kinds: typeof target === 'string' ? [target] : target }, runId,
+    ...(options.limits === undefined ? {} : { limits: options.limits }), ...(options.sink === undefined ? {} : { sink: options.sink }),
     prepareContract: async contract => { await prepareStore(owner, { contract }); } });
   const rows = async (kind: string) => await owner.transaction('snapshot', async tx => {
     const declaration = contract.vertex.find(vertex => vertex.name === kind)!;
