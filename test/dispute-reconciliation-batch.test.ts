@@ -80,7 +80,7 @@ async function scenario(name:Scenario){
   await f.owner.transaction('write',async tx=>{
    f.bind(tx,f.a);
    if(name==='invalid-evidence'){
-    const installed=await startupBinding(tx,contract,'manifest-support-fixture');
+    const installed=await startupBinding(tx,contract,'manifest');
     await publishGraphDrafts(tx,installed.contract,{vertices:[{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify({file:'/fixture/catalog.yaml',kinds:{$map:[]},groups:{$map:[]},roles:{$map:[]},properties:{$map:[]},excludeDocuments:[],ignoreBlocks:[],findings:[],semanticBindings:{$map:[['evidence-support',{kind:'system.content-snapshot',fields:{},line:1,edges:{about:{kind:'justifies',direction:'from',line:1}}}]]}})},validFrom:from,producer:'fixture',producerVersion:'1'}],removals:[]});
     f.bind(tx,f.a);
    }
@@ -174,7 +174,7 @@ async function hostMeasure(catalog:number,withdraw=false){
  let setupMs=0,baselineMs=0,operationMs=0;
  let supportEdge='';let resolutionSource='';
  if(withdraw)await f.owner.transaction('write',async tx=>{
-  const installed=await startupBinding(tx,contract,'support-manifest');
+  const installed=await startupBinding(tx,contract,'manifest');
   await publishGraphDrafts(tx,installed.contract,{vertices:[{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify({file:'/fixture/catalog.yaml',kinds:{$map:[]},groups:{$map:[]},roles:{$map:[]},properties:{$map:[]},excludeDocuments:[],ignoreBlocks:[],findings:[],semanticBindings:{$map:[['evidence-support',{kind:'system.content-snapshot',fields:{},line:1,edges:{about:{kind:'justifies',direction:'from',line:1}}}]]}})},validFrom:from,producer:'fixture',producerVersion:'1'}],removals:[]});
   f.bind(tx,f.a);
   const rows=await loadAssertions(tx,'vertex','sample',['amount']);

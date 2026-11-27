@@ -250,26 +250,31 @@ test('ALX-132 reset republishes the catalogue and marks the new graph', async ()
   } finally { await owner.close(); }
 }, 60_000);
 
-test('ALX-132 a foreign fingerprint cannot authorize the manifest fast path', async () => {
+test('ALX-132 a source that is not the manifest publication states no fingerprint, and the fast path reads the installation', async () => {
   const validated = publicationFixture();
   const contract = withManifestContract(EMPTY_CONTRACT);
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     await publishValidatedManifests(owner, validated);
-    const fingerprint = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!.values['publication_fingerprint'];
-    // Trusted startup can install another source with broad host authority; producer text is not authority.
-    await owner.transaction('write', async tx => {
+    const fingerprint = String((await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!.values['publication_fingerprint']);
+    // Trusted startup can install another source with broad host authority, and the fingerprint's kind is not its to state.
+    await expect(owner.transaction('write', async tx => {
       const { contract: installed } = await startupBinding(tx, contract, 'foreign');
       await publishGraphDrafts(tx, installed, { vertices: [{ kind: 'manifest.catalogue', key: { name: 'product' },
         values: { publication_fingerprint: fingerprint }, selectedFields: ['publication_fingerprint'], producer: 'foreign', producerVersion: '1' }], removals: [] });
+    })).rejects.toThrow(/CAPABILITY_MISMATCH kind manifest\.catalogue declares the reserved capability manifest; source [0-9a-f-]{8}-/u);
+    // The mark is the installation's own, so its value still authorizes the fast path.
+    expect(await owner.run(tx => readPublicationFingerprint(tx))).toBe(fingerprint);
+    expect(await publishValidatedManifests(owner, validated)).toBe(0);
+    // A mark whose selected source is no longer the engine's manifest installation authorizes nothing, whatever its value.
+    await owner.transaction('write', async tx => {
+      const { contract: installed, binding } = await startupBinding(tx, contract, 'manifest');
+      await publishGraphDrafts(tx, installed, { vertices: [{ kind: 'plugin', uid: binding.sourceUid, key: {},
+        values: { installation: JSON.stringify(['system-engine', 'foreign']) }, selectedFields: ['installation'], producer: 'manifest', producerVersion: '1' }], removals: [] });
     });
+    expect(await owner.run(tx => readPublicationFingerprint(tx))).toBeUndefined();
     expect(await publishValidatedManifests(owner, validated)).toBeGreaterThan(0);
-    const catalogue = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['publication_fingerprint'])))[0]!;
-    const selected = catalogue.selectedAssertions.find(a => a.property === 'publication_fingerprint')!;
-    const source = (await owner.run(tx => readKindAssertions(tx, 'vertex', 'plugin', ['installation']))).find(row => row.uid === selected.source)!;
-    expect(source.values['installation']).toBe(JSON.stringify(['system-engine', 'foreign']));
-    // The writer reuses manifest's identical older assertion; foreign selection must still force the next full pass.
-    expect(await publishValidatedManifests(owner, validated)).toBeGreaterThan(0);
+    expect(await owner.run(tx => readPublicationFingerprint(tx))).toBe(fingerprint);
     expect((await owner.run(tx => readPublishedManifest(tx)))!.kinds.has('term')).toBe(true);
   } finally { await owner.close(); }
 }, 60_000);

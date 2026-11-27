@@ -50,7 +50,7 @@ test('plugin file reads return parent keys that can be sent back through the pub
       : value;
   try {
     await owner.transaction('write', async tx => {
-      await startupBinding(tx, contract, 'public-file-read-fixture');
+      await startupBinding(tx, contract, 'manifest');
       await publishGraphDrafts(tx, contract, { vertices: [
         { kind: 'manifest.catalogue', key: { name: 'product' }, values: { declaration: JSON.stringify(encode(repositoryManifest)) }, producer: 'fixture', producerVersion: '1' },
         { ...repository, values: {}, producer: 'fixture', producerVersion: '1' },

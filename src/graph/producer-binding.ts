@@ -7,7 +7,6 @@ import { withAssertionContract } from './system-contract.js';
 import { graphContractVersion } from './contract.js';
 import { newUid } from './uid.js';
 import { acquireGraphWriteLock, bootstrapWriteIdentity, writeAssertion, bindWriteCapability, type WriteCapability } from './write.js';
-import { reservedCapability } from './manifest-contract.js';
 
 const WHERE = `${import.meta.path}:1`;
 declare const principalBrand: unique symbol;
@@ -63,7 +62,7 @@ export function bindGraphProducer(owner: DatabaseOwner, contract: GraphContract,
     if (kind === undefined) throw new Error(`${WHERE}: undeclared ${sort} permission ${name}`);
     // A kind of a reserved capability is the engine's own metadata, written by the source serving it alone: a plugin
     // or a person never holds it as a slot, whatever the grant asked for.
-    if (reservedCapability(kind.capability)) return [];
+    if (kind.reservedCapability === true) return [];
     for (const field of fields) if (!kind.fields.some(held => held.name === field)) throw new Error(`${WHERE}: undeclared property permission ${name}.${field}`);
     return [[name, new Set([...('key' in kind ? kind.key : []), ...fields])]];
   }));

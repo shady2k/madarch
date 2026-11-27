@@ -11,7 +11,6 @@ import { validateFieldValue,validateValueContracts } from './value-validation.js
 import { scanMentions } from './mentions.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
 import { GraphRefusal, fieldPath, validateFields } from './validation.js';
-import { reservedCapability } from './manifest-contract.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
@@ -124,15 +123,16 @@ function comparable(field:FieldContract,value:unknown):unknown{
  return value;
 }
 export function sameValue(a:unknown,b:unknown):boolean{return canonicalJson(a)===canonicalJson(b);}
-/** The capability a contract declares for a kind, vertex or edge, or nothing when the contract declares no such kind. */
-function declaredCapability(contract:GraphContract,kind:string):string|undefined{
- return contract.vertex.find(held=>held.name===kind)?.capability??contract.edge.find(held=>held.name===kind)?.capability;
+/** The capability a contract declares for a kind, and whether it is reserved to the source serving it; absent for a kind the contract does not hold. */
+function declaredCapability(contract:GraphContract,kind:string):{capability:string;reserved:boolean}|undefined{
+ const held=contract.vertex.find(held=>held.name===kind)??contract.edge.find(held=>held.name===kind);
+ return held===undefined?undefined:{capability:held.capability,reserved:held.reservedCapability===true};
 }
 /** A kind of a reserved capability is stated by the source serving that capability alone, whatever its permissions say. */
 function requireCapability(binding:WriteCapability,contract:GraphContract,kind:string):void{
  const declared=declaredCapability(contract,kind);
- if(declared===undefined||!reservedCapability(declared)||binding.capability===declared)return;
- throw new Error(`${WHERE}:32: CAPABILITY_MISMATCH kind ${kind} declares the reserved capability ${declared}; source ${binding.sourceUid} carries ${binding.capability??'no capability'}`);
+ if(declared?.reserved!==true||binding.capability===declared.capability)return;
+ throw new Error(`${WHERE}:32: CAPABILITY_MISMATCH kind ${kind} declares the reserved capability ${declared.capability}; source ${binding.sourceUid} carries ${binding.capability??'no capability'}`);
 }
 function permitted(binding:WriteCapability,contract:GraphContract,kind:string,property:string,retract=false):void {
   requireCapability(binding,contract,kind);

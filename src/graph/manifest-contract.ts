@@ -8,16 +8,6 @@ export const MANIFEST_RELATION_EDGE = 'manifest.relation-edge';
 /** The capability the manifest publication serves alone: its kinds are declarations, and no other source states one. */
 export const MANIFEST_CAPABILITY = 'manifest';
 
-/**
- * Whether a declared capability belongs to the engine's own producer rather than to a product plugin. A kind that
- * declares one is written by the source serving it, and the source carries the capability's name as its own identity:
- * today that source is the manifest publication, whose declarations decide what every other source may fill, and a
- * product kind names a plugin, whose bindings narrow its permissions instead.
- */
-export function reservedCapability(capability: string): boolean {
-  return capability === MANIFEST_CAPABILITY;
-}
-
 const DECLARATION = { capability: MANIFEST_CAPABILITY, reservedCapability: true } as const;
 const WORKFLOW_STAGE: VertexContract = {
   name: 'manifest.workflow-stage', table: generatedTableName('manifest.workflow-stage', 'vertex'),
