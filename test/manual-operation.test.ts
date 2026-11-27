@@ -16,6 +16,8 @@ import { agentBinding, personBinding, registerSystemSource } from '../src/graph/
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { bindGraphProducer, producerIdentityOf, type ProducerBinding } from '../src/graph/producer-binding.js';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
+import { callProductTool } from '../src/mcp/authored.js';
 
 const evidenceContent = 'Manual operation evidence snapshot';
 const evidenceDigest = createHash('sha256').update(evidenceContent).digest('hex');
@@ -118,6 +120,37 @@ test('manual operation replay returns its receipt without a duplicate assertion 
     expect(queues.rows.filter(row => row.name.startsWith('manual'))).toEqual([{ name: 'manual-graph-operations' }]);
     const evidence = await owner.run(tx => tx.query("SELECT e.id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='system.assertion-evidence'"));
     expect(evidence.rows.length).toBeGreaterThan(0);
+  });
+}, 30_000);
+
+test('MCP retract replays an omitted locator and names invalid locator fields', async () => {
+  await fixture(async (owner, grants) => {
+    const product = new KnowledgeProduct({ productFolder: '/unused-fixture', storeRoot: '/unused-fixture' });
+    Object.defineProperty(product, 'open', { value: async () => owner });
+    const entity = { kind: 'demo.repository', key: { name: 'withdrawn' } };
+    const evidence = { target: { kind: 'demo.snapshot', key: { digest: evidenceDigest } }, relation: 'supports' };
+    const created = await callProductTool(product, source('create'), 'put_entity', {
+      ...entity, values: { size: 7 }, evidence: [{ ...evidence, locator: { path: 'README.md' } }],
+    }, grants.agent);
+    expect(created.isError).toBe(false);
+
+    const retract = (operationId: string, locator?: { path: string | number }) => callProductTool(product, source(operationId), 'retract', {
+      entity, evidence: [locator === undefined ? evidence : { ...evidence, locator }],
+    }, grants.agent);
+    const invalid = await retract('invalid', { path: 3 });
+    expect(invalid).toEqual({
+      isError: true,
+      answer: { error: { code: 'SCHEMA_INVALID', path: '/evidence/0/locator/path', expected: expect.stringContaining('string'), actual: 3, retryable: false } },
+    });
+
+    const first = await retract('withdraw');
+    expect(first).toEqual({ isError: false, answer: { kind: entity.kind, retracted: true } });
+    const history = await sizes(owner);
+    expect(history.filter(row => row.operation === 'retract')).toHaveLength(1);
+    expect(await retract('withdraw')).toEqual(first);
+    const changed = await retract('withdraw', { path: 'README.md' });
+    expect(changed).toMatchObject({ isError: true, answer: { error: { expected: expect.stringContaining('IDEMPOTENCY_CONFLICT') } } });
+    expect(await sizes(owner)).toEqual(history);
   });
 }, 30_000);
 
