@@ -40,6 +40,32 @@ const evidenceContract: GraphContract = {
   dictionary: [],
 };
 const storeContract = withManifestContract(evidenceContract);
+const identityContract: GraphContract = {
+  vertex: [...contract.vertex,
+    { name: 'code.commit', table: generatedTableName('code.commit', 'vertex'), key: ['hash'], capability: 'fixture',
+      fields: [{ name: 'hash', type: 'text' }],
+      evidence: { immutable: true, digestField: 'hash' } },
+  ], edge: [], dictionary: [],
+};
+
+test('current evidence accepts a live identity target and the writer protects it from retirement', async () => {
+  const hash = 'a'.repeat(40);
+  const producer = { producer: 'fixture', producerVersion: '1' };
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(identityContract) });
+  try {
+    await owner.transaction('write', async tx => {
+      await publishGraphDrafts(tx, owner.graphContract, { removals: [], vertices: [
+        { kind: 'code.commit', key: { hash }, ...producer },
+        { kind: 'probe.fact', key: { id: 'live' }, values: { title: 'live' }, evidence: [{ target: { kind: 'code.commit', key: { hash } } }], ...producer },
+      ] });
+    });
+    expect((await vanishedCurrentEvidence(owner, identityContract)).rows).toEqual([]);
+    const retired = await owner.transaction('write', async tx => {
+      await publishGraphDrafts(tx, owner.graphContract, { vertices: [], removals: [{ kind: 'code.commit', key: { hash }, ...producer }] });
+    }).then(() => undefined, (error: unknown) => String(error));
+    expect(retired).toContain('IMMUTABLE_EVIDENCE immutable support cannot be retired');
+  } finally { await owner.close(); }
+}, 30_000);
 
 test('the Problems collector counts a current evidence dismissal after the rule is disabled or removed', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: storeContract });

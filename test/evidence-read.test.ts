@@ -45,6 +45,18 @@ test('hash and locator mismatch are invalid while missing support stays unknown'
   expect(evaluateEvidenceState(base).issues.length).toBeGreaterThan(0);
 });
 
+test('identity evidence is available without retained bytes and keeps its selected applicability', () => {
+  const identity: EvidenceProof = { immutable: true, content: undefined, digest: 'a'.repeat(40), locator: null, validAt: at, assertion: { operation: 'assert', validTo: null } };
+  expect(evaluateEvidenceState({ ...identity, support: { currentApplicability: 'current' } })).toEqual({ historicalValidity: 'unknown', currentApplicability: 'current', availability: 'available', issues: [] });
+  expect(evaluateEvidenceState({ ...identity, support: { currentApplicability: 'stale' } })).toEqual({ historicalValidity: 'unknown', currentApplicability: 'stale', availability: 'available', issues: [] });
+  for (const assertion of [{ operation: 'retract' as const, validTo: null }, { operation: 'assert' as const, validTo: at }]) {
+    expect(evaluateEvidenceState({ ...identity, assertion, support: { currentApplicability: 'current' } })).toEqual({ historicalValidity: 'unknown', currentApplicability: 'ended', availability: 'available', issues: [] });
+  }
+  const malformed = evaluateEvidenceState({ ...identity, locator: { digest: 42 }, support: { currentApplicability: 'current' } });
+  expect(malformed).toMatchObject({ historicalValidity: 'invalid', currentApplicability: 'current', availability: 'available' });
+  expect(malformed.issues.some(issue => issue.includes('EVIDENCE_INVALID'))).toBe(true);
+});
+
 test('caller proof diagnostics survive evidence evaluation', () => {
   const reason = 'retained field selection is contested';
   const result = evaluateEvidenceState({ ...base, issues: [reason] });
@@ -74,6 +86,46 @@ test('locator spans use retained Unicode content and distinguish incomplete from
     expect(result.issues.length).toBeGreaterThan(0);
   }
 });
+
+test('identity targets read their existence once per kind and decide current applicability', async () => {
+  const { createDatabaseOwner } = await import('../src/adapters/database-owner.js');
+  const { prepareGraphSchema } = await import('../src/adapters/schemas/graph.js');
+  const { bindWriteCapability, publishGraphDrafts } = await import('../src/graph/write.js');
+  const { startupBinding } = await import('../src/graph/manifest-publication.js');
+  const { testStoreServer } = await import('./test-database.js');
+  const contract: GraphContract = { vertex: [{ name: 'fixture-commit', table: generatedTableName('fixture-commit', 'vertex'), key: ['hash'], fields: [{ name: 'hash', type: 'text' }], capability: 'fixture', evidence: { immutable: true, digestField: 'hash' } }], edge: [], dictionary: [] };
+  const owner = await createDatabaseOwner({ cluster: await testStoreServer(), database: `identity_${Date.now()}` });
+  try {
+    await owner.ready;
+    await prepareGraphSchema(owner, contract);
+    const { binding } = await owner.transaction('write', tx => startupBinding(tx, contract, 'evidence-fixture', [{ kind: 'fixture-commit', properties: ['*'], assert: true, retractOwn: true }]));
+    const hashes = Array.from({ length: 100 }, (_, index) => (index + 1).toString(16).padStart(40, '0'));
+    await owner.transaction('write', async tx => {
+      bindWriteCapability(tx, binding);
+      await publishGraphDrafts(tx, contract, { vertices: hashes.map(hash => ({ kind: 'fixture-commit', key: { hash }, producer: 'fixture', producerVersion: '1' })), removals: [] });
+    });
+    const selector = { validAt: '2030-01-01T00:00:00Z', recordedAt: '2030-01-01T00:00:00Z', contexts: [1] };
+    await owner.transaction('snapshot', async tx => {
+      const identities = (await tx.query<{ uid: string }>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture-commit' ORDER BY n.uid`)).rows;
+      expect(identities).toHaveLength(100);
+      let reads = 0;
+      const measured = new Proxy(tx, { get(target, key) {
+        if (key === 'query') return async (sql: string, values?: readonly unknown[]) => { reads += 1; return await target.query(sql, values); };
+        return Reflect.get(target, key);
+      } });
+      const one = await readEvidenceStates(measured, contract, [{ targetUid: identities[0]!.uid, locator: null, assertion: base.assertion }], selector);
+      expect(reads).toBe(2);
+      expect(one).toEqual([{ historicalValidity: 'unknown', currentApplicability: 'current', availability: 'available', issues: [] }]);
+      reads = 0;
+      const many = await readEvidenceStates(measured, contract, identities.map(target => ({ targetUid: target.uid, locator: null, assertion: base.assertion })), selector);
+      expect(reads).toBe(2);
+      expect(many.every(state => state.currentApplicability === 'current' && state.availability === 'available' && state.issues.length === 0)).toBe(true);
+      const withdrawn = await readEvidenceStates(measured, contract, [{ targetUid: identities[0]!.uid, locator: null, assertion: base.assertion }], { ...selector, contexts: [2] });
+      expect(withdrawn[0]).toMatchObject({ historicalValidity: 'unknown', currentApplicability: 'stale', availability: 'available' });
+      expect(withdrawn[0]!.issues.some(issue => issue.includes('evidence target is withdrawn in this context'))).toBe(true);
+    });
+  } finally { await owner.close(); }
+}, 20000);
 
 test('SQL reader selects typed assertions and key digest without requiring active source', async () => {
   const { createDatabaseOwner } = await import('../src/adapters/database-owner.js');

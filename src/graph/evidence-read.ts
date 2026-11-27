@@ -1,7 +1,7 @@
 /** Evidence proof uses retained graph values only; it never opens a source path. */
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { GraphContract } from './contract.js';
+import type { GraphContract, VertexContract } from './contract.js';
 import { loadAssertions } from './assertion-read.js';
 import { selectAssertions } from './assertion-selection.js';
 import { validateEvidenceLocator } from './evidence-locator.js';
@@ -119,6 +119,11 @@ function spanProof(content: string, locator: Readonly<Record<string, unknown>>, 
   return unknown ? 'unknown' : 'valid';
 }
 
+/** Schema invariant (`src/graph/value-validation.ts`, `src/product/manifest/kinds.ts`, `src/plugin/protocol.ts`): `contentField` is declared exactly when `digestAlgorithm: 'sha256'` is, so a target without the algorithm carries identity alone. */
+function identityTarget(metadata: VertexContract['evidence']): boolean {
+  return metadata?.immutable === true && metadata.digestAlgorithm === undefined;
+}
+
 /** Independent dimensions: a stale source does not invalidate a retained historical snapshot. */
 export function evaluateEvidenceState(proof: EvidenceProof): EvidenceState {
   const issues = [...(proof.issues ?? [])];
@@ -132,10 +137,12 @@ export function evaluateEvidenceState(proof: EvidenceProof): EvidenceState {
       issues.push(error instanceof Error ? error.message : String(error));
     }
   }
-  const availability: EvidenceState['availability'] = typeof proof.content === 'string' ? 'available' : 'unavailable';
+  // The key digest is not a content digest, so only a target that retains bytes proves them against sha256.
+  const identityOnly = proof.immutable && proof.digestAlgorithm === undefined;
+  const availability: EvidenceState['availability'] = identityOnly || typeof proof.content === 'string' ? 'available' : 'unavailable';
   if (!proof.immutable) issue('target contract does not declare immutable evidence');
-  if (availability === 'unavailable') issue('retained content is unavailable');
-  if (!isDigest(proof.digest)) {
+  if (!identityOnly && availability === 'unavailable') issue('retained content is unavailable');
+  if (!identityOnly && !isDigest(proof.digest)) {
     issue('declared SHA-256 digest is unavailable or malformed');
     if (proof.immutable && typeof proof.content === 'string' && proof.digest !== undefined && proof.digest !== null) historicalValidity = 'invalid';
   }
@@ -174,27 +181,39 @@ export async function readEvidenceStates(
       [[...new Set(requests.map(request => request.targetUid))]])).rows;
     const values = new Map(targets.map(target => [target.uid, { ...target.key }]));
     const issues = new Map(targets.map(target => [target.uid, [] as string[]]));
+    const identitySupports = new Map<string, EvidenceSupport>();
     for (const kind of new Set(targets.map(target => target.kind))) {
       const declaration = contract.vertex.find(candidate => candidate.name === kind);
       if (declaration === undefined) continue;
       const metadata = declaration.evidence;
+      const identity = identityTarget(metadata);
       const fields = [...new Set([metadata?.digestField, metadata?.contentField].filter((field): field is string => field !== undefined && !declaration.key.includes(field)))];
       const subjects = targets.filter(target => target.kind === kind);
-      const assertions = await loadAssertions(tx, 'vertex', kind, fields, subjects.map(target => Number(target.id)));
+      const assertions = await loadAssertions(tx, 'vertex', kind, identity ? [...fields, '$exists'] : fields, subjects.map(target => Number(target.id)));
       for (const target of subjects) for (const field of fields) {
         const selection = selectAssertions(assertions.filter(row => row.subjectId === Number(target.id) && row.property === field), selector);
         if (selection.contested) issues.get(target.uid)!.push(`${import.meta.path}:121: evidence field ${field} is contested`);
         else if (selection.selected !== null) values.get(target.uid)![field] = selection.selected.value;
       }
+      if (!identity) continue;
+      // An identity target has no declared support relation: its own existence is the support the producer states.
+      for (const target of subjects) {
+        const selection = selectAssertions(assertions.filter(row => row.subjectId === Number(target.id)), selector);
+        identitySupports.set(target.id, selection.contested
+          ? { currentApplicability: 'unknown', issues: [`${import.meta.path}:203: evidence target existence is contested`] }
+          : selection.selected?.value === true ? { currentApplicability: 'current' }
+          : { currentApplicability: 'stale', issues: [`${import.meta.path}:205: evidence target is withdrawn in this context`] });
+      }
     }
+    const contentTargets = targets.filter(target => !identitySupports.has(target.id));
     const supports = support !== undefined && 'edgeKind' in support
-      ? await readSupports(tx, contract, targets, selector, support)
-      : new Map(targets.map(target => [target.id, support]));
+      ? await readSupports(tx, contract, contentTargets, selector, support)
+      : new Map(contentTargets.map(target => [target.id, support]));
     return requests.map(request => {
       const target = targets.find(candidate => candidate.uid === request.targetUid);
       const metadata = contract.vertex.find(candidate => candidate.name === target?.kind)?.evidence;
       const own = values.get(request.targetUid) ?? {};
-      const selectedSupport = target === undefined ? undefined : supports.get(target.id);
+      const selectedSupport = target === undefined ? undefined : identitySupports.get(target.id) ?? supports.get(target.id);
       return evaluateEvidenceState({ immutable: metadata?.immutable === true, ...(metadata?.digestAlgorithm === undefined ? {} : { digestAlgorithm: metadata.digestAlgorithm }),
         content: metadata?.contentField === undefined ? undefined : own[metadata.contentField],
         digest: metadata?.digestField === undefined ? undefined : own[metadata.digestField],
