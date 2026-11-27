@@ -599,9 +599,13 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     // which says which fields this press will not fill.
     const deterministicPlugins = executable.filter((plugin) => plugin.manifest.agent === undefined);
     const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
+    const optionalAgentKinds = plannedKinds.map(kind =>
+      hasAgent && fielded(kind.name) && !deterministic.has(kind.name) && !supportKinds.has(kind.name)
+        ? { ...kind, producerRequired: false }
+        : kind);
     const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
     const run = planFillDeclarations({
-      kinds: plannedKinds,
+      kinds: optionalAgentKinds,
       plugins: deterministicPlugins,
       selectedKinds: runSelected,
       agentSelected: true,

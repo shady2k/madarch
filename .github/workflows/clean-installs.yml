@@ -17,6 +17,8 @@ on:
       - '.github/workflows/release.yml'
       - '.github/workflows/clean-installs.yml'
       - 'scripts/clean-install-walk.ts'
+      - 'scripts/chromium.ts'
+      - 'scripts/clean-install-fixture.ts'
       - 'scripts/smoke-binary.sh'
       - 'scripts/clean-homebrew-walk.sh'
       - 'src/product/cli.ts'
@@ -76,8 +78,14 @@ jobs:
           cp dist/madarch-linux-x64.sha256 dist/SHA256SUMS.txt
           MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
           "$RUNNER_TEMP/madarch-install/bin/madarch" version
+      - run: bun install --frozen-lockfile
       - name: npx init then serve on Linux x64
-        run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64 --clean-start --browser
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clean-start-home
+          path: ${{ runner.temp }}/clean-start-home.png
 
   linux-homebrew:
     needs: build-linux-fixture

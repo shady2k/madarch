@@ -274,11 +274,12 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
     }
     candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
     const page = candidates.slice(0, limit);
-    const states = await readEvidenceStates(tx, contract, page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    const states = await readEvidenceStates(tx, withAssertionContract(contract), page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
     const rows: StaleEvidence[] = [];
     for (const [index, candidate] of page.entries()) {
       const state = states[index]!;
-      const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || state.currentApplicability === 'unknown' ? 'unavailable' : undefined;
+      const missingSupport = candidate.targetKind === support?.kind && state.currentApplicability === 'unknown';
+      const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || missingSupport ? 'unavailable' : undefined;
       if (applicability === undefined) continue;
       rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
         evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },

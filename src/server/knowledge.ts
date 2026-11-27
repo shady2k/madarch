@@ -29,6 +29,7 @@ import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { renderDiagram, type DiagramRequest } from '../render/diagram-render.js';
 import { diagramFailurePage } from '../render/diagram-failure.js';
+import { stripEngineLocation } from './engine-location.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -143,15 +144,16 @@ export function createKnowledgePart(
       const publication = manifestPublicationState(product.folder);
       // Identity and product selection read no catalogue or schema and remain available during startup.
       if (needsPublication && publication !== undefined && publication.status !== 'published' && !(allowPending && publication.status === 'pending')) {
+        const pending = publication.status === 'pending';
+        const detail = pending ? 'The catalogue is being published. Please wait; no catalogue is available yet.' : publication.message;
+        const prefix = pending ? '' : 'The catalogue could not be published: ';
         const response = json(503, {
           publication: publication.status,
-          message: publication.status === 'pending'
-            ? `${here()}: The catalogue is being published. Please wait; no catalogue is available yet.`
-            : `${here()}: The catalogue could not be published: ${publication.message}`,
+          message: prefix + stripEngineLocation(detail),
         });
         response.headers.set('cache-control', 'no-store');
-        if (publication.status === 'pending') response.headers.set('retry-after', '1');
-        return { response };
+        if (pending) response.headers.set('retry-after', '1');
+        return { response, refusal: `${here()}: ${prefix}${detail}` };
       }
       const querySchema = queryRequests[what];
       if (querySchema !== undefined && (request.method === 'GET' || what === 'pause the fill' || what === 'stop the fill')) {
@@ -188,7 +190,7 @@ export function createKnowledgePart(
         return refused(500, { message: error.message });
       }
       errorLog(`the knowledge wiki could not ${what}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-      return refused(500, { message: `${here()}: the wiki could not ${what}; the cause is in the server's log` });
+      return refused(500, { message: `the wiki could not ${what}; the cause is in the server's log` });
     }
   };
   /**
