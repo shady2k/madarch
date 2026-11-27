@@ -32,9 +32,9 @@ const NAVIGATION = {
     { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
   ],
   kinds: [
-    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
-    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
-    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, authored: false, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, authored: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, authored: false, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
   ],
   purposes: [],
 };

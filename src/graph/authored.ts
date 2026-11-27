@@ -6,10 +6,10 @@ import { bindWriteCapability, ensureVertex, publishGraphDrafts, removeEntity, re
 import { withAssertionContract } from './system-contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { writeContractOf } from './graph-writes.js';
-import type { KindsManifest } from '../product/manifest/kinds.js';
+import { isPersonAuthored, type KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
-import { activeExistenceSql, loadAssertions, type StoredAssertion } from './assertion-read.js';
+import { activeExistenceSql, assertionRevision, loadAssertions, type StoredAssertion } from './assertion-read.js';
 import { activateGraphProducer, producerIdentityOf, requirePublicationBinding, type ProducerBinding } from './producer-binding.js';
 import { selectAssertions } from './assertion-selection.js';
 import { catalogueRequests, parseRequest } from './door-contract.js';
@@ -69,7 +69,7 @@ export function shortestUid(uid: string, all: readonly string[]): string {
 export async function authoredEntity(tx: OuterTransaction, manifest: KindsManifest, prefix: string, person: ProducerBinding | undefined, action: AuthoredAction, kind: string, args: AuthoredArguments = {}): Promise<AuthoredResult> {
   return await withSpan('graph.authored', { 'authored.action': action, 'authored.kind': kind }, async () => {
   const declaration = manifest.kinds.get(kind);
-  if (declaration?.origin !== 'person') throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: this product does not let a person author it`);
+  if (!isPersonAuthored(declaration)) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: this product does not let a person author it`);
   const contract = withAssertionContract(writeContractOf(manifest));
   const vertex = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: no field contract is declared`);
@@ -126,8 +126,7 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
       const selected = selectAssertions(assertions.filter((row) => row.property === field.name), { validAt: selectedAt, recordedAt: selectedAt, contexts: [1] });
       values[field.name] = selected.selected?.value ?? null;
     }
-    const latest = assertions.reduce((maximum, row) => row.recordedSequence > maximum ? row.recordedSequence : maximum, 0n);
-    return { uid: node.uid, revision: String(latest), id: `${prefix}-${shortestUid(node.uid, all)}`, values,
+    return { uid: node.uid, revision: assertionRevision(assertions), id: `${prefix}-${shortestUid(node.uid, all)}`, values,
       assertions: assertions.map((row) => ({ ...row, recordedSequence: String(row.recordedSequence) })) };
   }
   if (action === 'list') return { ...result, entities: await Promise.all(nodes.map(view)) };

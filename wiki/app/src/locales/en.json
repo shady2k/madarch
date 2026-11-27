@@ -67,8 +67,12 @@
   },
   "authored": {
     "reload": "Reload",
+    "reloadConflicts": "Reload the changed fields before saving.",
     "missingEntity": "The entity was not returned.",
-    "conflict": "{{field}} is now {{current}} ({{author}}).",
+    "conflict": "This field changed while you were editing. Its current value is {{current}}.",
+    "staleDelete": "This record changed after you opened the confirmation. Reload it before deleting.",
+    "required": "Enter a value.",
+    "unset": "Unset",
     "new": "New",
     "edit": "Edit",
     "delete": "Delete",
