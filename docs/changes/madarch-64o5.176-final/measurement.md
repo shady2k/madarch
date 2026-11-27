@@ -7,13 +7,14 @@ Kind: no-behavior
 ## What was measured, and on which revision
 
 This record covers the twelve files of the study: one is already back in the blocking shards before
-this change (`test/plugin-fill-scenarios.test.ts`), one returns to them here
-(`test/catalogue-kind-relations.test.ts`), one returns in the follow-up commit that carries the pull
-request's first run (`test/api-role-first-page.test.ts`), one has its return pending confirmation
-(`test/agent-fill-e2e.test.ts`) and eight are above the bound in every sample. The ten files the slow
-list carried before this change each had one named required job in the `slow-files` matrix; nine
-keep it, and the merged `main` adds a tenth row and entry of its own
-(`test/fill-trace.test.ts`, the status-work quarantine work).
+this change (`test/plugin-fill-scenarios.test.ts`), one returns to them in the follow-up commit that
+carries the pull request's first run (`test/api-role-first-page.test.ts`), one has its return pending
+confirmation (`test/agent-fill-e2e.test.ts`), eight are above the bound in every sample, and
+`test/catalogue-kind-relations.test.ts` returned to the shards first and came back to its own named
+required job when both of its required shard samples measured above the bound. The ten files the slow
+list carried before this change each had one named required job in the `slow-files` matrix; eleven
+rows carry one after the catalogue file's return, counting `main`'s own `test/fill-trace.test.ts`
+(the status-work quarantine work).
 
 The baseline is the approved F4 change as it landed: PR #375 merged into `main` as
 `46be90c4a913f524262e88f531f047be6108b403`. The merge commit's tree is
@@ -65,7 +66,7 @@ Both before-columns are runner measurements; the entry of each file quotes the s
 
 | File | Before the stream | PR #372 (pre-F4) | A | B | C | Outcome (A/B/C) | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `test/catalogue-kind-relations.test.ts` | 31.43 | 27.88 | 29.18 | 27.86 | **27.81** | green/green/green | **returns to the shards** (3 of 3 at or below 30 s) |
+| `test/catalogue-kind-relations.test.ts` | 31.43 | 27.88 | 29.18 | 27.86 | **27.81** | green/green/green | returned to the shards, then **back to its own required job** (33 641 and 34 019 ms in shard 1, 37 781 ms alone) |
 | `test/api-role-first-page.test.ts` | 51.42 | 31.49 | 38.09 | 42.70 | 29.35 | green/green/green | not confirmed (1 of 3) |
 | `test/agent-fill-e2e.test.ts` | 31.28 | 26.23 | 24.18 | 36.96 | 35.76 | green/green/green | not confirmed (1 of 3) |
 | `test/plugin-agent-edge-order.test.ts` | 53.82 | 39.36 | 40.01 | 32.72 | 31.62 | green/green/green | stays |
@@ -150,9 +151,51 @@ each in shard 1 (`test-files-1/shard-1.json`):
 
 That is the required-shard confirmation both returns owe: the first page's reduced setup costs well
 under the bound in a shard, and the catalogue file fits the 30 s shard bound on this sample, where its
-first shard sample was 33 641 ms. The weight in `.github/workflows/test-timings.json` stays the
-33 641 ms of the worse sample. The run's aggregate `test` job failed only on the third `status-work`
-case, which `main` now quarantines, so no finding of that run belongs to this change.
+first shard sample was 33 641 ms. The run's aggregate `test` job failed only on the third `status-work`
+case, which `main` now quarantines, so no finding of that run belongs to this change. The next
+required run measured the catalogue file above the bound again and returned it to its own job (see
+below).
+
+## The run that returned the catalogue file to its own job
+
+The required run of the merged tree, [46078818727](https://github.com/shady2k/madarch/actions/runs/46078818727)
+(`25ac52ca`), failed its aggregate `test` job
+([140775221403](https://github.com/shady2k/madarch/actions/runs/46078818727/job/140775221403)) on two
+growth findings about files the shards carried:
+
+| Measure | Value | Job |
+| --- | --- | --- |
+| `test/catalogue-kind-relations.test.ts` in shard 1 | 34 019 ms | 140772756105 |
+| `test/catalogue-kind-relations.test.ts` alone, run confirmation | 37 781 ms (1 pass, 0 fail, 244 `expect()` calls, exit 0) | 140775221403 |
+| `test/api-role-first-page.test.ts` in shard 1 | 7 248 ms | 140772756105 |
+| `test/architecture-repository.test.ts` in shard 1 | 31 789 ms | 140772756105 |
+| `test/architecture-repository.test.ts` alone, run confirmation | 39 058 ms (1 pass, 0 fail, 5 `expect()` calls, exit 0) | 140775221403 |
+| Five shard artifacts | 85 / 98 / 87 / 85 / 96 files, 451 files |  |
+
+The gate's own words were `test/catalogue-kind-relations.test.ts took 34019 ms in shard and 37781 ms
+alone, both more than 30 s, and is not in test/slow-files.json` and
+`test/architecture-repository.test.ts took 31789 ms in shard and 39058 ms alone, both more than 30 s,
+and is not in test/slow-files.json`.
+
+The catalogue file is the one the inventory answers: this is the second required shard sample above the
+bound (after 33 641 ms in run 46063935769), the run itself measured the complete file 37 781 ms alone,
+and its case checks the real starter catalogue, every relevant File relation and the reader-visible
+effects of successive publications, so the fixture and its assertions stay. It returns to
+`test/slow-files.json` and to its own named required job, with its committed single-file evidence at
+the 37 781 ms alone measurement. The three F4 standalone samples (29.18, 27.86 and 27.81 s) and the
+reviewed head's 25 315 ms stay historical.
+
+`test/architecture-repository.test.ts` is not of this change and nothing here reclassifies it: the same
+file measured 22 989 ms in shard 1 of `main`'s own run
+([46079872951](https://github.com/shady2k/madarch/actions/runs/46079872951), `7f1bb9aac`), so 31 789 ms
+and 39 058 ms are the runner's spread on a file the suite carries. Its placement is left to fresh CI
+evidence if the observation recurs.
+
+`test/api-role-first-page.test.ts` is in shard 1 at 7 248 ms, named exactly once across the five
+artifacts, so its return to the shards holds on this sample as well. The shard job of shard 1 also
+failed two case-level tests that belong to work running independently of this diff:
+`test/diagram-budget.test.ts`'s folder fold and `test/dispute-reconciliation-batch.test.ts`'s fixed
+touched slots.
 
 ## Where the remaining time goes
 
@@ -178,14 +221,13 @@ fixture before 0039. A file that needs two passes therefore cannot reach 30 s wh
 
 ## Verdict per file
 
-**Returns to the shards: `test/catalogue-kind-relations.test.ts`.** Three independent green runs of
-one tree at 29.18, 27.86 and 27.81 s. Its volume is its subject — it publishes the real extended
-starter catalogue — so no reduction is asked for. The margin is thin against `SLOW_EXIT_SECONDS`
-(about 28 s against a 15 s exit speed), so the file is expected to sit near the bound on a shard
-outlier; the shard rule tolerates that while the committed single-file evidence stays at or below
-30 s. Its first shard run measured 33 641 ms, which is that outlier (see "The pull request's first
-run"), and its next required shard sample, on the reviewed head, measured 25 315 ms inside the bound
-(see "The reviewed head's required run"); the weight stays the 33 641 ms of the two.
+**Returns to its own required job: `test/catalogue-kind-relations.test.ts`.** Three independent green
+runs of one tree at 29.18, 27.86 and 27.81 s put the file at or below the bound alone, so it returned
+to the shards; both of its required shard samples then measured it above the bound, 33 641 ms and
+34 019 ms, and the second run measured the complete file 37 781 ms alone. Its volume is its subject —
+it publishes the real extended starter catalogue — so no reduction is asked for, and the file returns
+to the slow list with one required passing case in its own named job. The three standalone samples stay
+as historical evidence of what the file costs alone on a runner outside the suite.
 
 **Not confirmed: `test/agent-fill-e2e.test.ts` (24.18 / 36.96 / 35.76).** It has one sample inside
 the bound and two outside. The list's own growth rule requires both of two runs to stay at or below
@@ -257,17 +299,19 @@ report depends on it.
 
 ## What the closing PR changed
 
-1. **`test/catalogue-kind-relations.test.ts` left the slow list and the matrix.** Its entry in
-   `test/slow-files.json` and its line (`file`, `cases: 1`) in the `slow-files` matrix of
-   `.github/workflows/ci.yml` are gone, and that job's comment names the ten files the matrix
-   carries after the integration with `main` and the three sample runs their medians come from.
-   `bun run check:slow-tests` refuses a listed entry at or below 30 s, so the entry
-   could not stay; three samples at 29.18, 27.86 and 27.81 s are all at or below the bound.
-2. **Its committed single-file evidence is 27 810 ms**, the latest of the three samples (29 180 ms
-   was the highest, 27 860 ms the second). It stays under 30 000 ms, because a shard outlier is a
-   finding only when the shard and the alone measurement both exceed the bound. No box number. Those
-   three are now the file's historical standalone evidence: its own shard runs measure it, and the
-   first of them, 33 641 ms, is the weight `.github/workflows/test-timings.json` carries.
+1. **`test/catalogue-kind-relations.test.ts` returned to the shards and then came back to its own
+   named required job.** Its entry in `test/slow-files.json` and its line (`file`, `cases: 1`) in the
+   `slow-files` matrix of `.github/workflows/ci.yml` went with the three standalone samples at 29.18,
+   27.86 and 27.81 s, and both of its required shard samples then measured it above the bound:
+   33 641 ms in shard 1 of run 46063935769 and 34 019 ms in shard 1 of run 46078818727, with the
+   second run's own confirmation at 37 781 ms alone. So the entry and the matrix line are back, with
+   one required passing case, its existing 30 s exit and its fixture and assertions unchanged; the
+   matrix comment now names eleven files.
+2. **Its committed single-file evidence is 37 781 ms**, the run's own alone measurement of the
+   complete file (1 pass, 0 fail, 244 `expect()` calls, exit 0). The three standalone samples
+   (29 180, 27 860 and 27 810 ms) stay in the table above as historical evidence of what the file
+   costs alone outside the suite; a shard finding needs both the shard and the alone measurement
+   above the bound, and both shard samples were.
 3. **The nine staying entries record the three-sample median**, in `test/slow-files.json` and in
    `.github/workflows/single-file-timings.json` together, because the slow-list check compares them
    within 100 ms: `agent-fill-e2e` 35.76 s, `plugin-agent-edge-order` 32.72 s, `imports-path`
@@ -277,29 +321,31 @@ report depends on it.
    and records 9 320 ms there. The numbers these entries carried before were the 0039 candidate's box
    numbers (313, 507, 194 s …) or, for `agent-fill-e2e`, the 31.283 s of run 45809866011; the trace
    they explained is superseded, so each entry now names the passes it pays and why they are its
-   subject.
+   subject. The catalogue entry is the tenth, and it records the 37 781 ms alone measurement of the
+   run that returned it to the list, not a three-sample median.
 4. **The `api-role-first-page` setup publishes the fixture manifest instead of filling.** The store
    is prepared by the test store preparation the other api tests use, the fixture manifest is
    published with `publishValidatedManifests`, and one finished run stands before the run the case
    asserts so the page still reports `filled` and `manifest: ok`. The real api role, the store path,
    the asserted run and its `created` state, the 150 000-span trace, all nine expectations and both
    latency bounds (5 s and 50 ms) are unchanged.
-5. **Two required jobs are gone: the catalogue file's and the first page's; the case counts that
-   move are `source-follows-fill`'s and `status-work`'s.** The nine stream entries keep their matrix
-   lines, with eight `cases` values unchanged, `source-follows-fill` raised from 2 to 3 to match the
-   three cases the file holds, and `status-work` at the two cases `main`'s third-case quarantine
-   leaves (2, 5, 1, 16, 1, 5, 1, 2, 3), plus `main`'s tenth row `fill-trace` at 2; the blocking
-   aggregate is the same, minus the two rows whose files the shards carry again.
+5. **The catalogue file's named required job is back; one required job is gone: the first page's.
+   The case counts that move are `source-follows-fill`'s and `status-work`'s.** The eleven matrix
+   lines are the catalogue file at `cases: 1`, the nine stream entries with eight `cases` values
+   unchanged, `source-follows-fill` raised from 2 to 3 to match the three cases the file holds, and
+   `status-work` at the two cases `main`'s third-case quarantine leaves (1, 2, 5, 1, 16, 1, 5, 1, 2,
+   3), plus `main`'s `fill-trace` at 2; the blocking aggregate is unchanged, minus the first page's
+   row and plus the catalogue file's, whose file leaves the shards.
 
-## Shard selection after the integration
+## Shard selection after the catalogue file's return
 
-The files the shards carry after the integration with `main` are 451 (the 63 the slow list names are
-excluded). A replay of Bun's own `--shard` selection over those 451 files with the committed shard
-weights of `.github/workflows/test-timings.json` names `test/api-role-first-page.test.ts` and
-`test/catalogue-kind-relations.test.ts` once each, both in shard 1, and leaves the five shards at
-85 / 98 / 87 / 85 / 96 files. The counts moved from the 85 / 95 / 88 / 85 / 96 of 449 files because
-`main` adds two shard files (`test/authored-identity.test.ts` and `test/entity-cli-daemon.test.ts`)
-on top of the file this change returns.
+The files the shards carry after the catalogue file's return are 450 (the 64 the slow list names are
+excluded). A replay of Bun's own `--shard` selection over those 450 files with the committed weights of
+`.github/workflows/test-timings.json` names `test/api-role-first-page.test.ts` exactly once, in shard
+1, and `test/catalogue-kind-relations.test.ts` not at all, and leaves the five shards at
+88 / 96 / 86 / 84 / 96 files. That is the 85 / 98 / 87 / 85 / 96 of the merged tree's 451 files with
+the catalogue file's one line out of shard 1 and the first page rebalanced to shard 1, so the shards
+still carry every file exactly once and the catalogue file's only required coverage is its matrix job.
 
 ## The api role's first page after the setup change
 
@@ -351,21 +397,23 @@ substitutes for it.
    `.github/workflows/single-file-timings.json` records 9 320 ms, and the next required run's shard
    artifact shows the file named once as its coverage: 4 795 ms in shard 1 of the reviewed head's
    required run, 46069935373. A replay of Bun's own `--shard` selection
-   with the committed timings over the files the change leaves in the suite names it and the
-   catalogue file once each, both in shard 1 (see "Shard selection after the integration" below).
+   with the committed timings over the 450 files the change leaves in the suite names it exactly once
+   and the catalogue file not at all (see "Shard selection after the catalogue file's return").
 2. **`agent-fill-e2e`**: its median is 35.76 s (24.18 / 36.96 / 35.76), and the pull request's first
    run measured 27.30 s green (job 140724610951) besides 26.759 s from the same run's growth gate —
    both inside the bound, neither at or below `SLOW_EXIT_SECONDS` (15 s). Its entry, its two agent
    fill scenarios and its `cases: 2` stay until a fresh confirmation and verified shard coverage
    arrive.
-3. **`catalogue-kind-relations`**: the file ran in the pull request's own shards. The first run put
-   it in shard 1 at **33 641 ms** (`test-files-1/shard-1.json`, job 140724610884) — above the 30 s
-   bound the shard jobs are held to, on its first shard sample. Its three standalone samples of the
-   F4 tree, 29.18, 27.86 and 27.81 s, stay in the table above as historical evidence, and the
-   committed single-file evidence stays 27 810 ms as the last standalone sample. Its weight in
-   `.github/workflows/test-timings.json` moved from 15 000 ms to the measured 33 641 ms, so the five
-   shards are balanced against the file as it is. The next required run's shard artifact, on the
-   reviewed head (46069935373), measured the file 25 315 ms in shard 1 — inside the bound — so the
-   file stays in the shards; the weight keeps the worse of the two samples, 33 641 ms.
+3. **`catalogue-kind-relations` returned to the slow list and its own required job.** The file ran in
+   the pull request's shards and both of its required shard samples were above the bound: **33 641 ms**
+   in shard 1 of run 46063935769 (job 140724610884) and **34 019 ms** in shard 1 of run 46078818727
+   (job 140772756105), where the run's own confirmation measured the complete file **37 781 ms** alone
+   (job 140775221403, 1 pass, 0 fail, 244 `expect()` calls, exit 0). Its three standalone samples of
+   the F4 tree, 29.18, 27.86 and 27.81 s, and the reviewed head's 25 315 ms in shard 1 (46069935373)
+   stay in this record as historical evidence; the committed single-file evidence and the slow-list
+   entry now carry the 37 781 ms alone measurement, the entry has one required passing case in the
+   `slow-files` matrix, and the file's weight left `.github/workflows/test-timings.json` with its shard
+   coverage. It returns to the shards only after a green complete-file runner measurement at or below
+   30 s, a fresh confirmation and verified required-shard coverage.
 4. **Nothing else moves**: the eight files whose median is 32.72–82.53 s keep their named required
    jobs, their case counts and the nightly summary unchanged.
