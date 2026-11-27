@@ -97,9 +97,10 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   }
   // Decision 0039 items 19/31: current applicability is independent of historical validity.
   try {
+    const contract = graphContractOf(input.manifest);
     let after: string | undefined;
     do {
-      const page = await vanishedCurrentEvidence(input.owner, graphContractOf(input.manifest), after === undefined ? {} : { after });
+      const page = await vanishedCurrentEvidence(input.owner, contract, after === undefined ? {} : { after });
       for (const finding of page.rows) {
         const path = typeof finding.evidence.locator?.['path'] === 'string' ? finding.evidence.locator['path'] : '';
         const line = typeof finding.evidence.locator?.['lineStart'] === 'number' ? finding.evidence.locator['lineStart'] : 1;

@@ -1,4 +1,4 @@
-# The problems listing reads the endpoints a document names, not a role's whole edge kinds
+# Read only the document endpoints and evidence subjects needed by the Problems listing
 
 Change: madarch-64o5.180
 Base: 16d0caf41
@@ -10,7 +10,8 @@ Kind: no-behavior
 `GET /api/problems` is the frame's own read on every page the wiki opens, so it must not pay for the graph it does
 not show. A product the agent has written no document in still paid for every edge kind the catalogue's `document`
 role reaches: the role's endpoints (repository, commit) were projected with all their edge slots, and each edge slot is
-a whole edge kind read from the store.
+a whole edge kind read from the store. The current evidence check also read assertions across the entire contract for
+each page of attachments, even for kinds that held no evidence.
 
 ## Rationale
 
@@ -27,13 +28,15 @@ Two changes, both in the projection itself, so every reader of a semantic role g
 Measured on the acceptance walk's product (`test/foundation-slice-e2e.test.ts`, scripted agent, no documents): the
 documents phase of one listing fell from 27 368 ms to 24–40 ms on a loaded box.
 
+The current evidence check pages `system.assertion-evidence` in the existing assertion-UID and edge-UID order. It
+batches assertion reads for the subjects and fields named by each batch and uses the existing selection rules to
+check current existence and source activity. A page counts current attachments, including those whose retained evidence
+is sound. The historical proof and current applicability are evaluated independently, as in decision 0039 items 19
+and 31.
+
 ## Out of scope
 
-- The applicability scan's cost (`vanishedCurrentEvidence`): it walks every kind of the contract per listing, and it is
-  the remaining cost of a cold listing. Measured on the same product, that phase had not returned after sixteen
-  minutes, so it is its own defect and its own task.
 - The code rules' whole-kind reads (2 475 ms of the same listing).
-- The listing's cache (unchanged: one collection per key, served to every reader that asks while it runs).
 
 ## Preserved contracts
 
@@ -46,8 +49,10 @@ documents phase of one listing fell from 27 368 ms to 24–40 ms on a loaded box
 ## Where it is seen
 
 Kind: command
-Place: `bun test test/knowledge-anchors.test.ts`
+Place: `bun test test/knowledge-anchors.test.ts test/current-evidence.test.ts test/catalogue-starter-kinds.test.ts`
 
 1. A product with no document reads no edge kind and no endpoint kind for its documents.
 2. A document keeps its repository's name without reading the repository role's edge kinds.
 3. A slow edge read is never waited for when the document role holds nothing.
+4. Evidence pagination skips unrelated kinds and reports the same current vertex and edge evidence in cursor order.
+5. The cold Problems listing and count each answer in under one second on a populated fixture.

@@ -1,6 +1,6 @@
 /** Effective graph records from typed assertions (decision 0039, items 14, 25 and 30). */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { GraphContract } from './contract.js';
+import type { GraphContract, KeyValueDraft } from './contract.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
@@ -245,6 +245,48 @@ export interface StaleEvidence {
   readonly state: import('./evidence-read.js').EvidenceState;
 }
 
+interface CurrentEvidenceLink {
+  readonly cursor: string;
+  readonly assertion_uid: string;
+  readonly property: string;
+  readonly sort: 'vertex' | 'edge';
+  readonly kind: string;
+  readonly subject_id: number;
+  readonly target: string;
+  readonly target_kind: string;
+  readonly target_key: Record<string, KeyValueDraft>;
+  readonly discriminator: string;
+}
+
+async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
+  return (await tx.query<CurrentEvidenceLink>(`
+    WITH links AS MATERIALIZED (
+      SELECT a.assertion_id,a.property,origin.uid::text AS assertion_uid,e.to_node,e.discriminator,
+        (origin.uid::text || ':' || e.uid::text) COLLATE "C" AS cursor
+      FROM edge e JOIN assertion a ON a.assertion_id=e.from_node JOIN node origin ON origin.id=e.from_node
+      WHERE e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')
+        AND (origin.uid::text || ':' || e.uid::text) COLLATE "C">$1
+        AND a.operation='assert' AND a.recorded_at<=$3::timestamptz
+        AND a.valid_from<=$3::timestamptz AND (a.valid_to IS NULL OR a.valid_to>$3::timestamptz)
+      ORDER BY cursor LIMIT $2
+    )
+    SELECT links.cursor,links.assertion_uid,links.property,links.discriminator,
+      CASE WHEN vertex.id IS NULL THEN 'edge' ELSE 'vertex' END AS sort,kind.name AS kind,
+      CASE WHEN vertex.id IS NOT NULL AND ${vertexKindPresentSql('system.merge')}
+        THEN graph_assertion_target(vertex.id,links.assertion_id,1,$3::timestamptz,$3::timestamptz)
+        ELSE coalesce(vertex.id,relation.id) END AS subject_id,
+      target.uid::text AS target,target_kind.name AS target_kind,target.key AS target_key
+    FROM links
+    LEFT JOIN assertion_vertex_subject av ON av.assertion_id=links.assertion_id
+    LEFT JOIN edge subject ON subject.id=av.subject_edge_id
+    LEFT JOIN node vertex ON vertex.id=subject.to_node
+    LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=links.assertion_id
+    LEFT JOIN edge relation ON relation.id=ae.edge_id
+    JOIN entity kind ON kind.id=coalesce(vertex.entity_id,relation.entity_id)
+    JOIN node target ON target.id=links.to_node JOIN entity target_kind ON target_kind.id=target.entity_id
+    ORDER BY links.cursor`, [after, limit, now])).rows;
+}
+
 /** Evaluate current assertion support without rewriting its independent historical validity. */
 export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
   const limit = query.limit ?? 200;
@@ -253,44 +295,67 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
     const { readPublishedManifest } = await import('./manifest-publication.js');
     const { evidenceSupportRoles } = await import('./evidence-support.js');
     const { readEvidenceStates } = await import('./evidence-read.js');
-    const manifest = await readPublishedManifest(tx);
-    const support = evidenceSupportRoles(manifest?.semanticBindings);
     const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
     const selector = { validAt: now, recordedAt: now, contexts: [1] };
-    const candidates: { kind: string; key: Record<string, unknown>; assertion: StoredAssertion; target: string; targetKind: string; targetKey: Record<string, import('./contract.js').KeyValueDraft>; locator: Record<string, unknown>; relation: string; cursor: string }[] = [];
-    for (const sort of ['vertex', 'edge'] as const) for (const kind of contract[sort]) {
-      const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
-      const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
-      for (const record of records) {
-        const active = new Set(record.activeSources);
-        const assertions = record.assertions.filter(assertion => assertion.active && active.has(assertion.source) && assertion.evidence.length > 0);
-        if (assertions.length === 0) continue;
-        const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
-          `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid
-           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node origin ON origin.id=e.from_node
-           JOIN node target ON target.id=e.to_node JOIN entity k ON k.id=target.entity_id
-           WHERE ek.name='system.assertion-evidence' AND origin.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]);
-        for (const link of links.rows) {
-          const cursor = `${link.assertion}:${link.uid}`;
-          if (query.after !== undefined && cursor <= query.after) continue;
-          const attachment = JSON.parse(link.discriminator) as { locator: Record<string, unknown>; relation: string };
-          candidates.push({ kind: kind.name, key: sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator }, assertion: assertions.find(assertion => assertion.id === link.assertion)!, target: link.target, targetKind: link.target_kind, targetKey: link.target_key, ...attachment, cursor });
+    const declarations = {
+      vertex: new Map(contract.vertex.map(kind => [kind.name, new Set(['$exists', ...kind.fields.map(field => field.name).filter(field => !kind.key.includes(field))])])),
+      edge: new Map(contract.edge.map(kind => [kind.name, new Set(['$exists', ...kind.fields.map(field => field.name)])])),
+    };
+    const candidates: { link: CurrentEvidenceLink; key: Record<string, unknown>; assertion: StoredAssertion }[] = [];
+    const batchSize = limit + 1;
+    let after = query.after ?? '';
+    // A page counts current attachments, including sound ones. Historical links do not consume cursor positions.
+    while (candidates.length <= limit) {
+      const links = await currentEvidenceLinks(tx, after, batchSize, now);
+      const requested = new Map<string, { sort: CurrentEvidenceLink['sort']; kind: string; fields: Set<string>; subjectIds: Set<number> }>();
+      for (const link of links) {
+        if (!declarations[link.sort].get(link.kind)?.has(link.property)) continue;
+        const requestKey = `${link.sort}:${link.kind}`;
+        let request = requested.get(requestKey);
+        if (request === undefined) {
+          request = { sort: link.sort, kind: link.kind, fields: new Set(), subjectIds: new Set() };
+          requested.set(requestKey, request);
+        }
+        request.fields.add(link.property);
+        request.subjectIds.add(link.subject_id);
+      }
+      const requests = [...requested.values()].map(request => ({ ...request, fields: [...request.fields], subjectIds: [...request.subjectIds] }));
+      const batches = requests.length === 0 ? [] : await readKindsAssertions(tx, requests, { contract, ...selector });
+      const active = new Map<string, { key: Record<string, unknown>; assertion: StoredAssertion }>();
+      for (const [index, records] of batches.entries()) for (const record of records) {
+        const key = requests[index]!.sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator };
+        for (const assertion of record.assertions) {
+          if (assertion.active && record.activeSources.includes(assertion.source)) active.set(assertion.id, { key, assertion });
         }
       }
+      for (const link of links) {
+        const entry = active.get(link.assertion_uid);
+        if (entry === undefined) continue;
+        candidates.push({ link, ...entry });
+        if (candidates.length > limit) break;
+      }
+      if (links.length < batchSize) break;
+      after = links.at(-1)!.cursor;
     }
-    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
-    const page = candidates.slice(0, limit);
-    const states = await readEvidenceStates(tx, withAssertionContract(contract), page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    if (candidates.length === 0) return { rows: [] };
+    const manifest = await readPublishedManifest(tx);
+    const support = evidenceSupportRoles(manifest?.semanticBindings);
+    const page = candidates.slice(0, limit).map(candidate => ({
+      ...candidate,
+      ...JSON.parse(candidate.link.discriminator) as { locator: Record<string, unknown>; relation: string },
+    }));
+    const states = await readEvidenceStates(tx, withAssertionContract(contract), page.map(candidate => ({ targetUid: candidate.link.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
     const rows: StaleEvidence[] = [];
     for (const [index, candidate] of page.entries()) {
       const state = states[index]!;
-      const missingSupport = candidate.targetKind === support?.kind && state.currentApplicability === 'unknown';
+      const { link } = candidate;
+      const missingSupport = link.target_kind === support?.kind && state.currentApplicability === 'unknown';
       const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || missingSupport ? 'unavailable' : undefined;
       if (applicability === undefined) continue;
-      rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
-        evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },
+      rows.push({ kind: link.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
+        evidence: { target: { kind: link.target_kind, uid: link.target, key: link.target_key }, locator: candidate.locator, relation: candidate.relation },
         reason: applicability === 'stale' ? 'the immutable evidence no longer supports the current source' : state.issues.join('; ') || 'current evidence support is unavailable', applicability, state });
     }
-    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.cursor } : {}) };
+    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.link.cursor } : {}) };
   }));
 }

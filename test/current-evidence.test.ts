@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { generatedTableName, type GraphContract, type VertexContract } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
@@ -47,6 +48,7 @@ test('current evidence reports unavailable retained bytes without rewriting hist
         { kind: 'retained', key: { digest }, values: { body: 'retained bytes' }, producer: 'fixture', producerVersion: '1' },
         { kind: 'retained', key: { digest: missing }, producer: 'fixture', producerVersion: '1' },
         fact('available', digest), fact('unavailable', missing), fact('ended', missing),
+        { kind: 'code.file', key: { path: 'unrelated.txt' }, producer: 'fixture', producerVersion: '1' },
       ] });
       await publishGraphDrafts(tx, owner.graphContract, { vertices: [], removals: [{ kind: 'probe.fact', key: { id: 'ended' }, producer: 'fixture' }] });
     });
@@ -57,14 +59,25 @@ test('current evidence reports unavailable retained bytes without rewriting hist
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').length).toBeGreaterThan(0);
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').every(row => row.applicability === 'unavailable')).toBe(true);
     const seen: string[] = [];
+    const scans: string[] = [];
+    const measuredOwner: DatabaseOwner = {
+      ...owner,
+      transaction: (kind, read) => owner.transaction(kind, tx => read({
+        query: <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
+          if (sql.includes('property_rank') && parameters?.includes('code.file')) scans.push('code.file');
+          return tx.query<Row>(sql, parameters);
+        },
+      })),
+    };
     let after: string | undefined;
     do {
-      const next = await vanishedCurrentEvidence(owner, contract, { limit: 1, ...(after === undefined ? {} : { after }) });
+      const next = await vanishedCurrentEvidence(measuredOwner, evidenceContract, { limit: 1, ...(after === undefined ? {} : { after }) });
       seen.push(...next.rows.map(row => row.opinion));
       after = next.next;
     } while (after !== undefined);
     expect(seen).toEqual(page.rows.map(row => row.opinion));
     expect(new Set(seen).size).toBe(seen.length);
+    expect(scans).toEqual([]);
     expect(await owner.transaction('snapshot', async tx => (await tx.query<{ count: number }>('SELECT count(*)::int AS count FROM assertion')).rows[0]!.count)).toBe(before);
   } finally { await owner.close(); }
 }, 30_000);
@@ -102,18 +115,24 @@ test('current evidence reports stale and unsupported blobs while accepting retai
         ], edges: [support], removals: [],
       });
       await publishGraphDrafts(tx, owner.graphContract, {
-        vertices: [replacement], edges: [{ ...support, from: replacement }], edgeRemovals: [support], removals: [],
+        vertices: [replacement], edges: [{ ...support, from: replacement, evidence: [{ target: unsupported }] }], edgeRemovals: [support], removals: [],
       });
     });
 
     const { rows } = await vanishedCurrentEvidence(owner, evidenceContract);
-    expect(new Set(rows.map(row => row.key['id']))).toEqual(new Set(['stale', 'unsupported']));
-    for (const row of rows) {
+    const facts = rows.filter(row => row.kind === factKind.name);
+    expect(new Set(facts.map(row => row.key['id']))).toEqual(new Set(['stale', 'unsupported']));
+    for (const row of facts) {
       const stale = row.key['id'] === 'stale';
       expect(row).toMatchObject({
         evidence: { target: { kind: 'code.blob' } }, applicability: stale ? 'stale' : 'unavailable',
         state: { historicalValidity: 'valid', currentApplicability: stale ? 'stale' : 'unknown', availability: 'available' },
       });
     }
+    expect(rows.filter(row => row.kind === support.kind)).toMatchObject([{
+      key: { from: expect.any(Number), to: expect.any(Number), discriminator: '' },
+      evidence: { target: { kind: 'code.blob', key: unsupported.key } },
+      applicability: 'unavailable',
+    }]);
   } finally { await owner.close(); }
 });
