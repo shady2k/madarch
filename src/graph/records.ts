@@ -293,7 +293,7 @@ async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: numbe
           AND uid IS DISTINCT FROM CASE WHEN origin.uid=$1::uuid THEN $2::uuid END
         ORDER BY uid LIMIT $3
       ) e ON TRUE
-      WHERE origin.uid>=$1::uuid
+      WHERE origin.uid>=$1::uuid AND ${edgeKindPresentSql('system.assertion-evidence')}
       ORDER BY origin.uid,e.uid LIMIT $3
     )
     SELECT links.cursor,links.assertion_uid,links.property,links.discriminator,

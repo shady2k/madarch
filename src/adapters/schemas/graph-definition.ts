@@ -77,7 +77,6 @@ export const SCHEMA: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS edge_once ON edge(entity_id,from_node,to_node,discriminator,context_id)`,
   `CREATE INDEX IF NOT EXISTS edge_to ON edge(to_node,entity_id)`,
   `CREATE INDEX IF NOT EXISTS edge_from ON edge(from_node,entity_id)`,
-  `CREATE INDEX IF NOT EXISTS edge_kind_from_uid ON edge(entity_id,from_node,uid)`,
   `CREATE TABLE IF NOT EXISTS assertion (
     assertion_id bigint PRIMARY KEY REFERENCES node(id),
     property text NOT NULL CHECK (property <> ''), language text,
