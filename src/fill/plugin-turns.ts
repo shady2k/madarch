@@ -435,7 +435,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
     const marks = await storedApplicability(wiring.owner,wiring.contract);
     const mark = marks.find(mark => mark.kind === unit.kind.name && mark.state === 'inapplicable');
     if (mark !== undefined) {
-      completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'empty',produced:0,reason:mark.reason});
+      // The turn finds the kind already marked inapplicable: it searches nothing and states no new mark, so its
+      // completion is the absence the kind carries, never the absence of a search it did not make.
+      completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'inapplicable',produced:0,reason:mark.reason});
       return;
     }
   }
@@ -694,7 +696,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
           await assertApplicability(tx,wiring.contract,unit.kind.name,'inapplicable',end.searched,end.evidence.flatMap(draftEvidence));
           await cascadeApplicability(tx,wiring.contract,wiring.manifest);
         });
-        completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'empty',produced:0,reason:outcome.result.end.searched});
+        completeOutcome({plugin:unit.plugin.id,kind:unit.kind.name,outcome:'inapplicable',produced:0,reason:outcome.result.end.searched});
         return;
       }
       producedCount = asserted;

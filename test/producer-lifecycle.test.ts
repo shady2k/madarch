@@ -22,6 +22,7 @@ import { activateGraphProducer, bindGraphProducer, registerGraphPrincipal, type 
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
+import { storedApplicability } from '../src/graph/applicability.js';
 
 let folder = '';
 afterAll(() => { if (folder) rmSync(folder, { recursive: true, force: true }); });
@@ -192,9 +193,13 @@ async extract(unit, context) {
     if (!inapplicable.ok) throw new Error(JSON.stringify(inapplicable));
     expect(inapplicable.settled).toBe(true);
     expect(inapplicable.state).toBe('succeeded');
-    expect(await readProducerOutcomes(owner, { runId: 'inapplicable' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'empty', produced: 0, reason: 'No applicable document' })]));
+    expect(await readProducerOutcomes(owner, { runId: 'inapplicable' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'FixtureProblem', outcome: 'inapplicable', produced: 0, reason: 'No applicable document' })]));
+    // The turn's own mark stands: its completion states the absence the agent found, not an absence of a search (0039, item 35).
+    expect((await storedApplicability(owner, graph)).find(mark => mark.kind === 'FixtureProblem')).toEqual(expect.objectContaining({ state: 'inapplicable', reason: 'No applicable document' }));
     expect(await owner.transaction('snapshot', async (tx) => await readKindAssertions(tx, 'vertex', 'FixtureProblem', [], { contract: graph }))).toEqual([]);
     release = configure('bad'); await run('bad-before-failed');
+    // A later finding makes the kind applicable again through the instance assertion, as it did before this fix.
+    expect((await storedApplicability(owner, graph)).find(mark => mark.kind === 'FixtureProblem')?.state).toBe('applicable');
     release = configure('failed'); const failedRun = await run('failed');
     expect(failedRun.ok).toBe(true);
     if (!failedRun.ok) throw new Error(JSON.stringify(failedRun));
