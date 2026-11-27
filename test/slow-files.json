@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "measuredOn": "2026-11-26",
+  "measuredOn": "2026-11-27",
   "criterion": "Quarantine files with a measured single-file run over 30 s, plus measured-red files whose assertions or waiting failures require repair before returning to the blocking suite.",
-  "source": "The twelve green-slow entries the integration candidate added were measured at that candidate's HEAD on 2026-11-26. Ten were re-measured on box madarch-0039-fix2 (agent-linux-02, 4 vCPU, 8 GiB, image madarch-3), one file at a time inside scripts/plugin-sandbox-cgroup.sh's delegated cgroup; those seconds are that machine's whole-file runs and are roughly three times a runner's. The eleventh, test/agent-fill-e2e.test.ts, carries its GitHub Actions runner measurement from run 45809866011 (ubuntu-24.04): 31.283 s alone and 38.304 s inside shard 1, and the twelfth, test/catalogue-kind-relations.test.ts, carries its GitHub Actions runner measurement from run 45910624124 (ubuntu-24.04): 31.426 s alone and 30.484 s inside shard 1, so their seconds are the runner's own. The runner measurements of run 45758277151 (ubuntu-24.04, ede4936b1) stay in each entry's defect text. Entries older than this measurement keep the note their own source names.",
-  "note": "The twelve integration entries record the candidate's own measurement: on one box the fixture fill costs 8.1 times main's (155.6 s against main's median 19.3 s for the unchanged fixture of test/status-work.test.ts), so what these files measure is the fill, not the setup around it. Where a file stopped at a bound it names, its seconds are that run's wall time and therefore a floor. test/db-schema-path.test.ts was re-run with its two 300 s bounds raised to 900 s and finished 5 of 5 cases in 507 s, so the PARENT_DELETE_RESTRICTED refill failure reported from an earlier box does not reproduce at this candidate.",
+  "source": "These ten entries are the dedicated files of the twelve-file study the stream inherited: one of the twelve is already back in the blocking shards, one returns to them with this change, and these ten stay listed. They were measured on GitHub Actions' ubuntu-24.04 runners after the speed-up stream madarch-64o5.176 landed (F1+F2, F3, F5-catalogue, F5-fill and F4). Each file ran alone in three independent runs of the F4 tree: 46044618928 (the pull request head 7b9499138, tree 83e9ef8f), 46045922097 (the merge 46be90c4a, the same tree) and 46046625374 (9b0b16da3, after the merge that followed). The seconds each entry records are the median of those three green complete-file measurements, and .github/workflows/single-file-timings.json carries the same number as that file's committed single-file evidence, which the slow-list check compares within 100 ms. test/catalogue-kind-relations.test.ts returned to the blocking shards: 29.18 s, 27.86 s and 27.81 s in the same three runs, and it is no longer listed. Entries of other tasks keep the note their own source names.",
+  "note": "A real fill pass of a small, already trimmed fixture costs 18.6-19.5 s on a runner (sample B's two status-work case fills; main's median for that fixture was 19.3 s before 0039), so a file that needs two passes cannot reach the 30 s bound whatever its data. The three samples of one tree also vary by up to 40% (owner-fill-path 66.10 s against 108.39 s), which is why a file at 32.72 s is not treated as an exit candidate. Each staying entry names the passes it pays and why they are its subject. The box numbers these entries carried before measured the 0039 candidate, where one fill cost 155.6 s against main's 19.3 s; those numbers are superseded by the runner samples above.",
   "files": [
     {
       "path": "test/agent-fill-e2e.test.ts",
-      "seconds": 31.3,
+      "seconds": 35.76,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The two cases drive a whole agent fill through the api role and the plugin's own turns, and the file costs the 0039 fill's implementation, not its own setup. Runner-alone measurement in run 45809866011: 31.283 s; the same file took 38.304 s inside shard 1, over the 30 s bound.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL, and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping). Speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The two cases drive a whole agent fill through the api role and the plugin's own turns, and both agent fills are the case's subject: 24.1 s and 9.6 s of its 33.7 s of case time in sample B. After the speed-up stream landed (F1+F2, F3, F5-catalogue, F5-fill and F4) the complete file is green on the runner in three samples of the F4 tree: 24.18 s, 36.96 s and 35.76 s (runs 46044618928, 46045922097 and 46046625374), median 35.76 s, which is the number this entry records. Its earlier runner measurement was 31.283 s alone and 38.304 s in shard 1 (run 45809866011).",
+      "replacement": "No safe reduction is left: each case is an agent fill with its own turns, and one pass of an already trimmed fixture costs 18.6-19.5 s on the runner, so two passes cannot fit the bound without dropping a scenario. Both agent fill scenarios stay and the entry keeps its two cases. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/agent-fill-e2e.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -37,12 +37,12 @@
     },
     {
       "path": "test/api-role-first-page.test.ts",
-      "seconds": 131,
+      "seconds": 38.09,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The one case passes on a runner and serves a product from an api role, reading its first page out of the store the fill wrote; on box madarch-0039-fix2 the file stops at the 120 s bound its own setup names. Runner-alone measurement in run 45758277151: 51.417 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The one case passes and serves a product from an api role, reading its first page out of the store; the case itself takes 1.6 s and the setup's fill is what cost. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 38.09 s, 42.70 s and 29.35 s (runs 46044618928, 46045922097 and 46046625374), median 38.09 s, which is the number this entry records; one sample is inside the bound and two are not, so the return is not yet confirmed. Its earlier runner measurement was 51.417 s (run 45758277151).",
+      "replacement": "The setup now publishes the fixture manifest through the test store preparation and the manifest publication helper instead of running a full fill, keeping the real api role and store path, the run and its state, the 150 000-span trace, every assertion and both latency bounds (5 s and 50 ms). Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage. The safe setup reduction is in the closing PR and needs its own complete-file runner measurement: the matrix job of that PR measures the reduced file, and a green measurement at or below 30 s removes this entry in a follow-up commit to the same PR, with the shard coverage read from that run's shard artifact.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/api-role-first-page.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -64,16 +64,6 @@
       "defect": "The file passes, but every case runs the catalog check as a subprocess over a starter manifest it rewrites, so seven cases pay a full check each: stack-era file measured over 30 s alone in CI (run 44520174924); speed-up owed.",
       "replacement": "Check the starter manifest and its edited variants in-process through the same parse and check the command calls, keeping one subprocess case for the command's exit, counts and file/line refusal text.",
       "exit": "Rewrite test/catalog-check.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/catalogue-kind-relations.test.ts",
-      "seconds": 31.4,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-64o5.176",
-      "defect": "The file passes, but its single case publishes and republishes the extended starter catalogue through publishValidatedManifests five times and renders both diagrams, measuring the current cost of the 0039 implementation rather than the test's own setup. Runner measurement in run 45910624124 (ubuntu-24.04): 31.426 s alone and 30.484 s inside shard 1, both over the 30 s bound.",
-      "replacement": "The cost is the 0039 catalogue publication and deferred graph-check implementation, not this fixture's setup: the speed-up stream madarch-64o5.176 removes these implementation defects after the merge, without weakening the checks or trimming the fixture, and this entry stays until the exit below holds.",
-      "exit": "Remove this entry only after a green complete-file runner measurement of test/catalogue-kind-relations.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/catalogue-starter-kinds.test.ts",
@@ -107,12 +97,12 @@
     },
     {
       "path": "test/db-schema-path.test.ts",
-      "seconds": 507,
+      "seconds": 82.53,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The five cases pass; on box madarch-0039-fix2 they pass 5 of 5 in 507 s only when the two 300 s bounds the file names for its refill are raised to 900 s, so at the bounds as committed the refill setup alone exceeds 300 s and the file reports 4 passes and 2 failed hooks. Runner-alone measurement in run 45758277151: 129.448 s; main fills the same fixture in 19.0 s where this candidate takes 155.6 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The five cases pass and read what the readable SQL declares; their 9.3 s of case time leaves the setup's two real fills - the partial run that abstains, then the final run that publishes - as the file's cost. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 84.13 s, 81.08 s and 82.53 s (runs 46044618928, 46045922097 and 46046625374), median 82.53 s, which is the number this entry records. The earlier runner measurement of 129.448 s (run 45758277151) and the box run that needed its own bounds raised measured the 0039 candidate before this stream.",
+      "replacement": "Both fills are the file's subject - one proves the abstention, the other publishes what the SQL declares - so a reduction would drop a case. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/db-schema-path.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -337,12 +327,12 @@
     },
     {
       "path": "test/imports-path.test.ts",
-      "seconds": 228,
+      "seconds": 34.51,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The five cases pass and import authored facts through the imports plugin, asserting the pages and counts those imports publish. Runner-alone measurement in run 45758277151: 56.936 s; main fills the same fixture in 19.0 s where this candidate takes 155.6 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The five cases pass and import authored facts through the imports plugin, asserting the pages and counts those imports publish; their case time is 0.8 s and the file's cost is the one confined fill its setup runs. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 33.64 s, 43.69 s and 34.51 s (runs 46044618928, 46045922097 and 46046625374), median 34.51 s, which is the number this entry records. Its earlier runner measurement was 56.936 s (run 45758277151).",
+      "replacement": "The setup fill is the fixture the imports plugin reads and it is already trimmed, so the remaining cost is the pass itself; no smaller fixture recovers it. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/imports-path.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -387,32 +377,32 @@
     },
     {
       "path": "test/ordinary-plugin-partition.test.ts",
-      "seconds": 179,
+      "seconds": 57.3,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The sixteen cases pass and partition each plugin output through the graph writer, asserting the published edges and units. Runner-alone measurement in run 45758277151: 57.56 s; main fills the same fixture in 19.0 s where this candidate takes 155.6 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The sixteen cases pass and partition each plugin output through the graph writer, asserting the published edges and units. Two cases cost 28.6 s and 26.1 s, each driving three real reconciliation runs with a deliberate 2 s extraction delay. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 45.08 s, 58.21 s and 57.30 s (runs 46044618928, 46045922097 and 46046625374), median 57.30 s, which is the number this entry records. Its earlier runner measurement was 57.56 s (run 45758277151).",
+      "replacement": "The real worker concurrency and the extraction delay the heavy cases assert cannot be cut, and sixteen cases each partition a plugin output; the passes are the file's cost. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/ordinary-plugin-partition.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/owner-fill-path.test.ts",
-      "seconds": 313,
+      "seconds": 82.0,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The one case passes on a runner and has the owner start a fresh product, serve it, plan and run the code fill and read the result in a browser-like walk; on box madarch-0039-fix2 the file stops at the 300 s bound its own case names. Runner-alone measurement in run 45758277151: 120.851 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The one case passes on a runner and has the owner start a fresh product, serve it, plan and run the code fill and read the result in a browser-like walk; its case time is 62.6 s. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 82.00 s, 66.10 s and 108.39 s (runs 46044618928, 46045922097 and 46046625374), median 82.00 s, which is the number this entry records; the samples show the runner's own spread on one tree. Its earlier runner measurement was 120.851 s (run 45758277151).",
+      "replacement": "The real CLI, serve and pressed fill processes are the case, and the walk cannot be shortened without dropping a step it asserts. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/owner-fill-path.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
       "path": "test/plugin-agent-edge-order.test.ts",
-      "seconds": 132,
+      "seconds": 32.72,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The one case passes on a runner and fills a catalogue whose agent dependency edge is published in a later endpoint turn; on box madarch-0039-fix2 it stops at the 120 s bound the case names. Runner-alone measurement in run 45758277151: 53.816 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The one case fills a catalogue whose agent dependency edge is published in a later endpoint turn, so the fill is the assertion. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 40.01 s, 32.72 s and 31.62 s (runs 46044618928, 46045922097 and 46046625374), median 32.72 s, which is the number this entry records. Its earlier runner measurement was 53.816 s (run 45758277151).",
+      "replacement": "The fill through the probe plugin is the case, and one pass of an already trimmed fixture costs 18.6-19.5 s on the runner before the probe's own agent turn; nothing in the fixture is incidental. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/plugin-agent-edge-order.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -587,12 +577,12 @@
     },
     {
       "path": "test/roles-two-and-two.test.ts",
-      "seconds": 347,
+      "seconds": 78.82,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The one case passes and runs two api and two fill instances against one store, asserting every unit publishes once and both api instances answer from it. Runner-alone measurement in run 45758277151: 84.549 s; main's same fixture fills in 19.0 s where this candidate takes 155.6 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The one case passes and runs two api and two fill instances against one store, asserting every unit publishes once and both api instances answer from it; it is 42.7 s of the file's time. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 82.17 s, 52.48 s and 78.82 s (runs 46044618928, 46045922097 and 46046625374), median 78.82 s, which is the number this entry records. Its earlier runner measurement was 84.549 s (run 45758277151).",
+      "replacement": "The two api and two fill processes and their one fill are the subject of the case, so no pass can be cut and no fixture is incidental. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/roles-two-and-two.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -607,12 +597,12 @@
     },
     {
       "path": "test/source-follows-fill.test.ts",
-      "seconds": 194,
+      "seconds": 51.4,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The two cases pass on a runner and fill a fixture product, reading its source pages and query budget from the store another process published; on box madarch-0039-fix2 the file stops at the 180 s bound its own setup names. Runner-alone measurement in run 45758277151: 90.647 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The three cases pass on a runner and read a fixture product's source pages and query budget from the store another process published: one case holds the setup fill to its measured query budget, one reads a page's source through the read worker, and one, 18.8 s, follows a fill another process published. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 52.77 s, 51.40 s and 49.89 s (runs 46044618928, 46045922097 and 46046625374), median 51.40 s, which is the number this entry records. Its earlier runner measurement was 90.647 s (run 45758277151).",
+      "replacement": "Both fills are the case - one publishes the store, the other shows a source following it - so two passes at 18.6-19.5 s each cannot fit the bound. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/source-follows-fill.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
@@ -627,12 +617,12 @@
     },
     {
       "path": "test/status-work.test.ts",
-      "seconds": 194,
+      "seconds": 69.62,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The three cases pass on a runner; on box madarch-0039-fix2 the file stops at the 180 s bound its own setup names, so its own fill alone decides the run. Runner-alone measurement in run 45758277151: 125.498 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
+      "defect": "The three cases pass on a runner and read the published page steps a fill moves, so the file pays the startup fill plus two fills inside its cases (18.6 s and 19.5 s of its 39.0 s of case time in sample B). After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 69.62 s, 69.38 s and 69.74 s (runs 46044618928, 46045922097 and 46046625374), median 69.62 s, which is the number this entry records. Its earlier runner measurement was 125.498 s (run 45758277151).",
+      "replacement": "Each fill moves the graph revision the case reads, so every pass is the case; three passes at 18.6-19.5 s cannot fit the bound. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/status-work.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
