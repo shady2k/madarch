@@ -496,6 +496,7 @@
     "test/writer-set-based.test.ts": 4349,
     "test/yaml-position.test.ts": 6700,
     "test/foundation-slice-e2e.test.ts": 1117,
-    "test/wiki-refusal-boundary.test.ts": 1346
+    "test/wiki-refusal-boundary.test.ts": 1346,
+    "test/startup-binding.test.ts": 12087
   }
 }

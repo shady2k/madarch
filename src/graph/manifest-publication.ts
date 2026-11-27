@@ -61,7 +61,23 @@ interface InstalledBinding { readonly productId: number; readonly productUid: st
  * start over, or a store this process has not seen — is discovered again.
  */
 const installedBindings = new WeakMap<DatabaseOwner, { readonly token: string; readonly value: Map<string, InstalledBinding> }>();
+const pendingBindings = new WeakMap<SqlExecutor, Promise<void>>();
+
 export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
+  // Advisory locks serialize PostgreSQL transactions. Calls sharing one executor hold the same lock
+  // and must also take turns discovering identities and binding the transaction's write capability.
+  const previous = pendingBindings.get(tx) ?? Promise.resolve();
+  const pending = previous.then(() => installStartupBinding(tx, declared, producer, permissions, operationUid));
+  const tail = pending.then(() => undefined, () => undefined);
+  pendingBindings.set(tx, tail);
+  try {
+    return await pending;
+  } finally {
+    if (pendingBindings.get(tx) === tail) pendingBindings.delete(tx);
+  }
+}
+
+async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   return await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => {
     const prepared = preparePublicationContract(declared);
     const { contract } = prepared;
