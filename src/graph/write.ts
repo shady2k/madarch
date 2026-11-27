@@ -14,6 +14,8 @@ import { GraphRefusal, fieldPath, validateFields } from './validation.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
+// New assertions default to the transaction start, even if the wall clock moves backward.
+const ENDPOINT_VALIDATION_INSTANT='greatest(clock_timestamp(),transaction_timestamp())';
 
 interface ImmutableVertex extends Record<string,unknown> {
  id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;
@@ -210,7 +212,10 @@ async function endpoint(executor:SqlExecutor,contract:GraphContract,ref:EntityRe
  const uid=await refUid(executor,contract,resolved,context);
  const row=(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{id:string;kind:string;context:string}>(`SELECT n.id::text AS id,k.name AS kind,n.context_id::text AS context FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid FOR UPDATE OF n`,[uid]))).rows[0];
  if(!row||row.kind!==ref.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
- if(!(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[row.id,ref.kind,context]))).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
+ if(!(await withSpan('graph.write.endpoint', { 'db.system': 'postgres' }, async () => await executor.query<{active:boolean}>(`SELECT EXISTS(
+  SELECT 1 FROM graph_vertex_active_ids_batch($2,$3::bigint,ARRAY[$1::bigint],${ENDPOINT_VALIDATION_INSTANT},NULL::bigint) active(id)
+  WHERE active.id=$1::bigint
+ ) AS active`,[row.id,ref.kind,context]))).rows[0]?.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${uid}`);
  return {id:row.id,uid};
 }
 /** Resolves a declared identity without creating it. */
@@ -245,8 +250,11 @@ async function readEndpoints(executor:SqlExecutor,contract:GraphContract,refs:re
    WHERE n.uid IN (SELECT value::uuid FROM unnest($1::text[]) input(value)) ORDER BY n.id FOR UPDATE OF n
   ), kinds AS MATERIALIZED (
    SELECT kind,array_agg(id) AS ids FROM locked GROUP BY kind
+  ), validation_time AS MATERIALIZED (
+   SELECT ${ENDPOINT_VALIDATION_INSTANT} AS instant
   ), active AS MATERIALIZED (
-   SELECT selected.id FROM kinds CROSS JOIN LATERAL graph_vertex_active_ids_batch(kinds.kind,$2::bigint,kinds.ids,NULL::timestamptz,NULL::bigint) selected(id)
+   SELECT selected.id FROM kinds CROSS JOIN validation_time
+   CROSS JOIN LATERAL graph_vertex_active_ids_batch(kinds.kind,$2::bigint,kinds.ids,validation_time.instant,NULL::bigint) selected(id)
   ) SELECT locked.id::text,uid::text,input.value AS requested,kind,active.id IS NOT NULL AS active
     FROM locked JOIN unnest($1::text[]) input(value) ON locked.uid=input.value::uuid LEFT JOIN active USING(id)`,[[...new Set(requested.map(ref=>ref.uid))],context]))).rows;
   const held=new Map(rows.map(row=>[row.requested,row]));
@@ -524,14 +532,12 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
 async function checkBatchActivity(executor:SqlExecutor,needActive:Map<string,{uid:string;kind:string;error:string}>,context:number,nodes:Map<string,BatchNode>):Promise<void>{
  return await withSpan('graph.write.checkBatchActivity',{},async()=>{
  if(needActive.size===0)return;
- // New assertions default to the transaction's start time. A backward clock correction
- // during the write must not put their valid time ahead of endpoint validation.
  const inactive=(await executor.query<{uid:string}>(`WITH inputs AS MATERIALIZED (
  SELECT * FROM jsonb_to_recordset($1::jsonb) input(uid uuid,id bigint,kind text)
  ), kinds AS MATERIALIZED (
  SELECT kind,array_agg(id) AS ids FROM inputs GROUP BY kind
  ), validation_time AS MATERIALIZED (
- SELECT greatest(clock_timestamp(),transaction_timestamp()) AS instant
+ SELECT ${ENDPOINT_VALIDATION_INSTANT} AS instant
  ), active AS MATERIALIZED (
  SELECT kinds.kind,selected.id FROM kinds CROSS JOIN validation_time
  CROSS JOIN LATERAL graph_vertex_active_ids_batch(kinds.kind,$2::bigint,kinds.ids,validation_time.instant,NULL::bigint) selected(id)
