@@ -83,7 +83,7 @@ export async function snapshotClosure(closure: Closure, parent: string, name?: s
           mkdirSync(directory, { recursive: true });
           directories.add(directory);
         }
-        if (file.content === undefined) copyFileSync(join(closure.folder, file.path), target);
+        if (file.content === undefined) copyFileSync(file.source ?? join(closure.folder, file.path), target);
         else writeFileSync(target, file.content);
         chmodSync(target, file.mode);
       }

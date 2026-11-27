@@ -7,7 +7,7 @@ import { parseCatalogYaml } from '../product/manifest/kinds.js';
 import { CATALOG_FILES } from './catalog-assets.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { DEFAULT_STARTER_TEMPLATE, kindClosure, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
-import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
+import { BUNDLED_PLUGINS, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
@@ -124,7 +124,7 @@ function pluginManifest(kinds: readonly CatalogKindData[]): Record<string, unkno
   const names = new Set(kinds.map((kind) => kind.name));
   return BUNDLED_PLUGINS.filter((plugin) => pluginFits(plugin, names, kinds))
     .map((plugin) => ({ id: plugin.id, version: Number(plugin.version.split('.')[0]), path: plugin.folder,
-      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin).filter((kind) => names.has(kind)), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
+      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin).filter((kind) => names.has(kind)), closure: [...plugin.files, ...plugin.dependencies].map((file) => `${plugin.folder}/${file.path}`) }));
 }
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
@@ -132,9 +132,11 @@ function pluginLockText(plugins: readonly BundledPlugin[]): string {
   const lines = [
     '# The plugins this product runs (decision 0035, item 20): each one\'s exact version and the hash of its closure.',
     '# A fill runs exactly what this lock names. A changed closure needs a person\'s approval before it runs.',
+    '# The packages its declared dependencies make are not in this repository (madarch-64o5.72): madarch restores them',
+    '# from its own release into the machine store, and the hash below is what the run holds them to.',
     'plugins:',
   ];
-  for (const plugin of plugins) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
+  for (const plugin of plugins) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${plugin.hash}, path: ${plugin.folder} }`);
   return `${lines.join('\n')}\n`;
 }
 

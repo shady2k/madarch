@@ -11,7 +11,8 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import { PluginHost } from './host.js';
-import { closureOf } from './closure.js';
+import { type Closure } from './closure.js';
+import { lockedClosureOf } from './dependency-store.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from './lock.js';
 import { sandboxRepositoryPath } from './sandbox.js';
 import { readProduct } from '../product/manifest.js';
@@ -44,8 +45,8 @@ function inside(folder: string, path: string): boolean {
   return held !== '' && !held.startsWith('..') && !isAbsolute(held);
 }
 
-/** Checks a read's paths and returns the plugin folder, the repository root and the locked closure. */
-export function verifyBlobRead(read: BlobRead): { pluginFolder: string; repositoryRoot: string; closure: string } {
+/** Checks a read's paths and returns the plugin folder, the repository root and the closure the product's lock names. */
+export function verifyBlobRead(read: BlobRead, store?: string): { pluginFolder: string; repositoryRoot: string; closure: Closure } {
   // The checks open the product's folders: one span covers the whole proof that a read stays inside them.
   const span = startSpan('plugin.read.verify', {});
   try {
@@ -92,12 +93,13 @@ export function verifyBlobRead(read: BlobRead): { pluginFolder: string; reposito
   try { lockText = readFileSync(lockFile, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new BlobReadRefusal(`${lockFile}:1: the plugin lock cannot be read: ${(error as Error).message}`); }
   const lock = parsePluginLock(lockText, lockFile);
   if (!lock.ok) throw new BlobReadRefusal(`${lock.file}:${String(lock.line)}: ${lock.message}`);
-  const closure = closureOf(pluginFolder);
   const id = read.plugin.split('/').flatMap((part) => part.split(sep)).filter((part) => part !== '').at(-1) ?? read.plugin;
   const locked = lock.entries.find((entry) => entry.id === id);
   if (locked === undefined) throw new BlobReadRefusal(`${lock.file}:1: the product's lock names no plugin ${JSON.stringify(id)}, and a file's text is read only through a locked plugin`);
-  if (locked.closure !== closure.hash) throw new BlobReadRefusal(`${WHERE}:1: the plugin ${id} at ${pluginFolder} hashes to ${closure.hash}, and ${lock.file} locks ${locked.closure}: a read runs exactly the closure the lock names`);
-  return { pluginFolder, repositoryRoot: rootReal, closure: closure.hash };
+  // The closure is the one the lock names, with the dependencies the release restores into the machine store when the
+  // product's repository carries none (madarch-64o5.72): a read runs exactly those bytes, or it refuses before it starts.
+  const closure = lockedClosureOf(pluginFolder, locked, store, WHERE);
+  return { pluginFolder, repositoryRoot: rootReal, closure };
   } finally { span.end(); }
 }
 
@@ -122,6 +124,8 @@ export interface BlobReadOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** The host that asks for the text runs its plugins without isolation: the reader it opens does the same. */
   readonly unconfined?: boolean;
+  /** The machine store the reader's dependencies are restored from when its folder carries no `node_modules` (madarch-64o5.72). */
+  readonly store?: string;
 }
 
 /** The readers this process holds, by plugin folder, repository and the way the reader runs: a page's tab asks several ranges of one file. */
@@ -157,7 +161,7 @@ function environmentKey(env: Readonly<Record<string, string | undefined>>): stri
 }
 
 /** The reader for one (plugin, repository), opened on first use and reused while it stands. */
-async function readerFor(verified: { pluginFolder: string; repositoryRoot: string }, options: BlobReadOptions): Promise<Reader> {
+async function readerFor(verified: { pluginFolder: string; repositoryRoot: string; closure: Closure }, options: BlobReadOptions): Promise<Reader> {
   // The way the reader runs is part of its key: an unconfined reader never answers a caller that asked for a confined
   // one, and the other way round, and a reader opened with one environment never answers a call that names another
   // (madarch-64o5.178) — the plugin finds git on the PATH it was opened with and reads `MADARCH_*` through it.
@@ -175,6 +179,7 @@ async function readerFor(verified: { pluginFolder: string; repositoryRoot: strin
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-file-read-'));
   const host = new PluginHost({
     pluginFolder: verified.pluginFolder,
+    closure: verified.closure,
     repository: verified.repositoryRoot,
     workRoot,
     trust: 'production',
@@ -212,10 +217,11 @@ function armIdle(reader: Reader): void {
 /**
  * Reads one blob through the plugin: the plugin runs in its sandbox with the repository bound, answers the lines asked
  * for, and is kept for the next range of the same repository. The plugin names the repository at the path its sandbox
- * gives it, never the host's own.
+ * gives it, never the host's own. `store` is the product's machine store, where the plugin's dependency closure is
+ * restored from the release when the product's repository carries none (madarch-64o5.72).
  */
 export async function readBlobThroughPlugin(read: BlobRead, options: BlobReadOptions = {}): Promise<FileTextResult> {
-  const verified = verifyBlobRead(read);
+  const verified = verifyBlobRead(read, options.store);
   // The reader runs the way the host that asks for the text runs its own plugins (madarch-64o5.178): a host that chose no
   // isolation opens its reader without isolation too, and the reader is then told the repository's own path, as a child
   // without a sandbox reads it. The choice is made in a copy — the caller's environment is never changed.

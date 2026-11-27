@@ -28,6 +28,7 @@ import { ClosureRefusal, closureOf, interpreterPinProblem, PLUGIN_MANIFEST_FILE,
 import { PluginGraphOwnFactsRequest, type PluginGraphOwnFactsResult, graphReadsOf, PluginOutputPlan, PluginReadResult, PluginFileReadAsk, type PluginReadRequest, PluginFactsApplyRequest, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { capabilityProblem, declarationOf, environmentOf, type PluginEnvironment } from './capabilities.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
+import { closureOptionsFor } from './dependency-store.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
 import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, protocolMessageProblem, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
 
@@ -170,6 +171,12 @@ export interface PluginHostOptions {
    * it stands instead of reading the folder again, so the copy is held to the closure the caller named.
    */
   readonly closure?: Closure;
+  /**
+   * The machine store a plugin's declared dependencies are restored from when its folder carries no `node_modules`
+   * (`src/plugin/dependency-store.ts`, madarch-64o5.72). Left out, a plugin whose folder holds no `node_modules` cannot
+   * resolve the packages it declares, and a blob read through the core plugin (git) cannot either.
+   */
+  readonly store?: string;
   /** The repository snapshot a plugin that declared the `filesystem` right may read, bound read-only. */
   readonly repository: string;
   /** Explicit read-only filesystem inputs; callers supply isolated pinned snapshots. */
@@ -305,7 +312,7 @@ export class PluginHost {
     const workFolder = join(this.options.workRoot, 'plugin');
     withSpanSync('plugin.workspace', {}, () => mkdirSync(workFolder, { recursive: true }));
     const closure = await withSpan('plugin.closure', { 'madarch.plugin.folder': this.options.pluginFolder }, async () => {
-      const read = this.options.closure ?? closureOf(this.options.pluginFolder);
+      const read = this.options.closure ?? closureOf(this.options.pluginFolder, closureOptionsFor(this.options.pluginFolder, this.options.store));
       log.info('plugin closure hashed', { folder: read.folder, files: read.files.length, hash: read.hash });
       return read;
     });
@@ -652,6 +659,9 @@ ${text === '' ? '(empty)' : text}` };
       // a file gets an unconfined reader, and its environment is this host's, never that of the process beside it.
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
       ...(this.options.unconfined === true ? { unconfined: true } : {}),
+      // The git plugin's own packages stand in the machine store when this product's repository carries none, exactly as
+      // the plugin's own folder's would (madarch-64o5.72).
+      ...(this.options.store === undefined ? {} : { store: this.options.store }),
     });
   }
 

@@ -173,6 +173,7 @@
     "test/plugin-closure-dependencies.test.ts": 6100,
     "test/plugin-contract.test.ts": 7000,
     "test/plugin-declaration-change.test.ts": 43200,
+    "test/plugin-dependency-store.test.ts": 2838,
     "test/plugin-elf-runtime.test.ts": 6200,
     "test/plugin-file-facts.test.ts": 6600,
     "test/plugin-file-read.test.ts": 127300,
