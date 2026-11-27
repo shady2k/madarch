@@ -24,6 +24,10 @@ export interface DocumentOpinion extends SourceOpinion {
 export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role?: 'document'): Promise<DocumentOpinion[]>;
 export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'source'): Promise<SourceOpinion[]>;
 export async function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'document' | 'source' = 'document'): Promise<SourceOpinion[]> {
+  // The roles are the product's, and a product that declares no documents (or no sources) has none to project: the
+  // pages that list them read an empty list, not a failed read on every page load (madarch-64o5.181). A declared role
+  // stays exact — a missing field, a value its kind does not declare and an endpoint of another role are refused below.
+  if (manifest.semanticBindings?.get(role) === undefined) return [];
   const entities = await semanticEntities(graph, manifest, role);
   // No document is no endpoint to name: the roles a document points at are read for the documents that exist, and a
   // product the agent has written no document in pays nothing for them (madarch-64o5.180).

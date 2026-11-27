@@ -30,7 +30,12 @@ describe('structured document anchors', () => {
     expect(graphDocument(documents, 'code', 'guide.md')?.uid).toBe('doc-uid');
     expect(documentSections(documents[0]!)).toEqual([{ anchor: 'chosen', ...section }]);
     expect(calls).toEqual([['guide', undefined], ['guide', 'later'], ['vault', undefined]]);
-    await expect(documentOpinions(graph, { ...manifest, semanticBindings: new Map() })).rejects.toThrow('semantic role "document" is required');
+    // A product that declares no document role has no documents to project: the pages that list them read an empty
+    // list, and the read itself stays exact for a role the manifest does declare (madarch-64o5.181).
+    expect(await documentOpinions(graph, { ...manifest, semanticBindings: new Map() })).toEqual([]);
+    const documentRole = manifest.semanticBindings!.get('document')!;
+    const incompleteDocument = { ...manifest, semanticBindings: new Map([['document', { ...documentRole, fields: {} }]]) };
+    await expect(documentOpinions(graph, incompleteDocument)).rejects.toThrow('semantic role "document" projection /properties must have required properties path, content, anchors');
   });
 
   test('source relationships resolve only declared UID targets and never scalar aliases', async () => {
