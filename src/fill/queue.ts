@@ -229,6 +229,15 @@ export interface QueueService {
   /** Checks current authority without locking; publication still requires fence at settlement. */
   isActive(job: ClaimedJob, transaction: OuterTransaction): Promise<boolean>;
   /**
+   * Whether an unfinished job of `queue` still carries this singleton key: the
+   * queue's own answer that an attempt for the key is queued or claimed, read
+   * inside `transaction` when one is given and in a snapshot of its own
+   * otherwise. Nothing is taken or created, so a scheduler pass may ask it of a
+   * unit standing `running`: a key the queue no longer holds says the attempt
+   * that started the unit ended and nothing will finish it (madarch-vmx9).
+   */
+  holdsUnfinished(queue: string, singletonKey: string, transaction?: OuterTransaction): Promise<boolean>;
+  /**
    * Refreshes the claim of `job` so the queue does not treat it as dead before
    * its lease lapses: true when the claim is this attempt and is still held,
    * false when the attempt was already handed out again — the worker whose

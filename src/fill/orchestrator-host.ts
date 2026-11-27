@@ -173,24 +173,43 @@ const RETRY_POLL_MS = 50;
 
 /** Applies an empty draft set: this step's stages publish through the record store, not a fact store. */
 
-async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
+/**
+ * Drives a planned run to its end, waiting for the retry moments the run's own units name: the host's own
+ * step, so a test drives a run the way a host does.
+ */
+export async function driveFor(orchestrator: FillOrchestrator, request: { readonly runId: string; readonly workers?: number; readonly maxPasses?: number }): Promise<Awaited<ReturnType<typeof driveRun>> & { readonly retryWaitMs: number }> {
   let driven = await driveRun(orchestrator, request);
   const startedWaiting = Date.now();
   let waited = 0;
-  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
+  const liveUnits = async () => {
     const status = await runStatus(orchestrator, request.runId);
-    const live = status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.some((state) => state === unit.state));
+    return status === null ? [] : status.units.filter((unit) => !TERMINAL_UNIT_STATES.some((state) => state === unit.state));
+  };
+  while (!driven.settled && driven.stoppedBecause === 'a pass and its claims together changed nothing' && Date.now() - startedWaiting < RETRY_WAIT_BUDGET_MS) {
+    const live = await liveUnits();
     if (live.length === 0) break;
     const due = live.flatMap((unit) => (unit.retryAt === null ? [] : [unit.retryAt]));
+    // A unit standing `running` is still the run's to move: the sweep ends an attempt the queue no longer
+    // holds, and one the queue does hold is ended by the queue's own maintenance, so the wait stays within
+    // the budget rather than reporting a run unsettled for an attempt nothing but time will end. A unit in
+    // any other state that names no retry moment is not moved by a pause — nothing the run owes brings the
+    // run closer, so it is reported where it stands at once (madarch-vmx9).
+    if (due.length === 0 && !live.some((unit) => unit.state === 'running')) break;
     const now = orchestrator.clock();
-    const pause = due.length === 0 ? RETRY_POLL_MS : Math.min(orchestrator.limits.retryDelayMs, Math.max(RETRY_POLL_MS, Math.min(...due) - now));
+    const pause = due.length === 0
+      ? Math.max(RETRY_POLL_MS, orchestrator.limits.retryDelayMs)
+      : Math.min(orchestrator.limits.retryDelayMs, Math.max(RETRY_POLL_MS, Math.min(...due) - now));
     const before = Date.now();
     await new Promise<void>((resolve) => setTimeout(resolve, pause));
     waited += Math.max(0, Date.now() - before);
     const again = await driveRun(orchestrator, request);
     driven = { ...again, passes: driven.passes + again.passes, work: driven.work + again.work, reused: [...driven.reused, ...again.reused], foundNothing: [...driven.foundNothing, ...again.foundNothing], refused: [...driven.refused, ...again.refused] };
   }
-  return { ...driven, retryWaitMs: waited };
+  // A run that stopped without settling names what still holds it — the units and the states they stand in —
+  // so its report says why instead of leaving the reader with a driver that gave up (madarch-vmx9).
+  const standing = driven.settled ? [] : await liveUnits();
+  const named = standing.length === 0 ? {} : { stoppedBecause: `${driven.stoppedBecause ?? 'the run stopped without settling'}: ${standing.map((unit) => `${unit.unitId} stands ${unit.state}`).sort(byCodePoint).join(', ')}` };
+  return { ...driven, ...named, retryWaitMs: waited };
 }
 
 export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
