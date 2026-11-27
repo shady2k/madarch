@@ -7,7 +7,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type GraphContract, type VertexDraft, type VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CAPABILITY, MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
-import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, preparePublicationContract, publishGraphDrafts, resolveEntityRefs, writeAssertion, writeAssertions, type WriteCapability } from '../graph/write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, preparePublicationContract, publishGraphDrafts, resolveEntityRefs, writeAssertion, writeAssertions, type GraphDrafts, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
@@ -72,11 +72,11 @@ const pendingBindings = new WeakMap<SqlExecutor, Promise<void>>();
  * external source's — is no host serving the catalogue, whatever identifier it is installed under: a plugin the
  * catalogue happens to name `manifest` writes no declaration, and the writer refuses it by capability.
  */
-export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
+export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string, firstAdmission?: GraphDrafts): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   // Advisory locks serialize PostgreSQL transactions. Calls sharing one executor hold the same lock
   // and must also take turns discovering identities and binding the transaction's write capability.
   const previous = pendingBindings.get(tx) ?? Promise.resolve();
-  const pending = previous.then(() => installStartupBinding(tx, declared, producer, permissions, operationUid));
+  const pending = previous.then(() => installStartupBinding(tx, declared, producer, permissions, operationUid, firstAdmission));
   const tail = pending.then(() => undefined, () => undefined);
   pendingBindings.set(tx, tail);
   try {
@@ -86,7 +86,7 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
   }
 }
 
-async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
+async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string, firstAdmission?: GraphDrafts): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   return await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => {
     const prepared = preparePublicationContract(declared);
     const { contract } = prepared;
@@ -108,12 +108,15 @@ async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, p
         && Object.entries({ ...metadata, scope: installed.productUid }).every(([property, value]) => plugin.selectedAssertions.some(assertion => assertion.property === property && assertion.source === installed.sourceUid && assertion.value === value));
       if (stands) {
         const binding: WriteCapability = { productUid: installed.productUid, sourceUid: installed.sourceUid, principalUid: installed.sourceUid, operationUid: operationUid ?? newUid(), context: 1, scope: installed.productUid, contractVersion: prepared.version, ...(servedCapability === undefined ? {} : { capability: servedCapability }), permissions: permissions ?? hostPermissions };
+        // The first write can share the operation's admission when both use the same grant.
+        const combined = operationUid === undefined && permissions === undefined ? firstAdmission : undefined;
         if (operationUid === undefined) {
           // The operation is the engine's own lineage: it is written under the host's rights, never a caller's narrower grant.
           bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
-          await publishOperation(tx, contract, binding, installed.sourceUid);
+          await publishOperation(tx, contract, binding, installed.sourceUid, combined);
         }
         bindWriteCapability(tx, binding);
+        if (firstAdmission !== undefined && combined === undefined) await publishGraphDrafts(tx, contract, firstAdmission);
         return { contract, binding };
       }
       remembered!.delete(key);
@@ -157,16 +160,21 @@ async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, p
     bindWriteCapability(tx, binding);
     const productId = ids.get(productUid), sourceId = ids.get(sourceUid);
     if (productId !== undefined && sourceId !== undefined) remembered?.set(key, { productId: Number(productId), productUid, sourceId: Number(sourceId), sourceUid });
+    if (firstAdmission !== undefined) await publishGraphDrafts(tx, contract, firstAdmission);
     return { contract, binding };
   });
 }
 
 /** The operation one write transaction runs under: the lineage every assertion it writes is attributed to. */
-async function publishOperation(tx: SqlExecutor, contract: GraphContract, binding: WriteCapability, sourceUid: string): Promise<void> {
-  await publishGraphDrafts(tx, contract, { vertices: [{kind:'system.operation',uid:binding.operationUid,key:{},values:{},producer:sourceUid,producerVersion:binding.contractVersion ?? 'system'}], removals: [], edges: [{
-    kind: 'system.operation-author', from: { kind: 'system.operation', uid: binding.operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
-    producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
-  }] });
+async function publishOperation(tx: SqlExecutor, contract: GraphContract, binding: WriteCapability, sourceUid: string, firstAdmission?: GraphDrafts): Promise<void> {
+  const operation = { kind: 'system.operation', uid: binding.operationUid, key: {} };
+  const producer = { producer: sourceUid, producerVersion: binding.contractVersion ?? 'system' };
+  await publishGraphDrafts(tx, contract, {
+    ...firstAdmission,
+    vertices: [{ ...operation, values: {}, ...producer }, ...(firstAdmission?.vertices ?? [])],
+    edges: [{ kind: 'system.operation-author', from: operation, to: { kind: 'plugin', uid: sourceUid, key: {} }, ...producer }, ...(firstAdmission?.edges ?? [])],
+    removals: firstAdmission?.removals ?? [],
+  });
 }
 
 

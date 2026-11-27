@@ -9,7 +9,7 @@ import { EMPTY_CONTRACT, assertionValueTableName, type EdgeDraft, type EntityRef
 import { withAssertionContract } from './system-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { startupBinding } from './manifest-publication.js';
-import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, unbindWriteCapability, type WriteCapability } from './write.js';
+import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, unbindWriteCapability, type GraphDrafts, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
 import { readKindAssertions as readAssertions, type AssertionRecord, type AssertionRecordSelector } from './records.js';
 import { transactionMemoryIn, type TransactionMemory } from './store-identity.js';
@@ -247,9 +247,28 @@ export async function withFillStateIn<R>(tx: SqlExecutor, declared: GraphContrac
     else unbindWriteCapability(tx);
   }
 }
+/** A first machine write can carry its own operation in the admission that opens the binding. */
+async function publishFillDraftsIn(tx: SqlExecutor, declared: GraphContract, context: GraphWriteContext | undefined, drafts: GraphDrafts): Promise<void> {
+  if (context !== undefined || transactionBindings.get(tx)?.has(declared)) {
+    await withFillStateIn(tx, declared, context, async () => {
+      await publishGraphDrafts(tx, declared, drafts);
+    });
+    return;
+  }
+  const previous = boundWriteCapability(tx);
+  try {
+    const { binding } = await startupBinding(tx, declared, 'fill-state', undefined, undefined, drafts);
+    const bindings = transactionBindings.get(tx) ?? new Map<GraphContract, WriteCapability>();
+    bindings.set(declared, binding);
+    transactionBindings.set(tx, bindings);
+  } finally {
+    if (previous !== undefined) bindWriteCapability(tx, previous);
+    else unbindWriteCapability(tx);
+  }
+}
 export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[] = [], context?: GraphWriteContext): Promise<void> {
-  await withFillStateIn(tx, context?.contract ?? contract, context, async () => {
-    await publishGraphDrafts(tx, context?.contract ?? contract, {vertices: [{kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'}], edges, removals: []});
+  await publishFillDraftsIn(tx, context?.contract ?? contract, context, {
+    vertices: [{ kind, key: {}, uid, values, producer: 'fill-state', producerVersion: '1' }], edges, removals: [],
   });
 }
 async function rows(tx: SqlExecutor, kind: keyof typeof fields, subjectUids?: readonly string[]): Promise<AssertionRecord[]> { return await readGraphRecords(tx, 'vertex', `system.${kind}`, fields[kind],subjectUids); }
@@ -383,15 +402,13 @@ async function unitRecord(tx: SqlExecutor, row: AssertionRecord): Promise<UnitRe
 }
 async function putTransitionIn(tx: SqlExecutor, subjectKind: 'chain' | 'run' | 'unit', uid: string, values: Record<string, unknown>, edges: readonly EdgeDraft[], step: string, from: string, to: string, event: string, at: number, fence: number | null = null, context?: GraphWriteContext, edgeRemovals: readonly EdgeDraft[] = []): Promise<void> {
   const id = newUid();
-  await withFillStateIn(tx, context?.contract ?? contract, context, async () => {
-    await publishGraphDrafts(tx, context?.contract ?? contract, {
-      vertices: [
-        {kind: `system.${subjectKind}`, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'},
-        {kind: 'system.fill-transition', key: {}, uid: id, values: {step,from_state:from,to_state:to,event,at,fence}, producer: 'fill-state', producerVersion: '1'},
-      ],
-      edges: [...edges, fillEdge('system.fill-transition-subject','system.fill-transition',id,`system.${subjectKind}`,uid)],
-      edgeRemovals: edgeRemovals.filter(removed => !edges.some(edge => edge.kind === removed.kind && edge.from.uid === removed.from.uid && edge.to.uid === removed.to.uid)), removals: [],
-    });
+  await publishFillDraftsIn(tx, context?.contract ?? contract, context, {
+    vertices: [
+      {kind: `system.${subjectKind}`, key: {}, uid, values, producer: 'fill-state', producerVersion: '1'},
+      {kind: 'system.fill-transition', key: {}, uid: id, values: {step,from_state:from,to_state:to,event,at,fence}, producer: 'fill-state', producerVersion: '1'},
+    ],
+    edges: [...edges, fillEdge('system.fill-transition-subject','system.fill-transition',id,`system.${subjectKind}`,uid)],
+    edgeRemovals: edgeRemovals.filter(removed => !edges.some(edge => edge.kind === removed.kind && edge.from.uid === removed.from.uid && edge.to.uid === removed.to.uid)), removals: [],
   });
 }
 function changedValues(previous: Record<string,unknown>, next: Record<string,unknown>): Record<string,unknown> {
