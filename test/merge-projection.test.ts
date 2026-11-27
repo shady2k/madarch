@@ -89,14 +89,24 @@ labels:
       entity(id: $id) { ... on KindDemoRepository { name size } }
       filtered: allDemoRepository(where: { size: { _eq: 10 } }) { totalCount edges { node { name size } } }
       ordered: allDemoRepository(where: { size: { _gte: 10 } }, orderBy: [{ field: size }]) { edges { node { name size } } }
-      aggregate: allDemoRepositoryAggregate(where: { size: { _eq: 10 } }) { count }
+      aggregate: allDemoRepositoryAggregate(where: { size: { _eq: 10 } }) {
+        count
+        groupBy(field: "size") { key count }
+        histogram(field: "size", bounds: [15]) { from to count }
+        topN(field: "size") { value node { label } }
+      }
     }`, variables: { id: members.find(row => row.values['name'] === 'second')!.uid } });
     expect(answer.body.errors).toBeUndefined();
     expect(answer.body.data).toEqual({
       entity: { name: 'first', size: 10 },
       filtered: { totalCount: 1, edges: [{ node: { name: 'first', size: 10 } }] },
       ordered: { edges: [{ node: { name: 'first', size: 10 } }, { node: { name: 'middle', size: 15 } }] },
-      aggregate: { count: 1 },
+      aggregate: {
+        count: 1,
+        groupBy: [{ key: 10, count: 1 }],
+        histogram: [{ from: null, to: 15, count: 1 }, { from: 15, to: null, count: 0 }],
+        topN: [{ value: 10, node: { label: 'first' } }],
+      },
     });
   } finally { await owner.close(); rmSync(folder, { recursive: true, force: true }); }
 }, 30000);
