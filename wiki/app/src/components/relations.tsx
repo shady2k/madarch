@@ -79,12 +79,12 @@ export function RelationsSection({ context }: { readonly context: SectionContext
       {canPage ? (
         <PaginationBar>
           <PaginationSummary>{`${String(page + 1)} · ${new Intl.NumberFormat(context.language).format(totalOf(connection))}`}</PaginationSummary>
-          <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => {
+          <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.firstPage')} onClick={() => {
             const previous = cursors.current[page - 1];
             context.reload({ [`${context.section.id}_after`]: previous ?? null });
             setPage(page - 1);
           }}>{t('common.previousSymbol')}</Button>
-          <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => {
+          <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.lastPage')} onClick={() => {
             cursors.current = [...cursors.current.slice(0, page + 1), next.cursor];
             context.reload({ [`${context.section.id}_after`]: next.cursor ?? null });
             setPage(page + 1);

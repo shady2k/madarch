@@ -97,8 +97,8 @@ export function TreemapSection({ context }: { readonly context: SectionContext }
   return <PageSection ref={holder} data-testid="treemap"><Stack layout="text">
     {next.hasNext || page > 0 ? <Paragraph data-testid="treemap-subset">{t('knowledge.treemap.subset', { count: rows.length })}</Paragraph> : null}
     {canPage && (next.hasNext || page > 0) ? <InlineGroup>
-      <Button size="sm" disabled={page === 0 || context.busy} onClick={() => { changePage(cursors[page - 1], page - 1); }}>{t('knowledge.previousPage')}</Button>
-      <Button size="sm" disabled={!next.hasNext || context.busy} onClick={() => { changePage(next.cursor, page + 1); }}>{t('knowledge.nextPage')}</Button>
+      <Button size="sm" disabled={page === 0 || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.firstPage')} onClick={() => { changePage(cursors[page - 1], page - 1); }}>{t('knowledge.previousPage')}</Button>
+      <Button size="sm" disabled={!next.hasNext || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.lastPage')} onClick={() => { changePage(next.cursor, page + 1); }}>{t('knowledge.nextPage')}</Button>
       <Paragraph>{context.busy ? t('knowledge.treemap.busy') : page === 0 ? t('knowledge.treemap.firstPage') : !next.hasNext ? t('knowledge.treemap.lastPage') : t('knowledge.treemap.page', { page: page + 1 })}</Paragraph>
     </InlineGroup> : null}
     {missingPaths > 0 ? <Paragraph>{t('knowledge.treemap.missingPaths', { count: missingPaths })}</Paragraph> : null}

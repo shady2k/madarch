@@ -491,7 +491,7 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, ru
         <FillControl run={run} open={open} />
         <ProductMenu base={base} products={products} current={currentProduct} />
         <HelpLink products={products} current={currentProduct} />
-        <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
+        <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} disabledReason={t('common.loading')} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>
         <RoleMenu role={role} roles={roles} onRole={onRole} />

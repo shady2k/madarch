@@ -48,12 +48,12 @@ function Section({ id, title, intro, children }: { readonly id: string; readonly
 }
 
 /** One model or reasoning choice the agent reports. */
-function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
+function ChoiceSelect({ id, label, choice, value, disabledReason, onChange }: {
   readonly id: string;
   readonly label: string;
   readonly choice: AgentChoice;
   readonly value: string | undefined;
-  readonly disabled: boolean;
+  readonly disabledReason: string | null;
   readonly onChange: (value: string | null) => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -65,7 +65,7 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
           label={label}
           testId={id}
           value={value ?? ''}
-          disabled={disabled}
+          disabledReason={disabledReason}
           onChange={(next) => onChange(next === '' ? null : next)}
           options={[{ value: '', label: choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current }) }, ...choice.values.map((entry) => ({ value: entry.value, label: entry.name }))]}
         />
@@ -90,6 +90,9 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
   const connection = useConnection();
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const choiceDisabledReason = connection.offline ? t('connection.actionsDisabled')
+    : working || disabled ? t('common.actionInProgress')
+    : settings.busy ? t('settings.fillInProgress') : null;
   const assigned = role.role !== 'writing' && role.source === 'assigned' && role.pair !== null;
   const agent = assigned ? role.pair!.agent : '';
   const choices = useCommandRead<AgentChoicesAnswer>(`settings-role-choices:${role.role}:${agent}`, (signal) => readAgentChoices(base, agent, signal), assigned && agent !== '');
@@ -110,8 +113,8 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       {role.source === 'none' ? <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</Paragraph> : null}
       {assigned && choices.data !== null ? (
         <Stack className="mt-3" data-testid={`settings-role-choices-${role.role}`}>
-          {choices.data.choices.model === null ? null : <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={choices.data.choices.model} value={role.pair?.model} disabled={connection.offline || working || disabled || settings.busy} onChange={(value) => save({ model: value })} />}
-          {choices.data.choices.reasoning === null ? null : <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={role.pair?.reasoning} disabled={connection.offline || working || disabled || settings.busy} onChange={(value) => save({ reasoning: value })} />}
+          {choices.data.choices.model === null ? null : <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={choices.data.choices.model} value={role.pair?.model} disabledReason={choiceDisabledReason} onChange={(value) => save({ model: value })} />}
+          {choices.data.choices.reasoning === null ? null : <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={role.pair?.reasoning} disabledReason={choiceDisabledReason} onChange={(value) => save({ reasoning: value })} />}
         </Stack>
       ) : null}
       {role.role === 'writing' ? null : (
@@ -121,7 +124,7 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
               label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
               testId={`settings-role-select-${role.role}`}
               value={assigned ? role.pair!.agent : ''}
-              disabled={connection.offline || working || disabled || settings.busy}
+              disabledReason={choiceDisabledReason}
               onChange={(next) => assign(role.role, next === '' ? null : next)}
               options={[{ value: '', label: settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') }) }, ...options.map((option) => ({ value: option.id, label: option.name }))]}
             />
@@ -135,7 +138,7 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
 
 
 /** The graph verdicts (madarch-mwhd.1): the saved report, the rows a person still has to look at, and the two budgets. */
-function VerdictsSection({ base, disabled, busy }: { readonly base: string; readonly disabled: boolean; readonly busy: boolean }): ReactElement {
+function VerdictsSection({ base, disabledReason, busy }: { readonly base: string; readonly disabledReason: string | null; readonly busy: boolean }): ReactElement {
   const { t } = useTranslation();
   const [view, setView] = useState<GraphVerdictsAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +187,8 @@ function VerdictsSection({ base, disabled, busy }: { readonly base: string; read
       setWorking(false);
     }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
   };
+  const pagedReason = working ? t('common.actionInProgress') : busy ? t('settings.fillInProgress') : null;
+  const actionReason = disabledReason ?? pagedReason;
   const report = view?.report;
   const rows = view?.rows ?? [];
   return (
@@ -231,8 +236,8 @@ function VerdictsSection({ base, disabled, busy }: { readonly base: string; read
           {view === null || view.limit === 0 || view.total <= view.limit ? null : (
             <Stack>
               <Text data-testid="settings-verdicts-range">{t('settings.verdicts.range', { from: String(view.offset + 1), to: String(Math.min(view.offset + view.limit, view.total)), total: String(view.total) })}</Text>
-              <Button variant="default" size="default" disabled={working || busy || view.offset === 0} onClick={() => setOffset(Math.max(0, view.offset - view.limit))} data-testid="settings-verdicts-previous">{t('settings.verdicts.previous')}</Button>
-              <Button variant="default" size="default" disabled={working || busy || view.offset + view.limit >= view.total} onClick={() => setOffset(view.offset + view.limit)} data-testid="settings-verdicts-next">{t('settings.verdicts.next')}</Button>
+              <Button variant="default" size="default" disabled={pagedReason !== null || view.offset === 0} disabledReason={pagedReason ?? t('common.firstPage')} onClick={() => setOffset(Math.max(0, view.offset - view.limit))} data-testid="settings-verdicts-previous">{t('settings.verdicts.previous')}</Button>
+              <Button variant="default" size="default" disabled={pagedReason !== null || view.offset + view.limit >= view.total} disabledReason={pagedReason ?? t('common.lastPage')} onClick={() => setOffset(view.offset + view.limit)} data-testid="settings-verdicts-next">{t('settings.verdicts.next')}</Button>
             </Stack>
           )}
         </Stack>
@@ -244,8 +249,8 @@ function VerdictsSection({ base, disabled, busy }: { readonly base: string; read
         <FieldLabel>{t('settings.verdicts.modelCallsPerRun')}
           <Input type="number" min={0} step={1} value={calls} disabled={working || busy} onInput={(event) => setCalls(event.currentTarget.value)} data-testid="settings-verdict-model-calls" />
         </FieldLabel>
-        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={save} data-testid="settings-verdicts-save">{t('settings.verdicts.save')}</Button>
-        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={run} data-testid="settings-verdicts-run">{working ? t('settings.verdicts.running') : t('settings.verdicts.run')}</Button>
+        <Button variant="default" size="default" disabled={actionReason !== null} disabledReason={actionReason ?? ''} onClick={save} data-testid="settings-verdicts-save">{t('settings.verdicts.save')}</Button>
+        <Button variant="default" size="default" disabled={actionReason !== null} disabledReason={actionReason ?? ''} onClick={run} data-testid="settings-verdicts-run">{working ? t('settings.verdicts.running') : t('settings.verdicts.run')}</Button>
         <Paragraph data-testid="settings-verdicts-note">{t('settings.verdicts.note')}</Paragraph>
       </Stack>
       {error === null ? null : <Paragraph role="alert" data-testid="settings-verdicts-error">{error}</Paragraph>}
@@ -254,11 +259,12 @@ function VerdictsSection({ base, disabled, busy }: { readonly base: string; read
 }
 
 /** What the agent may spend on one page: the bounds it runs under, and the one bound a person sets. */
-function BoundsSection({ base, settings, disabled, busy, reload }: { readonly base: string; readonly settings: ProductSettingsAnswer; readonly disabled: boolean; readonly busy: boolean; readonly reload: () => void }): ReactElement {
+function BoundsSection({ base, settings, disabledReason, busy, reload }: { readonly base: string; readonly settings: ProductSettingsAnswer; readonly disabledReason: string | null; readonly busy: boolean; readonly reload: () => void }): ReactElement {
   const { t } = useTranslation();
   const [editorial, setEditorial] = useState(String(settings.bounds.editorialRequestsPerPage));
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const actionReason = disabledReason ?? (working ? t('common.actionInProgress') : busy ? t('settings.fillInProgress') : null);
   useEffect(() => { setEditorial(String(settings.bounds.editorialRequestsPerPage)); }, [settings.bounds.editorialRequestsPerPage]);
   const save = (): void => {
     const value = Number(editorial);
@@ -280,9 +286,9 @@ function BoundsSection({ base, settings, disabled, busy, reload }: { readonly ba
       <Paragraph>{t('settings.bounds.editorialNote')}</Paragraph>
       <Stack>
         <FieldLabel>{t('settings.bounds.editorial')}
-          <Input type="number" min={0} max={12} step={1} value={editorial} disabled={disabled || working || busy} onInput={(event) => setEditorial(event.currentTarget.value)} data-testid="bound-editorial-input" />
+          <Input type="number" min={0} max={12} step={1} value={editorial} disabled={actionReason !== null} onInput={(event) => setEditorial(event.currentTarget.value)} data-testid="bound-editorial-input" />
         </FieldLabel>
-        <Button variant="default" size="default" disabled={disabled || working || busy} onClick={save} data-testid="bound-editorial-save">{t('settings.bounds.save')}</Button>
+        <Button variant="default" size="default" disabled={actionReason !== null} disabledReason={actionReason ?? ''} onClick={save} data-testid="bound-editorial-save">{t('settings.bounds.save')}</Button>
       </Stack>
       {error === null ? null : <Paragraph role="alert" data-testid="bound-error">{error}</Paragraph>}
     </Section>
@@ -305,12 +311,11 @@ function PlacesSection({ settings }: { readonly settings: ProductSettingsAnswer 
 
 
 /** One of the two dangerous actions, with the question that comes before it: what goes, what stays, and that it is local. */
-function DangerAction({ kind, base, settings, busy, disabled, plan, onDone }: {
+function DangerAction({ kind, base, settings, disabledReason, plan, onDone }: {
   readonly kind: 'rewrite' | 'fresh';
   readonly base: string;
   readonly settings: ProductSettingsAnswer;
-  readonly busy: boolean;
-  readonly disabled: boolean;
+  readonly disabledReason: string | null;
   readonly plan: { readonly agentPages: readonly string[]; readonly keptPages: readonly string[] };
   readonly onDone: (removed: boolean) => void;
 }): ReactElement {
@@ -331,7 +336,7 @@ function DangerAction({ kind, base, settings, busy, disabled, plan, onDone }: {
       <SmallTitle>{title}</SmallTitle>
       <Paragraph>{kind === 'fresh' ? t('settings.danger.fresh.what') : t('settings.danger.rewrite.what')}</Paragraph>
       <Paragraph>{t('settings.danger.local', { folder: settings.folder })}</Paragraph>
-      <Button variant="default" size="default" disabled={disabled || busy || working || kind === 'rewrite' && settings.chosenAgent === null} onClick={() => setAsking((held) => !held)} data-testid={`danger-${kind}-open`}>{title}</Button>
+      <Button variant="default" size="default" disabled={disabledReason !== null || working} disabledReason={disabledReason ?? t('common.actionInProgress')} onClick={() => setAsking((held) => !held)} data-testid={`danger-${kind}-open`}>{title}</Button>
       {kind === 'rewrite' && settings.chosenAgent === null ? <Paragraph data-testid="danger-rewrite-needs-agent">{t('settings.danger.rewrite.needsAgent')}</Paragraph> : null}
       {asking ? (
         <ConfirmationPanel aria-label={title} data-testid="danger-dialog" data-kind={kind}>
@@ -348,7 +353,7 @@ function DangerAction({ kind, base, settings, busy, disabled, plan, onDone }: {
           <Paragraph>{t('settings.danger.nothingSent')}</Paragraph>
           <Stack>
             <Button variant="default" size="default" onClick={() => setAsking(false)} data-testid="danger-cancel">{t('knowledge.reset.cancel')}</Button>
-            <Button variant="default" size="default" onClick={start} disabled={working} data-testid="danger-confirm">{kind === 'fresh' ? t('settings.danger.fresh.confirm') : t('settings.danger.rewrite.confirm')}</Button>
+            <Button variant="default" size="default" onClick={start} disabled={working} disabledReason={t('common.actionInProgress')} data-testid="danger-confirm">{kind === 'fresh' ? t('settings.danger.fresh.confirm') : t('settings.danger.rewrite.confirm')}</Button>
           </Stack>
           {error === null ? null : <Paragraph role="alert" data-testid="danger-error">{error}</Paragraph>}
         </ConfirmationPanel>
@@ -360,13 +365,13 @@ function DangerAction({ kind, base, settings, busy, disabled, plan, onDone }: {
 /** The two actions that remove what the agent wrote, each with the question that comes first. */
 function DangerSection({ base, settings, busy, open, reload }: { readonly base: string; readonly settings: ProductSettingsAnswer; readonly busy: boolean; readonly open: (path: string) => void; readonly reload: () => void }): ReactElement {
   const { t } = useTranslation();
-  const noAgent = settings.chosenAgent === null;
-  const blocked = busy || settings.dangerError !== undefined || settings.danger === undefined;
+  const unavailable = busy ? t('settings.fillInProgress') : settings.dangerError ?? (settings.danger === undefined ? t('settings.resetPlanUnavailable') : null);
+  const rewriteReason = unavailable ?? (settings.chosenAgent === null ? t('settings.danger.rewrite.needsAgent') : null);
   const done = (removed: boolean): void => { if (removed) open('/'); reload(); };
   return (
     <Section id="danger" title={t('settings.danger.title')} intro={t('settings.danger.intro')}>
-      <DangerAction kind="rewrite" base={base} settings={settings} busy={busy} disabled={blocked || noAgent} plan={settings.danger?.rewrite ?? { agentPages: [], keptPages: [] }} onDone={done} />
-      <DangerAction kind="fresh" base={base} settings={settings} busy={busy} disabled={blocked} plan={settings.danger?.fresh ?? { agentPages: [], keptPages: [] }} onDone={done} />
+      <DangerAction kind="rewrite" base={base} settings={settings} disabledReason={rewriteReason} plan={settings.danger?.rewrite ?? { agentPages: [], keptPages: [] }} onDone={done} />
+      <DangerAction kind="fresh" base={base} settings={settings} disabledReason={unavailable} plan={settings.danger?.fresh ?? { agentPages: [], keptPages: [] }} onDone={done} />
       <Paragraph data-testid="danger-agent-edits">{t('settings.danger.agentEdits')}</Paragraph>
       {settings.dangerError === undefined ? null : <Paragraph role="alert" data-testid="danger-unavailable">{settings.dangerError}</Paragraph>}
     </Section>
@@ -436,6 +441,10 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
   const roles = data?.roles.roles ?? [];
   const allNames = Object.fromEntries([...namedAgents, ...(agents.data?.agents ?? []).map((agent) => [agent.id, agent.label] as const)]);
 
+  const offlineReason = connection.offline ? t('connection.actionsDisabled') : null;
+  const workingReason = offlineReason ?? (working !== null ? t('common.actionInProgress') : null);
+  const fillBusyReason = workingReason ?? (data?.busy ? t('settings.fillInProgress') : null);
+
   if (settings.error !== null) return <Alert variant="problem" data-testid="settings-error"><AlertDescription>{settings.error}</AlertDescription></Alert>;
   if (data === null) return <Alert data-testid="settings-loading"><AlertDescription>{t('knowledge.loading')}</AlertDescription></Alert>;
 
@@ -458,27 +467,27 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
                 </Text>
               </Text>
               {chosen?.id === agent.id ? <Badge variant="solid" data-testid="settings-agent-chosen">{t('settings.agent.chosen')}</Badge> : (
-                <Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>
+                <Button variant="default" size="default" disabled={fillBusyReason !== null} disabledReason={fillBusyReason ?? ''} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>
               )}
             </ListItem>
           ))}
           {agents.data === null && agents.error === null ? <ListItem className="text-muted">{t('knowledge.loading')}</ListItem> : null}
         </PlainList>
         {agents.error === null ? null : <Paragraph className="mb-0 mt-3 text-small" role="alert">{agents.error}</Paragraph>}
-        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
+        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={fillBusyReason !== null} disabledReason={fillBusyReason ?? ''} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
       </Section>
 
       <Section id="model" title={t('settings.model.title')} intro={t('settings.model.intro')}>
         {chosen === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-none">{t('settings.model.noAgent')}</Paragraph> : null}
         {chosen !== null && choices.data === null && choices.error === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-asking">{t('settings.model.asking', { agent: chosen.label })}</Paragraph> : null}
         {choices.data !== null && choices.data.choices.model === null && choices.data.choices.reasoning === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-reports-none">{t('settings.model.reportsNone', { agent: chosen?.label ?? '' })}</Paragraph> : null}
-        {choices.data?.choices.model == null ? null : <ChoiceSelect id="settings-model-select" label={t('settings.model.model')} choice={choices.data.choices.model} value={chosen?.model} disabled={connection.offline || working !== null || data.busy} onChange={(value) => saveSettings({ model: value })} />}
-        {choices.data?.choices.reasoning == null ? null : <ChoiceSelect id="settings-reasoning-select" label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={chosen?.reasoning} disabled={connection.offline || working !== null || data.busy} onChange={(value) => saveSettings({ reasoning: value })} />}
+        {choices.data?.choices.model == null ? null : <ChoiceSelect id="settings-model-select" label={t('settings.model.model')} choice={choices.data.choices.model} value={chosen?.model} disabledReason={fillBusyReason} onChange={(value) => saveSettings({ model: value })} />}
+        {choices.data?.choices.reasoning == null ? null : <ChoiceSelect id="settings-reasoning-select" label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={chosen?.reasoning} disabledReason={fillBusyReason} onChange={(value) => saveSettings({ reasoning: value })} />}
         {choices.error === null ? null : (
           <Alert variant="problem" data-testid="settings-model-error">
             <AlertDescription>
               {t('settings.model.failed')}{t('common.labelSeparator')}{choices.error}
-              <Paragraph className="mt-2"><Button variant="default" size="default" disabled={connection.offline} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
+              <Paragraph className="mt-2"><Button variant="default" size="default" disabled={connection.offline} disabledReason={t('connection.actionsDisabled')} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
             </AlertDescription>
           </Alert>
         )}
@@ -494,7 +503,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
         <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.roles.note')}</Paragraph>
       </Section>
 
-      <VerdictsSection base={base} disabled={connection.offline || working !== null} busy={data.busy} />
+      <VerdictsSection base={base} disabledReason={workingReason} busy={data.busy} />
 
       <Section id="language" title={t('settings.language.title')} intro={t('settings.language.intro')}>
         <SegmentedChoice
@@ -516,12 +525,12 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
           <FieldLabel className="grid gap-1 text-small">{t('settings.fills.tokenCap')}
             <Input data-testid="settings-token-cap" type="number" min={1} step={1} value={cap ?? String(data.tokenCap)} aria-invalid={!capValid} onInput={(event) => setCap(event.currentTarget.value)} />
           </FieldLabel>
-          <Button variant="default" size="default" disabled={connection.offline || working !== null || !capValid || capValue === data.tokenCap} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
+          <Button variant="default" size="default" disabled={workingReason !== null || !capValid || capValue === data.tokenCap} disabledReason={workingReason ?? t(capValid ? 'settings.noChanges' : 'settings.fills.tokenCapInvalid')} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
         </Stack>
         <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
       </Section>
 
-      <BoundsSection base={base} settings={data} disabled={connection.offline || working !== null} busy={data.busy} reload={settings.reload} />
+      <BoundsSection base={base} settings={data} disabledReason={workingReason} busy={data.busy} reload={settings.reload} />
 
       <PlacesSection settings={data} />
 
@@ -536,8 +545,8 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
                 {reader.data.pluginsUnconfined === true ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-allowed">{t('settings.isolation.allowed')}</Paragraph> : null}
                 {reader.data.pluginsUnconfined === false ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-denied">{t('settings.isolation.denied')}</Paragraph> : null}
                 <InlineGroup>
-                  {reader.data.pluginsUnconfined === true ? null : <Button variant="default" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(true)} data-testid="settings-isolation-allow">{t('settings.isolation.allow')}</Button>}
-                  {reader.data.pluginsUnconfined === false ? null : <Button variant="outline" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(false)} data-testid="settings-isolation-deny">{t('settings.isolation.deny')}</Button>}
+                  {reader.data.pluginsUnconfined === true ? null : <Button variant="default" size="default" disabled={workingReason !== null} disabledReason={workingReason ?? ''} onClick={() => saveIsolation(true)} data-testid="settings-isolation-allow">{t('settings.isolation.allow')}</Button>}
+                  {reader.data.pluginsUnconfined === false ? null : <Button variant="outline" size="default" disabled={workingReason !== null} disabledReason={workingReason ?? ''} onClick={() => saveIsolation(false)} data-testid="settings-isolation-deny">{t('settings.isolation.deny')}</Button>}
                 </InlineGroup>
               </>
             )}

@@ -4,16 +4,19 @@
  * in (the tokens remain the single colour source). Radix underneath is not
  * needed for the button itself.
  */
-import { forwardRef, type ButtonHTMLAttributes, type ReactElement } from 'react';
+import { forwardRef, useId, type ButtonHTMLAttributes, type ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 type ButtonVariant = 'default' | 'ghost' | 'link' | 'outline';
 type ButtonSize = keyof typeof sizeClasses;
 
-export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+export type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
-};
+} & (
+  | { disabled?: false; disabledReason?: string }
+  | { disabled: boolean | undefined; disabledReason: string }
+);
 
 const variantClasses: Record<ButtonVariant, string> = {
   default: 'bg-chrome text-ink border border-line shadow-none hover:bg-[var(--surface-hover)]',
@@ -31,21 +34,27 @@ const sizeClasses = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant = 'ghost', size = 'icon', ...props },
+  { className, variant = 'ghost', size = 'icon', disabled, disabledReason, 'aria-describedby': describedBy, ...props },
   ref,
 ): ReactElement {
+  const reasonId = useId();
   return (
-    <button
-      ref={ref}
-      className={cn(
-        'ui-button inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] outline-none transition-colors duration-150 motion-reduce:transition-none',
-        'focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
-        'disabled:pointer-events-none disabled:opacity-50',
-        variantClasses[variant],
-        sizeClasses[size],
-        className,
-      )}
-      {...props}
-    />
+    <>
+      <button
+        ref={ref}
+        className={cn(
+          'ui-button inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] outline-none transition-colors duration-150 motion-reduce:transition-none',
+          'focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
+          'disabled:pointer-events-none disabled:opacity-50',
+          variantClasses[variant],
+          sizeClasses[size],
+          className,
+        )}
+        {...props}
+        disabled={disabled}
+        aria-describedby={disabled ? [describedBy, reasonId].filter(Boolean).join(' ') : describedBy}
+      />
+      {disabled ? <span id={reasonId} className="text-small text-muted">{disabledReason}</span> : null}
+    </>
   );
 });

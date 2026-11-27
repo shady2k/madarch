@@ -243,8 +243,8 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           <PaginationSummary>{`${String(before + 1)}–${String(before + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
           {canPage ? (
             <>
-              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>{t('common.previousSymbol')}</Button>
-              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>{t('common.nextSymbol')}</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.firstPage')} onClick={() => { askPage(cursors[page - 1], page - 1); }}>{t('common.previousSymbol')}</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} disabledReason={context.busy ? t('common.loading') : t('common.lastPage')} onClick={() => { askPage(next.cursor, page + 1); }}>{t('common.nextSymbol')}</Button>
             </>
           ) : null}
         </PaginationBar>

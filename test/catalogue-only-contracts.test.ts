@@ -37,6 +37,31 @@ test('a catalogue-only prerequisite is planned explicitly as empty, even with wi
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
 
+test('a cycle can be planned without a saved agent and plugins-only identifies its agent-only prerequisite', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'madarch-cycle-plan-'));
+  try {
+    seedStarterSet(scratch);
+    const read = readKinds(scratch);
+    if (!read.present) throw new Error(`The fixture has no kinds manifest at ${read.file}`);
+    for (const pluginsOnly of [false, true]) {
+      const requested = ['code.commit', 'code.cycle', 'code.file'];
+      const targets = fillTargets(read.manifest, requested, pluginsOnly);
+      if (!targets.ok) throw new Error(targets.message);
+      const { entries, order } = targets.targets;
+      const plan = fillPlanView(read.manifest, scratch, order, requested, entries, pluginsOnly);
+      expect(plan.errors).toEqual([]);
+      expect(plan.added).toContainEqual({ kind: 'code.module', neededBy: 'code.cycle' });
+      expect(plan.kinds.find((kind) => kind.kind === 'code.module')?.agentOnly).toBe(true);
+      expect(plan.kinds.find((kind) => kind.kind === 'code.cycle')?.agentOnly).toBe(true);
+      expect(plan.units).toContainEqual({ plugin: 'git', kind: 'code.commit' });
+      expect(plan.units.some((unit) => unit.kind === 'code.cycle')).toBe(!pluginsOnly);
+      if (pluginsOnly) expect(plan.skipped.find((entry) => entry.kind === 'code.module')?.fields).toContain('name');
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test('edges to catalogue-only kinds wait by name, without storage or schema, until a page is declared', () => {
   const folder = mkdtempSync(join(tmpdir(), 'catalogue-edge-'));
   try {

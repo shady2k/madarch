@@ -37,6 +37,24 @@ function mount() {
   return container;
 }
 
+test('a disabled button shows its reason beside it and preserves an existing description', async () => {
+  const { Button } = await import('./button.js');
+  const container = mount();
+  const show = (disabled: boolean) => root!.render(
+    <><p id="help">Starts the current plan</p><Button disabled={disabled} disabledReason="Choose a kind first" aria-describedby="help">Start</Button></>,
+  );
+  await act(async () => show(true));
+  const button = container.querySelector('button')!;
+  const reason = button.nextElementSibling!;
+  expect(button.disabled).toBe(true);
+  expect(reason.textContent).toBe('Choose a kind first');
+  expect(reason.hasAttribute('hidden')).toBe(false);
+  expect(button.getAttribute('aria-describedby')?.split(' ')).toEqual(['help', reason.id]);
+  await act(async () => show(false));
+  expect(container.textContent).not.toContain('Choose a kind first');
+  expect(container.querySelector('button')?.getAttribute('aria-describedby')).toBe('help');
+});
+
 test('radio and switch expose checked state; progress exposes bounds', async () => {
   const container = mount();
   await act(async () => { root!.render(<><RadioGroup defaultValue="en" aria-label="Language"><RadioGroupItem value="en" aria-label="English" /><RadioGroupItem value="ru" aria-label="Russian" /></RadioGroup><Switch aria-label="Grounds" /><Progress value={25} max={50} aria-label="Published" /></>); });

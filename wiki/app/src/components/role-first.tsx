@@ -57,8 +57,8 @@ export function RoleFirstVisit({ base, onChosen }: { readonly base: string; read
           {error === null ? null : <Alert variant="problem"><AlertDescription>{error}</AlertDescription></Alert>}
         </DialogBody>
         <DialogFooter>
-          <Button size="default" variant="ghost" disabled={busy} onClick={() => save('everything')} data-testid="role-first-skip">{t('knowledge.roles.skip')}</Button>
-          <Button size="default" variant="default" disabled={busy} onClick={() => save(selected)} data-testid="role-first-continue">{t('knowledge.roles.continue')}</Button>
+          <Button size="default" variant="ghost" disabled={busy} disabledReason={t('common.saving')} onClick={() => save('everything')} data-testid="role-first-skip">{t('knowledge.roles.skip')}</Button>
+          <Button size="default" variant="default" disabled={busy} disabledReason={t('common.saving')} onClick={() => save(selected)} data-testid="role-first-continue">{t('knowledge.roles.continue')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils.js';
 
 const dialogSurface = 'flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] text-ink shadow-[var(--shadow-high)]';
 
-const CloseContext = createContext<{ label: string; show: boolean; disabled: boolean } | null>(null);
+const CloseContext = createContext<{ label: string; show: boolean; disabledReason: string | null } | null>(null);
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -18,11 +18,11 @@ export const DialogOverlay = forwardRef<HTMLDivElement, ComponentProps<typeof Di
   return <DialogPrimitive.Overlay ref={ref} className={cn('fixed inset-0 wiki-modal-layer bg-ink/40', className)} {...props} />;
 });
 
-export const DialogContent = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string; showCloseButton?: boolean; closeDisabled?: boolean; size?: 'default' | 'window' }>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabled = false, size = 'default', ...props }, ref) {
+export const DialogContent = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string; showCloseButton?: boolean; closeDisabledReason?: string | null; size?: 'default' | 'window' }>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabledReason = null, size = 'default', ...props }, ref) {
   return <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content ref={ref} className={cn(dialogSurface, 'fixed left-1/2 top-1/2 wiki-modal-layer max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 outline-none', size === 'window' && 'dg-fullscreen', className)} {...props}>
-      <CloseContext.Provider value={{ label: closeLabel, show: showCloseButton, disabled: closeDisabled }}>{children}</CloseContext.Provider>
+      <CloseContext.Provider value={{ label: closeLabel, show: showCloseButton, disabledReason: closeDisabledReason }}>{children}</CloseContext.Provider>
     </DialogPrimitive.Content>
   </DialogPortal>;
 });
@@ -31,7 +31,11 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   const close = useContext(CloseContext);
   return <div data-slot="dialog-header" className={cn('relative shrink-0 flex flex-col gap-2 border-b border-line p-6 pr-14', className)} {...props}>
     {props.children}
-    {close?.show && <DialogPrimitive.Close asChild><Button size="icon" disabled={close.disabled} aria-label={close.label} className="absolute right-3 top-3"><XIcon aria-hidden="true" size={16} /></Button></DialogPrimitive.Close>}
+    {close?.show && (
+      <DialogPrimitive.Close asChild>
+        <Button size="icon" disabled={close.disabledReason !== null} disabledReason={close.disabledReason ?? ''} aria-label={close.label} className="absolute right-3 top-3"><XIcon aria-hidden="true" size={16} /></Button>
+      </DialogPrimitive.Close>
+    )}
   </div>;
 }
 
