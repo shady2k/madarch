@@ -23,6 +23,17 @@ export const ROLE_BINDING_SCHEMA = Type.Union([
   Type.Object({ role: Type.Literal('detector-debt'), properties: Type.Object({ markerWord: Type.String(), text: Type.String(), path: Type.String(), line: Type.Number() }, { additionalProperties: false }) }),
 ]);
 
+/** Fields the role can leave unstated, with the null values the protocol can still represent explicitly. */
+export function semanticRoleOptionalFields(role: string): ReadonlyMap<string, 'nullable' | 'non-nullable'> {
+  const schema = ROLE_BINDING_SCHEMA.anyOf.find((schema) => schema.properties.role.const === role);
+  const slots = schema?.properties.properties.properties ?? {};
+  const fields = new Map<string, 'nullable' | 'non-nullable'>();
+  for (const [field, slot] of Object.entries(slots)) {
+    if (Type.IsOptional(slot)) fields.set(field, Value.Check(slot, null) ? 'nullable' : 'non-nullable');
+  }
+  return fields;
+}
+
 export function semanticRoleFields(role: string): string[] {
   const schema = ROLE_BINDING_SCHEMA.anyOf.find((schema) => schema.properties.role.const === role);
   if (schema === undefined) throw new Error(`unknown engine semantic role "${role}"`);
