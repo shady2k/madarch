@@ -26,6 +26,7 @@ import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
 import { readPublicationFingerprint } from './startup-read.js';
+import { storeMemoryIn } from './store-identity.js';
 import { productPageTemplate } from '../knowledge/page-template-kind.js';
 import { homeKind } from '../product/manifest/kinds.js';
 import { publicationContractOf, publicationReadSelector } from './publication-contract.js';
@@ -46,19 +47,58 @@ export interface ValidatedManifests {
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
 
-/** Trusted core startup installs the engine as an actual plugin, never a parallel principal kind. */
+/** What the installation of one producer resolved to in one store, while that store stands. */
+interface InstalledBinding { readonly productId: number; readonly productUid: string; readonly sourceId: number; readonly sourceUid: string }
+/**
+ * The installation a producer wrote once: its product and plugin identities were discovered from
+ * the graph and its metadata asserted, and neither moves afterwards — a plugin's identity is its
+ * producer and scope, and a producer publishes one plugin (madarch-64o5.176). Remembered per
+ * producer, contract revision and granted permissions, so a process binds its writer from what it
+ * already installed instead of rebuilding the rights from the graph on every transaction; the
+ * store's own token (store-identity.ts) empties it when the schema is replaced. What a remembered
+ * installation may not skip is whether it still stands as it wrote it: the product and the plugin's
+ * own metadata are read as one batch under the graph write lock, and a store that lost them — a
+ * start over, or a store this process has not seen — is discovered again.
+ */
+const installedBindings = new WeakMap<DatabaseOwner, { readonly token: string; readonly value: Map<string, InstalledBinding> }>();
 export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   return await withSpan('graph.manifest-publication.startupBinding', { 'db.system': 'postgres' }, async () => {
     const prepared = preparePublicationContract(declared);
     const { contract } = prepared;
     await acquireGraphWriteLock(tx);
+    const hostPermissions: WriteCapability['permissions'] = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
+    const remembered = await storeMemoryIn(tx, installedBindings, () => new Map<string, InstalledBinding>());
+    const key = JSON.stringify([producer, prepared.version, permissions ?? null]);
+    const installed = remembered?.get(key);
+    const metadata = { installation: JSON.stringify(['system-engine', producer]), version: runningVersion(), label: producer };
+    if (installed !== undefined) {
+      // What is remembered is what this process installed; what it may not skip is whether that installation
+      // still stands as it wrote it — the product, the plugin and the plugin's own metadata, read as one batch.
+      const [product, plugin] = (await readKindsAssertions(tx, [
+        { sort: 'vertex', kind: 'system.product', fields: [], identities: [{ id: installed.productId, uid: installed.productUid, key: {} }] },
+        { sort: 'vertex', kind: 'plugin', fields: ['installation', 'scope', 'version', 'label'], identities: [{ id: installed.sourceId, uid: installed.sourceUid, key: {} }] },
+      ], await publicationReadSelector(tx, contract))).map(records => records[0]);
+      const stands = product !== undefined && product.activeSources.length > 0 && plugin !== undefined && plugin.activeSources.includes(installed.sourceUid)
+        && Object.entries({ ...metadata, scope: installed.productUid }).every(([property, value]) => plugin.selectedAssertions.some(assertion => assertion.property === property && assertion.source === installed.sourceUid && assertion.value === value));
+      if (stands) {
+        const binding: WriteCapability = { productUid: installed.productUid, sourceUid: installed.sourceUid, principalUid: installed.sourceUid, operationUid: operationUid ?? newUid(), context: 1, scope: installed.productUid, contractVersion: prepared.version, permissions: permissions ?? hostPermissions };
+        if (operationUid === undefined) {
+          // The operation is the engine's own lineage: it is written under the host's rights, never a caller's narrower grant.
+          bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
+          await publishOperation(tx, contract, binding, installed.sourceUid);
+        }
+        bindWriteCapability(tx, binding);
+        return { contract, binding };
+      }
+      remembered!.delete(key);
+    }
     await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [739141]);
     const identities = (await tx.query<{ id: string; uid: string; key: Record<string, unknown>; kind: string }>(
       "SELECT n.id::text,n.uid::text,n.key,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name IN ('system.product','plugin') ORDER BY n.uid")).rows;
     const products = identities.filter(row => row.kind === 'system.product');
     if (products.length > 1) throw new Error(`${import.meta.path}:54: installation has more than one product identity`);
     const productUid = products[0]?.uid ?? newUid();
-    const installation = JSON.stringify(['system-engine', producer]);
+    const installation = metadata.installation;
     const records = await readKindsAssertions(tx, [
       { sort: 'vertex', kind: 'system.product', fields: [], identities: products.map(row => ({ ...row, id: Number(row.id) })) },
       { sort: 'vertex', kind: 'plugin', fields: ['installation', 'scope', 'version', 'label'], identities: identities.filter(row => row.kind === 'plugin').map(row => ({ ...row, id: Number(row.id) })) },
@@ -77,7 +117,6 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
     for (const [kind, uid] of missing) await bootstrapWriteIdentity(tx, kind, uid, productUid);
     const made = missing.length === 0 ? [] : (await tx.query<{ id: string; uid: string }>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])', [missing.map(([, uid]) => uid)])).rows;
     const ids = new Map([...identities, ...made].map(row => [row.uid, row.id]));
-    const hostPermissions = [...contract.vertex, ...contract.edge].map(kind => ({ kind: kind.name, properties: ['*'], assert: true, retractOwn: true }));
     const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: prepared.version, permissions: permissions ?? hostPermissions };
     bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
     const assert = async (kind: string, uid: string, property: string, value: unknown): Promise<void> => {
@@ -85,19 +124,26 @@ export async function startupBinding(tx: SqlExecutor, declared: GraphContract, p
     };
     if ((records[0]![0]?.activeSources.length ?? 0) === 0) await assert('system.product', productUid, '$exists', true);
     if (!plugin?.activeSources.includes(sourceUid)) await assert('plugin', sourceUid, '$exists', true);
-    if (ownsOperation) {
-      await publishGraphDrafts(tx, contract, { vertices: [{kind:'system.operation',uid:operationUid,key:{},values:{},producer:sourceUid,producerVersion:binding.contractVersion ?? 'system'}], removals: [], edges: [{
-        kind: 'system.operation-author', from: { kind: 'system.operation', uid: operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
-        producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
-      }] });
-    }
-    const changedMetadata = Object.entries({ installation, scope: productUid, version: runningVersion(), label: producer })
+    if (ownsOperation) await publishOperation(tx, contract, binding, sourceUid);
+    const changedMetadata = Object.entries({ installation, scope: productUid, version: metadata.version, label: producer })
       .filter(([property, value]) => !plugin?.selectedAssertions.some(assertion => assertion.property === property && assertion.source === sourceUid && assertion.value === value));
     if (changedMetadata.length) await writeAssertions(tx, contract, changedMetadata.map(([property, value]) => ({sort:'vertex',kind:'plugin',subjectId:ids.get(sourceUid)!,property,operation:'assert',value})));
     bindWriteCapability(tx, binding);
+    const productId = ids.get(productUid), sourceId = ids.get(sourceUid);
+    if (productId !== undefined && sourceId !== undefined) remembered?.set(key, { productId: Number(productId), productUid, sourceId: Number(sourceId), sourceUid });
     return { contract, binding };
   });
 }
+
+/** The operation one write transaction runs under: the lineage every assertion it writes is attributed to. */
+async function publishOperation(tx: SqlExecutor, contract: GraphContract, binding: WriteCapability, sourceUid: string): Promise<void> {
+  await publishGraphDrafts(tx, contract, { vertices: [{kind:'system.operation',uid:binding.operationUid,key:{},values:{},producer:sourceUid,producerVersion:binding.contractVersion ?? 'system'}], removals: [], edges: [{
+    kind: 'system.operation-author', from: { kind: 'system.operation', uid: binding.operationUid, key: {} }, to: { kind: 'plugin', uid: sourceUid, key: {} },
+    producer: sourceUid, producerVersion: binding.contractVersion ?? 'system',
+  }] });
+}
+
+
 
 /** Only trusted manifest/start code receives broad host permissions. */
 export async function bindStartupWriter(tx: SqlExecutor, declared: GraphContract, producer: string): Promise<GraphContract> {

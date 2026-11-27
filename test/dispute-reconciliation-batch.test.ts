@@ -159,8 +159,11 @@ test('opening questions reads the same statements and rows per change',async()=>
  expect(small.clocks).toBe(13);
  const large=await measure(200,reconcileDisputes,true);
  console.log('changing large',JSON.stringify({...large,statements:undefined}));
- expect((large.total-26)/200).toBe((small.total-26)/10);
- expect((large.rows-small.rows)/190).toBe((small.rows-41)/10);
+ // The fixed part of the transaction is the reconciliation snapshot and the write rights: 21 statements and
+ // 26 rows, which a started installation answers from what it installed rather than reading again per
+ // transaction (madarch-64o5.176). Everything else is per slot.
+ expect((large.total-21)/200).toBe((small.total-21)/10);
+ expect((large.rows-small.rows)/190).toBe((small.rows-26)/10);
 },60000);
 
 // Exercise the production default through the fenced host, not an explicit slot list.

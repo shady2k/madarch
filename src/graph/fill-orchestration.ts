@@ -230,11 +230,10 @@ export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 export const queryDigest = (query: string): string => canonicalJsonDigest({ query });
 
 async function readKindAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:string,properties:readonly string[],subjectUids?:readonly string[],subjectIds?:readonly number[]):Promise<AssertionRecord[]>{
-  return await withSpan('graph.orchestration.records', {}, async () => {
-   const clock=(await tx.query<{now:string|Date}>('SELECT clock_timestamp() AS now')).rows[0]!.now;
-   const now=new Date(clock).toISOString();
-   return readSelectedKindAssertions(tx,sort,kind,properties,{validAt:now,recordedAt:now,...(subjectUids===undefined?{}:{subjectUids}),...(subjectIds===undefined?{}:{subjectIds})});
-  });
+  // The statement reads at its own start: that is after every statement before it in this
+  // transaction, so a write this phase made is read without a clock round-trip of its own.
+  return await withSpan('graph.orchestration.records', {}, async () =>
+   readSelectedKindAssertions(tx,sort,kind,properties,{currentStatement:true,...(subjectUids===undefined?{}:{subjectUids}),...(subjectIds===undefined?{}:{subjectIds})}));
 }
 const fields: Record<string, readonly string[]> = {
  'system.tracked-read':['query_digest','query','membership','members','seq','at'],
