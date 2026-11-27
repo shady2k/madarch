@@ -443,14 +443,22 @@ are the repository's installation, and each person's plugin and hooks are theirs
   refresh the timings with
   `bun run test --timings=.github/workflows/test-timings.json --update-timings`.
   The stable `test` job is green only when all five shards, the separate checks
-  job, the union-of-test-files check and merge-base growth control pass.
+  job, the union-of-test-files check, merge-base growth control and the required
+  confined `partition-bootstrap` job running the full
+  `test/git-partition-bootstrap.test.ts` on every push pass. That file stays in
+  `test/slow-files.json`; the 30-second threshold is unchanged.
   Growth is every added slow entry and every changed single-file evidence row.
   The blocking `test` job measures only growth paths listed as green, because
   these claim speed. Each file runs alone once; only a first measurement at or
-  below 30 000 ms triggers a second alone run with fresh temporary timings.
-  A finding requires both measurements at or below 30 000 ms, and names both
+  below 15 000 ms triggers a second alone run with fresh temporary timings.
+  A finding requires both measurements at or below 15 000 ms, and names both
   numbers and listed seconds. Any above-threshold run is not a speed finding,
-  whatever the listed seconds. Fresh times are noisy: on the same box
+  whatever the listed seconds. Entry stays at 30 000 ms; the lower refutation
+  bound is half of it because GitHub `ubuntu-24.04` runners measured up to
+  1.70x wall-clock variance on one commit (15 000 ms times 1.70 is 25 500 ms,
+  still under 30 000 ms), so a file between the two bounds keeps its place
+  instead of flipping on whichever runner it landed.
+  Fresh times are noisy: on the same box
   `test/manifest-publication.test.ts` measured 14 427 / 43 906 / 55 410 ms within
   45 minutes (Teamlead measurement); a 100 ms fresh-run comparison cannot gate
   that noise. The 100 ms comparison remains only between listed seconds and
@@ -459,8 +467,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   Red entries claim defects, not stable duration; their bound waits fluctuate,
   and the nightly summary judges their outcomes instead. It exits 1 for a
   claimed red file that runs green or a claimed green file that runs red.
-  A batch run at or below 30 s marks an exit candidate; removal needs a fresh
-  green single-file confirmation at or below 30 s, not historical evidence.
+  A batch run at or below 15 s marks an exit candidate; removal needs a fresh
+  green single-file confirmation at or below 15 s, not historical evidence.
   For an unlisted file a shard measures over 30 s, the blocking check runs the
   file alone and reports a speed finding only if both runs exceed 30 s. The initial adoption has no
   base manifests, so all rows are growth but only 21 green claims are measured

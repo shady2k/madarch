@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A design system is the shared foundation of a product''s interface: its design tokens, its components, the patterns they form and the rules for using them. It keeps different screens consistent and lets new work start from what already exists.'
   ru: 'Дизайн-система — общая основа интерфейса продукта: токены дизайна, компоненты, сложившиеся из них образцы и правила их использования. Она держит разные экраны согласованными и позволяет новой работе начинать с готового.'
+derives-from:
+- idea

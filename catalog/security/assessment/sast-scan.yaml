@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A static application security test reads the code without running it and flags patterns that often lead to weaknesses: unsafe queries, unescaped output, hard-coded secrets. It finds problems early but needs a person to judge the false alarms.'
   ru: 'Сканирование SAST читает код, не запуская его, и отмечает образцы, которые часто ведут к слабостям: небезопасные запросы, неэкранированный вывод, вписанные секреты. Оно находит проблемы рано, но ложные срабатывания должен оценить человек.'
+derives-from:
+- code.repository

@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
@@ -13,6 +13,8 @@ import { daemonFills } from '../src/product/daemon-fills.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { useRepositoryPlugins, useFixturePlugins } from './enabled-plugins-fixture.js';
+import { traceFiles } from '../src/obs/trace.js';
+import { readKindAssertions } from '../src/graph/records.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-daemon-one-'));
 const HOME = join(ROOT, 'products');
@@ -52,14 +54,21 @@ describe('two simultaneous first runs of one product', () => {
       expect(held.reason).toContain('is filling');
       const finished = ran[0]!;
       if (!finished.ok) return;
-      expect(finished.state).toBe('succeeded');
-      // The one store holds the one run, and the refused run id stands nowhere: no second database took it.
       const store = productStoreFolder(PRODUCT, knowledgeRootOf(HOME));
+      let failure: string | undefined;
+      if (finished.state !== 'succeeded') {
+        const trace = traceFiles(store).find(trace => trace.runId === finished.runId);
+        const errors = trace === undefined ? [] : readFileSync(trace.file, 'utf8').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as { name: string; status?: { code?: string; message?: string }; events?: unknown[] }).filter(span => span.status?.code === 'STATUS_CODE_ERROR').map(({ name, status, events }) => ({ name, status, events }));
+        failure = JSON.stringify({ finished, trace: trace?.file, errors });
+      }
+      expect(finished.state, failure).toBe('succeeded');
+      // The one store holds the one run, and the refused run id stands nowhere: no second database took it.
       const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
       await owner.ready;
       try {
-        const runs = await owner.run((tx) => tx.query<{ run_id: string }>('SELECT run_id FROM fill_run ORDER BY run_id'));
-        expect(runs.rows.map((row) => row.run_id)).toEqual([finished.runId]);
+        // A run is a graph vertex (0039 item 19), not a table of the store: the run the store holds is the one that ran.
+        const runs = await owner.run((tx) => readKindAssertions(tx, 'vertex', 'system.run', ['run_name'], { contract: owner.graphContract }));
+        expect(runs.map((row) => String(row.values['run_name']))).toEqual([finished.runId]);
       } finally {
         await owner.close();
       }

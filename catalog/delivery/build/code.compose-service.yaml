@@ -9,10 +9,55 @@ acquisition:
 relation-constraints:
   out:
   - dependsOn
+  - partOf
+  - code.runs
   in:
   - partOf
 template-policy: page
 source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: image
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: ports
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
+  nullable: true
+  producers:
+  - operations
+- name: depends_on
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  producers:
+  - operations
+- name: environment
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.compose-service-environment:v1
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.file
+- code.image
+- code.service
 labels:
   en:
     one: Compose service
@@ -23,3 +68,8 @@ labels:
 description:
   en: 'A compose service is one container definition inside a compose file: its image, its command, its ports, its volumes and the other services it depends on. One file can describe a whole set of services that run together on a machine.'
   ru: 'Сервис compose — одно описание контейнера в файле compose: его образ, команда, порты, тома и другие сервисы, от которых он зависит. Один файл может описать целый набор сервисов, работающих вместе на машине.'
+
+key-edges:
+- role: code.compose-service-file
+  edge: code.compose-service-file
+  side: from

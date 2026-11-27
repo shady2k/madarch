@@ -6,90 +6,43 @@ sources:
 - https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/about-milestones
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
   - hasPart
+  - work.depends-on
   in:
   - partOf
-template-policy: none
+  - work.depends-on
+template-policy: page
+source: graph
 fields:
-- name: legacy_id
+- name: name
   type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the dated point, such as Version 1.0; it is
+      the milestone's key.
+- name: target_date
+  type: timestamp
   nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: The date the milestone is planned to be reached.
 - name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
+  type: value-set-value
   nullable: true
-  producers:
-  - person
-- name: assignee
+  binding:
+    agent: Where the milestone stands, as the work kinds keep it.
+- name: criterion
   type: text
   nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: What has to be true on the date for the milestone to be reached.
+key:
+- name
 labels:
   en:
     one: Milestone
@@ -100,3 +53,5 @@ labels:
 description:
   en: A milestone marks a date by which a set of epics is planned to be finished, such as a public release or a contract deadline. It gives the plan a fixed point against which progress can be measured.
   ru: Веха отмечает дату, к которой планируют завершить набор эпиков, например публичный выпуск или срок по договору. Она даёт плану неподвижную точку, с которой сверяют ход работы.
+derives-from:
+- epic

@@ -529,7 +529,8 @@ of exactly-once execution, make each accepted operation occur once.
 - Every operation supplies an idempotency key stable across retries, scoped
   to the unit and logical operation (not to the attempt). An operation vertex
   holds the key, canonical request digest and result, with edges to its unit,
-  author and affected facts. The writer locks the key. An identical retry
+  author and affected facts (the affected facts are the assertions whose `system.assertion-operation`
+  lineage edge names the operation). The writer locks the key. An identical retry
   returns that result without new assertions; different content under the
   same key is `IDEMPOTENCY_CONFLICT`. A stale worker cannot add anything; it
   may only read an already committed receipt. No enqueue-stamp table returns.
@@ -551,6 +552,8 @@ of exactly-once execution, make each accepted operation occur once.
   pg-boss completion/enqueue actions together. A crash before that transaction
   leaves a retryable unit; receipts prevent duplicated work. A crash after it
   leaves a completed unit. No queue payload is the sole copy of a durable fact.
+
+Clarification (2026-11-18, madarch-64o5.74, ALX-358): for a plugin's reconcile, the logical operation is one batch of the difference, and its key is the digest of its canonical request, which includes the preconditions it was decided from: for every subject it touches, the last recorded sequence of this source's stream for that subject. A batch boundary never separates an entity from its required edges or new parents, nor the retraction of a last required edge from its replacement or the child's retirement; groups are packed parents first on addition and children first on removal, in code-point order. A batch is bounded by the request limit and by the time it holds the graph write lock; the statements of one operation do not grow with the number of its facts.
 
 ### 25. Assertions are graph records with bitemporal, typed storage
 
@@ -664,6 +667,8 @@ marker and retractions committed atomically (or separate bounded, explicitly
 completed subscopes). Disabling a producer records a state, not retractions.
 Other sources' existence assertions keep a shared entity visible; history
 and referenced identities are never physically garbage-collected by a plugin.
+
+Clarification (2026-11-20, madarch-64o5.74, ALX-644): the engine's fill state machine is one source. The fields of `system.chain`, `system.run` and `system.unit` that the machine steps (state and its context: names, generation, scope, fence, attempt, retries left, retry time, replacement, publication, staleness and update times) and the `system.fill-transition` journal are asserted only under the installed `fill-state` source. An operation that carries a machine step — a retry, a failure or a completion inside the operation host — contributes lineage, not a source: those assertions carry `system.assertion-operation` and `system.assertion-unit` to that operation and unit and are that operation's affected facts: the receipt reads them through the inbound `system.assertion-operation` edge; no separate affected edge is written (ALX-928). A plugin's operation capability holds no permission for those fields; writing them under any other source is `FORBIDDEN_SOURCE`. Why: two sources for one machine field make the per-stream repeat rule (item 25 and point 2 of the amendment of 2026-11-16) drop a real step, and turn the machine's own history into a dispute (item 16).
 
 ### 27. Resolution matching uses semantic candidates, not execution ids
 

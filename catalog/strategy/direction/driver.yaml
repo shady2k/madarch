@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A driver is a circumstance that makes the organisation act: a new regulation, a competitor, a cost rise, a customer complaint, an internal ambition. It is the why behind goals, and it needs no solution of its own.'
   ru: 'Движущая сила — обстоятельство, которое заставляет организацию действовать: новый закон, конкурент, рост затрат, жалоба клиента или внутреннее стремление. Это причина за целями; собственного решения у неё нет.'
+derives-from:
+- system.product

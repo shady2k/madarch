@@ -54,7 +54,7 @@ function stage(id: string, consumes: readonly string[], produces: readonly strin
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: () => ({ units: [] }),
-    execute: () => ({ outcome: 'writes' }),
+    execute: () => ({ outcome: 'draft' }),
   };
 }
 

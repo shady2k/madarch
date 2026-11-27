@@ -1,4 +1,32 @@
 {
+  "applicability": {
+    "state": {
+      "not-searched": "Not searched",
+      "applicable": "Applicable",
+      "empty": "No results",
+      "failed": "Unknown (search failed)",
+      "inapplicable": "Inapplicable"
+    },
+    "reason": "Reason: {{reason}}",
+    "ancestor": "Inherited from: {{kind}}",
+    "contested": "Contested"
+  },
+  "common": {
+    "emptyValue": "—",
+    "separator": " · ",
+    "listSeparator": ", ",
+    "numberSuffix": ". ",
+    "labelSeparator": ": ",
+    "quoted": "«{{text}}»",
+    "previousSymbol": "←",
+    "nextSymbol": "→",
+    "zoomInSymbol": "+",
+    "zoomOutSymbol": "−",
+    "closeSymbol": "×"
+  },
+  "graphRefusal": {
+    "schemaInvalid": "Invalid value at {{path}}: expected {{expected}}, got {{actual}}."
+  },
   "kinds": {
     "name": "Kind",
     "count": "Entities"
@@ -142,7 +170,7 @@
       "remainingUnknown": "Remaining time: not known yet",
       "remaining": "Approximately {{seconds}} s remaining",
       "tokensUnknown": "Tokens: not reported",
-      "tokens": "Tokens: {{input}} input · {{output}} output · {{total}} total",
+      "tokens": "Tokens: {{input}} input · {{output}} output · {{cacheWrite}} cache write · {{cacheRead}} cache read · {{total}} total",
       "records": "Facts written: {{count}}",
       "records_one": "{{count}} fact written",
       "records_few": "{{count}} facts written",
@@ -2101,6 +2129,37 @@
     "noTemplateFindings": "No template findings."
   },
   "kit": {
+    "componentBadgeAlertCardSkeleton": "Badge / Alert / Card / Skeleton",
+    "componentButton": "Button",
+    "componentCard": "Card",
+    "componentCheckbox": "Checkbox",
+    "componentCheckboxRadioSwitchToggle": "Checkbox / Radio / Switch / Toggle",
+    "componentChoice": "Choice",
+    "componentCode": "Code",
+    "componentConfirmation": "Confirmation",
+    "componentDialog": "Dialog",
+    "componentDisclosureFigureContents": "Disclosure / Figure / Contents",
+    "componentEmbedded": "Embedded",
+    "componentFilterbar": "FilterBar",
+    "componentGraph": "Graph",
+    "componentIcon": "Icon",
+    "componentInline": "Inline",
+    "componentInputTextarea": "Input / Textarea",
+    "componentMenus": "Menus",
+    "componentNavigation": "Navigation",
+    "componentProgress": "Progress",
+    "componentQuote": "Quote",
+    "componentRadiogroup": "RadioGroup",
+    "componentReading": "Reading",
+    "componentSearch": "Search",
+    "componentSegmented": "Segmented",
+    "componentSwitch": "Switch",
+    "componentTable": "Table",
+    "componentTabs": "Tabs",
+    "componentText": "Text",
+    "componentToggle": "Toggle",
+    "componentTypography": "Typography",
+    "componentNext": "next",
     "next": "next",
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
@@ -2280,4 +2339,3 @@
     "missingValues": "No value: {{labels}}"
   }
 }
-

@@ -24,3 +24,9 @@ labels:
 description:
   en: 'An assessment finding records one conclusion of a security assessment: what was observed, how serious it is and which requirement or expectation it breaks. It points to the evidence so someone can confirm or dispute it.'
   ru: 'Находка оценки безопасности записывает один вывод оценки: что обнаружили, насколько это серьёзно и какое требование или ожидание нарушено. Она указывает на доказательства, чтобы кто-то мог подтвердить или оспорить её.'
+derives-from:
+- dast-scan
+- penetration-test
+- sast-scan
+- secret-scan
+- vulnerability-scan

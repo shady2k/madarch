@@ -24,3 +24,6 @@ labels:
 description:
   en: A Terraform state file records which real infrastructure objects a definition created, their identifiers and their last known values. Terraform reads it to decide what must change, so losing or changing it wrongly can make Terraform recreate or forget objects.
   ru: Состояние Terraform записывает, какие настоящие объекты инфраструктуры создало описание, их идентификаторы и последние известные значения. Terraform читает его, чтобы решить, что менять, поэтому потеря или неверное изменение состояния заставляет его пересоздать объекты или забыть о них.
+derives-from:
+- product-profile
+- terraform-resource

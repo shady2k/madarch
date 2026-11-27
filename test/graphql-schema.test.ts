@@ -3,6 +3,9 @@
  * byte, graphql-js accepts it, a reserved name and a name collision are refused naming both declarations, and a
  * fixture manifest covering every scalar, a reference, a repeated edge with attributes and the edges' and the
  * reference's inverses reaches the schema as section 1 to 4 describe it.
+ *
+ * A change to the generator or to `graphql/fixture-manifest.yaml` moves the golden with
+ * `bun scripts/write-graphql-fixture.ts`, which derives it the way this file reads it; the SDL is never hand-edited.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildSchema, type GraphQLObjectType } from 'graphql';
@@ -13,6 +16,9 @@ import { parseKinds, type KindsManifest } from '../src/product/manifest/kinds.js
 import { publishedManifestOf } from '../src/graphql/manifest.js';
 import { SchemaRefusal } from '../src/graphql/names.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { kindTypeNameOf, fieldNameOf } from '../src/graphql/names.js';
 
 /** A product folder holding one manifest text and the template its kinds name, read the way a product's is. */
 function manifestOf(text: string): KindsManifest {
@@ -42,6 +48,24 @@ function refusalOf(text: string): SchemaRefusal {
 }
 
 describe('the schema of a published manifest', () => {
+  test('exposes the catalogue template kind as Entity when the product declares none', () => {
+    const published = publishedManifestOf(manifestOf('kinds:\n  demo.page: { source: graph, title: label }\n'));
+    const schema = buildSchema(graphqlSchemaOf(published));
+    const template = schema.getType('KindPageTemplate') as GraphQLObjectType;
+    expect(template).toBeDefined();
+    expect(template.getInterfaces().map(type => type.name)).toContain('Entity');
+    expect(template.getFields()['body']?.type.toString()).toBe('String');
+  });
+
+  test('uses a product template kind without adding the catalogue fallback', () => {
+    const manifest = manifestOf('kinds:\n  demo.template:\n    source: graph\n    title: name\n    key: [name]\n    page-template: { name: name, body: content }\n    fields:\n      - { name: name, type: text, producers: [person] }\n      - { name: content, type: text, producers: [person] }\n');
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(manifest)));
+    const template = schema.getType('KindDemoTemplate') as GraphQLObjectType;
+    expect(template.getInterfaces().map(type => type.name)).toContain('Entity');
+    expect(template.getFields()['content']?.type.toString()).toBe('String');
+    expect(schema.getType('KindPageTemplate')).toBeUndefined();
+  });
+
   test('reproduces the golden SDL byte for byte', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(fixtureManifest()));
     expect(sdl).toBe(readFileSync(join(import.meta.dir, 'graphql/fixture.golden.graphql'), 'utf8'));
@@ -55,9 +79,29 @@ describe('the schema of a published manifest', () => {
     expect(schema.getType('JSON')).toBeDefined();
     const file = schema.getType('KindDemoFile') as GraphQLObjectType;
     const fields = file.getFields();
-    expect(fields['repository']?.type.toString()).toBe('KindDemoRepository');
+    expect(fields['demoFileRepository']?.type.toString()).toBe('DemoFileRepositoryConnection!');
     expect(fields['demoTouchedOf']?.type.toString()).toBe('DemoTouchedConnection!');
     expect(fields['demoContainsOf']?.type.toString()).toBe('DemoContainsConnection!');
+  });
+
+  test('exposes every inherited foundation declaration with its actual fields', () => {
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
+    const foundation = withAssertionContract(withManifestContract({ vertex: [], edge: [], dictionary: [] }));
+    for (const kind of foundation.vertex) {
+      // `manifest.kind` is the one foundation kind the generator leaves to the single `CatalogueEntity` type
+      // (decision 0036, section 1; madarch-64o5.74): the catalogue's own fields stand in its place, and no
+      // `KindManifestKind` type or `allManifestKind` root is built for it.
+      if (kind.name === 'manifest.kind') {
+        const catalogue = schema.getType('CatalogueEntity') as GraphQLObjectType;
+        expect(catalogue.getFields()['name']).toBeDefined();
+        expect(schema.getType(kindTypeNameOf(kind.name))).toBeUndefined();
+        expect(schema.getQueryType()!.getFields()['allManifestKind']).toBeUndefined();
+        continue;
+      }
+      const type = schema.getType(kindTypeNameOf(kind.name)) as GraphQLObjectType;
+      expect(type).toBeDefined();
+      for (const field of kind.fields) expect(type.getFields()[fieldNameOf(field.name)]).toBeDefined();
+    }
   });
 
   test('the frame reads each kind\'s purpose and audience and each role\'s leading groups', () => {
@@ -80,11 +124,11 @@ describe('the schema of a published manifest', () => {
   test('shows both ways of every edge and the inverse of a reference', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(fixtureManifest()));
     for (const field of [
-      'demoContains(', 'demoContainsOf(', 'demoTouched(', 'demoTouchedOf(', 'demoAuthored(', 'demoAuthoredOf(', 'repositoryOfDemoFile(',
+      'demoContains(', 'demoContainsOf(', 'demoTouched(', 'demoTouchedOf(', 'demoAuthored(', 'demoAuthoredOf(', 'demoFileRepositoryOf(',
     ]) expect(sdl).toContain(field);
     expect(sdl).toContain('discriminator: String!');
     expect(sdl).toContain('contested: [String!]!');
-    expect(sdl).toContain('pathOpinions: [Opinion!]!');
+    expect(sdl).toContain('pathAssertions: [Assertion!]!');
   });
 
   test('shows the catalogue as an entity type with its own roots', () => {
@@ -93,9 +137,9 @@ describe('the schema of a published manifest', () => {
     expect(sdl).toContain('mentionsOf(first: Int, after: String): MentionsConnection!');
     expect(sdl).toContain('type MentionsEdge {');
     expect(sdl).toContain('type CatalogueEntity implements Entity {');
-    expect(sdl).toContain('catalogueEntity(name: String!, lang: String): CatalogueEntity');
-    expect(sdl).toContain('allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!');
-    expect(sdl).toContain('home(lang: String): Entity');
+    expect(sdl).toContain('catalogueEntity(name: String!, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CatalogueEntity');
+    expect(sdl).toContain('allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CatalogueEntityConnection!');
+    expect(sdl).toContain('home(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Entity');
     expect(sdl).toContain('derivesFrom(where: CatalogueEntityWhere');
     expect(sdl).toContain('fields: [CatalogueField!]!');
   });
@@ -168,8 +212,10 @@ kinds:
     title: path
 edges:
   - name: links-to
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.file]
+    cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
 `);
     expect(error.message).toContain('the field "links_to" of the kind "demo.repository"');
     expect(error.message).toContain('the edge "links-to"');
@@ -177,7 +223,7 @@ edges:
   });
 
   test('refuses an edge that names a kind the manifest does not declare, naming both', () => {
-    const error = refusalOf(`
+    const parsed = parseKinds(`
 kinds:
   demo.repository:
     
@@ -187,8 +233,11 @@ edges:
   - name: demo.contains
     from: [demo.repository]
     to: [demo.absent]
-`);
-    expect(error.message).toContain('the edge "demo.contains"');
+    cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
+    labels: { en: { out: contains, in: contained }, ru: { out: содержит, in: содержится } }
+`, '/absolute/catalog.yaml', '/absolute');
+    const error = { message: parsed.findings.map((one) => one.message).join('; ') };
+    expect(error.message).toContain('edge "demo.contains"');
     expect(error.message).toContain('"demo.absent"');
   });
 });

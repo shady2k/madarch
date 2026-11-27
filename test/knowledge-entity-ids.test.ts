@@ -73,11 +73,18 @@ afterAll(async () => {
 });
 
 test('two repositories sharing docs have two directory ids, each naming its repository', async () => {
-  const answer = await fetch(`${server!.url}/products/shop/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeDirectory(first: 200) { edges { node { id repository path } } } }' }) });
+  // The repository is the directory's parent edge (decision 0039, item 1: a reference is an edge, never a scalar field).
+  const answer = await fetch(`${server!.url}/products/shop/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: `{
+    allCodeDirectory(first: 10, where: { path: { _in: ["docs"] } }) { edges { node {
+      id path
+      codeDirectoryRepository(first: 1) { edges { node { node { ... on KindCodeRepository { name } } } } }
+    } } }
+  }` }) });
   expect(answer.status).toBe(200);
-  const body = (await answer.json()) as { data: { allCodeDirectory: { edges: { node: { id: string; repository: string | null; path: string | null } }[] } } };
+  const body = (await answer.json()) as { data: { allCodeDirectory: { edges: { node: { id: string; path: string | null; codeDirectoryRepository: { edges: { node: { node: { name?: string | null } } }[] } } }[] } } };
   const rows = body.data.allCodeDirectory.edges.map((edge) => edge.node);
   const ids = rows.map((row) => row.id);
   expect(new Set(ids).size).toBe(ids.length);
-  expect(rows.map((row) => `${row.repository ?? ''}:${row.path ?? ''}`)).toEqual(expect.arrayContaining(['first:docs', 'second:docs']));
+  const named = (row: typeof rows[number]): string => row.codeDirectoryRepository.edges[0]?.node.node.name ?? '';
+  expect(rows.map((row) => `${named(row)}:${row.path ?? ''}`)).toEqual(expect.arrayContaining(['first:docs', 'second:docs']));
 }, 30_000);

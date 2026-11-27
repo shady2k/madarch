@@ -24,3 +24,5 @@ labels:
 description:
   en: A flag variant is one of the possible answers of a feature flag, such as on, off or a version name, with optional data that goes with it. The rules decide which variant a caller gets.
   ru: 'Вариант флага — один из возможных ответов флага функции: включён, выключен или имя версии, — с необязательными данными при нём. Правила решают, какой вариант получит вызывающий.'
+derives-from:
+- feature-flag

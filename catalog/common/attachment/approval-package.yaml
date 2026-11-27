@@ -29,3 +29,5 @@ labels:
 description:
   en: 'An approval package puts before a responsible person one set of pending changes to an entity: what will be created or changed, how it is connected and what could go wrong. The entity keeps its current state until the package is approved or declined.'
   ru: 'Пакет согласования представляет ответственному человеку один набор предстоящих изменений сущности: что будет создано или изменено, как это связано и что может пойти не так. Сущность сохраняет текущее состояние, пока пакет не согласуют или не отклонят.'
+derives-from:
+- operation

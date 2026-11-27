@@ -24,3 +24,6 @@ labels:
 description:
   en: A research question states what a team does not yet know about its users and wants to learn, such as why people abandon a purchase. It keeps the interviews, observations and surveys pointed at one answer.
   ru: 'Вопрос исследования формулирует то, чего команда ещё не знает о своих пользователях и хочет выяснить: например, почему люди бросают покупку. Он держит интервью, наблюдения и опросы нацеленными на один ответ.'
+derives-from:
+- idea
+- job-to-be-done

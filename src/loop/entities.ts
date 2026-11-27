@@ -22,9 +22,6 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { questionFootnoteId } from './ids.js';
 
-export const QUESTION_KIND = 'question';
-export const CORRECTION_KIND = 'correction';
-
 export const QUESTION_TYPES = ['contradiction', 'ambiguous-term', 'undocumented', 'gap'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
@@ -35,6 +32,9 @@ export interface Author {
   /** How the author was verified; `local, not verified` on a local install. */
   readonly verified: string;
 }
+
+/** Stored assertion attribution names the graph principal, not an invented human signature. */
+export type AssertionAuthor = Author | { readonly uid: string };
 
 export interface Side {
   /** What this source says, one sentence. */
@@ -68,7 +68,7 @@ export interface Question {
   readonly question: string;
   readonly why: string;
   readonly sides: readonly Side[];
-  readonly answer: { readonly text: string; readonly by: Author; readonly at: string } | null;
+  readonly answer: { readonly text: string; readonly by: AssertionAuthor; readonly at: string } | null;
   /** The pages whose rewrite used the answer; empty until a refresh did. */
   readonly resolvedBy: readonly string[];
   readonly resolvedAt: string | null;
@@ -87,7 +87,7 @@ export interface Correction {
   readonly statement: string;
   /** "Wrong, because ...": the person's reason. */
   readonly reason: string;
-  readonly by: Author;
+  readonly by: AssertionAuthor;
   readonly at: string;
   readonly resolvedBy: readonly string[];
   readonly resolvedAt: string | null;
@@ -119,7 +119,8 @@ function frontMatterText(record: Record<string, unknown>): string {
   return stringifyYaml(record, { lineWidth: 0 }).trimEnd();
 }
 
-const authorRecord = (author: Author): Record<string, string> => ({ name: author.name, email: author.email, verified: author.verified });
+const authorRecord = (author: AssertionAuthor): Record<string, string> => 'uid' in author ? { uid: author.uid } : { name: author.name, email: author.email, verified: author.verified };
+const authorText = (author: AssertionAuthor): string => 'uid' in author ? author.uid : `${author.name} <${author.email}> (${author.verified})`;
 
 /** The names of the footnotes of a question's sides: a content hash, unique within the file; an old file keeps its names. */
 function footnoteNames(sides: readonly Side[]): string[] {
@@ -134,10 +135,10 @@ function footnoteNames(sides: readonly Side[]): string[] {
 }
 
 /** The file of a question, canonical: the same question is the same bytes. */
-export function renderQuestion(question: Omit<Question, 'file' | 'id'>): string {
+export function renderQuestion(question: Omit<Question, 'file' | 'id'>, identity: { readonly kind: string; readonly id: string }): string {
   const front: Record<string, unknown> = {
-    id: `${QUESTION_KIND}:${question.slug}`,
-    kind: QUESTION_KIND,
+    id: identity.id,
+    kind: identity.kind,
     title: question.title,
     type: question.type,
     status: question.status,
@@ -160,15 +161,15 @@ export function renderQuestion(question: Omit<Question, 'file' | 'id'>): string 
     ...question.sides.map((side, index) => `[^${names[index]}]: ${side.grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '') || ground}](madarch:${ground})`).join(', ')}`),
   ];
   if (question.answer !== null) {
-    lines.push('', `## ${words.answer}`, '', quote(question.answer.text.trim()), '', `${words.answeredBy} ${question.answer.by.name} <${question.answer.by.email}> at ${question.answer.at} (${question.answer.by.verified}).`);
+    lines.push('', `## ${words.answer}`, '', quote(question.answer.text.trim()), '', `${words.answeredBy} ${authorText(question.answer.by)} at ${question.answer.at}.`);
   }
   return `${lines.join('\n')}\n`;
 }
 
-export function renderCorrection(correction: Omit<Correction, 'file' | 'id'>): string {
+export function renderCorrection(correction: Omit<Correction, 'file' | 'id'>, identity: { readonly kind: string; readonly id: string }): string {
   const front: Record<string, unknown> = {
-    id: `${CORRECTION_KIND}:${correction.slug}`,
-    kind: CORRECTION_KIND,
+    id: identity.id,
+    kind: identity.kind,
     title: correction.title,
     status: correction.status,
     about: [correction.about],

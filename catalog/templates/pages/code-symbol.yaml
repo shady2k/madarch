@@ -10,8 +10,7 @@ sections:
     en: Details
     ru: Сведения
   query: |
-    repository
-    path
+    codeSymbolFile(first: 1) { edges { node { node { id label } } } }
     name
     contested
   params:
@@ -19,26 +18,21 @@ sections:
     - label:
         en: Repository
         ru: Репозиторий
-      path: repository
-    - label:
-        en: Path
-        ru: Путь
-      path: path
+      path: codeSymbolFile.edges.0.node.node.label
     - label:
         en: Name
         ru: Имя
       path: name
 - id: source
   after: facts
-  component: source
-  title:
-    en: Source
-    ru: Исходный текст
+  component: relations
+  title: { en: Declared in, ru: Объявлено в }
   query: |
-    repository
-    path
+    related(edge: "code.symbol-file", first: 1) { relationLabel edges { node { id kind label } } totalCount }
   params:
-    path: .
+    path: related
+    edge: code.symbol-file
+    inverse: false
 - id: callers
   component: text
   title:

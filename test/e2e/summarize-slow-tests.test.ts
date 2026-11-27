@@ -71,12 +71,17 @@ test('batch green at threshold is only an exit candidate without fast single-fil
   for (const independent of evidenceRows) {
     const result = summarize([{ path: a, result: 'green' }], `${a}:
 (pass) example
-`, { [a]: 30000 }, independent);
+`, { [a]: 15000 }, independent);
     expect(result.summary).toContain('exit candidate');
     expect(result.summary).toContain('claimed, measurement matches');
     expect(result.summary).not.toContain('confirmed: green single-file');
     expect(result.status).toBe(0);
   }
+  const above = summarize([{ path: a, result: 'green' }], `${a}:
+(pass) example
+`, { [a]: 20000 });
+  expect(above.summary).not.toContain('exit candidate');
+  expect(above.status).toBe(0);
 });
 
 test('missing observation is unconfirmed even with timings and single-file evidence', () => {
@@ -105,7 +110,7 @@ test('unhandled errors are red even when a test passed', () => {
 });
 
 test('historical red single-file timing cannot confirm a newly green red claim', () => {
-  const result = summarize([{ path: a, result: 'red' }], `${a}:\n(pass) example\n`, { [a]: 20000 }, { [a]: 20000 });
+  const result = summarize([{ path: a, result: 'red' }], `${a}:\n(pass) example\n`, { [a]: 15000 }, { [a]: 20000 });
   expect(result.summary).toContain('| GREEN — exit candidate | claimed red, ran green |');
   expect(result.summary).not.toContain('confirmed: green single-file');
   expect(result.status).toBe(1);

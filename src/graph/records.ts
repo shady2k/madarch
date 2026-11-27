@@ -1,513 +1,281 @@
-/** Reads of ordinary published repository facts, preserving every opinion and its evidence. */
+/** Effective graph records from typed assertions (decision 0039, items 14, 25 and 30). */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { OuterTransaction } from '../history-types.js';
+import type { GraphContract } from './contract.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
-import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import type { EvidenceEntry } from './contract.js';
+import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
+import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
+import { listDisputeSlots } from './dispute-read.js';
+import { withAssertionContract, isDisputableProperty, vertexKindPresentSql, edgeKindPresentSql } from './system-contract.js';
 
-const REPOSITORY_OF = (alias: string): string => `(${alias}.key->>'repository')`;
-const PATH_OF = (alias: string): string => `(${alias}.key->>'path')`;
-
-/** One commit as a reader sees it. */
-export interface CommitRecord {
-  readonly hash: string;
-  readonly parents: readonly string[];
-  readonly author: { readonly name: string; readonly email: string };
-  /** The author's clock with its offset, as `git log %aI` writes it. */
-  readonly authorDate: string;
-  /** The offset `authorDate` stands at, in minutes east of UTC: the same number `authorDate` carries. */
-  readonly authorOffsetMin: number;
-  /** The committer's clock with its offset, as `git log %aI` writes it. */
-  readonly commitDate: string;
-  /** The offset `commitDate` stands at, in minutes east of UTC: the same number `commitDate` carries. */
-  readonly commitOffsetMin: number;
-  readonly subject: string;
+export interface AssertionRecord {
+  id: number; uid: string; key: Record<string, unknown>; values: Record<string, unknown>;
+  assertions: StoredAssertion[]; selectedAssertions: readonly StoredAssertion[]; activeSources: readonly string[]; from?: number; to?: number; discriminator?: string;
 }
 
-/**
- * One git date as `git log %aI` writes it: the clock the author wrote, and the offset it stood at.
- *
- * The store keeps git's two numbers apart — the clock as it stood and the minutes east of UTC — and
- * a reader that gets the clock back must put the offset beside it, never convert the clock to UTC
- * and keep the offset.
- */
-function gitDateOf(localClock: string, offsetMin: number): string {
-  const sign = offsetMin < 0 ? '-' : '+';
-  const total = Math.abs(offsetMin);
-  return `${localClock}${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+export interface AssertionRecordRequest {
+  readonly sort: 'vertex' | 'edge';
+  readonly kind: string;
+  readonly fields: readonly string[];
+  readonly repositoryKinds?: readonly string[];
+  readonly subjectUids?: readonly string[];
+  readonly subjectIds?: readonly number[];
+  readonly identities?: readonly { id: number; uid: string; key: Record<string, unknown> }[];
+}
+export interface AssertionRecordSelector {
+  readonly contract?: GraphContract;
+  readonly validAt?: string;
+  readonly recordedAt?: string;
+  readonly contexts?: readonly number[];
+  readonly contextRecordedThrough?: Readonly<Record<number, string | null>>;
 }
 
-/** One path the walk has not read: the store says so rather than answering nothing. */
-class RecordGap extends Error {}
-
-// ---- what a reader asks ----------------------------------------------------
-
-/**
- * One open opinion of a vertex or an edge, as the record reads hold it: its id (one sequence for the whole graph), the
- * producer and its version, the language of its text, the tagged evidence it rests on, and the field values it states.
- */
-export interface HeldOpinion {
-  readonly id: string;
-  readonly saidBy: string;
-  /** The producer's name, without its version: a new version is the same producer. */
-  readonly producer: string;
-  readonly lang: string | null;
-  readonly evidence: readonly EvidenceEntry[];
-  readonly values: Readonly<Record<string, unknown>>;
-}
-
-/** One value of one field and the opinion that stated it: value-to-source is never lost. */
-export interface FieldValue<T> {
-  readonly value: T;
-  readonly opinion: HeldOpinion;
-}
-
-/** One field as the reads answer it: every opinion's value, and the value they all agree on (null when they differ). */
-export interface FieldRead<T> {
-  readonly value: T | null;
-  readonly contested: boolean;
-  readonly values: readonly FieldValue<T>[];
-}
-
-/** The opinions one aggregate reads, from the jsonb array a page's statement builds. */
-function opinionsOfJson(value: unknown, carried: readonly string[]): HeldOpinion[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((entry) => {
-    const held = (entry ?? {}) as Record<string, unknown>;
-    const saidBy = String(held['said_by'] ?? '');
-    const at = saidBy.lastIndexOf('@');
-    const values: Record<string, unknown> = {};
-    for (const field of [...carried, 'lang', 'mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
-    return {
-      id: String(held['id'] ?? ''),
-      saidBy,
-      producer: at < 0 ? saidBy : saidBy.slice(0, at),
-      lang: held['lang'] === null || held['lang'] === undefined ? null : String(held['lang']),
-      evidence: Array.isArray(held['evidence']) ? held['evidence'] as readonly EvidenceEntry[] : [],
-      values,
-    };
+/** A batch reads identities once, then applies item 25 entirely in SQL. */
+export async function readKindsAssertions(tx: SqlExecutor, requests: readonly AssertionRecordRequest[], selector: AssertionRecordSelector = {}): Promise<AssertionRecord[][]> {
+  return await withSpan('graph.records.batch', {}, async () => {
+    const suppliedIdentities = requests.every(request => request.identities !== undefined);
+    const hasMerges = suppliedIdentities || (await tx.query<{ present: boolean }>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
+    const parameters: unknown[] = [];
+    const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
+    let contextParameter: string | undefined;
+    const context = (): string => contextParameter ??= param(selector.contexts?.[0] ?? 1) + '::bigint';
+    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : param(value) + '::timestamptz';
+    let validParameter: string | undefined;
+    let recordedParameter: string | undefined;
+    const valid = (): string => validParameter ??= instant(selector.validAt);
+    const recorded = (): string => recordedParameter ??= instant(selector.recordedAt);
+    const canonical = (id: string): string => hasMerges ? `graph_merge_target(${id},${context()},${valid()},${recorded()})` : id;
+    type Identity = { id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string };
+    const identities: Identity[][] = requests.map(request => [...request.identities ?? []]);
+    const statements = requests.flatMap((request,index) => {
+      if (request.identities !== undefined || request.subjectIds?.length === 0 || request.subjectUids?.length === 0) return [];
+      parameters.push(request.kind);
+      const where = [`k.name=$${parameters.length}`];
+      if (request.subjectIds !== undefined) { const subjects = param(request.subjectIds); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM unnest(${subjects}::bigint[]) requested(id))` : `n.id=ANY(${subjects}::bigint[])`); }
+      if (request.subjectUids !== undefined) { const subjects = param(request.subjectUids); where.push(request.sort === 'vertex' && hasMerges ? `n.id IN (SELECT ${canonical('requested.id')} FROM node requested WHERE requested.uid=ANY(${subjects}::uuid[]))` : `n.uid=ANY(${subjects}::uuid[])`); }
+      if (request.sort === 'vertex' && hasMerges) where.push(`${canonical('n.id')}=n.id`);
+      return [`SELECT ${index}::integer AS request_index,n.id,n.uid::text,${request.sort === 'vertex' ? 'n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator' : "'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator"} FROM ${request.sort === 'vertex' ? 'node' : hasMerges ? `graph_effective_edges(${context()},${valid()},${recorded()})` : 'edge'} n JOIN entity k ON k.id=n.entity_id WHERE ${where.join(' AND ')}`];
+    });
+    if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
+    const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));
+    if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:72: product assertion reads require an explicit graph contract for dispute resolution`);
+    let snapshot: { now: string | Date; anchored: boolean } | undefined;
+    // Pages and fill lookups already supplied identities. Probe for persisted questions
+    // in their assertion statement; only an anchored dispute needs the full lineage read.
+    const suppliedIdentityExecutor: SqlExecutor = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
+      const result = await tx.query<Row & { now: string | Date; anchored: boolean; id: string | null }>(`
+        WITH page_snapshot AS MATERIALIZED (
+          SELECT ${selector.recordedAt === undefined ? 'transaction_timestamp()' : `$${(parameters?.length ?? 0) + 1}::timestamptz`} AS now,
+            ${edgeKindPresentSql('system.dispute-anchor')} AS anchored
+        ) SELECT assertions.*,page_snapshot.now,page_snapshot.anchored
+          FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE
+          ORDER BY request_index,property_rank,recorded_sequence::bigint`, selector.recordedAt === undefined ? parameters : [...parameters ?? [], selector.recordedAt]);
+      snapshot = result.rows[0];
+      return { rows: result.rows.filter(row => row.id !== null) };
+    } };
+    const load = async (resolvedAssertionIds: readonly string[], executor: SqlExecutor = tx) => await loadAssertionsBatch(executor, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)), unprojectedProperties: selector.contract?.vertex.find(kind => kind.name === request.kind)?.key ?? [] })), { ...selector, projectMergedSubjects: hasMerges, resolvedAssertionIds });
+    let loaded: StoredAssertion[][] | undefined;
+    if (suppliedIdentities) loaded = await load([], suppliedIdentityExecutor);
+    const now = disputable && (!suppliedIdentities || snapshot?.anchored) ? new Date(snapshot?.now ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString() : undefined;
+    const disputes = disputable && (!suppliedIdentities || snapshot?.anchored) ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), { validAt: selector.validAt ?? now!, recordedAt: selector.recordedAt ?? now!, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) }) : [];
+    const resolvedAssertionIds = disputes.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
+    const resolved = new Set(resolvedAssertionIds);
+    if (loaded === undefined || loaded.some(batch => batch.some(assertion => resolved.has(assertion.id)))) loaded = await load(resolvedAssertionIds);
+    const bySubject = loaded.map(assertions => {
+      const grouped = new Map<number, StoredAssertion[]>();
+      for (const assertion of assertions) {
+        const own = grouped.get(assertion.subjectId);
+        if (own === undefined) grouped.set(assertion.subjectId, [assertion]);
+        else own.push(assertion);
+      }
+      return grouped;
+    });
+    return requests.map((request,index) => identities[index]!.flatMap(row => {
+      const own = bySubject[index]!.get(Number(row.id)) ?? [];
+      const chosen = own.filter(assertion => assertion.selected);
+      const existence = chosen.filter(assertion => assertion.property === '$exists');
+      if (!existence.some(assertion => assertion.value === true)) return [];
+      const values = Object.fromEntries(chosen.map(assertion => [assertion.property, assertion.value]));
+      values['$exists'] = true;
+      return [{ id: Number(row.id), uid: row.uid, key: row.key, values, assertions: own, selectedAssertions: chosen,
+        activeSources: [...new Set(own.filter(assertion => assertion.active && assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.source))],
+        ...(request.sort === 'vertex' ? {} : { from: Number(row.from_node), to: Number(row.to_node), discriminator: row.discriminator! }) }];
+    }));
   });
 }
 
-/** One field across opinions: every value with its source, and the value they all agree on. */
-export function fieldRead<T>(opinions: readonly HeldOpinion[], field: string, convert: (value: unknown) => T | null): FieldRead<T> {
-  const values: FieldValue<T>[] = [];
-  for (const opinion of opinions) {
-    const held = convert(opinion.values[field]);
-    if (held === null || held === undefined) continue;
-    values.push({ value: held, opinion });
+/** Internal numeric joins never become public identities. */
+export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], selector: AssertionRecordSelector & Pick<AssertionRecordRequest, 'subjectUids' | 'subjectIds' | 'identities' | 'repositoryKinds'> = {}): Promise<AssertionRecord[]> {
+  return await withSpan('graph.records.kind', { 'graph.kind': kind }, async () => (await readKindsAssertions(tx, [{ sort, kind, fields, ...(selector.repositoryKinds === undefined ? {} : { repositoryKinds: selector.repositoryKinds }), ...(selector.identities === undefined ? {} : { identities: selector.identities }), ...(selector.subjectUids === undefined ? {} : { subjectUids: selector.subjectUids }), ...(selector.subjectIds === undefined ? {} : { subjectIds: selector.subjectIds }) }], selector))[0]!);
+}
+type SemanticRecord = Omit<AssertionRecord, 'key'>;
+
+interface SemanticRequest { readonly role: string; readonly fields: readonly string[]; readonly edgeRole?: string }
+async function semanticRecordBatch(tx: SqlExecutor, requests: readonly SemanticRequest[]): Promise<SemanticRecord[][]> {
+  const { readPublishedManifest } = await import('./manifest-publication.js');
+  const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
+  const manifest = await readPublishedManifest(tx);
+  if (manifest === undefined) throw new Error(`${import.meta.path}:113: semantic graph reads require the published manifest`);
+  const contract = graphContractOf(manifest);
+  const plans = requests.map(({ role, fields, edgeRole }) => {
+    const binding = manifest.semanticBindings?.get(role);
+    if (binding === undefined) throw new Error(`${manifest.file}:1: semantic-bindings.${role} is required by this read`);
+    const edge = edgeRole === undefined ? undefined : binding.edges?.[edgeRole];
+    if (edgeRole !== undefined && edge === undefined) throw new Error(`${manifest.file}:${binding.line}: semantic-bindings.${role}.edges.${edgeRole} is required by this read`);
+    const kind = edge?.kind ?? binding.kind;
+    const sort = edgeRole === undefined ? 'vertex' : 'edge';
+    const mappings: Readonly<Record<string,string>> = edge === undefined ? binding.fields : edge.fields ?? {};
+    const declaration = contract[sort].find(candidate => candidate.name === kind);
+    if (declaration === undefined) throw new Error(`${manifest.file}:${binding.line}: semantic role ${role} names undeclared ${sort} ${kind}`);
+    for (const field of fields) if (mappings[field] === undefined) throw new Error(`${manifest.file}:${binding.line}: semantic role ${role}${edgeRole === undefined ? '' : '.' + edgeRole} requires field binding ${field}`);
+    const actualFields = [...new Set(fields.map(field => mappings[field]!))];
+    for (const field of actualFields) if (!declaration.fields.some(candidate => candidate.name === field)) throw new Error(`${manifest.file}:${binding.line}: semantic role ${role} names undeclared field ${kind}.${field}`);
+    const keys = 'key' in declaration ? declaration.key : [];
+    return { role, edgeRole, binding, edge, mappings, keys, request: { sort, kind, fields: actualFields.filter(field => !keys.includes(field)) } satisfies AssertionRecordRequest };
+  });
+  const batches = await readKindsAssertions(tx, plans.map(plan => plan.request), { contract });
+  return plans.map(({ role, edgeRole, binding, edge, mappings, keys }, index) => batches[index]!.map(row => {
+    const values: Record<string,unknown> = {};
+    for (const [semantic, actual] of Object.entries(mappings)) {
+      // Declared identity fields are immutable keys, not asserted property fallbacks.
+      let value = keys.includes(actual) ? row.key[actual] : row.values[actual];
+      const vocabulary = edge === undefined ? binding.values?.[semantic] : undefined;
+      if (vocabulary !== undefined && value != null) {
+        const match = Object.entries(vocabulary).find(([, actualValue]) => actualValue === value);
+        if (match === undefined) throw new Error(`${manifest.file}:${binding.line}: semantic role ${role}.${semantic} has no declared value for ${JSON.stringify(value)}`);
+        value = match[0];
+      }
+      values[semantic] = value;
+    }
+    checkRoleProperties(edgeRole === undefined ? role : `${role}.${edgeRole}`, values, `${manifest.file}:${binding.line}`);
+    return { ...row, values, ...(edge === undefined || edge.direction === 'from' ? {} : { from: row.to, to: row.from }) };
+  }));
+}
+
+
+const fileFields = semanticRoleFields('file');
+const repoFields = semanticRoleFields('repository');
+const commitFields = semanticRoleFields('commit');
+export interface FileRecord { readonly path:string; readonly mode:string|null; readonly blob:string|null; readonly bytes:number|null; readonly form:'text'|'binary'|null; readonly lines:number|null; readonly language:string|null; readonly candidates:readonly string[] }
+export interface FileDate { readonly date:string; readonly offsetMin:number; readonly commit:string; readonly author:string }
+export interface CommitRecord { readonly hash:string; readonly parents:readonly string[]; readonly author:{readonly name:string;readonly email:string}; readonly authorDate:string; readonly authorOffsetMin:number; readonly commitDate:string; readonly commitOffsetMin:number; readonly subject:string }
+export interface RepositoryFacts { readonly nodeId:string; readonly name:string; readonly url:string; readonly defaultBranch:string|null; readonly asIsCommit:string|null; readonly hasTree:boolean; readonly fileCount:number; readonly commitCount:number; readonly directoryCount:number; readonly historyShallow:boolean|null }
+function scalar(row: SemanticRecord | undefined, field: string): unknown { return row?.values[field]; }
+function text(v:unknown):string|null { return v == null ? null : String(v); }
+function number(v:unknown):number|null { return v == null ? null : Number(v); }
+/** 0039 item 1: a reader traverses relations, so a repository's files are its whole contains tree, not its direct children. */
+function contained(root: number, edges: readonly SemanticRecord[]): Set<number> {
+  const children = new Map<number, number[]>();
+  for (const edge of edges) {
+    if (edge.from === undefined || edge.to === undefined) continue;
+    const from = Number(edge.from), held = children.get(from) ?? [];
+    held.push(Number(edge.to));
+    children.set(from, held);
   }
-  const distinct = new Set(values.map((one) => JSON.stringify(one.value)));
-  return { value: distinct.size === 1 ? values[0]!.value : null, contested: distinct.size > 1, values };
+  const reached = new Set<number>();
+  const queue = [Number(root)];
+  while (queue.length > 0) {
+    for (const child of children.get(queue.pop()!) ?? []) if (!reached.has(child)) { reached.add(child); queue.push(child); }
+  }
+  return reached;
+}
+function file(row:SemanticRecord):FileRecord { const v=row.values; return {path:String(v['path']),mode:text(v['mode']),blob:text(v['blob']),bytes:number(v['bytes']),form:v['form']==='text'||v['form']==='binary'?v['form']:null,lines:number(v['lines']),language:text(v['language']),candidates:Array.isArray(v['languages'])?v['languages'] as string[]:[]}; }
+
+async function files(tx:SqlExecutor,name:string) { const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const repo=repositories.find(r=>r.values['name']===name);if(repo===undefined)return [];const [contains=[],allFiles=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:fileFields}]);const ids=contained(Number(repo.id),contains!);return allFiles!.filter(f=>ids.has(Number(f.id))).sort((a,b)=>String(a.values['path'])<String(b.values['path'])?-1:1); }
+export async function listFiles(owner:DatabaseOwner,input:{readonly repository:string;readonly prefix?:string;readonly language?:string;readonly after?:string;readonly limit:number;readonly projection?:'map'}):Promise<{readonly rows:readonly FileRecord[];readonly next:string|null}> {
+ return await withSpan('records.listFiles',{},async()=>await owner.transaction('snapshot',async tx=>{const all=(await files(tx,input.repository)).map(file).filter(f=>(input.prefix===undefined||f.path.startsWith(input.prefix))&&(input.language===undefined||f.language===input.language)&&(input.after===undefined||f.path>input.after));const rows=all.slice(0,input.limit);return {rows,next:all.length>input.limit?rows.at(-1)!.path:null};}));
+}
+export async function productFileIndex(owner:DatabaseOwner,repository:string) { return (await listFiles(owner,{repository,limit:Number.MAX_SAFE_INTEGER})).rows; }
+export async function listRepositories(owner:DatabaseOwner,_declared?:ReadonlySet<string>):Promise<readonly {name:string;url:string;defaultBranch:string|null;asIsCommit:string|null}[]> { return await withSpan('records.repositories',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repos=[],edges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);return repos.map(r=>({name:String(r.values['name']),url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===edges.find(e=>e.from===r.id)?.to),'hash'))})).sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);})); }
+export async function repositoryFacts(owner:DatabaseOwner,name:string,_declared?:ReadonlySet<string>):Promise<RepositoryFacts|null> { return await withSpan('records.repositoryFacts',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const r=repositories.find(r=>r.values['name']===name);if(r===undefined)return null;const [contains=[],fs=[],dirs=[],history=[],asIsEdges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:[]},{role:'directory',fields:[]},{role:'repository',fields:[],edgeRole:'history'},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);const ids=contained(Number(r.id),contains);const asIs=asIsEdges.find(e=>e.from===r.id);return {nodeId:String(r.id),name,url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===asIs?.to),'hash')),hasTree:typeof r.values['tree_snapshot'] === 'string' && r.values['tree_snapshot'].length > 0,fileCount:fs.filter(f=>ids.has(f.id)).length,directoryCount:dirs.filter(d=>ids.has(d.id)).length,commitCount:history.filter(e=>e.from===r.id).length,historyShallow:typeof r.values['history_shallow']==='boolean'?r.values['history_shallow']:null};})); }
+function gitClock(value:unknown,offset:number):string { if(value==null)return '';const local=new Date(new Date(String(value)).getTime()+offset*60000).toISOString().slice(0,19);return `${local}${offset<0?'-':'+'}${String(Math.floor(Math.abs(offset)/60)).padStart(2,'0')}:${String(Math.abs(offset)%60).padStart(2,'0')}`; }
+function commitRecord(hash:string,commits:readonly SemanticRecord[],parents:readonly SemanticRecord[],authoredEdges:readonly SemanticRecord[],authors:readonly SemanticRecord[]):CommitRecord|null {
+ const c=commits.find(c=>c.values['hash']===hash);if(c===undefined)return null;
+ const parentEdges=parents.filter(e=>e.from===c.id).sort((a,b)=>Number(a.values['position'])-Number(b.values['position']));
+ const authored=authoredEdges.find(e=>e.to===c.id);const author=authors.find(a=>a.id===authored?.from);
+ const ao=Number(c.values['author_offset_min']??0),co=Number(c.values['commit_offset_min']??0);
+ return {hash,parents:parentEdges.map(e=>String(scalar(commits.find(c=>c.id===e.to),'hash'))),author:{name:String(scalar(author,'name')??''),email:String(scalar(author,'email')??'')},subject:String(c.values['subject']??''),authorDate:gitClock(c.values['author_date'],ao),authorOffsetMin:ao,commitDate:gitClock(c.values['commit_date'],co),commitOffsetMin:co};
+}
+async function commit(tx:SqlExecutor,hash:string):Promise<CommitRecord|null> {
+ const [commits=[]]=await semanticRecordBatch(tx,[{role:'commit',fields:commitFields}]);
+ if(!commits.some(c=>c.values['hash']===hash))return null;
+ const [parents=[],authored=[],authors=[]]=await semanticRecordBatch(tx,[{role:'commit',fields:semanticRoleFields('commit.parent'),edgeRole:'parent'},{role:'author',fields:[],edgeRole:'authored'},{role:'author',fields:semanticRoleFields('author')}]);
+ return commitRecord(hash,commits,parents,authored,authors);
+}
+export async function commitFacts(owner:DatabaseOwner,_repository:string,hash:string):Promise<CommitRecord|null> {return await withSpan('records.commitFacts',{},async()=>await owner.transaction('snapshot',tx=>commit(tx,hash)));}
+export async function fileFacts(owner:DatabaseOwner,repositoryName:string,path:string,options:{readonly history?:boolean}={}):Promise<(FileRecord&{readonly created:FileDate|null;readonly modified:FileDate|null;readonly commitCount:number;readonly authors:readonly string[]})|null>{return await withSpan('records.fileFacts',{},async()=>await owner.transaction('snapshot',async tx=>{const f=(await files(tx,repositoryName)).find(f=>f.values['path']===path);if(f===undefined)return null;const history: {walk:number;fact:FileDate}[]=[];if(options.history!==false){const [repositories=[],renamed=[],touched=[],walks=[],commits=[],parents=[],authored=[],authors=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields},{role:'file',fields:[],edgeRole:'renamedFrom'},{role:'commit',fields:[],edgeRole:'touched'},{role:'repository',fields:semanticRoleFields('repository.history'),edgeRole:'history'},{role:'commit',fields:commitFields},{role:'commit',fields:semanticRoleFields('commit.parent'),edgeRole:'parent'},{role:'author',fields:[],edgeRole:'authored'},{role:'author',fields:semanticRoleFields('author')}]);const repo=repositories.find(r=>r.values['name']===repositoryName);const ids=new Set([f.id]);let changed=true;while(changed){changed=false;for(const e of renamed)if(ids.has(e.from!)&&!ids.has(e.to!)){ids.add(e.to!);changed=true;}}for(const e of touched.filter(e=>ids.has(e.to!))){const walk=walks.find(w=>w.from===repo?.id&&w.to===e.from);if(walk===undefined)continue;const c=commits.find(c=>c.id===e.from);if(c===undefined)continue;const facts=commitRecord(String(c.values['hash']),commits,parents,authored,authors);if(facts!==null)history.push({walk:Number(walk.values['walk']),fact:{date:facts.commitDate,offsetMin:facts.commitOffsetMin,commit:facts.hash,author:facts.author.name}});}}history.sort((a,b)=>a.walk-b.walk);return {...file(f),created:history.at(-1)?.fact??null,modified:history[0]?.fact??null,commitCount:new Set(history.map(h=>h.fact.commit)).size,authors:[...new Set(history.map(h=>h.fact.author))].sort()};}));}
+export async function graphKindCounts(owner:DatabaseOwner):Promise<readonly {kind:string;count:number}[]> {
+ return await withSpan('records.kindCounts',{},async()=>await owner.transaction('snapshot',async tx=>{
+  const { readPublishedManifest } = await import('./manifest-publication.js');
+  const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
+  const manifest=await readPublishedManifest(tx);
+  if(manifest===undefined)throw new Error(`${import.meta.path}:190: repository reads require the published graph contract`);
+  const contract=graphContractOf(manifest);
+  const kinds=await tx.query<{name:string}>(`SELECT name FROM entity WHERE sort='node' ORDER BY name COLLATE "C"`);
+  const declared=kinds.rows.filter(kind=>contract.vertex.some(declaration=>declaration.name===kind.name));
+  const records=await readKindsAssertions(tx,declared.map(kind=>({sort:'vertex',kind:kind.name,fields:[]})),{contract});
+  const counts=new Map(declared.map((kind,index)=>[kind.name,records[index]!.length]));
+  return kinds.rows.map(kind=>({kind:kind.name,count:counts.get(kind.name)??0}));
+ }));
 }
 
-/** A value as a text, or null where the opinion states none. */
-function asText(value: unknown): string | null {
-  return value === null || value === undefined ? null : String(value);
+/** One currently supported assertion whose retained evidence is stale or unavailable. */
+export interface StaleEvidence {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, unknown>>;
+  readonly opinion: string;
+  readonly producer: string;
+  readonly evidence: import('./contract.js').EvidenceEntry;
+  readonly reason: string;
+  readonly applicability: 'stale' | 'unavailable';
+  readonly state: import('./evidence-read.js').EvidenceState;
 }
 
-/** A value as a number, or null where the opinion states none. */
-function asNumber(value: unknown): number | null {
-  return value === null || value === undefined || value === '' ? null : Number(value);
-}
-
-/** Whether a file stands in its repository's current tree: the `contains` edge is what places it there. */
-const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN entity en2 ON en2.id = e.entity_id AND en2.name = '${GIT_KINDS.contains}' WHERE e.to_node = n.id)`;
-
-/** The opinions of one file, as a jsonb array: each opinion's id, producer, language, evidence and the values it states. */
-const FILE_OPINIONS = `LEFT JOIN LATERAL (
-    SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
-      'mode', o."mode", 'language', o."language", 'languages', o."languages",
-      'blob', o."blob", 'bytes', o."bytes"::text, 'form', o."form", 'lines', o."lines"::text) ORDER BY o."id") AS opinions
-    FROM ${GIT_TABLES.file} o
-    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) fo ON true`;
-
-/** The map shows counts and every language claim with its producer, not source content or evidence. */
-const MAP_FILE_OPINIONS = `LEFT JOIN LATERAL (
-    SELECT jsonb_agg(jsonb_build_object('said_by', o.said_by, 'language', o.language,
-      'bytes', o.bytes::text, 'lines', o.lines::text) ORDER BY o.id) AS opinions
-    FROM ${GIT_TABLES.file} o
-    WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1) fo ON true`;
-
-/** The file columns a page reads: its key's path, and every open opinion of it with the blob it names. */
-const FILE_SELECT = `SELECT (n.key->>'path') AS path, fo.opinions
-  FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-  ${FILE_OPINIONS}`;
-
-/** One file as a reader sees it: the fields every open opinion agrees on, and the opinions themselves. */
-export interface FileRecord {
-  readonly path: string;
-  readonly mode: string | null;
-  readonly blob: string | null;
-  readonly bytes: number | null;
-  readonly form: 'text' | 'binary' | null;
-  readonly lines: number | null;
-  /** The accepted language, or null when the opinions name candidates and no one language. */
-  readonly language: string | null;
-  readonly candidates: readonly string[];
-  /** Every open opinion about the file, with its source: a field's value is never shown without it. */
-  readonly opinions?: readonly HeldOpinion[];
-}
-
-/** One file as a reader sees it: the fields every open opinion agrees on, and the opinions themselves. */
-function fileOf(row: Record<string, unknown>): FileRecord {
-  const opinions = opinionsOfJson(row['opinions'], ['blob', 'bytes', 'form', 'lines']);
-  const mode = fieldRead(opinions, 'mode', asText);
-  const blob = fieldRead(opinions, 'blob', asText);
-  const languages = fieldRead(opinions, 'languages', (value) => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : null));
-  const language = fieldRead(opinions, 'language', asText);
-  return {
-    path: String(row['path']),
-    mode: mode.value,
-    blob: blob.value,
-    bytes: fieldRead(opinions, 'bytes', asNumber).value,
-    form: fieldRead(opinions, 'form', (value) => (value === 'binary' ? 'binary' : value === 'text' ? 'text' : null)).value,
-    lines: fieldRead(opinions, 'lines', asNumber).value,
-    language: language.value,
-    candidates: [...(languages.value ?? (language.value === null ? [] : [language.value]))],
-    opinions,
-  };
-}
-
-/** One page's repository id: every read of a page's folder and files asks for it, and it is read once. */
-const REPOSITORY_ID_MEMO = new WeakMap<object, Map<string, Promise<string>>>();
-
-/** The repository's node id, or a gap when the store holds no such repository: read once per transaction. */
-async function repositoryIdOf(tx: OuterTransaction, repository: string): Promise<string> {
-  const memo = REPOSITORY_ID_MEMO.get(tx) ?? new Map<string, Promise<string>>();
-  REPOSITORY_ID_MEMO.set(tx, memo);
-  const held = memo.get(repository);
-  if (held !== undefined) return await held;
-  const read = readRepositoryId(tx, repository);
-  memo.set(repository, read);
-  read.catch(() => { if (memo.get(repository) === read) memo.delete(repository); });
-  return await read;
-}
-
-/** The id of one repository, in one statement. */
-async function readRepositoryId(tx: OuterTransaction, repository: string): Promise<string> {
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<{ node_id: string }>(
-      sql,
-      [repository],
-    );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const row = found.rows[0];
-  if (row === undefined) throw new RecordGap(`the store holds no repository ${JSON.stringify(repository)}: the fill of this step has not run for it (src/graph/records.ts)`);
-  return row.node_id;
-}
-
-
-/** The files one page of a repository holds, paged in SQL before any opinion is loaded. */
-async function filePage(tx: OuterTransaction, repository: string, where: string, extra: readonly unknown[], after: string | null, limit: number, projection?: 'map'): Promise<Record<string, unknown>[]> {
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT (n.key->>'path') AS path, fo.opinions FROM (
-         SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-         WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} AND ${where}
-           AND ($2::text IS NULL OR (n.key->>'path') > $2) ORDER BY (n.key->>'path') LIMIT $3::bigint) p
-       JOIN node n ON n.id = p.id ${projection === 'map' ? MAP_FILE_OPINIONS : FILE_OPINIONS} ORDER BY (n.key->>'path')`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<Record<string, unknown>>(
-      sql,
-      [repository, after, String(limit + 1), ...extra],
-    );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  return found.rows;
-}
-
-export async function listFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number; readonly projection?: 'map' }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-  return await withSpan('records.listFiles', {
-    'records.prefix': input.prefix ?? '',
-    'records.language': input.language ?? '',
-    'records.limit': input.limit,
-  }, async () => await owner.transaction('snapshot', async (tx) => {
-    await repositoryIdOf(tx, input.repository);
-    const where = `($4::text IS NULL OR left((n.key->>'path'), length($4::text)) = $4::text)
-      AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM ${GIT_TABLES.file} lo WHERE lo."node_id" = n.id AND lo."state" = 'open' AND lo."context_id" = 1 AND lo."language" = $5))`;
-    const found = await filePage(tx, input.repository, where, [input.prefix ?? null, input.language ?? null], input.after ?? null, input.limit, input.projection);
-    const rows = found.map(fileOf);
-    const more = rows.length > input.limit;
-    const shown = more ? rows.slice(0, input.limit) : rows;
-    return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
-  }));
-}
-
-/** The open opinions of one commit, as a jsonb array. */
-const COMMIT_OPINIONS = (node: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'subject', o."subject", 'author_date', to_char(o."author_date" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'), 'author_offset_min', o."author_offset_min", 'commit_date', to_char(o."commit_date" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'), 'commit_offset_min', o."commit_offset_min") ORDER BY o."id") FROM ${GIT_TABLES.commit} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
-
-/** One commit's clock as `%aI` writes it, from the opinions that agree on it. */
-function clockOf(opinions: readonly HeldOpinion[], field: 'commit_date' | 'author_date', offsetField: 'commit_offset_min' | 'author_offset_min'): { readonly date: string; readonly offsetMin: number } {
-  const instant = fieldRead(opinions, field, (value) => value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : null).value;
-  const offset = fieldRead(opinions, offsetField, asNumber).value ?? 0;
-  if (instant === null) return { date: '', offsetMin: offset };
-  // SQL's aggregate formats the timestamp at UTC without a suffix; restore it before applying Git's original offset.
-  const utc = /(?:Z|[+-]\d{2}:?\d{2})$/u.test(instant) ? instant : `${instant}Z`;
-  const localClock = new Date(new Date(utc).getTime() + offset * 60_000).toISOString().slice(0, 19);
-  return { date: gitDateOf(localClock, offset), offsetMin: offset };
-}
-
-/** One commit with the paths it changed, or null when the store holds no such commit. */
-/** One date a file's page states: the author's clock with its offset, and the commit it belongs to. */
-export interface FileDate {
-  /** The author's clock with its offset, as `git log %aI` writes it. */
-  readonly date: string;
-  /** The offset `date` stands at, in minutes east of UTC: the same number `date` carries. */
-  readonly offsetMin: number;
-  readonly commit: string;
-  readonly author: string;
-}
-
-/** The SQL that reaches a file and every path it was renamed from, through `renamed-from` edges (new file to old). */
-const RENAME_CHAIN = `WITH RECURSIVE chain(file_node) AS (
-    SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-    WHERE n.key @> jsonb_build_object('repository', (SELECT rn.key->>'name' FROM node rn WHERE rn.id = $1::bigint), 'path', $2::text)
-    UNION
-    SELECT e.to_node FROM chain c JOIN edge e ON e.from_node = c.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.renamedFrom}'
-  )`;
-
-/** The open opinions of one `history` edge (its walk), as a jsonb array. */
-const WALK_OPINIONS = (edge: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'walk', o."walk") ORDER BY o."id") FROM ${GIT_TABLES.history} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND o."context_id" = 1)`;
-
-export async function fileFacts(owner: DatabaseOwner, repository: string, path: string, options: { readonly history?: boolean } = {}): Promise<(FileRecord & { readonly created: FileDate | null; readonly modified: FileDate | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
-  return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(`${FILE_SELECT} WHERE (n.key->>'repository') = $1::text AND (n.key->>'path') = $2::text AND n.context_id = 1 AND NOT n.removed`, [repository, path]);
-    const row = found.rows[0];
-    if (row === undefined) return null;
-    // A product that declares no commit, touched or history kind holds no history table: the file's own facts stand,
-    // and its dates and authors are absent rather than a read of a table the manifest never made (madarch-hsqs stage C).
-    if (options.history === false) return { ...fileOf(row), created: null, modified: null, commitCount: 0, authors: [] };
-    const repositoryId = await repositoryIdOf(tx, repository);
-    const history = await tx.query<Record<string, unknown>>(
-      `${RENAME_CHAIN}
-       SELECT (ct.key->>'hash') AS commit, ${COMMIT_OPINIONS('ct')} AS commit_opinions, ${WALK_OPINIONS('he')} AS walk, (sn.key->>'name') AS name
-       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.touched}'
-       JOIN node ct ON ct.id = e.from_node
-       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') AND he.context_id = 1
-       LEFT JOIN edge a ON a.to_node = e.from_node AND a.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}') AND a.context_id = 1 LEFT JOIN node sn ON sn.id = a.from_node
-       WHERE $2 = $2 ORDER BY (SELECT min((o.item->>'walk')::int) FROM jsonb_array_elements(${WALK_OPINIONS('he')}) AS o(item)) ASC, (ct.key->>'hash') ASC`,
-      [repositoryId, path],
-    );
-    const commits = history.rows.map((entry) => {
-      const opinions = opinionsOfJson(entry['commit_opinions'], []);
-      const clock = clockOf(opinions, 'commit_date', 'commit_offset_min');
-      const walk = opinionsOfJson(entry['walk'], []).map((one) => Number(one.values['walk'])).sort((a, b) => a - b)[0] ?? 0;
-      return { commit: String(entry['commit']), date: clock.date, offsetMin: clock.offsetMin, name: String(entry['name'] ?? ''), walk };
-    });
-    const created = commits.reduce((deepest, entry) => (entry.walk > deepest.walk ? entry : deepest), commits[0]!);
-    const last = commits[0];
-    const distinct = new Map(commits.map((entry) => [entry.commit, entry]));
-    const authors = [...new Set(commits.map((entry) => entry.name).filter((name) => name !== ''))].sort();
-    return {
-      ...fileOf(row),
-      created: created === undefined ? null : { date: created.date, offsetMin: created.offsetMin, commit: created.commit, author: created.name },
-      modified: last === undefined ? null : { date: last.date, offsetMin: last.offsetMin, commit: last.commit, author: last.name },
-      commitCount: distinct.size,
-      authors,
-    };
-  }));
-}
-
-/** The product source needs the whole path inventory, but not file content, languages or opinion evidence. */
-export async function productFileIndex(owner: DatabaseOwner, repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
-  return await withSpan('records.productFileIndex', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(
-      `SELECT (n.key->>'path') AS path,
-         (SELECT jsonb_agg(jsonb_build_object('mode', o.mode, 'bytes', o.bytes::text, 'form', o.form) ORDER BY o.id)
-          FROM ${GIT_TABLES.file} o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1) AS opinions
-       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-       WHERE ${REPOSITORY_OF('n')} = $1 AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} ORDER BY ${PATH_OF('n')}`, [repository],
-    );
-    return found.rows.map((row) => {
-      const opinions = opinionsOfJson(row['opinions'], []);
-      return {
-        path: String(row['path']), mode: fieldRead(opinions, 'mode', asText).value,
-        bytes: fieldRead(opinions, 'bytes', asNumber).value,
-        form: fieldRead(opinions, 'form', (value) => (value === 'binary' ? 'binary' : value === 'text' ? 'text' : null)).value,
-      };
-    });
-  }));
-}
-
-/** Every repository the store holds, in code point order of the names. */
-export async function listRepositories(owner: DatabaseOwner, declared?: ReadonlySet<string>): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
-  // A product that declares no repository kind has no repository table: its contract answers no repository, and the
-  // SQL never names a table the manifest did not make (madarch-hsqs stage C). A caller that names no contract asks the
-  // store's own materialized declaration first — one statement on the base entity table, never a failed read.
-  if (declared !== undefined && !declared.has(GIT_KINDS.repository)) return [];
-  return await withSpan('records.listRepositories', {}, async () => await owner.transaction('snapshot', async (tx) => {
-    if (declared === undefined && (await tx.query<{ id: string }>("SELECT id FROM entity WHERE name = $1 LIMIT 1", [GIT_KINDS.repository])).rows.length === 0) return [];
-    const found = await tx.query<{ name: string; opinions: unknown; as_is: string | null }>(
-      `SELECT (n.key->>'name') AS name,
-         (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
-         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id LIMIT 1) AS as_is
-       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed ORDER BY (n.key->>'name')`,
-    );
-    return found.rows.map((row) => {
-      const opinions = opinionsOfJson(row.opinions, []);
-      return { name: row.name, url: fieldRead(opinions, 'url', asText).value ?? '', defaultBranch: fieldRead(opinions, 'default_branch', asText).value, asIsCommit: row.as_is };
-    });
-  }));
-}
-
-/** One commit with its parents, its author and its dates, from the opinions that agree on them. */
-/** A commit's identity, clock and parents, without its changed paths. */
-export async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
-  return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => await readCommitFacts(tx, repository, hash)));
-}
-
-/** The commit's own facts in one statement each, in the transaction the caller holds. */
-async function readCommitFacts(tx: OuterTransaction, _repository: string, hash: string): Promise<CommitRecord | null> {
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT (c.key->>'hash') AS commit, ${COMMIT_OPINIONS('c')} AS opinions, coalesce(sn.key->>'name', '') AS author_name, coalesce(sn.key->>'email', '') AS author_email
-       FROM node c JOIN entity en ON en.id = c.entity_id AND en.name = '${GIT_KINDS.commit}'
-       LEFT JOIN edge e ON e.to_node = c.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
-       LEFT JOIN node sn ON sn.id = e.from_node
-       WHERE c.key @> jsonb_build_object('hash', $1::text)`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<{ commit: string; opinions: unknown; author_name: string; author_email: string }>(
-      sql,
-      [hash],
-    );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const row = found.rows[0];
-  if (row === undefined) return null;
-  const opinions = opinionsOfJson(row.opinions, []);
-  const parents = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT (pn.key->>'hash') AS hash FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
-       JOIN ${GIT_TABLES.parent_position} o ON o."edge_id" = e.id AND o."state" = 'open' AND o."context_id" = 1
-       JOIN node pn ON pn.id = e.to_node WHERE e.from_node = (SELECT id FROM node WHERE key @> jsonb_build_object('hash', $1::text) AND entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.commit}')) ORDER BY o.position`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<{ hash: string }>(
-      sql,
-      [hash],
-    );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const [authorDate, authorOffset] = [clockOf(opinions, 'author_date', 'author_offset_min'), fieldRead(opinions, 'author_offset_min', asNumber).value ?? 0];
-  const [commitDate, commitOffset] = [clockOf(opinions, 'commit_date', 'commit_offset_min'), fieldRead(opinions, 'commit_offset_min', asNumber).value ?? 0];
-  return {
-    hash: row.commit, parents: parents.rows.map((entry) => entry.hash),
-    author: { name: row.author_name, email: row.author_email },
-    authorDate: authorDate.date, authorOffsetMin: authorOffset,
-    commitDate: commitDate.date, commitOffsetMin: commitOffset,
-    subject: fieldRead(opinions, 'subject', asText).value ?? '',
-  };
-
-}
-/** The facts one repository page states, read once per page: its key, its address, its as-is commit and its counts. */
-export interface RepositoryFacts {
-  readonly nodeId: string;
-  readonly name: string;
-  readonly url: string;
-  readonly defaultBranch: string | null;
-  readonly asIsCommit: string | null;
-  /** Current containment or a successful inventory publication, including an empty tree. */
-  readonly hasTree: boolean;
-  readonly fileCount: number;
-  readonly commitCount: number;
-  readonly directoryCount: number;
-  /** Whether the clone the history pass read is shallow: the pass's opinion of the repository, never a table of its own. */
-  readonly historyShallow: boolean | null;
-}
-
-/** One page's repository facts, bound to the page's transaction so every block of the page shares one read. */
-const FACTS_MEMO = new WeakMap<object, Map<string, Promise<RepositoryFacts | null>>>();
-
-/**
- * One page asks every block that shows a repository for the same facts: this reads them once per transaction, however
- * many readers ask (the review of stage 1c, point 15, and the CI page budget). A failed read stands no cache entry.
- */
-export async function repositoryFacts(owner: DatabaseOwner, repository: string, declared?: ReadonlySet<string>): Promise<RepositoryFacts | null> {
-  if (declared !== undefined && !declared.has(GIT_KINDS.repository)) return null;
-  return await withSpan('records.repositoryFacts', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
-    const memo = FACTS_MEMO.get(tx) ?? new Map<string, Promise<RepositoryFacts | null>>();
-    FACTS_MEMO.set(tx, memo);
-    const held = memo.get(repository);
-    if (held !== undefined) return await held;
-    const read = readRepositoryFacts(tx, repository, declared);
-    memo.set(repository, read);
-    read.catch(() => { if (memo.get(repository) === read) memo.delete(repository); });
-    return await read;
-  }));
-}
-
-/** The facts of one repository, read in statements of its own; the page shares the result through `repositoryFacts`. */
-async function readRepositoryFacts(tx: OuterTransaction, repository: string, declared?: ReadonlySet<string>): Promise<RepositoryFacts | null> {
-  // The declared contract decides: a product that declares no repository kind is answered before the table is named.
-  if (declared === undefined && (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = "SELECT id FROM entity WHERE name = $1 LIMIT 1";
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<{ id: string }>(sql, [GIT_KINDS.repository]);
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  })).rows.length === 0) return null;
-  // One statement for the repository row and everything a page states about it: its opinions, its as-is commit and its
-  // counts (the CI page budget counts statements, not only rows). A successful inventory header also proves an
-  // empty tree, but only for a producer whose repository opinion names this repository in its evidence.
-  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-    const sql = `SELECT n.id::text AS node_id,
-         (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch", 'history_shallow', o."history_shallow") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
-         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS as_is,
-         (EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.from_node = n.id AND e.context_id = 1)
-          OR EXISTS (
-            SELECT 1 FROM fill_unit u
-            JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation AND g.state = 'published'
-            JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-            JOIN ${GIT_TABLES.repository} o ON o.node_id = n.id AND o.state = 'open' AND o.context_id = 1
-              AND split_part(o.said_by, '@', 1) = g.context->'unitOutcome'->>'plugin'
-            WHERE u.stage_id = 'plugin-turns'
-              AND g.context->'unitOutcome'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
-              AND g.context->'unitOutcome'->>'outcome' IN ('completed', 'unchanged', 'empty')
-              AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.evidence) place WHERE place->>'repository' = $1::text)
-          )) AS has_tree,
-         (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->>'repository') = $1::text) AS files,
-         (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = n.id AND e.context_id = 1) AS commits,
-         (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->>'repository') = $1::text) AS directories
-       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`;
-    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
-    const result = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; has_tree: boolean; files: string; commits: string; directories: string }>(
-  
-      sql,
-      [repository],
-    );
-    span.setAttribute('db.rows', result.rows.length);
-    return result;
-  });
-  const row = found.rows[0];
-  if (row === undefined) return null;
-  const opinions = opinionsOfJson(row['opinions'], []);
-  return {
-    nodeId: row['node_id'], name: repository, url: fieldRead(opinions, 'url', asText).value ?? '', defaultBranch: fieldRead(opinions, 'default_branch', asText).value,
-    asIsCommit: row['as_is'],
-    hasTree: row['has_tree'],
-    fileCount: Number(row['files'] ?? '0'),
-    commitCount: Number(row['commits'] ?? '0'),
-    directoryCount: Number(row['directories'] ?? '0'),
-    historyShallow: fieldRead(opinions, 'history_shallow', (value) => (typeof value === 'boolean' ? value : null)).value,
-  };
-
-}
-
-/** The entities per kind of the one graph, in code point order: the catalogue's counts, the store's own. */
-export async function graphKindCounts(owner: DatabaseOwner): Promise<readonly { readonly kind: string; readonly count: number }[]> {
-  return await withSpan('records.graphKindCounts', {}, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ kind: string; n: string }>(
-      `SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed
-       UNION ALL SELECT '${GIT_KINDS.directory}', count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
-       UNION ALL SELECT '${GIT_KINDS.file}', count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
-       UNION ALL SELECT '${GIT_KINDS.gitlink}', count(*)::text FROM node g JOIN entity ge ON ge.id = g.entity_id AND ge.name = '${GIT_KINDS.gitlink}' JOIN edge e ON e.to_node = g.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1
-       UNION ALL SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}'
-       UNION ALL SELECT '${GIT_KINDS.signature}', count(*)::text FROM node s JOIN entity se ON se.id = s.entity_id AND se.name = '${GIT_KINDS.signature}' WHERE EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id)`,
-    );
-    return found.rows.map((row) => ({ kind: row.kind, count: Number(row.n) })).sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0));
+/** Evaluate current assertion support without rewriting its independent historical validity. */
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
+  const limit = query.limit ?? 200;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${import.meta.path}:181: evidence page limit must be an integer from 1 to 1000`);
+  return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => {
+    const { readPublishedManifest } = await import('./manifest-publication.js');
+    const { evidenceSupportRoles } = await import('./evidence-support.js');
+    const { readEvidenceStates } = await import('./evidence-read.js');
+    const manifest = await readPublishedManifest(tx);
+    const support = evidenceSupportRoles(manifest?.semanticBindings);
+    const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
+    const selector = { validAt: now, recordedAt: now, contexts: [1] };
+    const candidates: { kind: string; key: Record<string, unknown>; assertion: StoredAssertion; target: string; targetKind: string; targetKey: Record<string, import('./contract.js').KeyValueDraft>; locator: Record<string, unknown>; relation: string; cursor: string }[] = [];
+    for (const sort of ['vertex', 'edge'] as const) for (const kind of contract[sort]) {
+      const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
+      const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
+      for (const record of records) {
+        const active = new Set(record.activeSources);
+        const assertions = record.assertions.filter(assertion => assertion.active && active.has(assertion.source) && assertion.evidence.length > 0);
+        if (assertions.length === 0) continue;
+        const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
+          `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid
+           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node origin ON origin.id=e.from_node
+           JOIN node target ON target.id=e.to_node JOIN entity k ON k.id=target.entity_id
+           WHERE ek.name='system.assertion-evidence' AND origin.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]);
+        for (const link of links.rows) {
+          const cursor = `${link.assertion}:${link.uid}`;
+          if (query.after !== undefined && cursor <= query.after) continue;
+          const attachment = JSON.parse(link.discriminator) as { locator: Record<string, unknown>; relation: string };
+          candidates.push({ kind: kind.name, key: sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator }, assertion: assertions.find(assertion => assertion.id === link.assertion)!, target: link.target, targetKind: link.target_kind, targetKey: link.target_key, ...attachment, cursor });
+        }
+      }
+    }
+    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
+    const page = candidates.slice(0, limit);
+    const states = await readEvidenceStates(tx, contract, page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    const rows: StaleEvidence[] = [];
+    for (const [index, candidate] of page.entries()) {
+      const state = states[index]!;
+      const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || state.currentApplicability === 'unknown' ? 'unavailable' : undefined;
+      if (applicability === undefined) continue;
+      rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
+        evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },
+        reason: applicability === 'stale' ? 'the immutable evidence no longer supports the current source' : state.issues.join('; ') || 'current evidence support is unavailable', applicability, state });
+    }
+    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.cursor } : {}) };
   }));
 }

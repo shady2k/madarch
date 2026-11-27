@@ -12,11 +12,15 @@ import { join } from 'node:path';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { commitProduct, generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { readRunUnits, edgeRowsIn, readRecordsIn } from '../src/graph/fill-state.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] === '1';
+
+/** A valid UUID no record of the fixture holds: `entity(id:)` answers it `null`, a key is another root (`entityByKey`). */
+const ABSENT_UID = '00000000-0000-4000-8000-00000000dead';
 
 let endOwner!: () => void;
 let ownerDone: Promise<void>;
@@ -105,7 +109,9 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // The wiki is open before the press, as a reader's browser has it: the graph answers, with nothing of the fill yet.
     expect((await fetch(`${base(api[0]!)}/api/status`)).status).toBe(200);
     expect((await graphql(api[0]!, '{ allCodeFile(first: 100) { totalCount } }')).status).toBe(200);
-    expect((await graphql(api[0]!, `{ entity(id: ${JSON.stringify(PAY)}) { id } }`)).status).toBe(200);
+    const absent = await graphql(api[0]!, `{ entity(id: "${ABSENT_UID}") { id } }`);
+    expect(absent.status).toBe(200);
+    expect(await absent.json()).toEqual({ data: { entity: null } });
     // The press goes to the first api instance; the fill is claimed by one of the two fill processes.
     const press = await fetch(`${base(api[0]!)}/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);
@@ -126,15 +132,21 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // The store's folder is named by the product's id under the knowledge root, as every other caller resolves it.
     const owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(join(work, 'home', 'shop'), storeRoot)), btreeGist: true });
     try {
-      const published = await owner.run(async (tx) => await tx.query<{ unit_id: string; publications: string }>(
-        'SELECT unit_id, count(*)::text AS publications FROM fill_publication GROUP BY unit_id ORDER BY unit_id',
-      ));
-      expect(published.rows.length).toBeGreaterThan(0);
-      expect(published.rows.filter((row) => row.publications !== '1').map((row) => `${row.unit_id}: ${row.publications}`)).toEqual([]);
-      // Every unit of the run stands published, each with the one publication counted above.
-      const units = await owner.run(async (tx) => await tx.query<{ unit_id: string; generation: string; state: string }>('SELECT unit_id, generation::text AS generation, state FROM fill_unit_generation ORDER BY unit_id'));
-      expect(units.rows.filter((unit) => unit.state !== 'published').map((unit) => `${unit.unit_id}: ${unit.state}`)).toEqual([]);
-      expect(units.rows.map((unit) => unit.unit_id)).toEqual(published.rows.map((row) => row.unit_id));
+      const status = lastStatus as { fill: { run: { runId: string } } };
+      const units = await readRunUnits(owner, status.fill.run.runId);
+      expect(units.length).toBeGreaterThan(0);
+      expect(units.filter(unit => unit.state !== 'published').map(unit => `${unit.unitId}: ${unit.state}`)).toEqual([]);
+      const publications = await owner.transaction('snapshot', async tx => {
+        const records = await readRecordsIn(tx, 'vertex', 'system.unit', ['unit_name', 'generation'],
+          (await tx.query<{ id: number }>("SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.unit'")).rows.map(row => row.id));
+        const links = await edgeRowsIn(tx, 'system.operation-unit', 'to', records.map(row => row.id));
+        const operations = await readRecordsIn(tx, 'vertex', 'system.operation', ['key'], links.map(link => link.from));
+        const completed = new Set(operations.filter(operation => operation.values.key === 'complete').map(operation => operation.id));
+        return records.map(unit => ({ unitId: String(unit.values.unit_name), generation: Number(unit.values.generation),
+          count: links.filter(link => link.to === unit.id && completed.has(link.from)).length }));
+      });
+      expect(publications.filter(row => row.count !== 1).map(row => `${row.unitId}/${row.generation}: ${row.count}`)).toEqual([]);
+      expect(publications.map(row => `${row.unitId}/${row.generation}`).sort()).toEqual(units.map(unit => `${unit.unitId}/${unit.generation}`).sort());
     } finally {
       await owner.close();
     }

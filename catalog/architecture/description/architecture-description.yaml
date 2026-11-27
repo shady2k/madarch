@@ -24,3 +24,5 @@ labels:
 description:
   en: An architecture description presents an architecture through the views that its stakeholders need, the models behind them and the reasons for the choices, as ISO/IEC/IEEE 42010 sets it out. One system can have several descriptions for different audiences.
   ru: Описание архитектуры представляет архитектуру через представления, нужные её заинтересованным сторонам, модели за ними и причины выбора, как это задаёт ISO/IEC/IEEE 42010. У одной системы может быть несколько описаний для разных аудиторий.
+derives-from:
+- software-system

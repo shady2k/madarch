@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An experiment creates a controlled situation in which a hypothesis can be confirmed or rejected: one thing changes, the rest stays the same, and the result is measured. It ends with a finding that says what the evidence supports.'
   ru: 'Эксперимент создаёт контролируемую ситуацию, в которой гипотезу можно подтвердить или опровергнуть: меняется одно, остальное остаётся прежним, а результат измеряют. Он заканчивается выводом о том, что подтверждают доказательства.'
+derives-from:
+- hypothesis

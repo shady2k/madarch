@@ -4,13 +4,58 @@ const GROUP_BYTES = 1_000_000;
 const PAGE_BYTES = 500_000;
 const keyOf = (key: KeyValues): string => JSON.stringify(Object.fromEntries(Object.entries(key).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
 const bytesOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value));
+type Ref = EdgeResult['from'];
+const refOf = (ref: Ref): string => JSON.stringify([ref.kind, keyOf(ref.key), ref.keyEdges ?? null]);
 
-/** One endpoint owns an edge in a key partition, including edges whose ends share a kind. */
-function anchor(edge: EdgeResult, kind: string): KeyValues {
-  return edge.from.kind === kind ? edge.from.key : edge.to.key;
+function anchor(edge: EdgeResult, kind: string): KeyValues | undefined {
+  return edge.from.kind === kind ? edge.from.key : edge.to.kind === kind ? edge.to.key : undefined;
 }
 
-/** Enumerate bounded key groups; each extraction can run in a fresh private process. */
+/** Keep selected output facts together with the evidence support they actually reference. */
+function select(result: UnitResult, unit: Unit, keys: ReadonlySet<string>): UnitResult {
+  const kind = unit.kind;
+  // Repository output establishes these immutable pins before commit children run. A citation is
+  // not desired output; selected pins and ordinary edge endpoints still keep their full output.
+  const repositories = (unit.inputs as { repositories?: readonly { commit: string }[] }).repositories ?? [];
+  const pins = new Set(kind === 'code.commit' ? repositories.map(pin => refOf({ kind: 'code.commit', key: { hash: pin.commit } })) : []);
+  const vertices = result.vertices ?? [];
+  const edges = result.edges ?? [];
+  const primary = vertices.filter(vertex => vertex.kind === kind && keys.has(keyOf(vertex.key)));
+  const primaryEdges = edges.filter(edge => { const key = anchor(edge, kind); return key !== undefined && keys.has(keyOf(key)); });
+  const included = new Set(primary.map(refOf));
+  const needed = new Set<string>();
+  const evidenceOf = (fact: { readonly evidence?: unknown }) => {
+    const evidence = fact.evidence as { target?: Ref; commit?: string } | undefined;
+    if (evidence?.target === undefined) return;
+    const target = refOf(evidence.target);
+    if (pins.has(target) && evidence.commit === evidence.target.key['hash']) return;
+    needed.add(target);
+  };
+  for (const edge of primaryEdges) for (const endpoint of [edge.from, edge.to]) {
+    if (endpoint.kind === kind) needed.add(refOf(endpoint));
+  }
+  for (const fact of [...primary, ...primaryEdges]) evidenceOf(fact);
+  const support = vertices.filter(vertex => !primary.includes(vertex));
+  const supportEdges = new Set<EdgeResult>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const vertex of support) if (needed.has(refOf(vertex)) && !included.has(refOf(vertex))) {
+      included.add(refOf(vertex)); evidenceOf(vertex); changed = true;
+    }
+    for (const edge of edges) {
+      if (anchor(edge, kind) !== undefined) continue;
+      if (!included.has(refOf(edge.from)) && !included.has(refOf(edge.to))) continue;
+      if (supportEdges.has(edge)) continue;
+      supportEdges.add(edge); evidenceOf(edge);
+      for (const endpoint of [edge.from, edge.to]) if (support.some(vertex => refOf(vertex) === refOf(endpoint))) needed.add(refOf(endpoint));
+      changed = true;
+    }
+  }
+  return { ...result, vertices: vertices.filter(vertex => included.has(refOf(vertex))), edges: edges.filter(edge => primaryEdges.includes(edge) || supportEdges.has(edge)) };
+}
+
+/** Enumerate bounded key groups; support never becomes a partition identity. */
 export function partitioned(extractOutput: (unit: Unit, context: ExtractContext) => Promise<UnitResult>) {
   let held: { identity: string; result: UnitResult; groups: KeyValues[][] } | undefined;
   const prepare = async (unit: Unit, context: ExtractContext) => {
@@ -18,20 +63,16 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     const identity = JSON.stringify([unit.kind, inputs]);
     if (held?.identity === identity) return held;
     const result = await extractOutput({ ...unit, inputs }, context);
-    const byKey = new Map<string, { key: KeyValues; bytes: number }>();
-    for (const vertex of result.vertices ?? []) byKey.set(keyOf(vertex.key), { key: vertex.key, bytes: bytesOf(vertex) });
-    for (const edge of result.edges ?? []) {
-      const key = anchor(edge, unit.kind);
-      const identity = keyOf(key);
-      const row = byKey.get(identity);
-      if (row === undefined) throw new Error(`partition edge has no output identity: ${identity}`);
-      row.bytes += bytesOf(edge);
-    }
+    const byKey = new Map<string, KeyValues>();
+    for (const vertex of result.vertices ?? []) if (vertex.kind === unit.kind) byKey.set(keyOf(vertex.key), vertex.key);
+    const all = select(result, unit, new Set(byKey.keys()));
+    for (const edge of result.edges ?? []) if (!all.edges?.includes(edge)) throw new Error(`partition edge has no output identity or referenced support: ${JSON.stringify(edge)}`);
     const groups: KeyValues[][] = [];
-    let group: KeyValues[] = [], bytes = 0;
-    for (const [_, row] of [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-      if (group.length > 0 && bytes + row.bytes > GROUP_BYTES) { groups.push(group); group = []; bytes = 0; }
-      group.push(row.key); bytes += row.bytes;
+    let group: KeyValues[] = [];
+    for (const [_, key] of [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+      const candidate = [...group, key];
+      if (group.length > 0 && bytesOf(select(result, unit, new Set(candidate.map(keyOf)))) > GROUP_BYTES) { groups.push(group); group = []; }
+      group.push(key);
     }
     if (group.length > 0) groups.push(group);
     held = { identity, result, groups };
@@ -55,9 +96,7 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     extract: async (unit: Unit, context: ExtractContext): Promise<UnitResult> => {
       const inputs = unit.inputs as { keys?: readonly KeyValues[] };
       const result = await extractOutput(unit, context);
-      if (inputs.keys === undefined) return result;
-      const selected = new Set(inputs.keys.map(keyOf));
-      return { ...result, vertices: result.vertices?.filter(vertex => selected.has(keyOf(vertex.key))), edges: result.edges?.filter(edge => selected.has(keyOf(anchor(edge, unit.kind)))) };
+      return inputs.keys === undefined ? result : select(result, unit, new Set(inputs.keys.map(keyOf)));
     },
   };
 }

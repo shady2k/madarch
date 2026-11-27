@@ -7,6 +7,8 @@ import { checkProductTemplates } from '../src/graph/template-check.js';
 import { readFolderTemplates } from './page-templates-fixture.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
+import { planManifestFill } from '../src/plugin/fill-declarations.js';
+import { createPluginTurnStage, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { spawnSync } from 'node:child_process';
 
 const scratch = mkdtempSync(join(tmpdir(), 'madarch-clean-install-test-'));
@@ -17,7 +19,7 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
-  test('the plugin-free store fixture preserves starter template findings against its reduced schema', () => {
+  test('the plugin-free store fixture keeps the kinds and bindings a fill reads, and no plugin', async () => {
     const product = join(scratch, 'store-fixture');
     mkdirSync(product);
     seedStarterSet(product, 'everything');
@@ -30,12 +32,30 @@ describe('clean install platform contracts', () => {
     expect(read.manifest.findings).toEqual([]);
     const rewritten = readFolderTemplates(product);
     const findings = checkProductTemplates(rewritten.files, rewritten.bodies, rewritten.findings, read.manifest);
-    for (const field of ['repository', 'path', 'language']) {
-      expect(findings.some((finding) => finding.file === 'templates/code-file.yaml' && finding.message.includes(field))).toBe(true);
-    }
-    expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('repository');
-    expect([...read.manifest.kinds.keys()]).toEqual(['code.file']);
+    // The repository is a relation of the code file since e3772a4ff, and the reduced catalogue declares it: the
+    // template resolves its `codeFileRepository` relation instead of naming a field the schema lacks.
+    expect(findings.filter((finding) => finding.file === 'templates/code-file.yaml')).toEqual([]);
+    expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('codeFileRepository');
+    // A fill of this product read the store's repositories, their trees and their history: the engine names those
+    // kinds through these roles (0039), and a manifest that drops them refuses the fill (madarch-64o5.74).
+    expect([...read.manifest.kinds.keys()].sort()).toEqual(['code.author', 'code.commit', 'code.directory', 'code.file', 'code.repository', 'product-profile']);
+    expect([...(read.manifest.semanticBindings?.keys() ?? [])].sort()).toEqual(['author', 'commit', 'directory', 'file', 'repository', 'source']);
     expect(read.manifest.plugins?.size ?? 0).toBe(0);
+    // The fixture declares nothing for a plugin to fill: every kept field is a person's write, so the plan names no
+    // error and leaves no field silently unfilled, and the plugin turn plans 0 units with its own coverage
+    // (madarch-64o5.74). A fill of this product therefore completes `succeeded` with nothing to fill.
+    const plan = planManifestFill(read.manifest, product);
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+    const stage = createPluginTurnStage({
+      manifest: read.manifest, productFolder: product, locks: new Map(),
+      // The plan reads the product's profile first. The fixture declares no pin and no applicability mark of its own, and
+      // this check names that answer rather than opening a store for it.
+      snapshots: { pins: async () => [] }, owner: { run: async () => [] },
+    } as unknown as PluginTurnWiring);
+    const planned = await stage.plan(undefined as never);
+    expect(planned.units).toEqual([]);
+    expect(planned.coverage).toBe('nothing-found');
   });
 
   test('Linux installer has no system OpenSSL prerequisite', () => {

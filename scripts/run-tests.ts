@@ -34,6 +34,14 @@ import { jsonArrayLocations } from './json-lines.js';
 
 export const SLOW_LIST = join('test', 'slow-files.json');
 export const SLOW_THRESHOLD_SECONDS = 30;
+/**
+ * The bound that refutes a speed claim, half the entry threshold. GitHub
+ * `ubuntu-24.04` runners measured up to 1.70x wall-clock variance on the same
+ * commit (runs 45836616258 and 45850759852), and a refutation bound has to keep
+ * room for it: SLOW_EXIT_SECONDS * 1.70 stays under SLOW_THRESHOLD_SECONDS, so a
+ * file between the two bounds never flips between listed and not slow.
+ */
+export const SLOW_EXIT_SECONDS = SLOW_THRESHOLD_SECONDS / 2;
 
 export type SlowReason = 'green-slow' | 'waits-timeout' | 'red-defect';
 

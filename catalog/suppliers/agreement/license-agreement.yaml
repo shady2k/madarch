@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A licence agreement records what a supplier allows the product to do with a component or a service, and under which conditions: how many users or copies, where it may run and what must be paid. It also states what the supplier does not permit.'
   ru: 'Лицензионное соглашение фиксирует, что поставщик разрешает продукту делать с компонентом или сервисом и на каких условиях: сколько пользователей или копий, где это можно запускать и сколько за это платить. В нём же сказано, чего поставщик не разрешает.'
+derives-from:
+- license
+- supplier

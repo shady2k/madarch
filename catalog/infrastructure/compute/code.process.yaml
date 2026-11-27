@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - hasHost
+  - partOf
   in:
   - hasHost
 template-policy: page
@@ -16,6 +17,34 @@ source: graph
 details:
 - binary
 - command
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: binary
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: command
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: port
+  type: port
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.service
+- product-profile
 labels:
   en:
     one: Process
@@ -26,3 +55,8 @@ labels:
 description:
   en: A process is one running instance of a program in the system, with the command that started it, its environment and the ports it listens on. Several processes of the same program may run side by side.
   ru: Процесс — один работающий экземпляр программы в системе с командой, которая его запустила, его окружением и портами, которые он слушает. Несколько процессов одной программы могут работать одновременно.
+
+key-edges:
+- role: code.process-service
+  edge: code.process-service
+  side: from

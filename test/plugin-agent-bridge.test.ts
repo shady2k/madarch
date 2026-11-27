@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import type { AcpConnection, AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
+import type { AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
-import type { PluginUnitResult } from '../src/plugin/protocol.js';
+import type { PluginContractDeclaration, PluginEntityRef } from '../src/plugin/protocol.js';
 
-const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
+const outputs: PluginContractDeclaration = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
+const content = 'first\nsecond';
+const evidenceTarget = { kind: 'fixture.evidence', key: { digest: createHash('sha256').update(content).digest('hex') } };
 const graph = {
-  files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }, { kind: 'file', key: { repository: 'repo', path: 'private/b.md' } }],
-  // The graph names each file's blob; the text is asked of the host by that blob (decision 0037).
-  value: async (_kind: string, key: Readonly<Record<string, string | number>>, field: string) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+  files: async (): Promise<readonly PluginEntityRef[]> => [{ kind: 'code.file', key: { path: 'orphan.md' } }, { kind: 'code.file', key: { path: 'unbound.md' }, keyEdges: {} }, { kind: 'code.file', key: { path: 'docs/a.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }, { kind: 'code.file', key: { path: 'private/b.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }],
+  value: async (kind: string, key: PluginEntityRef['key'], field: string) => kind === 'fixture.evidence' ? (key['digest'] === evidenceTarget.key.digest ? content : null) : field === 'blob' ? `blob-${String(key['path'])}` : null,
 };
 /** The one blob read the host answers: a file's text, by blob id and line range. */
 const readFile = async (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }): Promise<string> => {
@@ -19,49 +21,64 @@ const readFile = async (request: { readonly repository: string; readonly blob: s
   const from = (request.from ?? 1) - 1;
   return lines.slice(from, request.limit === undefined ? undefined : from + request.limit).join('\n');
 };
-const result: PluginUnitResult = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
+const result: Awaited<ReturnType<PluginAgentBridge['run']>> = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { target: evidenceTarget, path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
 function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs']) {
   const state = { closed: 0, frozen: 0, thawed: 0 };
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
-    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, readFile, ...extra,
+    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, readFile,
+    evidenceContracts: [{ name: 'fixture.evidence', evidence: { immutable: true, digestField: 'digest', contentField: 'content', digestAlgorithm: 'sha256' } }], ...extra,
     connect: async (spec, options) => {
       expect(spec.env).toEqual({ SECRET: 'must not pass' });
       expect(options.env).toEqual(extra.environment);
       expect(options.exactEnv).toBeUndefined();
-      const session = {
-        sessionId: 'session', model: 'fake-model', configOptions: [], models: null,
+      const session: AcpSession = {
+        sessionId: 'session', model: 'fake-model', configOptions: [], models: null, modes: null,
+        setConfigOption: async () => { throw new Error('No fixture config options'); },
+        setModel: async () => { throw new Error('No fixture models'); },
+        cancel: async () => undefined, running: () => false,
         usage: () => ({ reported: false, turns: 1, reports: 0 }),
         prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 }, stopReason: 'end_turn', text: JSON.stringify(await turn(options, opts?.signal)), updates: [] }),
-      } as unknown as AcpSession;
-      return { initialize: async () => ({}), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } } as unknown as AcpConnection & { freeze(): void; thaw(): void };
+      };
+      return { spec, executable: '/fixture', stderr: () => '', closed: new Promise<void>(() => undefined), initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } };
     },
   }, graph, outputs);
   return { bridge, state };
 }
 
 describe('plugin agent graph bridge', () => {
-  test('one run cap counts scripted turns from different plugin agents', async () => {
+  test('one run cap counts scripted turns from different plugin agents, and the answer produced under it stands', async () => {
     const budget = new AgentRunBudget({ tokens: 150 });
     const make = (plugin: string) => new AgentMeter({ run: 'fill', unit: plugin, plugin, pluginVersion: '1', kind: 'summary', budget });
     const first = make('first');
     const second = make('second');
     await setup(async () => result, { meter: first }).bridge.run('first', {});
-    await expect(setup(async () => result, { meter: second }).bridge.run('second', {})).rejects.toThrow('200 tokens');
+    // The second turn crosses the shared cap while it works: the owner's rule keeps what the agent produced, and the
+    // meter states that the run's cap stopped it (owner's decision, 2026-11-15).
+    const kept = await setup(async () => result, { meter: second }).bridge.run('second', {});
+    expect(kept.vertices).toHaveLength(1);
     expect(budget.tokens).toBe(200);
     expect(second.stop()?.scope).toBe('run');
   });
-  test('meters the real prompt with host-owned kind and model, and enforces the unit bound', async () => {
+  test('meters the real prompt with host-owned kind and model, and states the unit bound it crossed', async () => {
     const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary', bounds: { tokens: 90 } });
     const { bridge, state } = setup(async () => result, { meter });
-    await expect(bridge.run('unit', { kind: 'made-up', field: 'title' })).rejects.toThrow('100 tokens');
+    // The bound is checked before a prompt, never after one: this turn was asked under a fresh meter, crossed the bound
+    // while it worked, and its answer stands; the next prompt under this meter is refused.
+    const kept = await bridge.run('unit', { kind: 'made-up', field: 'title' });
+    expect(kept.vertices).toHaveLength(1);
     expect(meter.rows()).toMatchObject([{ kind: 'summary', field: '', model: 'fake-model', inputTokens: 80, outputTokens: 20, totalTokens: 100, turns: 1, stopped: 'tokens' }]);
-    expect(state.closed).toBe(1);
+    await expect(bridge.run('unit', {})).rejects.toThrow('100 tokens');
+    expect(state.closed).toBe(2);
   });
 
-  test('meters an invalid answer before validation refuses it and does not replace its error', async () => {
+  test('meters an answer it cannot take before leaving its entries out, and does not replace its error', async () => {
     const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary' });
     const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }] }), { meter });
-    await expect(bridge.run('unit', {})).rejects.toThrow('declares');
+    // The entry is left out and named; the answer beside it holds nothing, so the unit's end says it was partial.
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toEqual([]);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
     expect(meter.rows()[0]).toMatchObject({ totalTokens: 100, turns: 1, stopped: null });
   });
 
@@ -108,17 +125,59 @@ describe('plugin agent graph bridge', () => {
     await bridge.run('empty', {});
   });
 
-  test('refuses missing, outside-root and out-of-range evidence rather than shortening the result', async () => {
-    for (const evidence of [undefined, { repository: 'repo', path: 'docs/a.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 1 }, { repository: 'repo', path: 'private/b.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 2, lineEnd: 3 }]) {
+  test('leaves out an entry whose evidence the graph cannot take, names the place, and shortens nothing else', async () => {
+    // The owner's rule (2026-11-15): a produced result is kept entry by entry. An entry whose evidence is missing, outside
+    // the graph or outside its lines is left out and named; the answers beside it stand.
+    for (const evidence of [undefined, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md' }, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md', lineStart: 1 }, { target: { kind: 'code.file', key: { path: 'private/b.md' }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'repo' } } } }, path: 'private/b.md' }, { target: result.vertices![0]!.evidence!.target, path: 'docs/a.md', lineStart: 2, lineEnd: 3 }]) {
       const { bridge, state } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], evidence }] }));
-      await expect(bridge.run('unit', {})).rejects.toThrow('evidence');
+      const kept = await bridge.run('unit', {});
+      expect(kept.vertices).toEqual([]);
+      expect(kept.end).toMatchObject({ state: 'partial' });
+      expect(String((kept.end as { cause?: string }).cause)).toMatch(/evidence/);
       expect(state.closed).toBe(1);
     }
   });
 
-  test('refuses undeclared outputs', async () => {
-    const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }] }));
-    await expect(bridge.run('unit', {})).rejects.toThrow('declares');
+  test('leaves out an entry whose kind the plugin does not declare, and keeps the entries beside it', async () => {
+    const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }, result.vertices![0]] }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toHaveLength(1);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
+  });
+
+  test('keeps the valid entries when another entry\'s immutable evidence is unavailable', async () => {
+    // Unavailable immutable evidence refuses only its entry; the independently cited entry still stands.
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [
+        result.vertices![0]!,
+        { ...result.vertices![0], key: { id: 'b' }, evidence: { target: { kind: 'fixture.evidence', key: { digest: 'missing' } }, path: 'docs/../a.md', lineStart: 1, lineEnd: 1 } },
+      ],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices?.map((vertex) => vertex.key)).toEqual([{ id: 'a' }]);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('vertices[1]');
+  });
+
+  test('keeps one entry of a duplicate pair and names the other', async () => {
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [result.vertices![0]!, { ...result.vertices![0], values: { title: 'B' } }],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toHaveLength(1);
+    expect(kept.vertices![0]!.values).toMatchObject({ title: 'A' });
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toMatch(/duplicate/i);
+  });
+
+  test('a malformed collection is a malformed answer, never an empty complete one', async () => {
+    const { bridge } = setup(async () => ({ unitId: 'ignored', vertices: 'malformed', edges: [], end: { state: 'complete' } }));
+    await expect(bridge.run('unit', {})).rejects.toThrow('vertices');
   });
 
   test('the agent gets no workspace and no write handler: an empty folder, its file read and nothing else', async () => {

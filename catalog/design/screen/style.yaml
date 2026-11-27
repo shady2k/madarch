@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A style is the set of rules that decides how components look: colours, spacing, typography, borders. It should take its values from design tokens rather than hard-coded numbers, so a change of theme reaches every place.'
   ru: 'Стиль — набор правил, который решает, как выглядят компоненты: цвета, отступы, шрифты, границы. Значения стоит брать из токенов дизайна, а не задавать числами, чтобы смена темы доходила до каждого места.'
+derives-from:
+- design-token
+- ui-component

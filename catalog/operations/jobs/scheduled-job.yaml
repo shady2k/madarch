@@ -5,6 +5,7 @@ definition: A scheduled job is work the system runs on a timetable rather than i
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -13,7 +14,33 @@ relation-constraints:
   - triggers
   in:
   - defines
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the job, such as nightly-reindex; it is the job's key.
+- name: cron
+  type: text
+  nullable: true
+  binding:
+    agent: The timetable the job runs on, in the notation its scheduler takes.
+- name: timezone
+  type: text
+  nullable: true
+  binding:
+    agent: The time zone the timetable is read in.
+- name: concurrency
+  type: integer
+  nullable: true
+  binding:
+    agent: How many runs of the job may go at once.
+key:
+- name
 labels:
   en:
     one: Scheduled job
@@ -24,3 +51,5 @@ labels:
 description:
   en: 'A scheduled job is a task the system carries out at set times or intervals: send reminders, rebuild an index, close a day. Nobody has to ask for it, so its failures are noticed only if it reports them.'
   ru: 'Задача по расписанию — работа, которую система выполняет в заданные моменты или через промежутки: отправить напоминания, перестроить индекс, закрыть день. Её никто не просит, поэтому её отказы замечают, только если она о них сообщает.'
+derives-from:
+- code.service

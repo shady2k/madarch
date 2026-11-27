@@ -35,7 +35,8 @@ plugins:
     try {
       seedStarterSet(root);
       const document = parse(starterManifestText());
-      const { terms: _terms, semantics: _semantics, ...base } = document.kinds['doc.term'];
+      // doc.term's key-edge names an edge that belongs to doc.term; a copied kind keeps no role the example does not declare.
+      const { terms: _terms, semantics: _semantics, 'key-edges': _keyEdges, ...base } = document.kinds['doc.term'];
       document.kinds['example.topic'] = {
         ...base, id: 'example.topic', definition: 'A topic supported by graph evidence.',
         source: 'graph',
@@ -87,8 +88,8 @@ plugins:
       const lock = parse(readFileSync(join(root, 'madarch/plugins.lock'), 'utf8')) as { plugins: { id: string; closure: string }[] };
       expect(lock.plugins.find((plugin) => plugin.id === bundled.id)?.closure).toBe(closureOf(folder).hash);
       const kinds = parse(readFileSync(join(root, 'madarch/catalog.yaml'), 'utf8')) as { plugins: { id: string; inputs: string[]; outputs: string[] }[] };
-      // The agent works from the graph's files: the starter set holds code.file, so the plugin's inputs name it.
-      expect(kinds.plugins.find((plugin) => plugin.id === bundled.id)).toMatchObject({ inputs: ['code.file'], outputs: [] });
+      // The agent reads graph files and their immutable evidence blobs; both are declared inputs.
+      expect(kinds.plugins.find((plugin) => plugin.id === bundled.id)).toMatchObject({ inputs: ['code.file', 'code.blob'], outputs: [] });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

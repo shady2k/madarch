@@ -24,3 +24,6 @@ labels:
 description:
   en: A data check states a condition a dataset should satisfy, such as a column that must never be empty, a value within a range or a reference that must exist elsewhere. Each run of the check says whether the data passed.
   ru: 'Проверка данных формулирует условие, которому должен соответствовать набор данных: столбец, который не должен быть пустым, значение в заданном диапазоне или ссылка, которая должна существовать в другом месте. Каждый прогон проверки говорит, прошли ли данные.'
+derives-from:
+- dataset
+- product-profile

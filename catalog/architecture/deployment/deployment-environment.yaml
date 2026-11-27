@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A deployment environment is one target where a version of the product can run: development, staging, production or a customer''s own installation. It carries its own accounts, data, access rules and level of support.'
   ru: 'Среда развёртывания — одна цель, где может работать версия продукта: разработка, стенд, промышленная среда или установка у клиента. У неё свои учётные записи, данные, правила доступа и уровень поддержки.'
+derives-from:
+- software-system

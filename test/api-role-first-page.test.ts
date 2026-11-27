@@ -1,3 +1,7 @@
+import { readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 /**
  * The api role's first page on a filled-size store (review of d3e9e50c): a store whose last fill wrote a
  * 150 000-span trace. The status answer must not parse the whole trace for every poll; the first answer is
@@ -10,7 +14,7 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRun } from '../src/fill/state-store.js';
+import { createRun } from '../src/graph/fill-state.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer as startServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
@@ -46,7 +50,10 @@ beforeAll(async () => {
   }
   const runId = 'fill-20261109T000000000Z';
   const owner = await createDatabaseOwner({ store: storeDatabasePath(store), connectOnly: true });
-  try { await createRun(owner, { runId, product: 'api-role', at: Date.now() + 1_000 }); }
+  const manifest = await owner.run(tx => readPublishedManifest(tx));
+  if (manifest === undefined) throw new Error('prepared fixture manifest missing');
+  const database = { transaction: owner.transaction.bind(owner), graphContract: withAssertionContract(withManifestContract(graphContractOf(manifest))) };
+  try { await createRun(database, { runId, product: 'api-role', at: Date.now() + 1_000 }); }
   finally { await owner.close(); }
   writeFileSync(join(store, 'traces', `${runId}.jsonl`), `${lines.join('\n')}\n`);
   server = await startServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });

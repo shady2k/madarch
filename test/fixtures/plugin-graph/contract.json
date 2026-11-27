@@ -19,9 +19,9 @@
     "graphReads": [
       "files",
       "value",
-      "unresolved",
       "removedEnds",
-      "unevidenced"
+      "unevidenced",
+      "ownFacts"
     ]
   }
 }

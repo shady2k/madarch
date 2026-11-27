@@ -24,3 +24,5 @@ labels:
 description:
   en: A tag is a label on one commit, such as v1.4.0, that does not move as new commits arrive. A build or a release may be taken from it, but the tag itself is only a name for a point in history.
   ru: Тег — метка на одном коммите, например v1.4.0, которая не сдвигается с новыми коммитами. От неё могут взять сборку или выпуск, но сам тег — лишь имя для точки в истории.
+derives-from:
+- code.commit

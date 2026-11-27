@@ -24,3 +24,6 @@ labels:
 description:
   en: A component definition describes a piece of software once and states which controls it can satisfy and how. Several systems can then reuse it instead of describing the same component again.
   ru: Определение компонента один раз описывает программную часть и говорит, каким контролям она соответствует и как. Разные системы могут затем ссылаться на него, а не описывать тот же компонент заново.
+derives-from:
+- c4.component
+- profile

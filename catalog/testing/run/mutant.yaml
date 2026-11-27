@@ -24,3 +24,5 @@ labels:
 description:
   en: A mutant is produced by changing one small thing in the code — a comparison, a constant, a return — and running the tests against it. If the tests still pass, they did not notice the change, and the mutant survived.
   ru: 'Мутанта получают, изменив одну мелочь в коде: сравнение, константу или возврат, — и запустив против него тесты. Если тесты всё равно проходят, они не заметили изменение, и мутант выжил.'
+derives-from:
+- code.symbol

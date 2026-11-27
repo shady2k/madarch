@@ -45,12 +45,12 @@ test('a citation reads its exact line range from GraphQL, names its source addre
   await view.close();
 });
 test('missing locations do not request guessed sources and non-web URLs do not become links', async () => {
-  const missing = await mount(SourceSection, { path: 'src/a.ts' });
+  const missing = await mount(SourceSection, { repository: null, path: 'src/a.ts', lineStart: null, lineEnd: null });
   expect(requests).toHaveLength(0);
   expect(missing.box.textContent).toContain('The graph holds no source location.');
   await missing.close();
   response = { text: '', language: null, lines: 0, binary: true, from: 1, complete: true, next: null };
-  const binary = await mount(SourceSection, { repository: 'core', path: 'image.bin', url: 'javascript:alert(1)' });
+  const binary = await mount(SourceSection, { repository: 'core', path: 'image.bin', lineStart: null, lineEnd: null, url: 'javascript:alert(1)' });
   expect(binary.box.textContent).toContain('binary file');
   expect(binary.box.querySelector('a[target="_blank"]')).toBeNull();
   await binary.close();
@@ -67,7 +67,7 @@ test('the source template draws source with repository and line-count badges', a
 });
 test('a missing graph source is an explicit error', async () => {
   response = null;
-  const view = await mount(SourceSection, { repository: 'core', path: 'gone.ts' });
+  const view = await mount(SourceSection, { repository: 'core', path: 'gone.ts', lineStart: null, lineEnd: null });
   expect(view.box.querySelector('[role="alert"]')?.textContent).toContain('The graph holds no text for this file.');
   await view.close();
 });
@@ -93,4 +93,10 @@ test('a moved blob replaces old source rather than mixing revisions', async () =
   expect(view.box.textContent).not.toContain('old');
   expect(view.box.textContent).toContain('The file changed');
   await view.close();
+});
+
+test('a malformed citation is refused instead of filling missing coordinates', async () => {
+  const { decodeCitation } = await import('../../../../src/page-contract/citation.js');
+  expect(() => decodeCitation({ path: 'src/a.ts' }, 'wiki/app/src/components/source.test.tsx')).toThrow('citation');
+  expect(requests).toHaveLength(0);
 });

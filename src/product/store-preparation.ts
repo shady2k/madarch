@@ -13,6 +13,7 @@ export interface PreparationRequest {
   readonly store: string;
   readonly database?: string;
   readonly contract?: GraphContract;
+  readonly installedPlugins?: readonly { readonly id: string; readonly version: string }[];
   readonly histories?: boolean;
   readonly reset?: boolean;
   readonly rename?: { readonly from: string; readonly to: string };
@@ -21,8 +22,8 @@ const ADDRESS = 'MADARCH_STORE_OWNER_URL';
 const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
 
 /** Ask the owning process; a role without its owner refuses instead of creating schemas itself. */
-export async function requestStorePreparation(store: string, contract?: GraphContract): Promise<void> {
-  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, ...(contract === undefined ? {} : { contract }) }));
+export async function requestStorePreparation(store: string, contract?: GraphContract, installedPlugins?: PreparationRequest['installedPlugins']): Promise<void> {
+  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, ...(contract === undefined ? {} : { contract }), ...(installedPlugins === undefined ? {} : { installedPlugins }) }));
 }
 export async function requestStoreReset(store: string, contract: GraphContract): Promise<void> {
   await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, contract, reset: true }));

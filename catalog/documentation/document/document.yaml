@@ -6,45 +6,54 @@ sources:
 - https://diataxis.fr/
 acquisition:
 - document
-- conversation
+- agent-from-graph
 relation-constraints:
   out:
-  - hasDocumentation
+  - hasPart
+  - linksTo
+  - documents
+  - partOf
   in:
   - documents
+  - partOf
 template-policy: page
 source: graph
 fields:
-- name: commit
+- name: content
   type: text
+  labels: {en: Content, ru: Содержимое}
   binding:
-    agent: 'Read each **/*.md source file at the pinned repository revision: the exact commit that grounds its Markdown, heading
-      anchors and line extents.'
+    agent: The document text from its declared source.
+- name: anchors
+  type: document-anchors
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:document-anchors:v1
+  labels: {en: Sections, ru: Разделы}
+  binding:
+    agent: Every document section keyed by its exact anchor, with title, start and end lines and Markdown excerpt.
 - name: path
-  type: text
+  type: path
+  labels:
+    en: Path
+    ru: Путь
   binding:
-    agent: 'Read each **/*.md source file: repository-relative path of the document.'
-- name: repository
+    agent: The path of the document in the repository.
+- name: title
   type: text
   nullable: true
   binding:
-    agent: 'Read each **/*.md source file: the repository name, or null for the product repository.'
-- name: markdown
+    agent: The title the document gives itself.
+- name: format
   type: text
+  nullable: true
   binding:
-    agent: 'Read each **/*.md source file: the full document Markdown.'
-- name: anchors
-  type: json
-  binding:
-    agent: 'Read each **/*.md source file: map each Markdown heading anchor to {title, start, end, markdown}, preserving source
-      line numbers and full section Markdown.'
-- name: links
-  type: json
-  binding:
-    agent: 'Read each **/*.md source file: an array of Markdown link targets for document navigation.'
+    agent: 'The form the document is written in: Markdown, reStructuredText, AsciiDoc
+      or plain text.'
 key:
-- repository
 - path
+derives-from:
+- system.product
 labels:
   en:
     one: Document
@@ -55,3 +64,8 @@ labels:
 description:
   en: 'A document is a text written for a person who works with the product: what it is for, how to use it, how it is built or what was decided. It has a title, sections and a place in the repository, and its purpose decides what belongs in it.'
   ru: 'Документ — текст, написанный для человека, который работает с продуктом: для чего он, как им пользоваться, как он устроен или что решили. У документа есть название, разделы и место в репозитории, а его назначение решает, что в нём должно быть.'
+
+key-edges:
+- role: document-repository
+  edge: document-repository
+  side: from

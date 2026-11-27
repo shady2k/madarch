@@ -186,6 +186,8 @@ export interface CommitRecord {
  * shape; this interface itself touches no database-specific API.
  */
 export interface OuterTransaction {
+  /** Runs only after the owner has successfully committed this transaction. */
+  afterCommit?(work: () => void): void;
   query<Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[] }>;
 }
 

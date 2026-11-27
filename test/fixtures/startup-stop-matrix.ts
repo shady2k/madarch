@@ -120,7 +120,7 @@ let pid = 0; let ticks = '';
 try { pid = Number(fs.readFileSync(dataDir + '/postmaster.pid', 'utf8').split('\\n')[0]); const s = fs.readFileSync('/proc/' + pid + '/stat', 'utf8'); ticks = s.slice(s.lastIndexOf(')') + 2).split(' ')[19]!; } catch {}
 if (stop && mode.includes('command-signal')) { fs.appendFileSync(${JSON.stringify(receipt)}, 'wrapper-sigterm\\n'); process.kill(process.pid, 'SIGTERM'); await new Promise(() => {}); }
 if (stop && mode === 'released') fs.renameSync(dataDir + '/postmaster.pid', dataDir + '/saved.pid');
-const execute = !stop || mode.includes('gone') || mode === 'absent' || ['sync-positive', 'reclaim', 'pre-reclaim'].includes(mode) && fs.existsSync(dataDir + '/matrix-action');
+const execute = !stop || mode.includes('gone') || mode === 'absent' || ['sync-positive', 'sync-fallback', 'reclaim', 'pre-reclaim'].includes(mode) && fs.existsSync(dataDir + '/matrix-action');
 let code = execute ? Bun.spawnSync([real, ...args], { stdout: 'inherit', stderr: 'inherit', env: process.env }).exitCode : (mode.includes('zero') || mode === 'released' || mode === 'pid-reuse' ? 0 : 1);
 if (stop && execute && pid) {
  let gone = false;
@@ -169,6 +169,11 @@ const fd = openSync(process.argv[2]!, 'a+'); if (lib.symbols.flock(fd, 2 | 4) !=
   if (mode === 'sync-other') {
    realFs.unlinkSync(join(bin, 'psql'));
    realFs.writeFileSync(join(bin, 'psql'), `#!/bin/sh\n"${join(install.bin, 'psql')}" "$@" >/dev/null || exit $?\nprintf '/other/fixture/directory\\n'\n`, { mode: 0o755 });
+  }
+  if (mode === 'sync-fallback') {
+   // `psql` is asked and does not answer; only the pid file's own identity can attest the postmaster.
+   realFs.unlinkSync(join(bin, 'psql'));
+   realFs.writeFileSync(join(bin, 'psql'), `#!/bin/sh\nprintf 'probe\\n' >> "${probeReceipt}"\nexit 1\n`, { mode: 0o755 });
   }
  }
  if (mode === 'reclaim') {

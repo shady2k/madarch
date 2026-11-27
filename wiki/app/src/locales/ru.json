@@ -1,4 +1,32 @@
 {
+  "applicability": {
+    "state": {
+      "not-searched": "Не исследовано",
+      "applicable": "Применимо",
+      "empty": "Ничего не найдено",
+      "failed": "Неизвестно (поиск не удался)",
+      "inapplicable": "Неприменимо"
+    },
+    "reason": "Причина: {{reason}}",
+    "ancestor": "Унаследовано от: {{kind}}",
+    "contested": "Есть разногласия"
+  },
+  "common": {
+    "emptyValue": "—",
+    "separator": " · ",
+    "listSeparator": ", ",
+    "numberSuffix": ". ",
+    "labelSeparator": ": ",
+    "quoted": "«{{text}}»",
+    "previousSymbol": "←",
+    "nextSymbol": "→",
+    "zoomInSymbol": "+",
+    "zoomOutSymbol": "−",
+    "closeSymbol": "×"
+  },
+  "graphRefusal": {
+    "schemaInvalid": "Недопустимое значение в {{path}}: ожидалось {{expected}}, получено {{actual}}."
+  },
   "kinds": {
     "name": "Вид",
     "count": "Сущностей"
@@ -142,7 +170,7 @@
       "remainingUnknown": "Осталось: пока неизвестно",
       "remaining": "Осталось примерно {{seconds}} с",
       "tokensUnknown": "Токены: не сообщены",
-      "tokens": "Токены: {{input}} вход · {{output}} выход · {{total}} всего",
+      "tokens": "Токены: {{input}} вход · {{output}} выход · {{cacheWrite}} запись кэша · {{cacheRead}} чтение кэша · {{total}} всего",
       "records": "Записано фактов: {{count}}",
       "records_one": "Записано {{count}} факт",
       "records_few": "Записано {{count}} факта",
@@ -2101,6 +2129,37 @@
     "noTemplateFindings": "Ошибок шаблонов нет."
   },
   "kit": {
+    "componentBadgeAlertCardSkeleton": "Badge / Alert / Card / Skeleton",
+    "componentButton": "Button",
+    "componentCard": "Card",
+    "componentCheckbox": "Checkbox",
+    "componentCheckboxRadioSwitchToggle": "Checkbox / Radio / Switch / Toggle",
+    "componentChoice": "Choice",
+    "componentCode": "Code",
+    "componentConfirmation": "Confirmation",
+    "componentDialog": "Dialog",
+    "componentDisclosureFigureContents": "Disclosure / Figure / Contents",
+    "componentEmbedded": "Embedded",
+    "componentFilterbar": "FilterBar",
+    "componentGraph": "Graph",
+    "componentIcon": "Icon",
+    "componentInline": "Inline",
+    "componentInputTextarea": "Input / Textarea",
+    "componentMenus": "Menus",
+    "componentNavigation": "Navigation",
+    "componentProgress": "Progress",
+    "componentQuote": "Quote",
+    "componentRadiogroup": "RadioGroup",
+    "componentReading": "Reading",
+    "componentSearch": "Search",
+    "componentSegmented": "Segmented",
+    "componentSwitch": "Switch",
+    "componentTable": "Table",
+    "componentTabs": "Tabs",
+    "componentText": "Text",
+    "componentToggle": "Toggle",
+    "componentTypography": "Typography",
+    "componentNext": "next",
     "next": "дальше",
     "title": "UI kit",
     "intro": "Единый набор компонентов вики. Состояния показаны без наведения. Всплывающие элементы открываются кнопками.",
@@ -2280,4 +2339,3 @@
     "missingValues": "без значения: {{labels}}"
   }
 }
-

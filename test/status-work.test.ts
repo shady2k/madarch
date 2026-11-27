@@ -31,7 +31,7 @@ mock.module('../src/product/manifest/kinds.js', () => ({
   },
 }));
 
-const env = gitEnv(SAMPLE_IDENTITY);
+const env = gitEnv({ ...SAMPLE_IDENTITY, GIT_COMMITTER_DATE: `${Math.floor(Date.now() / 1000)} +0500`, GIT_AUTHOR_DATE: `${Math.floor(Date.now() / 1000)} +0500` });
 const git = (cwd: string, args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
 
 const SHOP = 'stamp-shop';

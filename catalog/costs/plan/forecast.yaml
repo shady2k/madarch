@@ -24,3 +24,6 @@ labels:
 description:
   en: A cost forecast estimates future spending from the bills already seen and the plan ahead, such as a run rate for the rest of the month. It warns early when the budget will be exceeded.
   ru: Прогноз затрат оценивает будущие расходы по уже полученным счётам и предстоящему плану, например по текущему темпу до конца месяца. Он заранее предупреждает, что бюджет будет превышен.
+derives-from:
+- budget
+- cost-record

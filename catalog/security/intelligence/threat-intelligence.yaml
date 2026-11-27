@@ -24,3 +24,5 @@ labels:
 description:
   en: Threat intelligence gathers reports about who attacks which kinds of organisations, with which tools and methods, and turns them into what the product should watch for. It is useful only when it reaches a decision or a check.
   ru: Данные об угрозах собирают сведения о том, кто и какими средствами и приёмами атакует какие организации, и превращают их в то, за чем продукту стоит следить. Они полезны, только когда доходят до решения или проверки.
+derives-from:
+- threat-model

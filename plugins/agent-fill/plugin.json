@@ -16,7 +16,8 @@
       "kind": "*",
       "fields": "*",
       "reads": [
-        "code.file"
+        "code.file",
+        "code.blob"
       ],
       "coverage": "gaps"
     }

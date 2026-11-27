@@ -15,46 +15,38 @@ const groups = new Map(CATALOG_GROUPS.map((group) => [group.name, group]));
 
 /** The kinds of the two areas, by the subgroup each stands in. */
 const AREA_KINDS: Readonly<Record<string, string>> = {
-  'link': 'common.attachment',
-  'comment': 'common.attachment',
-  'time-entry': 'common.attachment',
-  'time-cost': 'work.execution',
-  'request': 'common.attachment',
+  'accounting': 'common.schema',
   'approval': 'common.attachment',
   'approval-package': 'common.attachment',
-  'external-reference': 'common.attachment',
-  'operation': 'common.attachment',
-  'snapshot': 'common.attachment',
-  'kind': 'common.schema',
-  'field-set': 'common.schema',
-  'workflow': 'common.schema',
-  'workflow-status': 'common.schema',
-  'workflow-transition': 'common.schema',
-  'link-type': 'common.schema',
-  'link-behaviour': 'common.schema',
-  'lifecycle': 'common.schema',
-  'responsibility': 'common.schema',
-  'accounting': 'common.schema',
-  'event': 'common.schema',
-  'value-set': 'common.values',
-  'value-set-entry': 'common.values',
-  'milestone': 'work.planning',
+  'code-convention': 'work.ways',
+  'comment': 'common.attachment',
+  'constitution': 'work.ways',
   'epic': 'work.planning',
+  'evidence': 'work.sync',
+  'external-reference': 'common.attachment',
   'feature': 'work.planning',
+  'field-set': 'common.schema',
+  'handoff': 'work.coordination',
+  'kind': 'common.schema',
+  'link-behaviour': 'common.schema',
+  'link-type': 'common.schema',
+  'merge': 'work.sync',
+  'milestone': 'work.planning',
+  'operation': 'common.attachment',
+  'practice': 'work.ways',
+  'proposed-kind': 'common.schema',
+  'question': 'work.coordination',
+  'request': 'common.attachment',
+  'responsibility': 'common.schema',
+  'review-finding': 'work.sync',
+  'skill': 'work.ways',
+  'snapshot': 'common.attachment',
   'stage': 'work.planning',
   'task': 'work.execution',
-  'bug': 'work.execution',
-  'lifecycle-step': 'work.execution',
-  'question': 'work.coordination',
-  'reservation': 'work.coordination',
-  'handoff': 'work.coordination',
-  'review-finding': 'work.sync',
-  'evidence': 'work.sync',
-  'merge': 'work.sync',
-  'practice': 'work.ways',
-  'code-convention': 'work.ways',
-  'skill': 'work.ways',
-  'constitution': 'work.ways',
+  'value-set': 'common.values',
+  'value-set-entry': 'common.values',
+  'work-span': 'work.execution',
+  'workflow': 'common.schema',
 };
 
 describe('the Work and Common areas of the catalog', () => {
@@ -79,7 +71,7 @@ describe('the Work and Common areas of the catalog', () => {
   });
 
   test('every kind of the two areas has its row, both names and relations the catalog declares', () => {
-    expect(Object.keys(AREA_KINDS)).toHaveLength(40);
+    expect(Object.keys(AREA_KINDS)).toHaveLength(32);
     for (const [name, group] of Object.entries(AREA_KINDS)) {
       const row = rows.get(name);
       expect(row, `${name} is a kind of the catalog`).toBeDefined();
@@ -90,9 +82,9 @@ describe('the Work and Common areas of the catalog', () => {
       expect(row.acquisition.length).toBeGreaterThan(0);
       expect(row.en).toBeDefined();
       expect(row.ru).toBeDefined();
-      const page = ['task', 'question', 'comment', 'link', 'time-cost', 'practice', 'code-convention', 'skill', 'constitution', 'value-set', 'value-set-entry'];
+      const page = ['accounting', 'code-convention', 'comment', 'constitution', 'epic', 'feature', 'field-set', 'kind', 'link-behaviour', 'link-type', 'milestone', 'practice', 'proposed-kind', 'question', 'responsibility', 'skill', 'stage', 'task', 'value-set', 'value-set-entry', 'work-span', 'workflow'];
       expect(row.policy).toBe(page.includes(name) ? 'page' : 'none');
-      for (const relation of [...row.out, ...row.into]) expect(CATALOG_RELATIONS).toHaveProperty(relation);
+      for (const relation of [...row.out, ...row.into]) expect(Object.hasOwn(CATALOG_RELATIONS, relation)).toBe(true);
     }
   });
 
@@ -102,24 +94,28 @@ describe('the Work and Common areas of the catalog', () => {
     expect(rows.get('defect')).toMatchObject({ group: 'testing.defect', id: 'istqb.defect' });
     expect(rows.get('comment')).toMatchObject({ group: 'common.attachment', id: 'practice.comment' });
     expect(rows.get('approval')).toMatchObject({ group: 'common.attachment', id: 'practice.approval' });
-    expect(rows.get('bug')).toMatchObject({ group: 'work.execution', id: 'practice.bug' });
     expect(rows.get('task')).toMatchObject({ group: 'work.execution', id: 'practice.product-task', policy: 'page' });
     expect(rows.get('question')).toMatchObject({ group: 'work.coordination', id: 'practice.question', policy: 'page' });
     expect(rows.get('epic')?.group).toBe('work.planning');
     expect(rows.get('feature')?.group).toBe('work.planning');
     expect(rows.get('workflow')).toMatchObject({ group: 'common.schema', id: 'manifest.workflows' });
-    // The UML state machine keeps its `transition`; the manifest's status move is the separate workflow-transition.
-    expect(rows.get('transition')).toMatchObject({ group: 'architecture.behaviour', id: 'uml.transition' });
-    expect(rows.get('workflow-transition')).toMatchObject({ group: 'common.schema', id: 'manifest.transitions' });
+    // One defect kind holds a bug: the tracker's work item and the ISTQB imperfection were two kinds, and the bug is the defect.
+    expect(rows.has('bug')).toBe(false);
+    expect(rows.has('tracker-task')).toBe(false);
+    // One time kind: time-entry, time-cost and lifecycle-step are one work span.
+    for (const old of ['time-entry', 'time-cost', 'lifecycle-step']) expect(rows.has(old)).toBe(false);
+    expect(rows.get('work-span')).toMatchObject({ group: 'work.execution', id: 'practice.work-span' });
+    // One life cycle family: the state machine, its states and transitions; the manifest's statuses and transitions are those.
+    for (const old of ['lifecycle', 'workflow-status', 'workflow-transition']) expect(rows.has(old)).toBe(false);
   });
 
-  test('the time entry names the types its sources declare, and the external reference is a kind because the catalog has no other shared record', () => {
-    const time = rows.get('time-entry');
-    expect(time).toBeDefined();
-    for (const type of ['work time', 'waiting', "agent's run"]) expect(time?.definition.includes(type)).toBe(true);
-    expect(time?.sources.length).toBeGreaterThanOrEqual(3);
-    expect(time?.sources.some((source) => source.includes('jira'))).toBe(true);
-    expect(time?.sources.some((source) => source.includes('opentelemetry'))).toBe(true);
+  test('one work span holds what the time entry, the time cost and the life-cycle step recorded, and a review raises findings of its own', () => {
+    const span = rows.get('work-span');
+    expect(span).toBeDefined();
+    for (const type of ['a person', 'an agent']) expect(span?.definition.includes(type)).toBe(true);
+    expect(span?.sources.length).toBeGreaterThanOrEqual(2);
+    expect(span?.sources.some((source) => source.includes('opentelemetry'))).toBe(true);
+    // The external reference is a kind because the catalog has no other shared record for one.
     expect(rows.get('external-reference')).toMatchObject({ group: 'common.attachment', policy: 'none' });
   });
 
@@ -132,29 +128,32 @@ describe('the Work and Common areas of the catalog', () => {
     expect(rows.get('approval')?.out).toContain('approves');
   });
 
-  test('an entity has one current status, and an open question blocks it rather than adding a status', () => {
-    expect(rows.get('lifecycle')?.definition).toContain('one current status');
-    expect(rows.get('lifecycle')?.definition).toContain('open question');
-    expect(rows.get('lifecycle')?.definition).toContain('blocked');
+  test('a kind that has states says so through the state machine that gives its life cycle, and an open question blocks rather than becoming a status', () => {
+    // The manifest's own status and transition kinds became the state machine family: a machine whose `lifecycle_of` names a
+    // kind is that kind's life cycle, and every state and transition of it belongs to the machine.
+    const machine = rows.get('state-machine');
+    expect(machine).toBeDefined();
+    expect(machine?.definition).toContain('states');
+    expect(machine?.id).toBe('uml.state-machine');
+    expect(rows.get('state')?.id).toBe('uml.state');
+    expect(rows.get('transition')?.id).toBe('uml.transition');
+    for (const old of ['lifecycle', 'workflow-status', 'workflow-transition']) expect(rows.has(old)).toBe(false);
     expect(rows.get('question')?.definition).toContain('blocked');
     expect(rows.get('question')?.definition).toContain('without becoming a status');
-    expect(rows.get('workflow-status')?.definition).toContain('one current status');
-    // No kind is a status-like state of its own: the one status kind is the workflow's, and the question is a kind of its own.
-    expect([...rows.keys()].filter((name) => name.endsWith('-status'))).toEqual(['workflow-status']);
-    expect(rows.has('awaiting-clarification')).toBe(false);
+    expect([...rows.keys()].filter((name) => name.endsWith('-status'))).toEqual([]);
   });
 
-  test('the schema carries the shared lifecycle, responsibility, accounting and event parts', () => {
-    for (const name of ['lifecycle', 'responsibility', 'accounting', 'event']) {
+  test('the schema carries the manifest\'s own concepts as entities, and the proposal a person accepts or rejects', () => {
+    for (const name of ['kind', 'field-set', 'link-type', 'link-behaviour', 'responsibility', 'accounting', 'workflow', 'proposed-kind']) {
       const row = rows.get(name);
       expect([name, row?.group]).toEqual([name, 'common.schema']);
       expect([name, (row?.sources.length ?? 0) > 0]).toEqual([name, true]);
     }
-    expect(rows.get('responsibility')?.definition).toContain('responsible person');
-    expect(rows.get('responsibility')?.definition).toContain('executor');
-    expect(rows.get('accounting')?.definition).toContain('lifecycle step');
-    expect(rows.get('event')?.definition).toContain('transition');
-    expect(rows.get('workflow-transition')?.definition).toContain('event');
+    expect(rows.get('responsibility')?.definition).toContain('who answers for');
+    expect(rows.get('responsibility')?.definition).toContain('carries its work out');
+    expect(rows.get('accounting')?.definition).toContain('work spans');
+    expect(rows.get('proposed-kind')?.definition).toContain('accepts or rejects');
+    expect(rows.get('proposed-kind')?.into).toContain('decides');
     expect(rows.get('task')?.definition).toContain('unit of work');
   });
 });

@@ -6,13 +6,19 @@
  */
 import { pluginAgentOptions } from './agents.js';
 import { requestStorePreparation } from '../product/store-preparation.js';
+import { withAssertionContract } from '../graph/system-contract.js';
+import { readPublishedManifest } from '../graph/manifest-publication.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
+import type { FillStateDatabase } from '../graph/fill-state.js';
+import { readPinnedGraphContract, readPinnedPluginInstallations } from '../product/preparation-contract.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
-import { readFillEnd, writeFillEnd } from '../fill/orchestrator-store.js';
+import { readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
 import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
 import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
@@ -37,6 +43,11 @@ export interface FillRoleOptions {
   readonly idle?: () => boolean;
   /** The process that started this one: the role ends when it is gone, so a server's fill process never outlives it. */
   readonly parentPid?: number;
+  /**
+   * Ends the file-read plugin sessions this process opened: the role's own module hands it in, so a reader that a plugin
+   * never closes is visible as a test's fixture rather than as a hang.
+   */
+  readonly closeReadSessions?: () => Promise<void>;
 }
 
 /** How long the role has to give its stores up once the process that started it is gone: within this, its servers stop. */
@@ -44,6 +55,15 @@ const ENDING_MS = 1_600;
 
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
 const PARENT_CHECK_MS = 50;
+
+/** Failed opens can start and stop PostgreSQL: retry each store separately, with pauses capped at five seconds. */
+const OPEN_RETRY_MS = 1_000;
+export const MAX_OPEN_RETRY_MS = 5_000;
+
+/** The next pause after a failed open, doubled until it reaches the ceiling. */
+export function nextOpenRetryDelay(previous?: number): number {
+  return Math.min(MAX_OPEN_RETRY_MS, (previous ?? OPEN_RETRY_MS / 2) * 2);
+}
 
 /** Whether a process is still there: one this process may not signal counts as there. */
 function alive(pid: number): boolean {
@@ -89,17 +109,33 @@ async function stopQueues(state: RoleState): Promise<void> {
 export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const log = options.log ?? ((line: string) => console.log(line));
   const watched = new Map<string, Watched>();
+  const openingErrors = new Map<string, string>();
+  const openingRetries = new Map<string, { delay: number; after: number }>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
+  const closeReadSessions = options.closeReadSessions ?? closeFileTextSessions;
+  /**
+   * Ends the file-read sessions within the same budget the stores get: a plugin session that never closes would keep the
+   * role, and with it the store's PostgreSQL server, alive for as long as its process lives (madarch-8bdc.12), so the
+   * ending path waits for the close no longer than it waits for a store's own close (`ENDING_MS`).
+   */
+  const closeReadSessionsInTime = async (): Promise<void> => {
+    await Promise.race([closeReadSessions().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
+  };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
   const end = async (exitCode = 0): Promise<void> => {
     if (state.ending) return;
     state.ending = true;
+    // The budget covers the whole ending and starts with it. The api role that started this one stops it with `SIGTERM`
+    // and kills it with `SIGKILL` 300 ms later (`src/server/http.ts`), so a wait before the stores' stop request — the
+    // file-read sessions' close, up to `ENDING_MS / 2` — would end this role with a store only it opened still running.
+    const deadline = Date.now() + ENDING_MS;
     // Nothing is started from here on: the start of a server is synchronous, and the stop below may not wait for one.
     refuseStarts();
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
-    await closeFileTextSessions();
-    const deadline = Date.now() + ENDING_MS;
+    // The sessions close beside the stores' stop, never before it: each has its own bound, and one that hangs must not
+    // hold the other up (a `SIGKILL` 300 ms later would leave the store's server behind).
+    const sessionsClosed = closeReadSessionsInTime();
     // Queues stop without holding up exit. Normal owner/run closes can enter the synchronous graceful server stop,
     // so the process-exit path uses only force shutdown below; giveUp keeps normal close behavior.
     void stopQueues(state);
@@ -113,8 +149,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       // until the role's deadline exits the process.
       await Promise.all([...databases].map(async (database) => await stopStoreForExit(database, { force: true })));
     })();
-    if (process.platform === 'win32') await cleanup;
-    else await Promise.race([cleanup, Bun.sleep(Math.max(0, deadline - Date.now()))]);
+    if (process.platform === 'win32') await Promise.all([cleanup, sessionsClosed]);
+    else await Promise.race([Promise.all([cleanup, sessionsClosed]), Bun.sleep(Math.max(0, deadline - Date.now()))]);
     process.exit(exitCode);
   };
   const watcher = options.parentPid === undefined ? undefined : setInterval(() => {
@@ -135,7 +171,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
     withoutSignals();
-    await closeFileTextSessions();
+    // The same order as `end`: the sessions close beside the stores' stop, each under its own bound.
+    const sessionsClosed = closeReadSessionsInTime();
     await stopQueues(state);
     for (const owner of [...state.owners]) {
       if (process.platform === 'win32') await owner.close();
@@ -148,6 +185,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       if (process.platform === 'win32') await stopStoreForExit(folder);
       else await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
     }
+    await sessionsClosed;
   };
   try {
     for (;;) {
@@ -159,8 +197,10 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       for (const storeFolder of storeFoldersOf(options.knowledgeRoot)) {
         let held = watched.get(storeFolder);
         if (held === undefined) {
+          if (performance.now() < (openingRetries.get(storeFolder)?.after ?? 0)) continue;
+          let owner: StoreOwner | undefined;
           try {
-            const owner = await options.openStore(join(storeFolder, 'graph'));
+            owner = await options.openStore(join(storeFolder, 'graph'));
             state.owners.add(owner);
             state.databaseFolders.add(join(storeFolder, 'graph'));
             await owner.ready;
@@ -168,8 +208,20 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
+            openingErrors.delete(storeFolder);
+            openingRetries.delete(storeFolder);
           } catch (error) {
-            log(`madarch fill: the store ${storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+            if (owner !== undefined) {
+              await owner.close().catch(() => undefined);
+              state.owners.delete(owner);
+            }
+            const delay = nextOpenRetryDelay(openingRetries.get(storeFolder)?.delay);
+            openingRetries.set(storeFolder, { delay, after: performance.now() + delay });
+            const message = error instanceof Error ? error.message : String(error);
+            if (openingErrors.get(storeFolder) !== message) {
+              openingErrors.set(storeFolder, message);
+              log(`madarch fill: the store ${storeFolder} could not be opened: ${message}`);
+            }
             continue;
           }
         }
@@ -196,6 +248,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
 /** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
 async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
+  const metadata=async(store:StoreOwner):Promise<FillStateDatabase>=>{const manifest=await store.run(tx=>readPublishedManifest(tx));return {transaction:store.transaction.bind(store),graphContract:withAssertionContract(manifest===undefined?await readPinnedGraphContract(data.product):withManifestContract(graphContractOf(manifest)))};};
   // A redelivery after the end was published acknowledges that same run, never replaces its result.
   if (await readFillEnd(held.owner, data.runId) !== null) {
     await settleFillRun(held.queue, job, { ok: true });
@@ -207,7 +260,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     // The run's end is written even when no run started (madarch-8bdc.9): the api role that pressed the fill answers
     // `failed` with this message, where a missing end would leave it saying `running` for ever.
     const message = `${read.file}:${read.line}: ${read.message}`;
-    await writeFillEnd(held.owner, { runId: data.runId, state: 'failed', message }).catch(() => undefined);
+    await writeFillEnd(await metadata(held.owner), { runId: data.runId, state: 'failed', message }).catch(() => undefined);
     await settleFillRun(held.queue, job, { ok: false, message });
     return;
   }
@@ -229,11 +282,11 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       runId: data.runId,
       // The claimed job is the run's own lock: the fill heartbeats it, and the run is recoverable when this
       // process ends without settling it (decision 0039, item 12).
-      claim: { queue: FILL_RUN_QUEUE, job },
+      claim: { queueService: held.queue, queue: FILL_RUN_QUEUE, job },
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
-      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract),
+      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract, await readPinnedPluginInstallations(productFolder)),
       // The language the press named, as `madarch fill --language` names it: a run that asks for another language
       // translates the pages it writes (madarch-8bdc.12).
       ...(data.language === undefined ? {} : { language: data.language }),
@@ -241,9 +294,17 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       ...(data.targets === undefined ? {} : { targets: data.targets }),
     });
     state.running = run;
-    // A person's pause or stop is the run's own state, written by the api role through the run's machine: the fill
-    // reads it before every step it takes (decision 0039, item 12), so nothing is polled here.
-    const result = await run.done;
+    // A person's pause or stop is written to the store by the api role and taken here, on the run's own state machine.
+    const done = run.done;
+    let finished = false;
+    void done.then(() => { finished = true; }, () => { finished = true; });
+    while (!finished) {
+      await Bun.sleep(250);
+      if (finished) break;
+      const action = await readRunControl(await metadata(owner), data.runId).catch(() => null);
+      if (action !== null) await run.control(action).catch(() => undefined);
+    }
+    const result = await done;
     await run.close();
     run = undefined;
     state.running = undefined;

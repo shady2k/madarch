@@ -15,19 +15,19 @@ sections:
       kind
       label
       template
-      repository
+      codeFileRepository(first: 1) { edges { node { node { id label } } } }
       path
     params:
       titlePath: label
       kindPath: kind
-      trail: { repository: repository, path: path }
+      trail: { repository: codeFileRepository.edges.0.node.node.label, path: path }
   - id: tabs
     after: header
     component: tabs
     params:
       groups:
         - title: { en: Overview, ru: Обзор }
-          sections: [facts, diagram]
+          sections: [facts, diagram, languages, filetext]
         - title: { en: History, ru: История }
           sections: [history]
         - title: { en: Co-change, ru: Совместные изменения }
@@ -42,13 +42,13 @@ sections:
       lines
       bytes
       addedAt
-      addedIn
+      codeFileAddedIn(first: 1) { edges { node { node { id label ... on KindCodeCommit { hash } } } } }
       removedAt
-      removedIn
+      codeFileRemovedIn(first: 1) { edges { node { node { id label ... on KindCodeCommit { hash } } } } }
       lastChange
       commitCount
-      repository
-      directory
+      codeFileRepository(first: 1) { edges { node { node { id label } } } }
+      codeFileDirectory(first: 1) { edges { node { node { id label } } } }
       contested
     params:
       rows:
@@ -56,41 +56,33 @@ sections:
         - { label: { en: Type, ru: Тип }, path: class, format: class }
         - { label: { en: Lines, ru: Строк }, path: lines, format: number }
         - { label: { en: Size, ru: Размер }, path: bytes, format: bytes }
-        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: addedIn, format: hash } }
-        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: removedIn, format: hash } }
+        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: codeFileAddedIn.edges.0.node.node.hash, format: hash } }
+        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: codeFileRemovedIn.edges.0.node.node.hash, format: hash } }
         - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
-        - { label: { en: Repository, ru: Репозиторий }, path: repository }
-        - { label: { en: Folder, ru: Папка }, path: directory }
+        - { label: { en: Repository, ru: Репозиторий }, path: codeFileRepository.edges.0.node.node.label }
+        - { label: { en: Folder, ru: Папка }, path: codeFileDirectory.edges.0.node.node.label }
   - id: languages
     component: table
-    title: { en: Language opinions, ru: Мнения о языке }
+    title: { en: Language assertions, ru: Утверждения о языке }
     query: |
-      languageOpinions {
-        value
-        producer
-        version
-        lang
-        statedAt
-      }
+      languageAssertions { value source { id label } recordedAt selected }
     params:
-      path: .
-      emptyText: { en: No producer states a language for this file, ru: Ни один источник не называет язык этого файла }
+      path: languageAssertions
       columns:
         - { label: { en: Language, ru: Язык }, path: value }
-        - { label: { en: Stated by, ru: Назвал }, path: producer }
-        - { label: { en: Version, ru: Версия }, path: version }
-        - { label: { en: Stated, ru: Заявлено }, path: statedAt, format: date }
+        - { label: { en: Source, ru: Источник }, path: source.label }
+        - { label: { en: Recorded, ru: Записано }, path: recordedAt, format: date }
   - id: filetext
     after: facts
     component: file-text
     title: { en: Text, ru: Текст }
     query: |
       id
-      repository
+      codeFileRepository(first: 1) { edges { node { node { label } } } }
       path
     params:
-      repositoryPath: repository
+      repositoryPath: codeFileRepository.edges.0.node.node.label
       pathPath: path
       chunk: 400
   - id: latest

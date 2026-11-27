@@ -15,45 +15,21 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: repository
-  type: text
-  binding: test-quarantine@1.repository
 - name: path
-  type: text
+  type: path
   binding: test-quarantine@1.path
 - name: name
   type: text
   binding: test-quarantine@1.name
-- name: test
-  type: json
-  reference: code.test-case
-  binding: test-quarantine@1.test
-- name: task
-  type: text
-  reference: task
-  binding: test-quarantine@1.task
 - name: quarantine_reason
   type: text
   binding: test-quarantine@1.quarantine_reason
-- name: since
-  type: text
-  reference: code.commit
-  binding: test-quarantine@1.since
-- name: latest_result
-  type: json
-  nullable: true
-  binding: test-quarantine@1.latest_result
 key:
-- repository
 - path
 - name
 origin: code
 details:
-- test
-- task
 - quarantine_reason
-- since
-- latest_result
 labels:
   en:
     one: Test quarantine
@@ -66,3 +42,9 @@ description:
   ru: 'Карантин теста отмечает один тест, временно выведенный из обычного набора по причине: он нестабилен, слишком медленный или заведомо сломан. В записи названа задача исправления и, если известно, коммит, который внёс проблему.'
 derives-from:
 - code.file
+- code.test-case
+
+key-edges:
+- role: code.test-quarantine-repository
+  edge: code.test-quarantine-repository
+  side: from

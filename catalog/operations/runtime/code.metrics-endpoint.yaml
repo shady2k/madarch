@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - providesApi
+  - implements
   in:
   - providesApi
 template-policy: page
@@ -19,7 +20,42 @@ details:
 - ports
 - format
 - library
-- service
+fields:
+- name: path
+  type: path
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: method
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: ports
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
+  nullable: true
+  producers:
+  - operations
+- name: format
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: library
+  type: text
+  nullable: true
+  producers:
+  - operations
+key:
+- path
+derives-from:
+- code.route
+- code.service
 labels:
   en:
     one: Metrics endpoint
@@ -30,3 +66,8 @@ labels:
 description:
   en: A metrics endpoint exposes the service's current metric values in a form a collector can read, usually on an internal port. It is scraped at intervals, so each reading is a point in the service's history.
   ru: Выдача метрик открывает текущие значения метрик сервиса в виде, который может прочитать сборщик, обычно на внутреннем порту. Её опрашивают через промежутки, поэтому каждое чтение — точка в истории сервиса.
+
+key-edges:
+- role: code.metrics-endpoint-service
+  edge: code.metrics-endpoint-service
+  side: from

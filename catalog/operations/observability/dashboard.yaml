@@ -24,3 +24,5 @@ labels:
 description:
   en: A dashboard arranges panels around one subject — a service, a journey, a business measure — so its state is visible at a glance. It is read during incidents and reviewed to see trends.
   ru: Дашборд располагает панели вокруг одного предмета — сервиса, пути пользователя или бизнес-меры, — чтобы его состояние было видно с одного взгляда. На него смотрят во время инцидентов и возвращаются, чтобы увидеть тенденции.
+derives-from:
+- code.service

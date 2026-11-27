@@ -24,3 +24,6 @@ labels:
 description:
   en: A recipient is a person or an organisation outside the processing activity that receives personal data, such as a delivery service, a bank or a public body. The record says what is shared and on which legal ground.
   ru: 'Получатель — человек или организация вне действия обработки, которым передают персональные данные: служба доставки, банк или государственный орган. В записи сказано, что именно передают и на каком правовом основании.'
+derives-from:
+- organization
+- processing-activity

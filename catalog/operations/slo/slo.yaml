@@ -24,3 +24,5 @@ labels:
 description:
   en: A service level objective sets the value an indicator should reach over a period, such as 99.9 percent of requests answered within a second in a month. The gap between the target and the ideal is the error budget.
   ru: 'SLO задаёт значение, которого показатель должен достичь за период: например, 99,9 процента запросов, отвеченных за секунду, за месяц. Разница между целью и идеалом и есть бюджет ошибок.'
+derives-from:
+- sli

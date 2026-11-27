@@ -19,8 +19,8 @@ export const SCALAR_NAMES: Readonly<Record<'text' | 'integer' | 'bigint' | 'bool
 };
 
 /** Field names the mechanism owns on every entity, and the suffixes it owns for its own fields. */
-export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'opinions', 'contested', 'backlinks'];
-export const RESERVED_FIELD_SUFFIXES: readonly string[] = ['Of', 'Aggregate', 'Opinions'];
+export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'assertions', 'contested', 'backlinks'];
+export const RESERVED_FIELD_SUFFIXES: readonly string[] = ['Of', 'Aggregate', 'Assertions'];
 
 /** The prefix every type generated for a kind carries: the engine's own types never begin with it (see above). */
 export const KIND_TYPE_PREFIX = 'Kind';
@@ -48,10 +48,25 @@ export function kindTypeNameOf(name: string): string {
   return `${KIND_TYPE_PREFIX}${typeNameOf(name)}`;
 }
 
+/** The kind the manifest gives the catalogue itself: its entries answer as the one `CatalogueEntity` type (f274f0305). */
+export const MANIFEST_KIND = 'manifest.kind';
+
+/** The type every catalogue entry answers as: the catalogue's own kind has no `Kind*` type of its own (decision 0036, section 1). */
+const CATALOGUE_ENTITY_TYPE = 'CatalogueEntity';
+
+/**
+ * The schema type a kind's entities answer as: the one place this rule lives. The catalogue's own kind (`manifest.kind`)
+ * answers as `CatalogueEntity`; every other kind as the type `kindTypeNameOf` names. A page that opens a kind and the
+ * schema that builds it ask this, so the two always name one type.
+ */
+export function entityTypeNameOf(kind: string): string {
+  return kind === MANIFEST_KIND ? CATALOGUE_ENTITY_TYPE : kindTypeNameOf(kind);
+}
+
 /**
  * The field name of a contract field or an edge kind: `commit_count` → `commitCount`, `code.contains` → `codeContains`.
- * A name the schema reserves — `id`, `kind`, `label`, `template`, `opinions`, `contested`, `backlinks`, a name starting
- * `__`, or one ending `Of`, `Aggregate`, `Opinions` (decision 0036, section 1) — is encoded rather than refused, so an
+ * A name the schema reserves — `id`, `kind`, `label`, `template`, `assertions`, `contested`, `backlinks`, a name starting
+ * `__`, or one ending `Of`, `Aggregate`, `Assertions` (decision 0036, section 1) — is encoded rather than refused, so an
  * existing product keeps opening: the reserved word takes the `Field` suffix (`id` → `idField`), and a name starting
  * `__` takes the `field` prefix (`__x` → `field__x`).
  */
@@ -94,7 +109,7 @@ export class NameRegistry {
     this.claim(this.fields, `${type}.${name}`, name, declaration, `field name of the type "${type}"`);
   }
 
-  /** A field the schema itself generates (`<field>Opinions`, `backlinks`), which no reserved suffix applies to. */
+  /** A field the schema itself generates (`<field>Assertions`, `backlinks`), which no reserved suffix applies to. */
   claimGeneratedField(type: string, name: string, declaration: string): void {
     this.claim(this.fields, `${type}.${name}`, name, declaration, `field name of the type "${type}"`);
   }

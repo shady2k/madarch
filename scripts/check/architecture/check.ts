@@ -82,7 +82,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   const rules = options.rules ?? ARCHITECTURE_RULES;
   const listPath = resolve(root, VIOLATION_LIST);
   const found: ArchitectureViolation[] = [];
-  if (rules.includes('graph-single-writer') || rules.includes('no-retired-surfaces') || rules.includes('sql-only-in-storage-layer')) {
+  if (rules.includes('graph-single-writer') || rules.includes('no-retired-surfaces') || rules.includes('read-no-judgements') || rules.includes('sql-only-in-storage-layer')) {
     const modules = moduleSet(root);
     found.push(...(await dependencyRuleViolations(root, rules, modules)));
   }
@@ -209,6 +209,8 @@ function describe(violation: ArchitectureViolation): string {
   switch (violation.rule) {
     case 'schema-preparation-only':
       return `${violation.file} reaches schema preparation (${violation.symbol}): only the store preparation boundary may change a schema, and runtime consumers may not import it`;
+    case 'read-no-judgements':
+      return `${violation.file} imports writer judgement code ${violation.symbol}: readers apply only the per-stream and newest rules of decision 0039 item 25; disputes and assertion selection belong to write time`;
     case 'graph-single-writer':
       return `${violation.file} imports the graph's publication API ${violation.symbol}, which only the graph store (src/graph) and the storage layer (src/adapters) may import — every other module drafts and has its draft published`;
     case 'graph-writes-in-writer':

@@ -24,3 +24,5 @@ labels:
 description:
   en: A sprint is a short, fixed period, usually one to four weeks, during which a team works on a chosen set of backlog items and finishes an increment. Its length stays the same, so the rhythm of planning, work and review is steady.
   ru: Спринт — короткий фиксированный период, обычно от одной до четырёх недель, за который команда выполняет выбранные элементы бэклога и завершает инкремент. Его длина не меняется, поэтому ритм планирования, работы и обзора остаётся ровным.
+derives-from:
+- task

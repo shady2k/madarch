@@ -9,12 +9,48 @@ acquisition:
 relation-constraints:
   out:
   - routesTo
+  - partOf
   in:
   - routesTo
+  - partOf
 template-policy: page
 source: graph
 details:
 - ports
+fields:
+- name: namespace
+  type: text
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: ports
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.k8s-service-ports:v1
+  nullable: true
+  producers:
+  - operations
+- name: selector
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-map:v1
+  nullable: true
+  producers:
+  - operations
+key:
+- namespace
+- name
+derives-from:
+- k8s-pod
+- product-profile
 labels:
   en:
     one: Kubernetes service
@@ -25,3 +61,7 @@ labels:
 description:
   en: A Kubernetes Service selects pods by their labels and gives them one address and port that other parts call, even as individual pods come and go. It balances the calls over the healthy pods behind it.
   ru: Сервис Kubernetes выбирает поды по меткам и даёт им один адрес и порт, к которым обращаются другие части, хотя отдельные поды появляются и исчезают. Он распределяет вызовы по здоровым подам за собой.
+applicability:
+  dependencies:
+  - kubernetes-cluster
+  markers: []

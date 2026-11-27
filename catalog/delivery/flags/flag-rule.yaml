@@ -24,3 +24,7 @@ labels:
 description:
   en: 'A flag rule says which callers receive a variant: for example, all users in a country, a share of accounts, or people on a named list. Rules are checked in order, and the first that matches decides.'
   ru: 'Правило флага говорит, какие вызывающие получат вариант: все пользователи страны, доля учётных записей или люди из названного списка. Правила проверяют по порядку, и решает первое подошедшее.'
+derives-from:
+- feature-flag
+- flag-evaluation-context
+- flag-variant

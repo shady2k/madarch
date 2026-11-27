@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
 import { i18n } from '../i18n.js';
 import { withSpan } from '../trace.js';
+import { graphRefusalMessage } from '../graph-refusal.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -19,9 +20,20 @@ export interface FillPlanField {
   readonly producers: readonly string[];
 }
 
+/** The graph's recorded applicability of a kind, including its direct ancestor when inherited. */
+export interface KindApplicability {
+  readonly kind: string;
+  readonly state: 'not-searched' | 'applicable' | 'empty' | 'failed' | 'inapplicable';
+  readonly reason: string;
+  readonly ancestor?: string;
+  readonly evidence: readonly string[];
+  readonly contested: boolean;
+}
+
 /** One selected kind's place in the plan. */
 export interface FillPlanKind {
   readonly kind: string;
+  readonly applicability: KindApplicability;
   readonly fields: readonly FillPlanField[];
   /** The fields an agent fills, alone or beside a producer it refines. */
   readonly agentFields: readonly string[];
@@ -62,8 +74,9 @@ export interface FillPlanView {
   readonly kinds: readonly FillPlanKind[];
   readonly needsAgent: readonly FillPlanNeed[];
   readonly errors: readonly FillPlanError[];
-  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string }[];
+  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string; readonly applicability?: KindApplicability }[];
   readonly pluginsOnly: boolean;
+  readonly emptyKinds: readonly { readonly kind: string; readonly state: 'no-producer-declared' }[];
 }
 
 /** One agent `GET /api/agents` offers, and the one saved for this product. */
@@ -422,6 +435,8 @@ export interface AgentExchangeView {
   readonly usage: {
     readonly inputTokens?: number;
     readonly outputTokens?: number;
+    readonly cachedWriteTokens?: number;
+    readonly cachedReadTokens?: number;
     readonly totalTokens?: number;
     readonly context?: { readonly used: number; readonly size: number };
     readonly turns: number;
@@ -451,7 +466,7 @@ export interface FillRunDetail {
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
-  readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
+  readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
   /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
   readonly agentExchanges?: readonly AgentExchangeView[];
   /** The run's trace as its run view states it: its wall time and the time each step took (madarch-64o5.88). */
@@ -478,6 +493,8 @@ export const offlineWords = (): string => i18n.t('connection.offline');
 function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
     const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
+    const refusal = graphRefusalMessage(held.error);
+    if (refusal !== undefined) return { message: refusal, code: 'SCHEMA_INVALID' };
     if (typeof held.error?.message === 'string') return { message: held.error.message, ...(typeof held.error.code === 'string' ? { code: held.error.code } : {}) };
     if (typeof held.message === 'string') return { message: held.message };
   }

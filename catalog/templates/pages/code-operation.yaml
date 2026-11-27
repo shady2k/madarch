@@ -10,7 +10,7 @@ sections:
     en: Details
     ru: Сведения
   query: |
-    repository
+    codeOperationContract(first: 1) { edges { node { node { id label } } } }
     path
     name
     contested
@@ -19,7 +19,7 @@ sections:
     - label:
         en: Repository
         ru: Репозиторий
-      path: repository
+      path: codeOperationContract.edges.0.node.node.label
     - label:
         en: Path
         ru: Путь
@@ -30,15 +30,14 @@ sections:
       path: name
 - id: source
   after: facts
-  component: source
-  title:
-    en: Source
-    ru: Исходный текст
+  component: relations
+  title: { en: Declared in, ru: Объявлено в }
   query: |
-    repository
-    path
+    related(edge: "code.operation-contract", first: 1) { relationLabel edges { node { id kind label } } totalCount }
   params:
-    path: .
+    path: related
+    edge: code.operation-contract
+    inverse: false
 - id: declared
   component: text
   title:

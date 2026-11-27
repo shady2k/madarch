@@ -24,3 +24,7 @@ labels:
 description:
   en: An AI risk describes a possible harm from an AI system — a wrong recommendation, discrimination, a privacy breach, a loss of control — and weighs how likely it is and how bad it would be. Risks are tracked until a measure reduces them or someone accepts them.
   ru: Риск ИИ описывает возможный вред от системы ИИ — неверную рекомендацию, дискриминацию, утечку личных данных, потерю контроля — и оценивает, насколько он вероятен и насколько тяжёл. Риски ведут, пока мера не уменьшит их или кто-то сознательно их не примет.
+derives-from:
+- ai-system
+- product-profile
+- stakeholder

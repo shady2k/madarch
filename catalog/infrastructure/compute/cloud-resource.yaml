@@ -13,6 +13,7 @@ relation-constraints:
   - dependsOn
   in:
   - dependsOn
+  - partOf
 template-policy: none
 labels:
   en:
@@ -24,3 +25,6 @@ labels:
 description:
   en: 'A cloud resource is one unit of capacity a cloud provider supplies to the product, named by the provider''s own type: an instance, a bucket, a load balancer, a managed queue. The product pays for it while it exists and depends on the provider''s rules for it.'
   ru: 'Облачный ресурс — единица мощности, которую облачный провайдер даёт продукту, под именем типа самого провайдера: виртуальная машина, бакет, балансировщик, управляемая очередь. Продукт платит за неё, пока она существует, и зависит от правил провайдера для неё.'
+derives-from:
+- deployment-node
+- product-profile

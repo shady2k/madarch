@@ -7,13 +7,46 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
+  - constrains
   in:
   - hasPart
-template-policy: none
+template-policy: member
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the machine gives the state, such as open or closed.
+- name: label
+  type: text
+  nullable: true
+  binding:
+    agent: The words a reader sees for the state, where they differ from its name.
+- name: initial
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the machine starts in this state.
+- name: final
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether this state ends the life the machine describes.
+key:
+- name
+derives-from:
+- state-machine
+member:
+  relation: partOf
+  direction: out
+  parentKind: state-machine
 labels:
   en:
     one: State
@@ -24,3 +57,8 @@ labels:
 description:
   en: A state is one of the situations a thing can be in for a period, such as unpaid, shipped or closed, and the conditions that hold while it is there. Staying in it, leaving it and what may happen during it are defined by the machine.
   ru: 'Состояние — одна из ситуаций, в которых вещь может находиться некоторое время: не оплачено, отправлено или закрыто, — и условия, которые в ней верны. Машина задаёт, как в него приходят, как из него выходят и что во время него может произойти.'
+
+key-edges:
+- role: state-belongs-to-machine
+  edge: state-belongs-to-machine
+  side: from

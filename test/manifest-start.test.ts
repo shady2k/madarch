@@ -110,6 +110,11 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     const bindBegin = records.find(r => r.phase === 'listener' && r.edge === 'begin')!;
     const bindEnd = records.find(r => r.phase === 'listener' && r.edge === 'terminal')!;
     const publication = records.find(r => r.phase === 'catalogue.publish' && r.edge === 'terminal')!;
+    // The listener, the catalogue transaction and the schema preparation write records only: a plain-text `startup ...`
+    // timing line, the kind S1 replaced with records, is what this guards against. A product message is not a timing
+    // line and is left alone (madarch-64o5.74).
+    const legacy = diagnostics.split('\n').filter(line => line.startsWith('startup '));
+    expect(legacy, 'the startup switch writes versioned records, not plain-text timing lines').toEqual([]);
     expect(validation.pid).toBe(bindBegin.pid);
     expect(BigInt(validation.ns)).toBeLessThanOrEqual(BigInt(bindBegin.ns));
     expect(BigInt(bindEnd.ns)).toBeLessThanOrEqual(BigInt(publication.ns));

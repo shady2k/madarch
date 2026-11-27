@@ -7,6 +7,8 @@
  * the record says why.
  */
 import { byCodePoint } from '../model/order.js';
+import { Value } from 'typebox/value';
+import { PluginEvidence, PluginUnitEnd } from './protocol.js';
 import type {
   PluginContractDeclaration,
   PluginEdgeKindDeclaration,
@@ -23,8 +25,13 @@ export function canonicalKey(key: PluginKeyValues): string {
   const fields = Object.keys(key).sort(byCodePoint);
   return JSON.stringify(Object.fromEntries(fields.map((field) => {
     const value = key[field];
-    return [field, typeof value === 'object' ? { kind: value.kind, key: JSON.parse(canonicalKey(value.key)) as unknown } : value];
+    return [field, value];
   })));
+}
+
+/** Scalar key plus declared parent roles form the producer identity. */
+export function canonicalEntity(ref: PluginEntityRef): string {
+  return JSON.stringify([ref.kind, canonicalKey(ref.key), Object.entries(ref.keyEdges ?? {}).sort(([a], [b]) => byCodePoint(a, b)).map(([role, parent]) => [role, canonicalEntity(parent)])]);
 }
 
 /** A refusal, with the place in the answer a person can point at. */
@@ -45,7 +52,7 @@ export interface ValidatedUnit {
   readonly removals: readonly PluginEntityRef[];
   /** The places the unit could not read, in path and line order: the answer's values stand beside them. */
   readonly problems: readonly PluginUnitProblem[];
-  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
+  readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string } | { readonly state: 'inapplicable'; readonly searched: string; readonly evidence: readonly import('./protocol.js').PluginEvidence[] };
   /** How many removals a partial unit carried and the host dropped. */
   readonly removalsDropped: number;
 }
@@ -94,19 +101,22 @@ function checkFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDe
   return undefined;
 }
 
-function checkReferences(contract: PluginContractDeclaration, declaration: PluginVertexKindDeclaration, key: PluginKeyValues, where: string): ResultCheck | undefined {
-  for (const field of declaration.key ?? []) {
-    const value = key[field];
-    const reference = declaration.fields?.find((held) => held.name === field)?.reference;
-    if (reference === undefined) {
-      if (typeof value === 'object') return refuse('malformed-result', `${where}.${field}`, 'a scalar key field cannot name a reference');
-      continue;
+function checkKeyEdges(contract: PluginContractDeclaration, declaration: PluginVertexKindDeclaration, ref: PluginEntityRef, where: string): ResultCheck | undefined {
+  const declared = declaration.keyEdges ?? [];
+  for (const name of Object.keys(ref.keyEdges ?? {})) if (!declared.some(edge => edge.role === name)) return refuse('undeclared-key-edge', `${where}.keyEdges.${name}`, 'the kind declares no parent role with this name');
+  for (const parent of declared) {
+    const target = ref.keyEdges?.[parent.role];
+    if (target === undefined) return refuse('missing-key-edge', `${where}.keyEdges.${parent.role}`, 'the required parent edge is missing');
+    const edge = edgeKind(contract, parent.edge);
+    if (edge !== undefined) {
+      const end = parent.direction === 'from' ? edge.to : edge.from;
+      const kinds = typeof end === 'string' ? [end] : end;
+      if (!kinds.includes(target.kind)) return refuse('undeclared-edge-end', `${where}.keyEdges.${parent.role}.kind`, `expected one of ${kinds.join(', ')}`);
     }
-    if (typeof value !== 'object' || value.kind !== reference) return refuse('malformed-result', `${where}.${field}`, `the key names ${reference} by {kind,key}`);
-    const target = vertexKind(contract, reference);
-    if (target !== undefined) {
-      if (!keyConforms(value.key, declaredKeyFields(target))) return refuse('undeclared-key-field', `${where}.${field}.key`, `the reference names the wrong key for ${reference}`);
-      const problem = checkReferences(contract, target, value.key, `${where}.${field}.key`);
+    const targetKind = vertexKind(contract, target.kind);
+    if (targetKind !== undefined) {
+      if (!keyConforms(target.key, declaredKeyFields(targetKind))) return refuse('undeclared-key-field', `${where}.keyEdges.${parent.role}.key`, 'the parent names the wrong scalar key');
+      const problem = checkKeyEdges(contract, targetKind, target, `${where}.keyEdges.${parent.role}`);
       if (problem !== undefined) return problem;
     }
   }
@@ -121,6 +131,17 @@ function checkReferences(contract: PluginContractDeclaration, declaration: Plugi
  * runs of the same plugin answer the same bytes.
  */
 export function validateUnitResult(contract: PluginContractDeclaration, result: { unitId: string; vertices?: readonly PluginVertexResult[]; edges?: readonly PluginEdgeResult[]; removals?: readonly PluginEntityRef[]; problems?: readonly PluginUnitProblem[]; end: ValidatedUnit['end'] }): ResultCheck {
+  if (!Value.Check(PluginUnitEnd, result.end)) return refuse('malformed-result', 'end', 'the unit end does not match the protocol');
+  if (result.end.state === 'inapplicable') {
+    if (result.end.searched.trim() === '') return refuse('malformed-result', 'end.searched', 'inapplicable requires what was searched');
+    for (const name of ['vertices', 'edges', 'removals', 'problems'] as const) {
+      if ((result[name]?.length ?? 0) > 0) return refuse('malformed-result', name, 'inapplicable requires a complete search with no instances, removals or unread places');
+    }
+    for (const [at, evidence] of result.end.evidence.entries()) {
+      if ((evidence.lineStart !== undefined || evidence.lineEnd !== undefined) && evidence.path === undefined) return refuse('malformed-evidence', `end.evidence[${String(at)}]`, 'evidence line spans require a path');
+      if (evidence.lineStart !== undefined && evidence.lineEnd !== undefined && evidence.lineEnd < evidence.lineStart) return refuse('malformed-evidence', `end.evidence[${String(at)}]`, 'evidence lineEnd precedes lineStart');
+    }
+  }
   const vertices: PluginVertexResult[] = [];
   const seenVertices = new Set<string>();
   for (const [at, vertex] of (result.vertices ?? []).entries()) {
@@ -133,11 +154,17 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     if (!keyConforms(vertex.key ?? {}, fields)) {
       return refuse('undeclared-key-field', `${where}.key`, `the kind "${vertex.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(vertex.key).sort(byCodePoint).join(', ')}`);
     }
-    const referenceProblem = checkReferences(contract, declaration, vertex.key, `${where}.key`);
-    if (referenceProblem !== undefined) return referenceProblem;
+    const parentProblem = checkKeyEdges(contract, declaration, vertex, where);
+    if (parentProblem !== undefined) return parentProblem;
     const fieldProblem = checkFields(declaration, vertex, where);
     if (fieldProblem !== undefined) return fieldProblem;
-    const identity = `${vertex.kind}\u0000${canonicalKey(vertex.key ?? {})}`;
+    if (vertex.evidence !== undefined) {
+      const evidence = vertex.evidence;
+      if (!Value.Check(PluginEvidence, evidence)) return refuse('malformed-evidence', `${where}.evidence`, 'evidence requires an actual entity target, with no repository alias');
+      if ((evidence.lineStart !== undefined || evidence.lineEnd !== undefined) && evidence.path === undefined) return refuse('malformed-evidence', `${where}.evidence`, 'evidence line spans require a path');
+      if (evidence.lineStart !== undefined && evidence.lineEnd !== undefined && evidence.lineEnd < evidence.lineStart) return refuse('malformed-evidence', `${where}.evidence`, 'evidence lineEnd precedes lineStart');
+    }
+    const identity = canonicalEntity(vertex);
     if (seenVertices.has(identity)) return refuse('duplicate-vertex', where, `the kind "${vertex.kind}" with key ${canonicalKey(vertex.key ?? {})} stands twice in one answer`);
     seenVertices.add(identity);
     vertices.push(vertex);
@@ -159,22 +186,22 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       const endDeclaration = vertexKind(contract, named.kind);
       // An end the plugin does not produce names an entity the product's own declarations make — a table declared in
       // a file, a file a table is read from. The plugin states its kind and key, and the graph's writer resolves the
-      // entity and records the reference when the graph holds none: its key is not the plugin's to declare.
+      // entity and refuses a missing endpoint: its key is not the plugin's to declare.
       if (endDeclaration === undefined) {
         const held = named.key ?? {};
         if (Object.keys(held).length === 0) return refuse('undeclared-key-field', `${where}.${end}.key`, `the end of the edge kind "${edge.kind}" names the kind "${named.kind}" with no key: every end names the key of the entity it stands for`);
         continue;
       }
+      const parentProblem = checkKeyEdges(contract, endDeclaration, named, `${where}.${end}`);
+      if (parentProblem !== undefined) return parentProblem;
       const fields = declaredKeyFields(endDeclaration);
       if (!keyConforms(named.key ?? {}, fields)) {
         return refuse('undeclared-key-field', `${where}.${end}.key`, `the kind "${named.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(named.key).sort(byCodePoint).join(', ')}`);
       }
-      const referenceProblem = checkReferences(contract, endDeclaration, named.key, `${where}.${end}.key`);
-      if (referenceProblem !== undefined) return referenceProblem;
     }
     const fieldProblem = checkFields(declaration, edge, where);
     if (fieldProblem !== undefined) return fieldProblem;
-    const identity = `${edge.kind}\u0000${edge.from.kind}\u0000${canonicalKey(edge.from.key)}\u0000${edge.to.kind}\u0000${canonicalKey(edge.to.key)}\u0000${edge.discriminator ?? ''}`;
+    const identity = JSON.stringify([edge.kind, canonicalEntity(edge.from), canonicalEntity(edge.to), edge.discriminator ?? '']);
     if (seenEdges.has(identity)) return refuse('duplicate-edge', where, `the edge kind "${edge.kind}" between ${canonicalKey(edge.from.key)} and ${canonicalKey(edge.to.key)} stands twice in one answer`);
     seenEdges.add(identity);
     edges.push(edge);
@@ -189,16 +216,16 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     }
     const declaration = vertexKind(contract, removal.kind)!;
     if (!keyConforms(removal.key, declaredKeyFields(declaration))) return refuse('undeclared-key-field', `${where}.key`, 'the removal names the wrong key');
-    const referenceProblem = checkReferences(contract, declaration, removal.key, `${where}.key`);
-    if (referenceProblem !== undefined) return referenceProblem;
-    const identity = `${removal.kind}\u0000${canonicalKey(removal.key ?? {})}`;
+    const parentProblem = checkKeyEdges(contract, declaration, removal, where);
+    if (parentProblem !== undefined) return parentProblem;
+    const identity = canonicalEntity(removal);
     if (seenRemovals.has(identity)) return refuse('duplicate-removal', where, `the kind "${removal.kind}" with key ${canonicalKey(removal.key)} is removed twice in one answer`);
     seenRemovals.add(identity);
     removals.push(removal);
   }
   const problems = [...(result.problems ?? [])].sort((left, right) => byCodePoint(left.repository ?? '', right.repository ?? '') || byCodePoint(left.path, right.path) || left.line - right.line || (left.column ?? 0) - (right.column ?? 0));
-  vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key), canonicalKey(right.key)));
-  edges.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.from.key), canonicalKey(right.from.key)) || byCodePoint(canonicalKey(left.to.key), canonicalKey(right.to.key)) || byCodePoint(left.discriminator ?? '', right.discriminator ?? ''));
+  vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalEntity(left), canonicalEntity(right)));
+  edges.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalEntity(left.from), canonicalEntity(right.from)) || byCodePoint(canonicalEntity(left.to), canonicalEntity(right.to)) || byCodePoint(left.discriminator ?? '', right.discriminator ?? ''));
   removals.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key ?? {}), canonicalKey(right.key ?? {})));
   return {
     ok: true,

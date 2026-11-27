@@ -5,14 +5,33 @@ definition: An SQL build is a function that assembles SQL text from strings and 
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - generates
+  - partOf
   in:
-  - generates
+  - partOf
 template-policy: page
 source: graph
+fields:
+- name: path
+  type: path
+  binding:
+    agent: The path of the file that declares the function.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the function.
+key:
+- path
+- name
+derives-from:
+- code.file
 labels:
   en:
     one: SQL build
@@ -23,3 +42,8 @@ labels:
 description:
   en: An SQL build is code that puts SQL text together at run time from fixed pieces and values. If an outside value reaches the text without being passed as a parameter, the statement can be made to do something unintended.
   ru: Сборка SQL — код, который составляет текст SQL во время работы из постоянных частей и значений. Если внешнее значение попадает в текст, не будучи переданным параметром, выражению можно придать нежелательное действие.
+
+key-edges:
+- role: code.sql-build-repository
+  edge: code.sql-build-repository
+  side: from

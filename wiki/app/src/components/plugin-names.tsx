@@ -1,6 +1,7 @@
 
 /** A plugin's name for a reader: its declaration's label in the reader's language, else its id in code style. */
 import { Fragment, type ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { InlineCode } from './ui/inline-content.js';
 import { Text } from './ui/typography.js';
 import type { FillPlanView } from './command.js';
@@ -10,6 +11,7 @@ export function PluginNames({ names, plan, language }: {
   readonly plan: FillPlanView | undefined;
   readonly language: string;
 }): ReactElement {
+  const { t } = useTranslation();
   return (
     <>
       {names.map((name, at) => {
@@ -17,7 +19,7 @@ export function PluginNames({ names, plan, language }: {
         const label = labels?.[language] ?? labels?.['en'];
         return (
           <Fragment key={name}>
-            {at > 0 ? <Text>, </Text> : null}
+            {at > 0 ? <Text>{t('common.listSeparator')}</Text> : null}
             {label === undefined || label === '' ? <InlineCode>{name}</InlineCode> : <Text>{label}</Text>}
           </Fragment>
         );

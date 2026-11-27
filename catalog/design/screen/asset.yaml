@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An asset is a media file the interface uses: a picture, an icon, a font, a video or a sound. Its size and format matter because the person''s device must download it.'
   ru: 'Медиафайл — файл, который использует интерфейс: изображение, значок, шрифт, видео или звук. Его размер и формат важны, потому что устройство человека должно его скачать.'
+derives-from:
+- code.file
+- screen
