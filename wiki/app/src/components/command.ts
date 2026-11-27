@@ -468,6 +468,16 @@ export interface FillRunEntityCount {
   readonly updated: number;
 }
 
+/**
+ * What a run itself wrote of one kind, in distinct entities (madarch-stm0.12): a vertex two producers both asserted is one
+ * entity of the run, so the page's own total counts it once where the producer breakdown names it under each of them.
+ */
+export interface FillRunEntityKindTotal {
+  readonly kind: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
 /** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
@@ -491,6 +501,11 @@ export interface FillRunDetail {
   /** What each producer answered, and what the run wrote in entities: read for the run's own page, absent in a listing. */
   readonly outcomes?: readonly FillRunOutcome[];
   readonly entities?: readonly FillRunEntityCount[];
+  /**
+   * The distinct entities the run wrote of each kind (madarch-stm0.12): its own total, which is not the sum of `entities`
+   * because a vertex two producers asserted stands in both of their rows.
+   */
+  readonly entityTotals?: readonly FillRunEntityKindTotal[];
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
   /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
   readonly agentExchanges?: readonly AgentExchangeView[];
