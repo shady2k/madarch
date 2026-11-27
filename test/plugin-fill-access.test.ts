@@ -236,15 +236,23 @@ test('an inherited run resolves only its declared completed unit membership', as
 },30_000);
 
 
-test('reconciliation reads only selected own facts and selected fields', async () => {
+test('reconciliation reads only selected own facts, fields and subject sequences', async () => {
   const access = pluginInvocationAccess({
     files: async () => [], value: async () => null,
     ownFacts: async () => ({ vertices: [
       { kind: 'A', key: { id: 'a' }, values: { text: 'selected', secret: 'other field' } },
       { kind: 'B', key: { id: 'b' }, values: { text: 'other output' } },
-    ], edges: [{ kind: 'other-edge', from: { kind: 'A', key: { id: 'a' } }, to: { kind: 'B', key: { id: 'b' } } }] }),
-  }, { location: '/product/plugin.json:7', plugin: 'multi', output: 'A', reads: [], fields: ['text'], fileKind: 'File', edges: [] });
-  expect(await access.graph.ownFacts!({ unitId: 'u1', scope: {} })).toEqual({ vertices: [{ kind: 'A', key: { id: 'a' }, values: { text: 'selected' } }], edges: [] });
+    ], edges: [{ kind: 'other-edge', from: { kind: 'A', key: { id: 'a' } }, to: { kind: 'B', key: { id: 'b' } } }],
+      revisions: [
+        { subject: { sort: 'vertex' as const, kind: 'A', key: { id: 'a' } }, recordedSequence: '7' },
+        { subject: { sort: 'vertex' as const, kind: 'B', key: { id: 'b' } }, recordedSequence: '8' },
+        { subject: { sort: 'edge' as const, kind: 'own-edge', from: { kind: 'A', key: { id: 'a' } }, to: { kind: 'B', key: { id: 'b' } } }, recordedSequence: '9' },
+      ] }),
+  }, { location: '/product/plugin.json:7', plugin: 'multi', output: 'A', reads: [], fields: ['text'], fileKind: 'File', edges: ['own-edge'] });
+  expect(await access.graph.ownFacts!({ unitId: 'u1', scope: {} })).toEqual({ vertices: [{ kind: 'A', key: { id: 'a' }, values: { text: 'selected' } }], edges: [], revisions: [
+    { subject: { sort: 'vertex', kind: 'A', key: { id: 'a' } }, recordedSequence: '7' },
+    { subject: { sort: 'edge', kind: 'own-edge', from: { kind: 'A', key: { id: 'a' } }, to: { kind: 'B', key: { id: 'b' } } }, recordedSequence: '9' },
+  ] });
 });
 
 test('reconciliation removals cannot target an unselected output', () => {

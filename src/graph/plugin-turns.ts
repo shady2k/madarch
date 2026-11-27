@@ -42,8 +42,24 @@ export async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind
   return { kind, key: row.key, uid: row.uid, ...(Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
 }
 
+/**
+ * One edge row a key-edge read returns: the ends the graph holds, whether the read takes active assertions or stored rows.
+ */
+type KeyEdgeRow = { readonly from?: number; readonly to?: number };
+
+/**
+ * The key-edge rows the graph holds, retracted ones included: a retired child's key edge is retracted with it, and a
+ * read of stored identity still names its parent. Key-edge kinds are identity structure, so their tables are small.
+ */
+async function storedKeyEdges(tx: SqlExecutor, names: readonly string[]): Promise<KeyEdgeRow[][]> {
+  return await withSpan('graph.plugin-turns.storedKeyEdges', { 'db.system': 'postgres' }, async () => {
+    const rows = (await tx.query<{ kind: string; from: number; to: number }>('SELECT k.name AS kind,e.from_node AS "from",e.to_node AS "to" FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=ANY($1::text[])', [names])).rows;
+    return names.map(name => rows.filter(row => row.kind === name));
+  });
+}
+
 /** Batch the same effective key-edge reads as referenceOf, once per reachable kind. */
-export async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[], selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
+export async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[], selector: { readonly validAt?: string; readonly recordedAt?: string } = {}, options: { readonly stored?: boolean } = {}): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
   return await withSpan('graph.plugin-turns.referencesOf', {}, async () => {
     if (ids.length === 0) return new Map();
     const kinds = new Set<string>();
@@ -59,12 +75,12 @@ export async function referencesOf(tx: SqlExecutor, contract: GraphContract, kin
     };
     visit(kind);
     const names = [...edgeKinds];
-    const batches = names.length === 0 ? [] : await readKindsAssertions(tx, names.map(name => ({ sort: 'edge', kind: name, fields: [] })), { ...selector, contract });
-    const edges = new Map(names.map((name, index) => [name, batches[index]!]));
+    const batches = names.length === 0 ? [] : options.stored === true ? await storedKeyEdges(tx, names) : await readKindsAssertions(tx, names.map(name => ({ sort: 'edge', kind: name, fields: [] })), { ...selector, contract });
+    const edges = new Map<string, readonly KeyEdgeRow[]>(names.map((name, index) => [name, batches[index]!]));
     const nodeIds = [...new Set([...ids, ...batches.flatMap(rows => rows.flatMap(row => [row.from!, row.to!]))])];
     const nodes = (await tx.query<{ id: number; uid: string; kind: string; key: Record<string, import('./contract.js').KeyValueDraft> }>(`SELECT n.id,n.uid::text,n.key,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])`, [nodeIds])).rows;
     const byId = new Map(nodes.map(node => [Number(node.id), node]));
-    const byEndpoint = new Map<string, import('./records.js').AssertionRecord[]>();
+    const byEndpoint = new Map<string, KeyEdgeRow[]>();
     for (const [name, rows] of edges) for (const row of rows) for (const side of ['from', 'to'] as const) {
       const key = `${name}:${side}:${row[side]}`;
       const held = byEndpoint.get(key);

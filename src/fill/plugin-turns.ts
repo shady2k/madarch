@@ -48,6 +48,7 @@ import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
 import { startAgentGraphMcp } from './agent-graph.js';
 import { UnitBoundStop } from './unit-bound.js';
 import type { PluginContractDeclaration } from '../plugin/protocol.js';
+import type { OperationPrecondition } from '../graph/operation-host.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
 export type GraphOwner = Parameters<typeof producerEntities>[0];
@@ -56,7 +57,7 @@ export type GraphOwner = Parameters<typeof producerEntities>[0];
 export interface PluginTurnWiring {
   readonly sourceUid?: string;
   /** The runtime binds run, unit and principal; producers cannot choose authority. */
-  readonly executeOperation?: <Result>(unit: string, key: string, request: unknown, apply: (tx: import('../history-types.js').OuterTransaction) => Promise<Result>, preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]) => Promise<Result>;
+  readonly executeOperation?: <Result>(unit: string, key: string, request: unknown, apply: (tx: import('../history-types.js').OuterTransaction) => Promise<Result>, preconditions?: readonly OperationPrecondition[]) => Promise<Result>;
   /** Host-owned adapter configuration, present only for a pressed agent fill. */
   readonly agent?: PluginAgentOptions;
   readonly productFolder: string;
@@ -557,6 +558,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const scoped = {
         vertices: facts.vertices.filter((vertex) => inScope(vertex, vertex.evidence, vertex.kind === unit.kind.name && supportKeys.has(canonicalEntity(vertex)))),
         edges,
+        // Every subject the read covered keeps its stream position, whether the fact stands or was retracted, and the
+        // answer states which subjects those are: the reconcile batch a later read decides claims absence only for them
+        // (0039 item 24). Support vertices of other kinds are never covered by this answer, so a batch claims nothing
+        // about them.
+        revisions: facts.revisions,
+        coverage: facts.coverage,
       };
       priorFactCount = scoped.vertices.length + scoped.edges.length;
       return scoped;

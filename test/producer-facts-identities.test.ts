@@ -61,7 +61,8 @@ test('mixed reconciliation kinds share one structural identity statement and ret
     };
     const facts = await producerFacts(observed, contract, TEST_SOURCE_UID,
       ['fixture.group', 'fixture.empty', 'fixture.item'], ['fixture.member', 'fixture.empty-link', 'fixture.link']);
-    expect(facts).toEqual({
+    const { revisions, coverage: _coverage, ...held } = facts;
+    expect(held).toEqual({
       vertices: [
         { ...ref('fixture.group', 'group'), values: { text: 'group value' } },
         ...itemNames.map(name => ({ ...ref('fixture.item', name), values: { text: name === 'earlier' ? 'first' : 'second' } })),
@@ -70,6 +71,16 @@ test('mixed reconciliation kinds share one structural identity statement and ret
         from: ref('fixture.item', 'earlier'), to: ref('fixture.group', 'group'), discriminator: kind, values: { text: kind },
       })),
     });
+    // Every subject of the covered kinds carries its stream position; the answer names them in one deterministic order.
+    const ordered = (subjects: readonly unknown[]) => subjects.map(subject => JSON.stringify(subject)).sort();
+    expect(ordered(revisions.map(revision => revision.subject))).toEqual(ordered([
+      { sort: 'edge', kind: 'fixture.link', from: ref('fixture.item', 'earlier'), to: ref('fixture.group', 'group'), discriminator: 'fixture.link' },
+      { sort: 'edge', kind: 'fixture.member', from: ref('fixture.item', 'earlier'), to: ref('fixture.group', 'group'), discriminator: 'fixture.member' },
+      { sort: 'vertex', ...ref('fixture.group', 'group') },
+      { sort: 'vertex', ...ref('fixture.item', 'earlier') },
+      { sort: 'vertex', ...ref('fixture.item', 'later') },
+    ]));
+    expect(revisions.every(revision => /^[0-9]+$/u.test(revision.recordedSequence))).toBe(true);
     expect(identityStatements).toHaveLength(1);
   } finally { await owner.close(); }
 }, 30_000);

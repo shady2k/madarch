@@ -198,7 +198,7 @@ export interface StageContext {
   readonly completeOutcome?: (outcome:import('./producer-outcomes.js').ProducerOutcomeDraft)=>void;
   readonly operationSourceUid?: string;
   readonly operationUnitUid?: string;
-  readonly executeOperation?: <Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>Promise<Result>;
+  readonly executeOperation?: <Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly import('../graph/operation-host.js').OperationPrecondition[])=>Promise<Result>;
   /** The run owning this attempt; omitted only by standalone stage callers. */
   readonly runId?: string;
   /** The unit being run. */

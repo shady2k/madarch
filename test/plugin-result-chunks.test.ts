@@ -106,7 +106,7 @@ test('completion cannot overtake an unanswered atomic operation',async()=>{
 },15_000);
 
 test('operation keys and revision preconditions reach trusted admission unchanged',async()=>{
-  const preconditions=[{uid:'01934a22-0000-7000-8000-000000000001',recordedSequence:'42'}];
+  const preconditions=[{subject:{sort:'vertex',kind:'item',key:{id:'one'}},recordedSequence:'42'}];
   const operation={vertices:[]};
   const {outcome,calls}=await operationRun({count:0,script:`await context.facts.apply('stable-item',${JSON.stringify(operation)},{preconditions:${JSON.stringify(preconditions)},contractVersion:'pinned-v1'});`});
   expect(outcome.state).toBe('extracted');

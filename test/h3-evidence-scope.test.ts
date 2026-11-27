@@ -52,7 +52,7 @@ test('N7 declared same-source evidence pins expand only in-scope facts, without 
     const expanded = await read({ ...scope, supportKeys: true });
     expect(expanded.vertices.map(v => v.key.id).sort()).toEqual(['edge-pin', 'forward', 'other', 'pin', 'selected']);
     expect(queries - baseline).toBeLessThanOrEqual(1);
-    expect(await read({ ...scope, supportKeys: true, paths: ['outside'] })).toEqual({ vertices: [], edges: [] });
+    expect(await read({ ...scope, supportKeys: true, paths: ['outside'] })).toEqual({ vertices: [], edges: [], revisions: [], coverage: { vertices: { kind: 'Fixture.node', keys: [] }, edges: ['Fixture.link'] } });
     expect((await read({ ...scope, supportKeys: true, keys: [] })).vertices).toEqual([]);
   } finally { await owner.close(); }
 }, 30_000);
@@ -85,6 +85,9 @@ await definePlugin({ name:'reader', version:'1.0.0', contract:${JSON.stringify(o
 const facts = await context.graph.ownFacts(${JSON.stringify(scope)});
 const actual = facts.vertices.map(vertex => vertex.key.id).sort();
 if (JSON.stringify(actual) !== ${JSON.stringify(JSON.stringify(expected))}) throw new Error('wrong ownFacts '+JSON.stringify(facts));
+if (facts.coverage?.vertices?.kind !== 'Fixture.node') throw new Error('ownFacts states no coverage '+JSON.stringify(facts.coverage));
+const named = new Set((facts.revisions ?? []).flatMap(revision => revision.subject.sort === 'vertex' ? [revision.subject.key.id] : []));
+for (const vertex of facts.vertices) if (!named.has(vertex.key.id)) throw new Error('a returned subject carries no position '+vertex.key.id);
 return {partitions:[]};
 }, extract(){throw new Error('planning only');} });`);
       const closure = closureOf(folder);
