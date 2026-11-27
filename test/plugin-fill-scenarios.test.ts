@@ -1,10 +1,39 @@
 import { expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import type { StoredAssertion } from '../src/graph/assertion-read.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import type { ProgressSink } from '../src/fill/orchestrator.js';
 import { readProgress } from '../src/graph/fill-orchestration.js';
+import { edgeRowsIn } from '../src/graph/fill-state.js';
+import { readKindsAssertions } from '../src/graph/records.js';
 import { fixture, open } from './plugin-fill-scenario-fixture.js';
+
+async function expectOutputOperation(owner: DatabaseOwner, kind: string, assertion: StoredAssertion | undefined) {
+  if (!assertion?.unit) throw new Error(`${kind}.text has no published unit lineage`);
+  const { operationUid, author: authorUid, unit: unitUid } = assertion;
+  await owner.transaction('snapshot', async tx => {
+    const [[operation] = [], [plugin] = [], [unit] = []] = await readKindsAssertions(tx, [
+      { sort: 'vertex', kind: 'system.operation', fields: ['key'], subjectUids: [operationUid] },
+      { sort: 'vertex', kind: 'plugin', fields: ['label'], subjectUids: [authorUid] },
+      { sort: 'vertex', kind: 'system.unit', fields: ['unit_name'], subjectUids: [unitUid] },
+    ]);
+    expect(operation?.values.key).toEqual(expect.any(String));
+    expect(plugin?.values.label).toBe('scenarios');
+    expect(unit?.values.unit_name).toBe(`plugin-turns/scenarios:${kind}`);
+    const [authors, units] = await Promise.all([
+      edgeRowsIn(tx, 'system.operation-author', 'from', [operation!.id]),
+      edgeRowsIn(tx, 'system.operation-unit', 'from', [operation!.id]),
+    ]);
+    const [activeAuthors, activeUnits] = await readKindsAssertions(tx, [
+      { sort: 'edge', kind: 'system.operation-author', fields: [], subjectIds: authors.map(edge => edge.id) },
+      { sort: 'edge', kind: 'system.operation-unit', fields: [], subjectIds: units.map(edge => edge.id) },
+    ]);
+    expect(activeAuthors!.map(edge => edge.to)).toEqual([plugin!.id]);
+    expect(activeUnits!.map(edge => edge.to)).toEqual([unit!.id]);
+  });
+}
 
 test('one multi-output process reads X for A and Y for B without selecting the other branch', async () => {
   const f = fixture('multi'); const { owner, run, rows } = await open(f);
@@ -19,6 +48,10 @@ test('one multi-output process reads X for A and Y for B without selecting the o
     expect(await rows('B')).toEqual([expect.objectContaining({ text: 'authored Y' })]);
     const outcomes = await readProducerOutcomes(owner, { runId: 'only-b' });
     expect(outcomes.map(outcome => outcome.kind).sort()).toEqual(['B', 'Y']);
+    for (const kind of ['X', 'A', 'Y', 'B']) {
+      const [output] = await rows(kind);
+      await expectOutputOperation(owner, kind, output?.assertions.find(assertion => assertion.property === 'text'));
+    }
   } finally { await owner.close(); }
 }, 300_000);
 

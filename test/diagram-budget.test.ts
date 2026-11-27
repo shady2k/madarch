@@ -2,11 +2,13 @@
  * The depth-1 diagram's budget (the owner's words, 2026-11-14): the neighbourhood is read and counted in one statement,
  * folded before anything is laid out, and laid out in a process of its own. The fixture here is the shape a folder of
  * 1 324 children has: the folder, its parent, 34 child folders and 1 290 files, all but the parent folded into one node
- * per group. The measurement is collect (the fixture's own read), fold and layout.
+ * per group. What the fold produces is a value the blocking suite checks; what the fold and the layout cost is a
+ * wall-clock claim, and that case alone runs in the quarantine job (docs/quarantine.md, madarch-h9x5).
  */
 import { expect, test } from 'bun:test';
 import { diagramGraphOf, likec4PictureOf, type DiagramGraph } from '../src/render/diagram.js';
 import type { DiagramNeighbourhood } from '../src/graph/graphql-read.js';
+import { quarantined } from './quarantine.js';
 
 const entity = (uid: string, kind: string, label: string): never => ({ nodeId: uid, uid, kind, key: { path: label }, typeName: 'X', lang: 'ru' } as never);
 
@@ -30,25 +32,29 @@ function folderHood(): DiagramNeighbourhood {
   };
 }
 
-test('a folder of 1 324 children folds to four nodes, and fold and layout fit the budget', async () => {
+test('a folder of 1 324 children folds to four nodes', () => {
+  const graph = diagramGraphOf(folderHood(), 1, 12);
+  expect(graph.nodes.map((node) => node.label)).toEqual(['catalog', 'catalog', 'Папки · 34', 'Файлы · 1290'].sort());
+  // The folded nodes open the list of what they stand for, and only they carry a count.
+  for (const node of graph.nodes) if (node.count !== undefined) expect(node.href).toBeDefined();
+});
+
+// Quarantined for madarch-h9x5. Neither the 5 ms nor the 400 ms bound has a stated source — both arrived in 105a9f597 —
+// and a hosted ubuntu-24.04 runner measured 403.56 ms against the 400 ms bound in run 46076856429 with this fixture and
+// the layout code unchanged. The case keeps the fixture, both numbers and the warm layout measurement, and runs in the
+// allowed-to-fail `quarantine` job; docs/quarantine.md records what restores it. The fold's own result stays required,
+// in the case above.
+quarantined('madarch-h9x5', test, 'flaky', '105a9f5973a225cf5767dafe45899fef92bc21bb')('the fold and layout of a folder of 1 324 children fit the 5 ms and 400 ms budget', async () => {
   const hood = folderHood();
   const started = performance.now();
   const graph = diagramGraphOf(hood, 1, 12);
   const folded = performance.now() - started;
-  expect(graph.nodes.map((node) => node.label)).toEqual(['catalog', 'catalog', 'Папки · 34', 'Файлы · 1290'].sort());
-  // The folded nodes open the list of what they stand for, and only they carry a count.
-  for (const node of graph.nodes) if (node.count !== undefined) expect(node.href).toBeDefined();
   // The layout engine's own cost, measured warm: the first call reads its module graph.
   await likec4PictureOf(graph as DiagramGraph);
   const laid = performance.now();
   await likec4PictureOf(graph as DiagramGraph);
   const layout = performance.now() - laid;
   console.log(`diagram budget: fold ${folded.toFixed(1)} ms, layout ${layout.toFixed(0)} ms, nodes ${String(graph.nodes.length)}`);
-  // No user requirement was found for the 5 ms or the 400 ms bound: both arrived in commit 105a9f597 with no source.
-  // They are the GitHub ubuntu-24.04, 4 vCPU runner's shape, and MADARCH_SKIP_PERF drops them where that shape is not
-  // the machine under test; madarch-x9a7 settles their disposition.
-  if (process.env['MADARCH_SKIP_PERF'] === undefined) {
-    expect(folded).toBeLessThan(5);
-    expect(folded + layout).toBeLessThan(400);
-  }
+  expect(folded).toBeLessThan(5);
+  expect(folded + layout).toBeLessThan(400);
 }, 120_000);

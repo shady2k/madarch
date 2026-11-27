@@ -71,3 +71,10 @@ recorded here, because that is the fact a reader of the marker needs and the mar
   asked; the third case therefore runs in the allowed-to-fail `quarantine` job, and the required `slow file`
   job runs the two cases that remain. Restoring it means removing the wrapper and its import, and setting the
   `test/status-work.test.ts` row of the `slow-files` matrix in `.github/workflows/ci.yml` back to three cases.
+- `test/diagram-budget.test.ts`, *the fold and layout of a folder of 1 324 children fit the 5 ms and 400 ms budget* —
+  `flaky`, repair `madarch-h9x5`. Restored when the fold and the warm layout of the 1 324-child fixture stay inside
+  5 ms and 400 ms on the required runner. Neither bound has a stated source — both arrived in `105a9f597` with none —
+  and the hosted ubuntu-24.04 runner measured 403.56 ms against the 400 ms bound in run 46076856429 with the fixture
+  and the layout code unchanged; the case therefore runs in the allowed-to-fail `quarantine` job, and what the same
+  fixture folds to stays required in `test/diagram-budget.test.ts` beside it. Restoring it means removing the wrapper
+  and its import.
