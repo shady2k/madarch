@@ -13,7 +13,7 @@ import { reconcileDisputes } from '../src/graph/disputes.js';
 import { publicationReadSelector } from '../src/graph/publication-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
-test('operation linkage and receipt counters share one PostgreSQL admission round', async () => {
+test('an operation is stated with its links before its producer writes, and completed with the counter it raises', async () => {
   const owner = await createTestDatabaseOwner({ authenticated: false });
   const queue = await createPgBossQueue({ owner, supervise: false });
   const declaration = { name: 'publication-batch', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false };
@@ -25,7 +25,9 @@ test('operation linkage and receipt counters share one PostgreSQL admission roun
     const { binding, contract } = await owner.transaction('write', tx => startupBinding(tx, EMPTY_CONTRACT, 'fixture.publication'));
     const runUid = newUid(), unitUid = newUid();
     await owner.transaction('write', tx => initializeOperationScope(tx, contract, binding, runUid, unitUid));
-    const rounds: { kind: string; property: string }[][] = [];
+    const rounds: { applied: boolean; inputs: { kind: string; property: string }[] }[] = [];
+    const batches: { kind: string; property: string }[][] = [];
+    let applied = false;
     const observed: DatabaseOwner = {
       location: owner.location, ready: owner.ready, hasVector: owner.hasVector,
       allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
@@ -35,9 +37,10 @@ test('operation linkage and receipt counters share one PostgreSQL admission roun
           afterCommit: callback => tx.afterCommit?.(callback),
           query: async <Row extends object>(sql: string, values?: readonly unknown[]) => {
             // The stream read's input is the complete assertion plan of one admission.
+            if (sql.includes('INSERT INTO assertion') && typeof values?.[0] === 'string') batches.push(JSON.parse(values[0]) as { kind: string; property: string }[]);
             if (sql.includes('AS sort,wanted.subject::text AS subject') && typeof values?.[0] === 'string') {
               const inputs = JSON.parse(values[0]) as { kind: string; property: string }[];
-              if (inputs.some(input => input.kind === 'system.operation-unit' || input.kind === 'system.operation' && input.property === 'key')) rounds.push(inputs);
+              if (inputs.some(input => input.kind === 'system.operation-unit' || input.kind === 'system.operation' && input.property === 'key')) rounds.push({ applied, inputs });
             }
             return await tx.query<Row>(sql, values);
           },
@@ -46,27 +49,48 @@ test('operation linkage and receipt counters share one PostgreSQL admission roun
       }, options),
     };
     const host = createOperationHost({ owner: observed, queue, job: job!, contract, capability: binding, runUid, unitUid });
-    const request = { key: 'receipt', request: { input: 1 } };
+    const request = { key: 'receipt', request: { input: 1 }, completion: { output: { accepted: true }, enqueue: [], outcome: { kind: 'code.file', plugin: 'fixture', outcome: 'completed' as const, produced: 2 } } };
     let calls = 0;
-    expect(await host.execute(request, async () => { calls++; return { accepted: true }; })).toEqual({ accepted: true });
+    expect(await host.execute(request, async () => { calls++; applied = true; return { accepted: true }; })).toEqual({ accepted: true });
     expect(await host.execute<{ accepted: boolean }>(request, async () => { calls++; throw new Error('replay applied'); })).toEqual({ accepted: true });
     expect(calls).toBe(1);
     await owner.transaction('snapshot', async tx => {
       expect((await operationReceipt(tx, contract, unitUid, request.key))?.result).toBe('{"accepted":true}');
-      const units = await readKindAssertions(tx, 'vertex', 'system.unit', ['committed_operations', 'last_progress'], await publicationReadSelector(tx, contract));
-      expect(units.find(unit => unit.uid === unitUid)?.values).toMatchObject({ committed_operations: 1, last_progress: 'receipt' });
+      const units = await readKindAssertions(tx, 'vertex', 'system.unit', ['committed_operations', 'last_progress', 'outcome', 'produced_kind', 'produced'], await publicationReadSelector(tx, contract));
+      expect(units.find(unit => unit.uid === unitUid)?.values).toMatchObject({ committed_operations: 1, last_progress: 'receipt', outcome: 'completed', produced_kind: 'code.file', produced: 2 });
     });
     const disputes = async () => await owner.transaction('snapshot', async tx =>
       (await tx.query<{uid:string}>(`SELECT n.uid::text AS uid FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.dispute-question' ORDER BY n.uid::text COLLATE "C"`)).rows.map(row => row.uid));
     expect(await disputes()).toEqual([]);
     await owner.transaction('write', async tx => { bindWriteCapability(tx, binding); await reconcileDisputes(tx, contract); });
     expect(await disputes()).toEqual([]);
-    expect(rounds).toHaveLength(1);
-    expect(rounds[0]).toEqual(expect.arrayContaining([
+    // Two admissions name this operation, and the producer's own write falls between them. The first states the
+    // operation and both of its links, so a producer inside `apply` may name the operation it writes under; the
+    // second completes the receipt (key, canonical request, digest and result) and raises the unit's counter,
+    // which is read after `apply` because `apply` may state it. What the attempt made of the unit and how far
+    // the unit got are their own admissions beside these two.
+    expect(rounds.map(round => round.applied)).toEqual([false, true]);
+    expect(rounds[0]!.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'system.operation', property: '$exists' }),
       expect.objectContaining({ kind: 'system.operation-unit', property: '$exists' }),
       expect.objectContaining({ kind: 'system.operation-author', property: '$exists' }),
-      expect.objectContaining({ kind: 'system.operation', property: 'key' }),
-      expect.objectContaining({ kind: 'system.unit', property: 'committed_operations' }),
     ]));
+    expect(rounds[0]!.inputs.some(input => input.property === 'key')).toBe(false);
+    expect(rounds[1]!.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'system.operation', property: 'key' }),
+      expect.objectContaining({ kind: 'system.operation', property: 'canonical_request' }),
+      expect.objectContaining({ kind: 'system.operation', property: 'digest' }),
+      expect.objectContaining({ kind: 'system.operation', property: 'result' }),
+      expect.objectContaining({ kind: 'system.unit', property: 'committed_operations' }),
+      expect.objectContaining({ kind: 'system.unit', property: 'last_progress' }),
+    ]));
+    expect(rounds[1]!.inputs.some(input => input.kind === 'system.operation-unit' || input.kind === 'system.operation-author')).toBe(false);
+    // What the attempt made of the unit is one admission of its own, and the machine's own `state` another: the two
+    // fields are written under different authority, so no single admission may state both of them.
+    const producedBatch = batches.findIndex(batch => batch.some(input => input.property === 'produced_kind'));
+    const stateBatch = batches.findIndex(batch => batch.some(input => input.property === 'state'));
+    expect(producedBatch).toBeGreaterThanOrEqual(0);
+    expect(stateBatch).toBeGreaterThanOrEqual(0);
+    expect(producedBatch).not.toBe(stateBatch);
   } finally { await queue.stop(); await owner.close(); }
 }, 30000);

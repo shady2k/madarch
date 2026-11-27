@@ -186,10 +186,10 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     const operationUid=newUid();
     await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
     bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
-    await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
     const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
     if(!principal)throw new Error(`${WHERE}:120: TARGET_MISSING principal ${options.capability.principalUid}`);
-    await publishGraphDrafts(tx,options.contract,{vertices:[],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}]},context);
+    // The operation's own record and its two links enter as one admission, not a statement each.
+    await publishGraphDrafts(tx,options.contract,{vertices:[{kind:'system.operation',uid:operationUid,key:{},values:{},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion}]},context);
     if(apply){await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));}
     else {
       await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
@@ -226,6 +226,8 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         }
         if(!await options.queue.isActive(options.job,tx))throw new AttemptStaleError(`${WHERE}:84: ATTEMPT_STALE`);
         const preflight=await operationPreflight(tx,options);
+        // The states this operation may write are read as one batch, and only they: the counter it raises and the
+        // scope an outcome is cited from are read after `apply`, which may state both itself (madarch-64o5.176).
         const fields=await selectedFieldBatch(tx,[{kind:'system.run',id:preflight.runId??'0',properties:['state']},{kind:'system.unit',id:preflight.unitId??'0',properties:['state']}],context);
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
         const runState=fields[0]!.state,unitState=fields[1]!.state;
@@ -240,29 +242,38 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         const operationUid=newUid();
         await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
-        await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
         const principal=preflight.principalKind===null?undefined:{kind:preflight.principalKind};
         if(!principal)throw new Error(`${WHERE}:116: TARGET_MISSING principal ${options.capability.principalUid}`);
+        // The operation and its two links are stated before anything writes under it: a producer inside `apply`
+        // may name this operation (a mention of the operation it writes under) and the validator reads that
+        // target as active then, not only after the receipt arrives. One admission carries the three.
+        await publishGraphDrafts(tx,options.contract,{vertices:[
+          {kind:'system.operation',uid:operationUid,key:{},values:{},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
+        ],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
         const result=await apply(tx,{contract:options.contract,operationUid,unitUid:options.unitUid,binding:trusted(options.capability,operationUid,options.unitUid)});
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
         const canonicalResult = result === undefined ? undefined : canonicalJson(result);
-        const count=Number((await selectedFieldBatch(tx,[{kind:'system.unit',id:preflight.unitId!,properties:['committed_operations']}],context))[0]!.committed_operations??0);
+        // What `apply` stated is what the receipt completes: the raised counter and the scope an outcome is cited
+        // from are read now, both in one batch, so a producer's own write of either is accounted for.
+        const measured=(await selectedFieldBatch(tx,[{kind:'system.unit',id:preflight.unitId!,properties:['committed_operations','plan_scope','scope']}],context))[0]!;
+        const count=Number(measured.committed_operations??0);
+        const outcome=request.completion?.outcome;
         await publishGraphDrafts(tx,options.contract,{vertices:[
           {kind:'system.operation',uid:operationUid,key:{},values:{key:request.key,canonical_request:canonical,digest,...(canonicalResult === undefined ? {} : {result:canonicalResult})},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
           {kind:'system.unit',uid:options.unitUid,key:{},values:{committed_operations:count+1,last_progress:request.key},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},
-        ],removals:[],edges:[{kind:'system.operation-unit',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:'system.unit',uid:options.unitUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'},{kind:'system.operation-author',from:{kind:'system.operation',uid:operationUid,key:{}},to:{kind:principal.kind,uid:options.capability.principalUid,key:{}},producer:options.capability.sourceUid,producerVersion:options.capability.contractVersion??'system'}]},context);
+        ],removals:[]},context);
         await reconcileDisputes(tx,options.contract);
         if(request.completion){
           await withFillStateIn(tx,options.contract,{operationUid,unitUid:options.unitUid},async()=>{
             await set(tx,options.contract,'system.unit',options.unitUid,'state',request.completion!.unitState??'published',context);
           },context);
-          if(request.completion.outcome) {
-            const values = {produced_kind:request.completion.outcome.kind,producer:request.completion.outcome.plugin,outcome:request.completion.outcome.outcome,produced:request.completion.outcome.produced,...(request.completion.outcome.reason===undefined?{}:{reason:request.completion.outcome.reason}),...(request.completion.outcome.producerVersion===undefined?{}:{producer_version:request.completion.outcome.producerVersion})};
-            const subjectId = preflight.unitId!;
-            const inputs = Object.entries(values).map(([property,value]) => ({sort:'vertex' as const,kind:'system.unit',subjectId,property,operation:'assert' as const,value}));
+          if(outcome) {
+            // What the attempt made of the unit is one admission of its own: every field it states enters together,
+            // and the outcome's assertion is the evidence the applicability mark cites.
+            const values = {produced_kind:outcome.kind,producer:outcome.plugin,outcome:outcome.outcome,produced:outcome.produced,...(outcome.reason===undefined?{}:{reason:outcome.reason}),...(outcome.producerVersion===undefined?{}:{producer_version:outcome.producerVersion})};
+            const inputs = Object.entries(values).map(([property,value]) => ({sort:'vertex' as const,kind:'system.unit',subjectId:preflight.unitId!,property,operation:'assert' as const,value}));
             const assertionUids = await writeAssertions(tx,options.contract,inputs,context);
-            const scope = (await selectedFieldBatch(tx,[{kind:'system.unit',id:preflight.unitId!,properties:['plan_scope','scope']}],context))[0]!;
-            await assertOutcomeApplicability(tx,options.contract,request.completion.outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]] )).outcome!,String(scope.plan_scope ?? scope.scope ?? options.unitUid));
+            await assertOutcomeApplicability(tx,options.contract,outcome,Object.fromEntries(inputs.map((input,index)=>[input.property,assertionUids[index]])).outcome!,String(measured.plan_scope ?? measured.scope ?? options.unitUid));
           }
         }
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
