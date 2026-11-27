@@ -28,6 +28,13 @@ export interface AssertionRecordSelector {
   readonly recordedAt?: string;
   readonly contexts?: readonly number[];
   readonly contextRecordedThrough?: Readonly<Record<number, string | null>>;
+  /**
+   * Read as this statement sees the graph rather than as the transaction's start saw it: a
+   * writer's own rows are its writes' `clock_timestamp()`s, and a statement that begins after
+   * them stands after them, so a caller that has just written needs no clock round-trip of its
+   * own to read what it wrote (madarch-64o5.176).
+   */
+  readonly currentStatement?: boolean;
 }
 
 /** A batch reads identities once, then applies item 25 entirely in SQL. */
@@ -39,7 +46,8 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
     let contextParameter: string | undefined;
     const context = (): string => contextParameter ??= param(selector.contexts?.[0] ?? 1) + '::bigint';
-    const instant = (value: string | undefined): string => value === undefined ? 'transaction_timestamp()' : param(value) + '::timestamptz';
+    const currentInstant = (): string => selector.currentStatement === true ? 'statement_timestamp()' : 'transaction_timestamp()';
+    const instant = (value: string | undefined): string => value === undefined ? currentInstant() : param(value) + '::timestamptz';
     let validParameter: string | undefined;
     let recordedParameter: string | undefined;
     const valid = (): string => validParameter ??= instant(selector.validAt);
@@ -65,7 +73,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const suppliedIdentityExecutor: SqlExecutor = { query: async <Row extends object>(sql: string, parameters?: readonly unknown[]) => {
       const result = await tx.query<Row & { now: string | Date; anchored: boolean; id: string | null }>(`
         WITH page_snapshot AS MATERIALIZED (
-          SELECT ${selector.recordedAt === undefined ? 'transaction_timestamp()' : `$${(parameters?.length ?? 0) + 1}::timestamptz`} AS now,
+          SELECT ${selector.recordedAt === undefined ? currentInstant() : `$${(parameters?.length ?? 0) + 1}::timestamptz`} AS now,
             ${edgeKindPresentSql('system.dispute-anchor')} AS anchored
         ) SELECT assertions.*,page_snapshot.now,page_snapshot.anchored
           FROM page_snapshot LEFT JOIN LATERAL (${sql}) assertions ON TRUE
@@ -76,7 +84,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     const load = async (resolvedAssertionIds: readonly string[], executor: SqlExecutor = tx) => await loadAssertionsBatch(executor, requests.map((request,index) => ({ sort: request.sort, kind: request.kind, properties: [...new Set(['$exists', ...request.fields])], ...(request.repositoryKinds === undefined ? {} : { repositoryKinds: request.repositoryKinds }), subjectIds: identities[index]!.map(row => Number(row.id)), unprojectedProperties: selector.contract?.vertex.find(kind => kind.name === request.kind)?.key ?? [] })), { ...selector, projectMergedSubjects: hasMerges, resolvedAssertionIds });
     let loaded: StoredAssertion[][] | undefined;
     if (suppliedIdentities) loaded = await load([], suppliedIdentityExecutor);
-    const now = disputable && (!suppliedIdentities || snapshot?.anchored) ? new Date(snapshot?.now ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString() : undefined;
+    const now = disputable && (!suppliedIdentities || snapshot?.anchored) ? new Date(snapshot?.now ?? (await tx.query<{ now: string | Date }>(`SELECT ${currentInstant()} AS now`)).rows[0]!.now).toISOString() : undefined;
     const disputes = disputable && (!suppliedIdentities || snapshot?.anchored) ? await listDisputeSlots(tx, withAssertionContract(selector.contract!), { validAt: selector.validAt ?? now!, recordedAt: selector.recordedAt ?? now!, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) }) : [];
     const resolvedAssertionIds = disputes.flatMap(slot => slot.dispute.selectedAssertionUid === null ? [] : [slot.dispute.selectedAssertionUid]);
     const resolved = new Set(resolvedAssertionIds);

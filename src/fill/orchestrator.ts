@@ -1193,7 +1193,12 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
       // limits are counted and the step taken under one lock and a slot can never be given twice.
       await lockFillScope(executor,run.runId);
-      if ((await readRunIn(executor, run.runId))?.state !== 'running') return { admitted: false as const, why: 'run-state' as const };
+      // The pass's own snapshot is the store while its stamp stands under this lock: a pass answers
+      // its candidates' slots from what it read instead of reading the run and its every unit again
+      // in each candidate's transaction (madarch-64o5.176).
+      const unaffected = snapshot !== undefined && await lockRunSnapshotIn(executor, snapshot);
+      const currentRun = unaffected ? snapshot!.run : await readRunIn(executor, run.runId);
+      if (currentRun?.state !== 'running') return { admitted: false as const, why: 'run-state' as const };
       const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
       if (scheduling !== undefined) {
         for (const dependency of scheduling.after) {
@@ -1217,7 +1222,7 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
           if (state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
         }
       }
-      const states=await readRunUnitsIn(executor,run.runId);
+      const states=unaffected ? snapshot!.units : await readRunUnitsIn(executor,run.runId);
       if (scheduling !== undefined) {
         const stage = stageOf(orchestrator, unit.stageId);
         const groupInFlight = states.filter((row) => row.stageId === unit.stageId && (ADMITTED_STATES.includes(row.state) || row.state === 'retry_wait')
@@ -1333,7 +1338,8 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       let offeredEvent: FillProgressEvent | undefined;
       const offered = await writeOrchestration(database, async tx => {
         await lockFillScope(tx, run.runId);
-        const current = await readUnitIn(tx, unit.unitId);
+        const unaffected = snapshot !== undefined && await lockRunSnapshotIn(tx, snapshot);
+        const current = unaffected ? snapshot!.units.find(held => held.unitId === unit.unitId) : await readUnitIn(tx, unit.unitId);
         if (current?.state !== 'ready' || current.generation !== unit.generation) return { created: false };
         const offered = await orchestrator.queue.enqueue({ queue: orchestrator.queueName, data: { unitId: unit.unitId, generation: unit.generation }, singletonKey: unit.unitId, transaction: tx });
         if (offered.created) offeredEvent = await appendProgressIn(tx, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-requeued', summary: `${unit.unitId} stands ready and the queue held no unfinished job for it; the run offers it again` });

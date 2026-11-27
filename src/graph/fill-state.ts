@@ -11,7 +11,8 @@ import { withManifestContract } from './manifest-contract.js';
 import { startupBinding } from './manifest-publication.js';
 import { publishGraphDrafts, acquireGraphWriteLock, bindWriteCapability, boundWriteCapability, unbindWriteCapability, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
-import { readKindAssertions as readAssertions, type AssertionRecord } from './records.js';
+import { readKindAssertions as readAssertions, type AssertionRecord, type AssertionRecordSelector } from './records.js';
+import { transactionMemoryIn, type TransactionMemory } from './store-identity.js';
 import { byCodePoint } from '../model/order.js';
 import { here, raise, withLocation, type Refusal } from '../fill/fsm-core.js';
 import { CHAIN_STATES, RUN_STATES, UNIT_STATES, chainMachine, newChainContext, newRunContext, newUnitContext, runMachine, unitMachine } from '../fill/fsm.js';
@@ -75,18 +76,19 @@ const contract = withAssertionContract(withManifestContract(EMPTY_CONTRACT));
 type Identity = { readonly id: number; readonly uid: string; readonly key: Readonly<Record<string, unknown>>;
   /** An edge subject's own ends and discriminator, as its record holds them. */
   readonly from_node?: number; readonly to_node?: number; readonly discriminator?: string };
-/** A transaction must see assertions it just wrote after its transaction timestamp. */
+/**
+ * A transaction must see assertions it just wrote, which are recorded after its transaction
+ * timestamp: the statement reads at its own start, after every statement before it, and asks for
+ * no clock round-trip of its own (madarch-64o5.176).
+ */
+const ownWrites: AssertionRecordSelector = { currentStatement: true };
 async function readGraphRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], subjectUids?: readonly string[]): Promise<AssertionRecord[]> {
-  return await withSpan('graph.fill.records', {}, async () => {
-    const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-    return await readAssertions(tx,sort,kind,fields,{validAt:clock,recordedAt:clock,...(subjectUids===undefined?{}:{subjectUids})});
-  });
+  return await withSpan('graph.fill.records', {}, async () => await readAssertions(tx,sort,kind,fields,{...ownWrites,...(subjectUids===undefined?{}:{subjectUids})}));
 }
 /** The records of subjects already named, read without a pass over their kind. */
 export async function readRecordsIn(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], ids: readonly number[]): Promise<AssertionRecord[]> {
   if (ids.length === 0) return [];
   return await withSpan('graph.fill.records', {}, async () => {
-    const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
     const identities: Identity[] = [];
     if (sort === 'vertex') {
       const held = (await tx.query<{id:string;uid:string;key:Record<string,unknown>}>(`SELECT id::text AS id,uid::text AS uid,key FROM node WHERE id=ANY($1::bigint[])`, [ids])).rows;
@@ -96,7 +98,7 @@ export async function readRecordsIn(tx: SqlExecutor, sort: 'vertex' | 'edge', ki
       const held = (await tx.query<{id:string;uid:string;from_node:string;to_node:string;discriminator:string}>(`SELECT id::text AS id,uid::text AS uid,from_node::text AS from_node,to_node::text AS to_node,discriminator FROM edge WHERE id=ANY($1::bigint[])`, [ids])).rows;
       for (const row of held) identities.push({ id: Number(row.id), uid: row.uid, key: {}, from_node: Number(row.from_node), to_node: Number(row.to_node), discriminator: row.discriminator });
     }
-    return await readAssertions(tx,sort,kind,fields,{validAt:clock,recordedAt:clock,identities});
+    return await readAssertions(tx,sort,kind,fields,{...ownWrites,identities});
   });
 }
 /**
@@ -120,8 +122,7 @@ async function readNamedRecords(tx: SqlExecutor, kind: keyof typeof namedFields,
   return await withSpan('graph.fill.lookup', {}, async () => {
     const subjects = await readSubjectsByValueIn(tx, kind, field, value);
     if (subjects.length === 0) return [];
-    const clock = (await tx.query<{now:string}>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
-    return await readAssertions(tx, 'vertex', kind, namedFields[kind]!, { validAt: clock, recordedAt: clock, identities: subjects });
+    return await readAssertions(tx, 'vertex', kind, namedFields[kind]!, { ...ownWrites, identities: subjects });
   });
 }
 /** The node named by a uid, the first step of a read that starts from one node. */
@@ -151,8 +152,48 @@ const fields = {
   unit: ['unit_name', 'product_name', 'stage_name', 'scope', 'generation', 'state', 'inputs_digest', 'fence', 'attempt', 'retries_left', 'retry_at', 'replacement_generation', 'skipped_because', 'published_at', 'stale_at', 'updated_at',
     'produced_kind', 'producer', 'outcome', 'produced', 'reason', 'producer_version'],
 } as const;
+/**
+ * What a name states, remembered for as long as the store stands: a run's name, a chain's product
+ * and a unit generation name one vertex each, and once a lookup has found it or a write has made
+ * it, every later read in this process uses that identity instead of walking the name's value
+ * table to it again (madarch-64o5.176). A generation's replacement is written on the record the
+ * machine leaves behind, so a remembered generation that is no longer the one in force is seen in
+ * the record it reads rather than trusted; a start over replaces the schema, and the store's own
+ * token (store-identity.ts) empties what was remembered about it. What one transaction finds or
+ * makes is published with that transaction's commit, so a planning that rolled back leaves no
+ * generation behind to be answered as standing by the next one.
+ */
+interface NamedIdentity { readonly id: number; readonly uid: string; readonly generation?: number }
+/** The key a remembered identity is held under: one name, and for a unit its generation or the one it stands on. */
+const runName = (runId: string): string => `run\u0000${runId}`;
+const chainProduct = (product: string): string => `chain\u0000${product}`;
+const unitGeneration = (unitId: string, generation: number): string => `unit\u0000${unitId}\u0000${String(generation)}`;
+const unitCurrent = (unitId: string): string => `current\u0000${unitId}`;
+/** The states a replacement is opened from: a stale generation, and the ones a run may retry. */
+const REPLACEABLE_STATES: readonly string[] = [...RETRYABLE_UNIT_STATES, 'stale'];
+const rememberedIdentities = new WeakMap<DatabaseOwner, { readonly token: string; readonly value: Map<string, NamedIdentity> }>();
+const identityViews = new WeakMap<SqlExecutor, Promise<TransactionMemory<string, NamedIdentity> | undefined>>();
+/** This transaction's view of what the process remembers, staged until the transaction commits. */
+async function identitiesIn(tx: SqlExecutor): Promise<TransactionMemory<string, NamedIdentity> | undefined> {
+  let held = identityViews.get(tx);
+  if (held === undefined) {
+    held = transactionMemoryIn(tx, rememberedIdentities, () => new Map());
+    identityViews.set(tx, held);
+  }
+  return await held;
+}
 /** The field list of each kind a name is looked up in, keyed by the contract's kind name. */
-const namedFields: Readonly<Record<string, readonly string[]>> = { 'system.chain': fields.chain, 'system.run': fields.run, 'system.unit': fields.unit };
+const namedFields: Readonly<Record<'system.run' | 'system.unit' | 'system.chain', readonly string[]>> = { 'system.run': fields.run, 'system.unit': fields.unit, 'system.chain': fields.chain };
+/** The record the identity names now: its values are read, its identity is not looked up again. */
+async function recordOfIdentity(tx: SqlExecutor, kind: 'system.run' | 'system.unit' | 'system.chain', identity: NamedIdentity): Promise<AssertionRecord | undefined> {
+  return (await readRecordsIn(tx, 'vertex', kind, namedFields[kind], [identity.id]))[0];
+}
+/** Every generation the lookup found is an identity of its own; the name's current one is the row it answered with. */
+function rememberUnit(memory: TransactionMemory<string, NamedIdentity> | undefined, unitId: string, rows: readonly AssertionRecord[], current?: AssertionRecord): void {
+  if (memory === undefined) return;
+  for (const row of rows) memory.set(unitGeneration(unitId, number(row.values['generation'])), { id: row.id, uid: row.uid, generation: number(row.values['generation']) });
+  if (current !== undefined) memory.set(unitCurrent(unitId), { id: current.id, uid: current.uid, generation: number(current.values['generation']) });
+}
 const number = (value: unknown): number => Number(value);
 const optionalNumber = (value: unknown): number | null => value == null ? null : number(value);
 const text = (value: unknown): string => String(value);
@@ -209,10 +250,40 @@ export async function putFillVertexIn(tx: SqlExecutor, kind: string, uid: string
 async function rows(tx: SqlExecutor, kind: keyof typeof fields, subjectUids?: readonly string[]): Promise<AssertionRecord[]> { return await readGraphRecords(tx, 'vertex', `system.${kind}`, fields[kind],subjectUids); }
 /** The run a name states: value → assertions → subject, then the subject's current record (0039.25). */
 async function runNode(tx: SqlExecutor, runId: string): Promise<AssertionRecord | undefined> {
-  return (await readNamedRecords(tx, 'system.run', 'run_name', runId)).find(row => row.values['run_name'] === runId);
+  const remembered = await identitiesIn(tx);
+  const known = remembered?.get(runName(runId));
+  if (known !== undefined) {
+    const row = await recordOfIdentity(tx, 'system.run', known);
+    if (row !== undefined) return row;
+    remembered!.forget(runName(runId));
+  }
+  const found = (await readNamedRecords(tx, 'system.run', 'run_name', runId)).find(row => row.values['run_name'] === runId);
+  if (found !== undefined) remembered?.set(runName(runId), { id: found.id, uid: found.uid });
+  return found;
 }
 /** The unit a name (and optionally a generation) states, in the generation that is not replaced. */
 async function unitNode(tx: SqlExecutor, unitId: string, generation?: number): Promise<AssertionRecord | undefined> {
+  const remembered = await identitiesIn(tx);
+  if (generation !== undefined) {
+    // A generation names one vertex for its whole life: the replacement opens another generation, it never renames this one.
+    const known = remembered?.get(unitGeneration(unitId, generation));
+    if (known !== undefined) {
+      const row = await recordOfIdentity(tx, 'system.unit', known);
+      if (row !== undefined) return row;
+      remembered!.forget(unitGeneration(unitId, generation));
+    }
+  } else {
+    // Two things say whether the generation a name remembered is still the one in force. A replacement
+    // writes itself on the generation it replaced (`replacement_generation`), and it is opened only from
+    // a state a run gives up on: a generation standing anywhere else cannot have been replaced at all.
+    const known = remembered?.get(unitCurrent(unitId));
+    if (known !== undefined) {
+      const row = await recordOfIdentity(tx, 'system.unit', known);
+      if (row !== undefined && number(row.values['generation']) === known.generation && row.values['replacement_generation'] == null
+        && !REPLACEABLE_STATES.includes(String(row.values['state']))) return row;
+      remembered!.forget(unitCurrent(unitId));
+    }
+  }
   // The index finds every subject that ever stated the name; only a subject that states it now is that unit.
   const candidates = (await readNamedRecords(tx, 'system.unit', 'unit_name', unitId))
     .filter(row => row.values['unit_name'] === unitId)
@@ -223,6 +294,7 @@ async function unitNode(tx: SqlExecutor, unitId: string, generation?: number): P
     : new Set<number>();
   const current = candidates.filter(row => !replaced.has(row.id));
   if(current.length > 1) raise(`graph system.unit: ambiguous generation of ${unitId}`);
+  rememberUnit(remembered, unitId, candidates, generation === undefined ? current[0] : undefined);
   return current[0];
 }
 /** The run's own record, by its name: what a read that starts from a run begins with. */
@@ -237,14 +309,32 @@ export async function lockFillScope(tx: SqlExecutor, runId: string): Promise<voi
   });
 }
 /** Graph identities for host admission; descriptors never become graph identity keys. */
-export async function readRunGraphUidIn(tx: SqlExecutor, runId: string): Promise<string | undefined> { return (await runNode(tx, runId))?.uid; }
-export async function readUnitGraphUidIn(tx: SqlExecutor, unitId: string, generation?: number): Promise<string | undefined> { return (await unitNode(tx, unitId, generation))?.uid; }
+/** A run's graph identity: a run name names one vertex for its whole life, so a remembered one is the answer. */
+export async function readRunGraphUidIn(tx: SqlExecutor, runId: string): Promise<string | undefined> {
+  const known = (await identitiesIn(tx))?.get(runName(runId));
+  return known !== undefined ? known.uid : (await runNode(tx, runId))?.uid;
+}
+/** A named generation's graph identity, and for a bare name the generation the store names now. */
+export async function readUnitGraphUidIn(tx: SqlExecutor, unitId: string, generation?: number): Promise<string | undefined> {
+  // A generation names one vertex for its whole life: a remembered one is the answer. A bare name is
+  // answered by the lookup, which reads the record and so sees whether the name still stands on it.
+  if (generation !== undefined) {
+    const known = (await identitiesIn(tx))?.get(unitGeneration(unitId, generation));
+    if (known !== undefined) return known.uid;
+  }
+  return (await unitNode(tx, unitId, generation))?.uid;
+}
 function chainRecord(row: AssertionRecord, activeRunId: string | null): ChainRecord {
   return {product: text(row.values['product_name']), state: requireState(CHAIN_STATES, row.values['state'], 'system.chain', row.uid), context: {activeRunId}, updatedAt: number(row.values['updated_at'])};
 }
 async function readChainIn(tx: SqlExecutor, product: string): Promise<{node: AssertionRecord; record: ChainRecord} | null> {
-  const node = (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product);
+  const remembered = await identitiesIn(tx);
+  const known = remembered?.get(chainProduct(product));
+  const rememberedNode = known === undefined ? undefined : await recordOfIdentity(tx, 'system.chain', known);
+  if (known !== undefined && rememberedNode === undefined) remembered!.forget(chainProduct(product));
+  const node = rememberedNode ?? (await readNamedRecords(tx, 'system.chain', 'product_name', product)).find(row => row.values['product_name'] === product);
   if (!node) return null;
+  if (rememberedNode === undefined) remembered?.set(chainProduct(product), { id: node.id, uid: node.uid });
   // The chain's own edges: the run it follows, and the runs it has made.
   const active = await withSpan('graph.fill.activeRun', {}, async () => (await tx.query<{to_node:string}>(`SELECT e.to_node::text AS to_node FROM edge e JOIN entity k ON k.id=e.entity_id
     WHERE k.name='system.chain-active-run' AND e.from_node=$1::bigint AND graph_edge_active(e.id,k.name,1) ORDER BY e.id LIMIT 1`, [node.id])).rows[0]);
@@ -405,7 +495,8 @@ export async function createUnitIn(tx:SqlExecutor,options:UnitCreateOptions):Pro
   if(existing)return await unitRecord(tx,existing);
   const owner=await runNode(tx,options.runId);if(!owner)raise(`graph system.run: no run ${options.runId}`);
   const record:UnitRecord={unitId:options.unitId,product:options.product,runId:options.runId,stageId:options.stageId,scopeKey:options.scopeKey,generation:1,state:'planned',inputsDigest:options.inputsDigest,context:newUnitContext({generation:1,retries:options.retries}),publishedAt:null,staleAt:null,updatedAt:options.at};
-  const uid=newUid();await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid)],FILL_STORE_STEPS.createUnit,'(none)','planned','create',options.at,0);return record;
+  const uid=newUid();await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid)],FILL_STORE_STEPS.createUnit,'(none)','planned','create',options.at,0);
+  (await identitiesIn(tx))?.forget(unitCurrent(options.unitId));return record;
 }
 export async function readUnitIn(tx:SqlExecutor,unitId:string):Promise<UnitRecord|null>{const node=await unitNode(tx,unitId);return node?await unitRecord(tx,node):null;}
 export async function readUnitGenerationIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitRecord|null>{const node=await unitNode(tx,unitId,generation);return node?await unitRecord(tx,node):null;}
@@ -487,6 +578,8 @@ async function replaceIn(tx:SqlExecutor,options:ReplacementOptions,retry:boolean
   const record:UnitRecord={...current,runId:options.runId,generation,state:'planned',inputsDigest:options.inputsDigest,context:newUnitContext({generation,retries:options.retries,fence:current.context.fence}),publishedAt:null,staleAt:null,updatedAt:options.at};
   const uid=newUid(),transition=retry?FILL_STORE_STEPS.retryGeneration:FILL_STORE_STEPS.openGeneration;
   await putTransitionIn(tx,'unit',uid,unitValues(record),[fillEdge('system.unit-run','system.unit',uid,'system.run',owner.uid),fillEdge('system.unit-replacement','system.unit',node.uid,'system.unit',uid)],transition,current.state,'planned',retry?'retry-generation':'open-generation',options.at,record.context.fence);
+  // The name now stands on the generation this write opened: a remembered one would be the generation it replaced.
+  (await identitiesIn(tx))?.forget(unitCurrent(options.unitId));
   return {ok:true,record,transition,effects:[]} as const;
 }
 export async function replaceStaleGenerationIn(tx:SqlExecutor,options:ReplacementOptions):Promise<StoreStep<UnitRecord,UnitState>>{return await replaceIn(tx,options,false);}

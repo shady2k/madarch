@@ -133,6 +133,7 @@ export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'ed
 /** One statement reads independent typed requests without merging their field or subject boundaries. */
 export async function loadAssertionsBatch(executor: SqlExecutor, requests: readonly AssertionReadRequest[], selector?: AssertionSqlSelector): Promise<StoredAssertion[][]> {
   return await withSpan('graph.assertions.read', { 'madarch.requests': requests.length, 'graph.kinds': JSON.stringify(requests.map(request => request.kind)), 'graph.subject.counts': JSON.stringify(requests.map(request => request.subjectIds?.length ?? -1)) }, async span => {
+    const currentInstant = selector?.currentStatement === true ? 'statement_timestamp()' : 'transaction_timestamp()';
     const result: StoredAssertion[][] = requests.map(() => []);
     const parameters: unknown[] = [];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
@@ -157,7 +158,7 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const mergeExists = vertexKindPresentSql('system.merge');
       const projected = sort === 'vertex' && selector?.projectMergedSubjects;
       const mapped = projected
-        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${param(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? 'transaction_timestamp()' : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? 'transaction_timestamp()' : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
+        ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${param(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? currentInstant : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? currentInstant : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
       const repositoryStatements = repositoryKinds.map(edgeKind => {
         const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
         return `SELECT 0 AS request_index,e.id AS subject_id,e.id AS original_subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,

@@ -536,8 +536,10 @@ async function publicationState(owner: Parameters<typeof publishValidatedManifes
   });
 }
 
-for (const boundary of [2, 3]) {
-  test(`ALX-174 abort inside publication after ${boundary === 2 ? 'declarations' : 'page'}`, async () => {
+// The two phases a publication writes through: its declarations' vertices, and the page and mark that follow
+// them. The abort lands inside the transaction that wrote them, so what it leaves behind is the question.
+for (const boundary of ['declarations', 'page'] as const) {
+  test(`ALX-174 abort inside publication after ${boundary}`, async () => {
     const { folder, a, b, contract } = atomicFixture();
     const owner = await createTestDatabaseOwner({ graphContract: contract });
     try {
@@ -545,12 +547,16 @@ for (const boundary of [2, 3]) {
       const before = await publicationState(owner, a, contract);
       writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-id\nname: B\n');
       const controller = new AbortController();
-      let bindings = 0;
+      // The declarations' vertices are written by their own batches; the mark is the one write that carries the
+      // publication's fingerprint, and it follows the page.
+      let declarationBatches = 0;
       const interrupted: typeof owner = { ...owner, transaction: (kind, body, options) => owner.transaction(kind, async tx => {
         const query = tx.query;
         tx.query = async (sql, values) => {
-          // Each startup binding reads product and plugin identities together.
-          if (sql.includes("WHERE k.name IN ('system.product','plugin')") && ++bindings === boundary) {
+          const reached = boundary === 'declarations'
+            ? sql.startsWith('INSERT INTO node(entity_id,uid,key,identity_scope,context_id)') && ++declarationBatches === 2
+            : JSON.stringify(values ?? []).includes('publication_fingerprint');
+          if (reached) {
             controller.abort(new Error('injected boundary abort'));
             controller.signal.throwIfAborted();
           }
