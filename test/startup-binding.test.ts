@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const producer = 'agent-fill';
@@ -13,6 +14,21 @@ test('overlapping agent-fill startups in one transaction reuse its installation'
       startupBinding(tx, EMPTY_CONTRACT, producer),
       startupBinding(tx, EMPTY_CONTRACT, producer),
     ]));
+    await owner.transaction('snapshot', async tx => {
+      const operationUids = [first.binding.operationUid, second.binding.operationUid];
+      const operations = await readKindAssertions(tx, 'vertex', 'system.operation', [], { subjectUids: operationUids });
+      const plugins = await readKindAssertions(tx, 'vertex', 'plugin', ['label']);
+      const authors = await readKindAssertions(tx, 'edge', 'system.operation-author', []);
+      const installed = plugins.filter(plugin => plugin.values.label === producer);
+      expect(installed.map(plugin => plugin.uid)).toEqual([first.binding.sourceUid]);
+      expect(operations.map(operation => operation.uid).sort()).toEqual(operationUids.sort());
+      for (const operation of operations) {
+        expect(authors.filter(author => author.from === operation.id).map(author => author.to)).toEqual([installed[0]!.id]);
+        expect(operation.selectedAssertions.find(assertion => assertion.property === '$exists')).toMatchObject({
+          author: first.binding.sourceUid, operationUid: operation.uid,
+        });
+      }
+    });
     // A different grant exercises discovery after commit even when the original grant is cached.
     const { binding: recovered } = await owner.transaction('write', tx => startupBinding(tx, EMPTY_CONTRACT, producer, []));
     expect(second.binding.sourceUid).toBe(first.binding.sourceUid);
