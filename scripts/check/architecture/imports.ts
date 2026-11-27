@@ -48,6 +48,16 @@ interface LiteralCall {
   readonly line: number;
 }
 
+/** One call a module makes to a named function, with the string literals among its arguments. */
+interface NamedCall {
+  /** The callee's name: the identifier it is called by, or the property a member call names. */
+  readonly name: string;
+  /** The 1-based line the call starts on. */
+  readonly line: number;
+  /** Every string literal written among the call's arguments, in the order they are written. */
+  readonly literals: readonly string[];
+}
+
 /** What one module's syntax says about other modules: its imports, and the literal arguments of its calls. */
 export interface ModuleNames {
   readonly imports: readonly ImportStatement[];
@@ -57,6 +67,11 @@ export interface ModuleNames {
    * literal is what the parse says, never a pattern read from the text.
    */
   readonly literalCalls: readonly LiteralCall[];
+  /**
+   * Every call made by name whose arguments carry a string literal: a rule that is about one function's
+   * arguments (which producer a binding is taken for) reads them here instead of reading the source text.
+   */
+  readonly calls: readonly NamedCall[];
 }
 
 /**
@@ -120,7 +135,8 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
     statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], bindings: dynamic.bindings, reExport: false, typeOnly: false, wholeModule: true });
   }
   const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
-  return { imports: statements, literalCalls };
+  const calls = namedCallsOf(module).map((call) => ({ name: call.name, line: lineAt(bytes, call.start), literals: call.literals }));
+  return { imports: statements, literalCalls, calls };
 }
 
 /** The 1-based line a byte offset falls on: one more than the newlines before it. */
@@ -234,6 +250,55 @@ function literalCallsOf(node: unknown): LiteralArgument[] {
       if (expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' && span !== undefined) {
         found.push({ value: expression['value'], start: span.start });
       }
+    }
+    for (const [key, entry] of Object.entries(held)) {
+      if (key === 'span' || key === 'ctxt') continue;
+      walk(entry);
+    }
+  };
+  walk(node);
+  return found;
+}
+
+/** One call to a named function, with the string literals its arguments carry. */
+interface NamedCallSyntax {
+  readonly name: string;
+  readonly start: number;
+  readonly literals: readonly string[];
+}
+
+/** The name a call expression is made by: an identifier, or the property of a member call whose name is written. */
+function calleeNameOf(callee: Record<string, unknown> | undefined): string | null {
+  if (callee === null || callee === undefined) return null;
+  if (callee['type'] === 'Identifier' && typeof callee['value'] === 'string') return callee['value'];
+  const property = callee['property'] as Record<string, unknown> | undefined;
+  if (callee['type'] === 'MemberExpression' && callee['computed'] !== true && property?.['type'] === 'Identifier' && typeof property['value'] === 'string') return property['value'];
+  return null;
+}
+
+/**
+ * Every call a module makes by name whose arguments carry a string literal, wherever it stands: a rule about a
+ * function's arguments (`startupBinding(tx, contract, 'manifest')`) reads them from the parse, and a name built at
+ * run time is not a name this check can read and is left to the reader.
+ */
+function namedCallsOf(node: unknown): NamedCallSyntax[] {
+  const found: NamedCallSyntax[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const held = value as Record<string, unknown>;
+    if (held['type'] === 'CallExpression') {
+      const name = calleeNameOf(held['callee'] as Record<string, unknown> | undefined);
+      const span = held['span'] as { start: number } | undefined;
+      const args = Array.isArray(held['arguments']) ? (held['arguments'] as Record<string, unknown>[]) : [];
+      const literals = args.flatMap((argument) => {
+        const expression = argument['expression'] as Record<string, unknown> | undefined;
+        return expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' ? [expression['value']] : [];
+      });
+      if (name !== null && span !== undefined && literals.length > 0) found.push({ name, start: span.start, literals });
     }
     for (const [key, entry] of Object.entries(held)) {
       if (key === 'span' || key === 'ctxt') continue;

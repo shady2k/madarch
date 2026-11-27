@@ -11,6 +11,7 @@ import { validateFieldValue,validateValueContracts } from './value-validation.js
 import { scanMentions } from './mentions.js';
 import { canonicalAssertionValue } from './assertion-selection.js';
 import { GraphRefusal, fieldPath, validateFields } from './validation.js';
+import { reservedCapability } from './manifest-contract.js';
 export type {EdgeDraft,EdgeRemovalDraft} from './contract.js';
 
 const WHERE=import.meta.path;
@@ -78,6 +79,12 @@ export async function acquireGraphWriteLock(executor:SqlExecutor):Promise<void>{
 export interface WriteCapability {
   readonly sourceUid:string; readonly principalUid:string; readonly operationUid:string;
   readonly unitUid?:string; readonly productUid:string; readonly context:number; readonly contractVersion:string; readonly scope:string;
+  /**
+   * The capability the source serves, as its producer names it: a kind that declares a reserved capability is written
+   * by the source whose capability it is and by no other. A host source that serves no reserved capability leaves it
+   * out, and its grants are the permissions alone.
+   */
+  readonly capability?:string;
   readonly permissions:readonly {readonly kind:string;readonly properties:readonly string[];readonly assert:boolean;readonly retractOwn:boolean}[];
 }
 const bindings=new WeakMap<object,WriteCapability>();
@@ -117,7 +124,18 @@ function comparable(field:FieldContract,value:unknown):unknown{
  return value;
 }
 export function sameValue(a:unknown,b:unknown):boolean{return canonicalJson(a)===canonicalJson(b);}
-function permitted(binding:WriteCapability,kind:string,property:string,retract=false):void {
+/** The capability a contract declares for a kind, vertex or edge, or nothing when the contract declares no such kind. */
+function declaredCapability(contract:GraphContract,kind:string):string|undefined{
+ return contract.vertex.find(held=>held.name===kind)?.capability??contract.edge.find(held=>held.name===kind)?.capability;
+}
+/** A kind of a reserved capability is stated by the source serving that capability alone, whatever its permissions say. */
+function requireCapability(binding:WriteCapability,contract:GraphContract,kind:string):void{
+ const declared=declaredCapability(contract,kind);
+ if(declared===undefined||!reservedCapability(declared)||binding.capability===declared)return;
+ throw new Error(`${WHERE}:32: CAPABILITY_MISMATCH kind ${kind} declares the reserved capability ${declared}; source ${binding.sourceUid} carries ${binding.capability??'no capability'}`);
+}
+function permitted(binding:WriteCapability,contract:GraphContract,kind:string,property:string,retract=false):void {
+  requireCapability(binding,contract,kind);
   if(!binding.permissions.some(p=>p.kind===kind&&(p.properties.includes(property)||p.properties.includes('*'))&&(retract?p.retractOwn:p.assert)))
     throw new Error(`${WHERE}:30: FORBIDDEN_SOURCE: ${kind}.${property}; create an evidenced question instead of changing another source`);
 }
@@ -247,7 +265,7 @@ export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,d
 async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context:number):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  return await withSpan('graph.vertex.ensure',{'graph.kind':draft.kind},async()=>{
  const {contract,version}=prepared;const binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);const kind=contract.vertex.find(k=>k.name===draft.kind);if(!kind)throw new Error(`${WHERE}:79: UNKNOWN_KIND ${draft.kind}`);
- permitted(binding,kind.name,'$exists');
+ permitted(binding,contract,kind.name,'$exists');
  const uid=await refUid(executor,contract,draft,context);const key:Record<string,unknown>={};
  for(const name of kind.key){const field=kind.fields.find(f=>f.name===name)!;key[name]=validate(field,draft.key[name]);validateFieldValue(contract,field,key[name]);}
  const keyEdges=await Promise.all((kind.keyEdges??[]).map(async role=>({role,parent:await endpoint(executor,contract,draft.keyEdges![role.role]!,context)})));
@@ -350,7 +368,7 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   if(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined)return ref.uid;
   return refUid(executor,contract,ref,context);
  };
- for(const draft of drafts.vertices){permitted(binding,draft.kind,'$exists');vertexUids.push(await collect(draft));}
+ for(const draft of drafts.vertices){permitted(binding,contract,draft.kind,'$exists');vertexUids.push(await collect(draft));}
  for(const draft of drafts.edges??[]){await collect(draft.from);await collect(draft.to);}
  for(const draft of drafts.vertices)for(const evidence of draft.evidence??[])await collect(evidence.target);
  for(const draft of drafts.edges??[])for(const evidence of draft.evidence??[])await collect(evidence.target);
@@ -360,7 +378,7 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  await acquireGraphWriteLock(executor);
  binding=requireWriteCapability(executor);checkBindingRevision(binding,version,context);
  if(drafts.vertices.length===0&&(drafts.edges?.length??0)===0)return 0;
- for(const draft of drafts.vertices)permitted(binding,draft.kind,'$exists');
+ for(const draft of drafts.vertices)permitted(binding,contract,draft.kind,'$exists');
  for(const uid of [binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[])])requested.add(uid);
  const {entities,instant}=await immutableCatalogue(executor,contract);
  const keyRoles=contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({kind:kind.name,edge:role.edge,direction:role.direction})));
@@ -521,7 +539,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  const {contract}=prepared;
  const nodeIds=new Map([...nodes.values()].map(node=>[node.id,node]));
  const assertions:BatchAssertion[]=plans.map(input=>{
-  permitted(binding,input.kind,input.property,input.operation==='retract');
+  permitted(binding,contract,input.kind,input.property,input.operation==='retract');
   const kind=contract[input.sort].find(kind=>kind.name===input.kind)!;
   const field=input.property==='$exists'?{name:'$exists',type:'boolean' as const}:kind.fields.find(field=>field.name===input.property);
   if(!field)throw new Error(`${WHERE}:116: UNKNOWN_PROPERTY ${input.kind}.${input.property}`);
@@ -673,9 +691,9 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  };
  const checkRef=(ref:EntityRefDraft):void=>{const kind=contract.vertex.find(kind=>kind.name===ref.kind);if(!kind)throw new Error(`${WHERE}:196: UNKNOWN_KIND ${ref.kind}`);checkFields(kind,ref.key);for(const parent of Object.values(ref.keyEdges??{}))checkRef(parent);};
  for(const draft of drafts.vertices){try{checkRef(draft);const kind=contract.vertex.find(kind=>kind.name===draft.kind)!;checkFields(kind,draft.values??{});
-  const binding=requireWriteCapability(executor);permitted(binding,draft.kind,'$exists');
-  for(const name of kind.key)permitted(binding,draft.kind,name);
-  for(const name of Object.keys(draft.values??{}))permitted(binding,draft.kind,name);
+  const binding=requireWriteCapability(executor);permitted(binding,contract,draft.kind,'$exists');
+  for(const name of kind.key)permitted(binding,contract,draft.kind,name);
+  for(const name of Object.keys(draft.values??{}))permitted(binding,contract,draft.kind,name);
   for(const evidence of draft.evidence??[])validateEvidenceLocator(evidence.locator??{});
   for(const value of Object.values(draft.values??{}))scanMentions(value,'/values');
  }catch(error){if(error instanceof Error){error.message+=`; subject ${draft.kind} ${draft.uid??canonicalJson(draft.key)}`;throw error;}throw error;}}
@@ -799,7 +817,7 @@ async function retireVertex(executor:SqlExecutor,contract:GraphContract,binding:
    cascaded=true;
   }
  }
- permitted(binding,kind,'$exists',true);
+ permitted(binding,contract,kind,'$exists',true);
  const incident=cascaded||(knownIncident===undefined&&roles.length===0)?await readIncidentEdges(executor,[id],context):before;
  const edgeInputs=incident.map(edge=>edgeRetractions(contract,edge.kind,edge.id,evidence));
  const vertexInputs=vertexRetractions(contract,kind,id,evidence);
@@ -866,7 +884,7 @@ async function removeIndependentEntities(executor:SqlExecutor,contract:GraphCont
    await retireVertex(executor,contract,binding,kind,id,context,draft.evidence,new Set(),changed,incident);
    continue;
   }
-  try { permitted(binding,kind,'$exists',true); } catch(error) { await flush(); throw error; }
+  try { permitted(binding,contract,kind,'$exists',true); } catch(error) { await flush(); throw error; }
   for(const edge of incident){
    inputs.push(...edgeRetractions(contract,edge.kind,edge.id,draft.evidence));
    edges.add(edge.id);

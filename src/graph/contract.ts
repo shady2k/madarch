@@ -87,6 +87,13 @@ export interface VertexContract {
   readonly key: readonly string[];
   /** The capability that fills it; a kind is bound to exactly one. */
   readonly capability: string;
+  /**
+   * Whether the declared capability belongs to the engine's own producer and not to a product plugin: a `true` here
+   * says the source serving that capability is the kind's only writer, and the writer refuses every other source. A
+   * product kind leaves it out — its capability names a plugin, and the binding's permissions narrow what each source
+   * may write.
+   */
+  readonly reservedCapability?: true;
   /** SQL checks a capability states about its values, each a `CHECK (...)` body without the keyword. */
   readonly checks?: readonly string[];
   /** The indexes a capability asks for, beyond the natural key's own. */
@@ -106,7 +113,10 @@ export interface EdgeContract {
   /** The edge field that tells repeated edges apart. */
   readonly discriminator?: string;
   readonly fields: readonly FieldContract[];
+  /** The capability that fills it; a kind is bound to exactly one. */
   readonly capability: string;
+  /** Whether that capability is the engine's own, as `VertexContract.reservedCapability` says; the writer refuses every other source. */
+  readonly reservedCapability?: true;
   /** SQL checks a capability states about its values, each a `CHECK (...)` body without the keyword. */
   readonly checks?: readonly string[];
   /** The indexes a capability asks for, beyond the natural key's own. */

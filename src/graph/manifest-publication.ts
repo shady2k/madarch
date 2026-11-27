@@ -63,6 +63,10 @@ interface InstalledBinding { readonly productId: number; readonly productUid: st
 const installedBindings = new WeakMap<DatabaseOwner, { readonly token: string; readonly value: Map<string, InstalledBinding> }>();
 const pendingBindings = new WeakMap<SqlExecutor, Promise<void>>();
 
+/**
+ * The grant a trusted host source writes under: its producer names the source, its capability is that same name, and
+ * the one writer refuses a kind whose reserved capability this source does not serve (madarch-64o5.151).
+ */
 export async function startupBinding(tx: SqlExecutor, declared: GraphContract, producer: string, permissions?: WriteCapability['permissions'], operationUid?: string): Promise<{ contract: GraphContract; binding: WriteCapability }> {
   // Advisory locks serialize PostgreSQL transactions. Calls sharing one executor hold the same lock
   // and must also take turns discovering identities and binding the transaction's write capability.
@@ -97,7 +101,7 @@ async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, p
       const stands = product !== undefined && product.activeSources.length > 0 && plugin !== undefined && plugin.activeSources.includes(installed.sourceUid)
         && Object.entries({ ...metadata, scope: installed.productUid }).every(([property, value]) => plugin.selectedAssertions.some(assertion => assertion.property === property && assertion.source === installed.sourceUid && assertion.value === value));
       if (stands) {
-        const binding: WriteCapability = { productUid: installed.productUid, sourceUid: installed.sourceUid, principalUid: installed.sourceUid, operationUid: operationUid ?? newUid(), context: 1, scope: installed.productUid, contractVersion: prepared.version, permissions: permissions ?? hostPermissions };
+        const binding: WriteCapability = { productUid: installed.productUid, sourceUid: installed.sourceUid, principalUid: installed.sourceUid, operationUid: operationUid ?? newUid(), context: 1, scope: installed.productUid, contractVersion: prepared.version, capability: producer, permissions: permissions ?? hostPermissions };
         if (operationUid === undefined) {
           // The operation is the engine's own lineage: it is written under the host's rights, never a caller's narrower grant.
           bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
@@ -133,7 +137,7 @@ async function installStartupBinding(tx: SqlExecutor, declared: GraphContract, p
     for (const [kind, uid] of missing) await bootstrapWriteIdentity(tx, kind, uid, productUid);
     const made = missing.length === 0 ? [] : (await tx.query<{ id: string; uid: string }>('SELECT id::text,uid::text FROM node WHERE uid=ANY($1::uuid[])', [missing.map(([, uid]) => uid)])).rows;
     const ids = new Map([...identities, ...made].map(row => [row.uid, row.id]));
-    const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: prepared.version, permissions: permissions ?? hostPermissions };
+    const binding: WriteCapability = { productUid, sourceUid, principalUid: sourceUid, operationUid, context: 1, scope: productUid, contractVersion: prepared.version, capability: producer, permissions: permissions ?? hostPermissions };
     bindWriteCapability(tx, { ...binding, permissions: hostPermissions });
     const assert = async (kind: string, uid: string, property: string, value: unknown): Promise<void> => {
       await writeAssertion(tx, contract, { sort: 'vertex', kind, subjectId: ids.get(uid)!, property, operation: 'assert', value });

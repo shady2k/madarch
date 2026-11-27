@@ -613,6 +613,60 @@ describe('the architecture check', () => {
     expect(architectureCheckPasses(removed)).toBe(true);
   });
 
+  test('a manifest binding taken outside the manifest publication fails, and the publication\'s own call passes', async () => {
+    const root = fixtureProject();
+    await acceptWhatIsFound(root, ['one-manifest-binding']);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+
+    // The publication takes the binding for the manifest producer, and the rule names no module but a second one.
+    const publication = [
+      "/** The one module that states the catalogue\'s declarations. */",
+      'export function startupBinding(tx: unknown, contract: unknown, producer: string): unknown {',
+      '  return [tx, contract, producer];',
+      '}',
+      '',
+      'export function publish(tx: unknown): unknown {',
+      "  return startupBinding(tx, {}, 'manifest');",
+      '}',
+    ];
+    writeModule(root, 'src/graph/manifest-publication.ts', publication);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+
+    // A binding for another producer is no second publication, whatever module takes it.
+    const hostStart = [
+      "import { startupBinding } from './graph/manifest-publication.js';",
+      '',
+      "export const start = (tx: unknown) => startupBinding(tx, {}, 'start');",
+    ];
+    writeModule(root, 'src/host-start.ts', hostStart);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+
+    const plant = [
+      '/**',
+      ' * A second publication, planted by the test: the manifest producer bound beside the one module that states',
+      ' * the declarations.',
+      ' */',
+      "import { bindStartupWriter } from './graph/manifest-publication.js';",
+      '',
+      "export const second = (tx: unknown) => bindStartupWriter(tx, {}, 'manifest');",
+    ];
+    writeModule(root, 'src/second-publication.ts', plant);
+
+    const planted = await architectureCheck({ root, rules: ['one-manifest-binding'] });
+    expect(planted.comparison.unlisted).toEqual([
+      { rule: 'one-manifest-binding', file: 'src/second-publication.ts', line: lineOf(plant, "bindStartupWriter(tx"), symbol: 'bindStartupWriter' },
+    ]);
+    const problems = architectureProblemLines(planted);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toContain(`${join(root, 'src', 'second-publication.ts')}:${lineOf(plant, 'bindStartupWriter(tx')}: one-manifest-binding:`);
+    expect(problems[0]).toContain("takes the manifest publication's binding (bindStartupWriter)");
+
+    rmSync(join(root, 'src', 'second-publication.ts'));
+    const removed = await architectureCheck({ root, rules: ['one-manifest-binding'] });
+    expect(architectureProblemLines(removed)).toEqual([]);
+    expect(architectureCheckPasses(removed)).toBe(true);
+  });
+
   test('an import of a retired surface fails, and passes when the importer is removed', async () => {
     const root = fixtureProject();
     const view = FIXTURE['src/writer/view.ts']!;
