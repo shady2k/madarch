@@ -63,9 +63,10 @@ async function readEvidenceProblems(input: CollectInput): Promise<{ drafts: Prob
   // Decision 0039 items 19/31: current applicability is independent of historical validity.
   const rule = 'evidence-applicability';
   const evidenceRule = input.settings.rules[rule];
-  const dismissalPrefix = problemId(rule, '');
-  const hasDismissal = [...input.dismissed ?? []].some(id => id.startsWith(dismissalPrefix));
-  if ((evidenceRule === undefined || evidenceRule.enabled === false) && !hasDismissal) return { drafts, notes };
+  if (evidenceRule === undefined || evidenceRule.enabled === false) {
+    const dismissalPrefix = problemId(rule, '');
+    if (![...input.dismissed ?? []].some(id => id.startsWith(dismissalPrefix))) return { drafts, notes };
+  }
   try {
     const contract = graphContractOf(input.manifest);
     let after: string | undefined;
