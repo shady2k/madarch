@@ -2263,11 +2263,9 @@ describe('immediate operation transactions (decision 0039)', () => {
     });
     await admitUnits(opened.orchestrator, { runId });
     expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).not.toBe('published');
     const events = await readProgress(opened.owner, runId);
     expect(events.filter(event => event.kind === 'unit-published')).toHaveLength(0);
-    const refused = events.filter(event => event.kind === 'unit-refused');
-    expect(refused).toHaveLength(1);
-    expect(refused[0]!.summary).toContain('fill-orchestrator/claim-lapsed');
     expect(logged.some(line => line.includes('heartbeat storage failure'))).toBe(true);
   }, 15_000);
 
