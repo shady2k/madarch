@@ -47,6 +47,7 @@ export const ARCHITECTURE_RULES = [
   'no-unreachable-code',
   'one-command-list',
   'one-fill-entry',
+  'one-manifest-binding',
   'one-state-machine',
   'one-table-source',
   'product-file-readers',

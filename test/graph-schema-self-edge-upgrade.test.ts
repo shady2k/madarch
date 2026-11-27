@@ -1,4 +1,3 @@
-import { testHostBinding } from './host-binding-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,11 +8,11 @@ import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
-import { activateGraphProducer } from '../src/graph/producer-binding.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { MANIFEST_CONTRACT, MANIFEST_RELATION_EDGE, withManifestContract } from '../src/graph/manifest-contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
-import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { bindWriteCapability, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-self-edge-upgrade-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -40,11 +39,11 @@ test('upgrades a populated catalogue without resetting authored history and pres
   let original: Awaited<ReturnType<typeof readKindAssertions>> = [];
   try {
     await prepareStore(first, { contract: before });
-    const binding = await testHostBinding(first, before, 'manifest');
+    // The catalogue is the manifest publication's to state, and the fixture host's capability is that source's.
+    const binding = await first.transaction('write', async (tx) => await bindTestWriteCapability(tx, before));
     await first.transaction('write', async (tx) => {
-
-      const capability = await activateGraphProducer(tx, before, binding);
-      operationUid = capability.operationUid;
+      bindWriteCapability(tx, binding);
+      operationUid = binding.operationUid;
       const operation = await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid=$1::uuid', [operationUid]);
       await writeAssertion(tx, before, { sort: 'vertex', kind: 'system.operation', subjectId: operation.rows[0]!.id, property: 'words', operation: 'assert', value: 'Keep this declaration' });
       await publishGraphDrafts(tx, before, { vertices: [{
@@ -71,10 +70,9 @@ test('upgrades a populated catalogue without resetting authored history and pres
     expect(await upgraded.run(tx => readKindAssertions(tx, 'vertex', 'manifest.kind', ['declaration'], { contract }))).toEqual(original);
     const operations = await upgraded.run(tx => readKindAssertions(tx, 'vertex', 'system.operation', ['words'], { contract, subjectUids: [operationUid] }));
     expect(operations.map(row => row.values.words)).toEqual(['Keep this declaration']);
-    const binding = await testHostBinding(upgraded, contract, 'manifest');
+    const binding = await upgraded.transaction('write', async (tx) => await bindTestWriteCapability(tx, contract));
     await upgraded.transaction('write', async (tx) => {
-
-      await activateGraphProducer(tx, contract, binding);
+      bindWriteCapability(tx, binding);
       await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edges: [{
         kind: MANIFEST_RELATION_EDGE,
         from: { kind: 'manifest.kind', key: { name: 'term' } },

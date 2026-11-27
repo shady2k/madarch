@@ -176,7 +176,7 @@ test('0039.27: withdrawing declared support reopens resolution through the opera
   const sources=await Promise.all(['a','b','resolver'].map(installationKey=>registerSystemSource(owner,declared,{type:'plugin',installationKey,scope:productScope,version:'1'})));
   const bindings=sources.map(source=>bindGraphProducer(owner,declared,{principal:source.principal,vertices:{sample:['amount'],'system.content-snapshot':['digest','content']},edges:{justifies:[]},actions:['assert','retract-own','resolve']}));
   await owner.transaction('write',async tx=>{
-   const {contract:published}=await startupBinding(tx,declared,'manifest-support-fixture');
+   const {contract:published}=await startupBinding(tx,declared,'manifest');
    await publishGraphDrafts(tx,published,{vertices:[{kind:'manifest.catalogue',key:{name:'product'},values:{declaration:JSON.stringify({file:'/fixture/madarch/catalog.yaml',kinds:{$map:[]},groups:{$map:[]},roles:{$map:[]},properties:{$map:[]},excludeDocuments:[],ignoreBlocks:[],findings:[],semanticBindings:{$map:[['evidence-support',{kind:'system.content-snapshot',fields:{},line:1,edges:{about:{kind:'justifies',direction:'from',line:1}}}]]}})},producer:'manifest-support-fixture',producerVersion:'1'}],removals:[]});
   });
   const {readPublishedManifest}=await import('../src/graph/manifest-publication.js');

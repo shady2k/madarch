@@ -131,6 +131,12 @@ function declaredSupport(wiring: PluginTurnWiring, unit: PluginTurnUnit) {
   return { vertices, edges, ownKindSupport };
 }
 
+/** A kind of a reserved capability is the engine's own metadata: a plugin never holds it as a grant, whatever it declares. */
+function reservedKind(contract: GraphContract, kind: string): boolean {
+  const declared = contract.vertex.find(held => held.name === kind) ?? contract.edge.find(held => held.name === kind);
+  return declared?.reservedCapability === true;
+}
+
 /** Runtime-only authority, resolved from the selected plugin declaration rather than producer input. */
 export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sourceName: string; version: string; permissions: import('../graph/write.js').WriteCapability['permissions'] } | undefined {
   if (id.startsWith(MISSING_KIND_UNIT)) return undefined;
@@ -145,7 +151,7 @@ export function pluginTurnAuthority(wiring: PluginTurnWiring, id: string): { sou
       ...[...support.vertices].map(([kind, fields]) => ({ kind, properties: ['$exists', ...fields], assert: true, retractOwn: false })),
       { kind: unit.kind.name, properties: ['$exists', ...fields, ...(unit.kind.key ?? [])], assert: true, retractOwn: true },
       ...(unit.plugin.contract?.edges ?? []).map(edge => ({ kind: edge.kind, properties: ['$exists', ...edge.fields.map(field => field.name)], assert: true, retractOwn: true })),
-    ],
+    ].filter(permission => !reservedKind(wiring.contract, permission.kind)),
   };
 }
 

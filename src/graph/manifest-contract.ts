@@ -5,27 +5,31 @@ import { generatedTableName, type GraphContract, type VertexContract } from './c
 export const MANIFEST_CATEGORIES = ['catalogue', 'kind', 'field', 'relation', 'workflow', 'dependency'] as const;
 export const MANIFEST_DEPENDS_ON = 'manifest.depends-on';
 export const MANIFEST_RELATION_EDGE = 'manifest.relation-edge';
+/** The capability the manifest publication serves alone: its kinds are declarations, and no other source states one. */
+export const MANIFEST_CAPABILITY = 'manifest';
+
+const DECLARATION = { capability: MANIFEST_CAPABILITY, reservedCapability: true } as const;
 const WORKFLOW_STAGE: VertexContract = {
   name: 'manifest.workflow-stage', table: generatedTableName('manifest.workflow-stage', 'vertex'),
-  key: ['name'], capability: 'manifest',
+  key: ['name'], ...DECLARATION,
   keyEdges: [{ role: 'workflow', edge: 'manifest.workflow-stage-workflow', direction: 'from', onDelete: 'cascade' }],
   fields: [{ name: 'name', type: 'text' }, { name: 'position', type: 'integer' }, { name: 'declaration', type: 'text' }],
 };
 export const MANIFEST_CONTRACT: GraphContract = {
   vertex: [...MANIFEST_CATEGORIES.map<VertexContract>((category) => ({
     name: `manifest.${category}`, table: generatedTableName(`manifest.${category}`, 'vertex'),
-    key: ['name'], capability: 'manifest',
+    key: ['name'], ...DECLARATION,
     fields: [{ name: 'name', type: 'text' }, { name: 'declaration', type: 'text' },
       ...(category === 'catalogue' ? [{ name: 'publication_fingerprint', type: 'text' as const, nullable: true }] : [])],
   })), WORKFLOW_STAGE], edge: [
     { name: WORKFLOW_STAGE.keyEdges![0]!.edge, table: generatedTableName(WORKFLOW_STAGE.keyEdges![0]!.edge, 'edge'),
       from: [WORKFLOW_STAGE.name], to: ['manifest.workflow'], repeats: false, cardinality: { from: 'many', to: 'one' },
-      labels: { en: { out: 'stage of', in: 'has stage' }, ru: { out: 'стадия процесса', in: 'содержит стадию' } }, capability: 'manifest', fields: [] },
+      labels: { en: { out: 'stage of', in: 'has stage' }, ru: { out: 'стадия процесса', in: 'содержит стадию' } }, ...DECLARATION, fields: [] },
     { name: MANIFEST_DEPENDS_ON, table: generatedTableName(MANIFEST_DEPENDS_ON, 'edge'),
-      from: ['manifest.kind'], to: ['manifest.kind'], repeats: false, cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'depends on', in: 'required by' }, ru: { out: 'зависит от', in: 'нужен для' } }, capability: 'manifest',
+      from: ['manifest.kind'], to: ['manifest.kind'], repeats: false, cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'depends on', in: 'required by' }, ru: { out: 'зависит от', in: 'нужен для' } }, ...DECLARATION,
       fields: [{ name: 'declaration', type: 'text' }] },
     { name: MANIFEST_RELATION_EDGE, table: generatedTableName(MANIFEST_RELATION_EDGE, 'edge'),
-      from: ['manifest.kind'], to: ['manifest.kind'], repeats: true, cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'relates to', in: 'related from' }, ru: { out: 'связан с', in: 'связан от' } }, discriminator: 'relation', capability: 'manifest',
+      from: ['manifest.kind'], to: ['manifest.kind'], repeats: true, cardinality: { from: 'many', to: 'many' }, labels: { en: { out: 'relates to', in: 'related from' }, ru: { out: 'связан с', in: 'связан от' } }, discriminator: 'relation', ...DECLARATION,
       fields: [{ name: 'relation', type: 'text' }, { name: 'declaration', type: 'text' }] },
   ], dictionary: [],
 };

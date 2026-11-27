@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { dependencyRuleViolations } from './dependency-rules.js';
 import { fillEntryViolations } from './fill-entry.js';
+import { manifestBindingViolations } from './manifest-binding.js';
 import { graphWriteViolations } from './graph-writes.js';
 import { schemaPreparationViolations } from './schema-preparation.js';
 import { starterDataViolations } from './starter-data.js';
@@ -88,6 +89,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   }
   if (rules.includes('no-test-file-imports')) found.push(...testFileImportViolations(root));
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
+  if (rules.includes('one-manifest-binding')) found.push(...manifestBindingViolations(root));
   if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
   if (rules.includes('schema-preparation-only')) found.push(...await schemaPreparationViolations(root));
@@ -219,6 +221,8 @@ function describe(violation: ArchitectureViolation): string {
       return `${violation.file} imports ${violation.symbol}, which is a retired surface (src/extract, src/history or src/query): the work that replaced it is the fill's record passes`;
     case 'sql-only-in-storage-layer':
       return `${violation.file} imports ${whatCarriesTheConnection(violation.symbol)}, and only the graph store (src/graph) and the storage layer (src/adapters) hold a connection or run a query — every other module asks a store`;
+    case 'one-manifest-binding':
+      return `${violation.file} takes the manifest publication's binding (${violation.symbol ?? '?'}), and only src/graph/manifest-publication.ts states the catalogue's declarations: a second source of them is a second publication`;
     case 'one-fill-entry': {
       const [module = '', name = '*'] = (violation.symbol ?? '').split(':');
       const whole = name === '*' ? 'the runner module as a whole' : `the fill runner ${name}`;

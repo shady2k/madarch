@@ -497,6 +497,7 @@
     "test/yaml-position.test.ts": 6700,
     "test/foundation-slice-e2e.test.ts": 1117,
     "test/wiki-refusal-boundary.test.ts": 1346,
-    "test/startup-binding.test.ts": 12087
+    "test/startup-binding.test.ts": 12087,
+    "test/graph-manifest-capability.test.ts": 2201
   }
 }

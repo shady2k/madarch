@@ -57,11 +57,14 @@ export async function registerGraphPrincipal(owner: DatabaseOwner, input: { read
 export function bindGraphProducer(owner: DatabaseOwner, contract: GraphContract, input: { readonly principal: GraphPrincipal; readonly vertices: Readonly<Record<string, readonly string[]>>; readonly edges: Readonly<Record<string, readonly string[]>>; readonly contextId?: number; readonly scopeUid?: string; readonly actions?: readonly ProducerAction[] }): ProducerBinding {
   const principal = PRINCIPALS.get(input.principal);
   if (principal === undefined || principal.owner !== (OWNER_ID.get(owner) ?? owner)) throw new Error(`${WHERE}: a binding requires the host's retained principal for this product`);
-  const permissions = (sort: 'vertex' | 'edge', values: Readonly<Record<string, readonly string[]>>): ReadonlyMap<string, ReadonlySet<string>> => new Map(Object.entries(values).map(([name, fields]) => {
+  const permissions = (sort: 'vertex' | 'edge', values: Readonly<Record<string, readonly string[]>>): ReadonlyMap<string, ReadonlySet<string>> => new Map(Object.entries(values).flatMap(([name, fields]): [string, ReadonlySet<string>][] => {
     const kind = contract[sort].find(held => held.name === name);
     if (kind === undefined) throw new Error(`${WHERE}: undeclared ${sort} permission ${name}`);
+    // A kind of a reserved capability is the engine's own metadata, written by the source serving it alone: a plugin
+    // or a person never holds it as a slot, whatever the grant asked for.
+    if (kind.reservedCapability === true) return [];
     for (const field of fields) if (!kind.fields.some(held => held.name === field)) throw new Error(`${WHERE}: undeclared property permission ${name}.${field}`);
-    return [name, new Set([...('key' in kind ? kind.key : []), ...fields])];
+    return [[name, new Set([...('key' in kind ? kind.key : []), ...fields])]];
   }));
   const contextId = input.contextId ?? 1;
   const scope = input.scopeUid ?? principal.productUid;
@@ -126,7 +129,7 @@ export async function activateGraphProducer(executor: SqlExecutor, contract: Gra
     const productUid = products[0]!.uid;
     const operationUid = newUid();
     await bootstrapWriteIdentity(executor, 'system.operation', operationUid, productUid, contextId);
-    const capability: WriteCapability = { productUid, operationUid, sourceUid: state.principal.sourceUid, principalUid: state.principal.principalUid, context: contextId, scope: state.scope, contractVersion: graphContractVersion(withAssertionContract(contract)), permissions };
+    const capability: WriteCapability = { productUid, operationUid, sourceUid: state.principal.sourceUid, principalUid: state.principal.principalUid, context: contextId, scope: state.scope, contractVersion: graphContractVersion(withAssertionContract(contract)), capability: state.principal.producer, permissions };
     bindWriteCapability(executor, { ...capability, permissions: [{ kind: 'system.operation', properties: ['$exists'], assert: true, retractOwn: false }] });
     const operation = (await executor.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid=$1::uuid', [operationUid])).rows[0]!;
     await writeAssertion(executor, contract, { sort: 'vertex', kind: 'system.operation', subjectId: operation.id, property: '$exists', operation: 'assert', value: true }, contextId);
