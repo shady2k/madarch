@@ -456,16 +456,6 @@
       "exit": "Rewrite test/plugin-file-read.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
-      "path": "test/plugin-fill-scenarios.test.ts",
-      "seconds": 203,
-      "reason": "green-slow",
-      "result": "green",
-      "owner": "madarch-64o5.176",
-      "defect": "The six cases pass and run real plugin fills over fixture products, asserting their published records, refusals and problems. Runner-alone measurement in run 45758277151: 66.061 s; main fills the same fixture in 19.0 s where this candidate takes 155.6 s.",
-      "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
-      "exit": "Remove this entry only after a green complete-file runner measurement of test/plugin-fill-scenarios.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
-    },
-    {
       "path": "test/plugin-host.test.ts",
       "seconds": 240.0,
       "reason": "red-defect",
