@@ -15,7 +15,7 @@ import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { INLINE_ALIGN, InlineGroup, Paragraph, Stack, TextLink } from './ui/typography.js';
 import {
-  readProblemsCount, useChangeStream, useCommandRead,
+  planKindsOf, readProblemsCount, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillStatusAnswer, type ProblemsCount,
 } from './command.js';
 import { fetchFillPlan, fetchFillRuns, fetchFillStatus } from '../client.js';
@@ -48,8 +48,8 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
   const running: FillRunDetail | undefined = live ? frameRun.run ?? last : undefined;
   // The kind and plugin words of the last thing a running fill did, as its own run page writes them: the plan names the
   // plugins, and the frame's navigation names the kinds.
-  const orderKey = (running?.order ?? last?.order ?? last?.selected ?? []).join(',');
-  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => fetchFillPlan(context.base, running?.order ?? last?.order ?? last?.selected ?? [], false, signal), live && orderKey !== '');
+  const orderKey = planKindsOf(running ?? last).join(',');
+  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => fetchFillPlan(context.base, planKindsOf(running ?? last), false, signal), live && orderKey !== '');
   const labelOf = (kind: string): string | undefined => context.navigation?.kinds.find((one) => one.kind === kind)?.many;
   const pluginName = (name: string): string | undefined => {
     const labels = plan.data?.plan.plugins?.find((plugin) => plugin.name === name)?.labels;

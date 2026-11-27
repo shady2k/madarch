@@ -21,7 +21,6 @@ import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, STACK_LAYOUT, Text, TextLink } from './ui/typography.js';
-import { InlineCode } from './ui/inline-content.js';
 import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
@@ -232,10 +231,10 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
         <CardContent>
           <InlineGroup className="mb-2"><Text className="font-medium">{status.data?.product?.name ?? navigation?.product ?? t('brand.product')}</Text></InlineGroup>
           <PlainList className="m-0 list-none p-0">
+            {/* The product's own repository is named by the product: where this machine keeps the folder is the settings' «Places» card, and a machine path is no reader's word (madarch-blko). */}
             <ListItem className="flex flex-wrap items-center gap-2 border-b border-line py-1.5" data-testid="prepare-product-repository">
               <Text className="font-medium">{t('prepare.productRepository')}</Text>
               <Text>{product.data?.name ?? status.data?.product?.name ?? navigation?.product ?? ''}</Text>
-              {product.data?.folder === undefined ? null : <InlineCode>{product.data.folder}</InlineCode>}
             </ListItem>
             {(status.data?.repositories ?? []).map((repository) => (
               <ListItem key={repository.name} className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 last:border-b-0" data-testid="prepare-repository">

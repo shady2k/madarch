@@ -91,4 +91,39 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       rmSync(product, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test('a note names a file by its path in the product, never by the folder this machine keeps the product in', async () => {
+    // The engine composes a note where the product folder is what it has (`manifest.file` is a full path); the reader
+    // reads the path inside the product instead, so a temporary folder's name never reaches the page (madarch-blko).
+    const product = mkdtempSync(join(tmpdir(), 'madarch-notes-'));
+    try {
+      const manifest = join(product, 'madarch', 'catalog.yaml');
+      // The code section's own edge reads fail; the findings reader's problem-task edge read is not the code section's.
+      const graph = {
+        async fileFacts() { return { total: 0, rows: [] }; },
+        async byPrefix() { return { total: 0, rows: [] }; },
+        async relationEdges(relation: string) {
+          if (relation !== 'fixture.task-problem') throw new Error(`${manifest}:7: the code edges cannot be read`);
+          return { total: 0, rows: [] };
+        },
+        async find() { return []; },
+        async list() { return { total: 0, rows: [], next: null }; },
+      } as unknown as GraphReader;
+      const listing = await collectProblems({
+        productFolder: product, owner: unusedOwner, graph,
+        files: workingTreeFiles(product),
+        manifest: { file: manifest, semanticBindings: new Map([['problem-task', { kind: 'fixture.task', fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' }, edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } }, line: 1 }]]), roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
+        settings: { ...defaultSettings(), rules: {} as never },
+        resolve: async () => { throw new Error('the fixture resolves no address'); }, findings: [],
+      });
+      const unjudged = listing.notes.filter((note) => note.message.includes('the code section could not be judged'));
+      expect(unjudged.length).toBe(1);
+      expect(unjudged[0]!.message).toContain('madarch/catalog.yaml:7: the code edges cannot be read');
+      expect(unjudged[0]!.textArgs?.['error']).toBe('madarch/catalog.yaml:7: the code edges cannot be read');
+      // No note the page shows names the folder the product stands in.
+      expect(listing.notes.filter((note) => note.message.includes(product) || Object.values(note.textArgs ?? {}).some((value) => typeof value === 'string' && value.includes(product)))).toEqual([]);
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

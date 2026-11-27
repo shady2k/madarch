@@ -19,7 +19,7 @@ import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Metadata, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { TechnicalText } from './ui/technical-text.js';
 import {
-  isOffline, pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
+  isOffline, pauseFillRun, planKindsOf, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
 import { logsAddress, RUNS_PAGE } from '../address.js';
@@ -324,8 +324,8 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const runId = typeof bound === 'string' ? bound : '';
   const read = useCommandRead<{ run: FillRunDetail }>(`fill-run:${runId}`, (signal) => readFillRun(context.base, runId, signal), runId !== '');
   const run = read.data?.run ?? null;
-  const orderKey = (run?.order ?? run?.selected ?? []).join(',');
-  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => readFillPlan(context.base, run?.order ?? run?.selected ?? [], signal), run !== null && orderKey !== '');
+  const orderKey = planKindsOf(run).join(',');
+  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => readFillPlan(context.base, planKindsOf(run), signal), run !== null && orderKey !== '');
   useChangeStream(context.base, () => { read.reload(); });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
