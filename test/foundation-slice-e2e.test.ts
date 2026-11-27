@@ -627,34 +627,27 @@ run('the foundation slice on a product the test builds itself', () => {
       storeOwner = owner;
       // The fill runs unconfined, as every walk with an agent does: the plugins of this walk are its own, and the host's
       // sandbox needs a cgroup of the account's, which a walk does not always have (src/plugin/cgroup.ts). A plugin's
-      // own file read (plugins/imports reads every file through the host's core reader) takes the mode from this
-      // environment, so it is set for the fill and put back before the case ends: a case that leaves it changed fails
-      // the run's guard (`test/plugin-sandbox-guard.ts`).
-      const previousSandbox = process.env['MADARCH_PLUGIN_SANDBOX'];
-      process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
-      try {
-        await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
-        const targets = WANTED.filter((name) => manifest?.kinds.has(name) === true);
-        const result = await runFill({
-          product: folder, database: owner, store, home: store, runId: 'foundation-slice',
-          targets: { kinds: targets, requested: targets },
-          steps: ['plugin-turns'], workers: 1, tokenCap: 500_000,
-          // A unit's lease is a minute by default, and a unit of this walk takes longer on a slow disk: the lease is the
-          // run's own bound here, so the walk does not end a unit that is still working.
-          limits: { attemptSeconds: 900 },
-          prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
-          sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); },
-          unconfined: true,
-          pluginAgent: { adapter: { id: 'foundation-agent', command: process.execPath, args: [fake, record] }, connect: connectAcpAgent },
-        });
-        if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
-        fillState = result.state;
-        fillUnits = result.units;
-        unread = result.unread ?? [];
-      } finally {
-        if (previousSandbox === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
-        else process.env['MADARCH_PLUGIN_SANDBOX'] = previousSandbox;
-      }
+      // own file read (plugins/imports reads every file through the host's core reader) runs the way the host that asks
+      // runs its plugins, so the mode needs no environment of this process (madarch-64o5.178): `unconfined` below is
+      // the whole of it, and this process's environment is left as the run's guard found it.
+      await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+      const targets = WANTED.filter((name) => manifest?.kinds.has(name) === true);
+      const result = await runFill({
+        product: folder, database: owner, store, home: store, runId: 'foundation-slice',
+        targets: { kinds: targets, requested: targets },
+        steps: ['plugin-turns'], workers: 1, tokenCap: 500_000,
+        // A unit's lease is a minute by default, and a unit of this walk takes longer on a slow disk: the lease is the
+        // run's own bound here, so the walk does not end a unit that is still working.
+        limits: { attemptSeconds: 900 },
+        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); },
+        unconfined: true,
+        pluginAgent: { adapter: { id: 'foundation-agent', command: process.execPath, args: [fake, record] }, connect: connectAcpAgent },
+      });
+      if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
+      fillState = result.state;
+      fillUnits = result.units;
+      unread = result.unread ?? [];
       // A page's `source` read asks the store's file-text queue (decision 0037, src/graph/read-worker.ts), and the fill
       // role answers it: the walk's server is the api role alone, so the walk serves the queue as
       // test/file-text-server.ts does, on the store the fill prepared. The reader runs unconfined like the fill (the

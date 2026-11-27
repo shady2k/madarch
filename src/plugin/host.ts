@@ -647,6 +647,11 @@ ${text === '' ? '(empty)' : text}` };
       ...(ask.from === undefined ? {} : { from: ask.from }),
       ...(ask.fromColumn === undefined ? {} : { fromColumn: ask.fromColumn }),
       ...(ask.to === undefined ? {} : { to: ask.to }),
+    }, {
+      // The reader runs the way this host runs its own plugins (madarch-64o5.178): an unconfined fill whose plugin reads
+      // a file gets an unconfined reader, and its environment is this host's, never that of the process beside it.
+      ...(this.options.env === undefined ? {} : { env: this.options.env }),
+      ...(this.options.unconfined === true ? { unconfined: true } : {}),
     });
   }
 
