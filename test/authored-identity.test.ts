@@ -99,7 +99,7 @@ test('wiki, CLI and MCP journal the configured person under one durable author I
       }], removals: [] });
     });
     const personQuery = `query ($id: ID!) { entity(id: $id) { id label } }`;
-    expect(await graphql(personQuery, { id: person.uid })).toEqual({ entity: { id: person.uid, label: 'person' } });
+    expect(await graphql<{ entity: Identity }>(personQuery, { id: person.uid })).toEqual({ entity: { id: person.uid, label: 'person' } });
 
     const response = await fetch(base, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ values: { title: 'From the wiki' } }),
@@ -165,7 +165,7 @@ test('wiki, CLI and MCP journal the configured person under one durable author I
       const labels = await loadAssertions(tx, 'vertex', 'person', ['label'], [Number(node!.id)]);
       expect(labels.map(({ value }) => value).sort()).toEqual(['Acceptance Person', 'Renamed Person', oldLabel]);
     });
-    expect(await graphql(personQuery, { id: person.uid })).toEqual({ entity: renamedAuthor });
+    expect(await graphql<{ entity: Identity }>(personQuery, { id: person.uid })).toEqual({ entity: renamedAuthor });
   } finally {
     unpublish();
     await owner.close();
