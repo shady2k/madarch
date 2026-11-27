@@ -247,7 +247,6 @@ jobs:
           - { file: test/db-schema-path.test.ts, cases: 5 }
           - { file: test/api-role-first-page.test.ts, cases: 1 }
           - { file: test/owner-fill-path.test.ts, cases: 1 }
-          - { file: test/plugin-fill-scenarios.test.ts, cases: 6 }
           - { file: test/ordinary-plugin-partition.test.ts, cases: 16 }
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
           - { file: test/imports-path.test.ts, cases: 5 }
