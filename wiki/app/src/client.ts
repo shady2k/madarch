@@ -15,6 +15,7 @@ export interface NavigationKind {
   readonly many: string;
   readonly definition: string | null;
   readonly taken: boolean;
+  readonly authored: boolean;
   readonly group: string | null;
   /** `own-page` or `loop`: the kind's entities stand at a place of their own, not among the pages by kind. */
   readonly nav: string | null;
@@ -69,7 +70,7 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   navigation(lang: $lang) {
     product
     groups { name labels short open parent }
-    kinds { kind one many definition taken group nav count entryId purpose audience }
+    kinds { kind one many definition taken authored group nav count entryId purpose audience }
     purposes { id labels }
   }
 }`;
@@ -79,7 +80,7 @@ export const NAVIGATION_QUERY = `query Navigation($lang: String) {
   navigation(lang: $lang) {
     product
     groups { name labels short open parent }
-    kinds { kind one many definition taken group nav count entryId purpose audience }
+    kinds { kind one many definition taken authored group nav count entryId purpose audience }
     purposes { id labels }
   }
 }`;

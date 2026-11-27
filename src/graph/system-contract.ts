@@ -1,6 +1,6 @@
 /** Protected system contracts, decision 0039 items 9, 24–26. */
 import { MANIFEST_CONTRACT } from './manifest-contract.js';
-import { generatedTableName, type GraphContract, type VertexContract, type EdgeContract } from './contract.js';
+import { generatedTableName, type FieldContract, type GraphContract, type VertexContract, type EdgeContract } from './contract.js';
 
 export const SYSTEM_PROBLEM='system.problem';
 export const SYSTEM_PROBLEM_ABOUT='system.problem-about';
@@ -87,10 +87,20 @@ export function SYSTEM_EDGE_DEFINITIONS(targets: readonly string[]): readonly Ed
 
 const OPERATIONAL_KINDS = ['run', 'unit', 'event', 'agent-usage', 'operation', 'problem', 'question', 'role', 'setting', 'kind'] as const;
 const IDENTITY_KINDS = ['source', 'person', 'plugin', 'agent', 'agent-session'] as const;
+const IDENTITY_LABEL = { name: 'label', type: 'text', nullable: true } as const;
+const IDENTITY_VERSION = { name: 'version', type: 'text', nullable: true } as const;
+// The first person installation format used the machine account as its label.
+export const PERSON_DISPLAY_LABEL_VERSION = '2';
+
+export function identityDisplayFields(kind: string): { readonly label: FieldContract; readonly version?: FieldContract } | undefined {
+  if (!IDENTITY_KINDS.some((identity) => identity === kind)) return undefined;
+  if (kind === 'agent-session') return undefined; // Its label names the execution session.
+  return { label: IDENTITY_LABEL, ...(kind === 'person' ? { version: IDENTITY_VERSION } : {}) };
+}
+
 function identityKind(name: string): VertexContract {
   return { name, table: generatedTableName(name, 'vertex'), capability: 'system', key: [], fields: [
-    { name: 'installation', type: 'text' }, { name: 'label', type: 'text', nullable: true },
-    { name: 'version', type: 'text', nullable: true }, { name: 'scope', type: 'text', nullable: true },
+    { name: 'installation', type: 'text' }, IDENTITY_LABEL, IDENTITY_VERSION, { name: 'scope', type: 'text', nullable: true },
   ] };
 }
 export const SYSTEM_CONTRACT: GraphContract = {

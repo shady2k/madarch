@@ -2777,6 +2777,10 @@ export function pageTemplateKind(manifest: KindsManifest): KindDecl | undefined 
   return undefined;
 }
 
+export function isPersonAuthored(kind: KindDecl | undefined): kind is KindDecl & { readonly origin: 'person' } {
+  return kind?.origin === 'person';
+}
+
 /**
  * The kind whose entities are a repository's files, found by its own `file-text:` declaration (decision 0037): the
  * engine holds no kind name of its own, so a file's text is found by the roles the product declares.

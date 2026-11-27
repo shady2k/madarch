@@ -69,7 +69,7 @@ const bootstrap = {
 const navigation = {
   product: 'Madarch',
   groups: [{ name: 'code', labels: { en: 'Code', ru: 'Код' }, short: null, open: false, parent: null }],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: 'code', nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, authored: false, group: 'code', nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
   purposes: [],
 };
 

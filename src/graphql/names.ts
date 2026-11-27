@@ -19,7 +19,7 @@ export const SCALAR_NAMES: Readonly<Record<'text' | 'integer' | 'bigint' | 'bool
 };
 
 /** Field names the mechanism owns on every entity, and the suffixes it owns for its own fields. */
-export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'assertions', 'contested', 'backlinks'];
+export const RESERVED_FIELD_NAMES: readonly string[] = ['id', 'kind', 'label', 'template', 'revision', 'assertions', 'contested', 'backlinks'];
 export const RESERVED_FIELD_SUFFIXES: readonly string[] = ['Of', 'Aggregate', 'Assertions'];
 
 /** The prefix every type generated for a kind carries: the engine's own types never begin with it (see above). */

@@ -309,7 +309,7 @@ test('entity counts name what a run created and what it changed, whatever the st
     await advanceRun(counted, { runId: 'prior', event: { type: 'plan', at: at + 1, configuration: 'fixture' } });
     await createUnit(counted, { unitId: 'plugin-turns/disk:code.file', product: 'shop', runId: 'prior', stageId: 'plugin-turns', scopeKey: 'first', inputsDigest: 'fixture', retries: 0, at: at + 2 });
     await write('plugin-turns/disk:code.file', 'docs/domains/one.md', 1);
-    expect(await readRunEntityCounts(counted, 'prior')).toEqual([{ plugin: 'disk', kind: 'code.file', created: 1, updated: 0 }]);
+    expect(await readRunEntityCounts(counted, 'prior')).toEqual({ producers: [{ plugin: 'disk', kind: 'code.file', created: 1, updated: 0 }], totals: [{ kind: 'code.file', created: 1, updated: 0 }] });
     // The counted run stays live: its own state last moved a minute ago, and everything it writes records after that.
     await createRun(counted, { runId: 'counted', product: 'shop', at });
     await advanceRun(counted, { runId: 'counted', event: { type: 'plan', at: at + 1, configuration: 'fixture' } });
@@ -318,16 +318,18 @@ test('entity counts name what a run created and what it changed, whatever the st
     await writeOrchestration(counted, tx => recordUnitPlanIn(tx, { runId: 'counted', unitId: 'plugin-turns/disk:code.file@docs/domains/two.md', generation: 1, stageId: 'plugin-turns', stageUnitId: 'disk:code.file', scope: 'second', stagePosition: 0, planPosition: 0, at: at + 3 }));
     await write('plugin-turns/disk:code.file@docs/domains/two.md', 'docs/domains/two.md', 2);
     await write('plugin-turns/disk:code.file@docs/domains/two.md', 'docs/domains/one.md', 3);
-    expect(await readRunEntityCounts(counted, 'counted')).toEqual([{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }]);
+    expect(await readRunEntityCounts(counted, 'counted')).toEqual({ producers: [{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }], totals: [{ kind: 'code.file', created: 1, updated: 1 }] });
     // The same values again are a repeat of what stands: the run changes nothing, and the counts say so.
     await write('plugin-turns/disk:code.file@docs/domains/two.md', 'docs/domains/two.md', 2);
     await write('plugin-turns/disk:code.file@docs/domains/two.md', 'docs/domains/one.md', 3);
-    expect(await readRunEntityCounts(counted, 'counted')).toEqual([{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }]);
+    expect(await readRunEntityCounts(counted, 'counted')).toEqual({ producers: [{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }], totals: [{ kind: 'code.file', created: 1, updated: 1 }] });
     // The run's own detail carries the same read, and its list entry spends nothing on entities.
     const detail = await readFillRunDetail(counted, 'counted', { now: Date.now(), detail: true });
     expect(detail?.entities).toEqual([{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }]);
+    expect(detail?.entityTotals).toEqual([{ kind: 'code.file', created: 1, updated: 1 }]);
     expect(detail?.outcomes).toEqual([]);
     expect((await readFillRunDetail(counted, 'counted', { now: Date.now() }))?.entities).toBeUndefined();
+    expect((await readFillRunDetail(counted, 'counted', { now: Date.now() }))?.entityTotals).toBeUndefined();
   } finally { await counted.close(); }
 });
 
@@ -360,7 +362,7 @@ test('a run that repeats values that already stand counts nothing, because its u
     await advanceRun(counted, { runId: 'prior', event: { type: 'start', at: at + 2, stages: 1 } });
     await createUnit(counted, { unitId: 'plugin-turns/disk:code.file', product: 'shop', runId: 'prior', stageId: 'plugin-turns', scopeKey: 'first', inputsDigest: 'fixture', retries: 0, at: at + 3 });
     await write('plugin-turns/disk:code.file', [{ path: 'docs/domains/one.md', lines: 3 }, { path: 'docs/domains/two.md', lines: 2 }]);
-    expect(await readRunEntityCounts(counted, 'prior')).toEqual([{ plugin: 'disk', kind: 'code.file', created: 2, updated: 0 }]);
+    expect(await readRunEntityCounts(counted, 'prior')).toEqual({ producers: [{ plugin: 'disk', kind: 'code.file', created: 2, updated: 0 }], totals: [{ kind: 'code.file', created: 2, updated: 0 }] });
     // The repeat run opens afterwards and asks for the same values: nothing it writes is its own work.
     await createRun(counted, { runId: 'repeat', product: 'shop', at: at + 10 });
     await advanceRun(counted, { runId: 'repeat', event: { type: 'plan', at: at + 11, configuration: 'fixture' } });
@@ -368,6 +370,54 @@ test('a run that repeats values that already stand counts nothing, because its u
     await createUnit(counted, { unitId: 'plugin-turns/disk:code.file@repeat', product: 'shop', runId: 'repeat', stageId: 'plugin-turns', scopeKey: 'repeat', inputsDigest: 'fixture', retries: 0, at: at + 13 });
     await writeOrchestration(counted, (tx) => recordUnitPlanIn(tx, { runId: 'repeat', unitId: 'plugin-turns/disk:code.file@repeat', generation: 1, stageId: 'plugin-turns', stageUnitId: 'disk:code.file', scope: 'repeat', stagePosition: 0, planPosition: 0, at: at + 13 }));
     await write('plugin-turns/disk:code.file@repeat', [{ path: 'docs/domains/one.md', lines: 3 }, { path: 'docs/domains/two.md', lines: 2 }]);
-    expect(await readRunEntityCounts(counted, 'repeat')).toEqual([]);
+    expect(await readRunEntityCounts(counted, 'repeat')).toEqual({ producers: [], totals: [] });
+  } finally { await counted.close(); }
+});
+
+/**
+ * Two producers that assert one vertex write one entity of the run (madarch-stm0.12): a files plugin and a Git plugin
+ * both name the same file, each through its own unit's lineage, so their rows add to twice what the run wrote. The
+ * kind's total counts the file once and the producer rows still name both, which is what the run's page states.
+ */
+test('a vertex two producers asserted is one entity of the run, and its producers are still both named', async () => {
+  const counted = await createRecordOwner();
+  try {
+    const { bindTestWriteCapability } = await import('./write-capability-fixture.js');
+    const { bindWriteCapability, publishGraphDrafts } = await import('../src/graph/write.js');
+    const { readRunEntityCounts } = await import('../src/graph/fill-orchestration.js');
+    const at = Date.now() - 60_000;
+    /** The files one unit writes, through the unit's own write capability, as a plugin host binds it. */
+    const write = async (unitId: string, files: readonly { path: string; lines: number }[]): Promise<void> => {
+      const unitUid = await counted.transaction('snapshot', async (tx) => await readUnitGraphUidIn(tx, unitId, 1));
+      if (unitUid === undefined) throw new Error(`the fixture unit ${unitId} is absent`);
+      await counted.transaction('write', async (tx) => {
+        const binding = await bindTestWriteCapability(tx, recordGraph);
+        bindWriteCapability(tx, { ...binding, unitUid });
+        await publishGraphDrafts(tx, recordGraph, { vertices: files.map((file) => ({ kind: 'code.file', key: { path: file.path }, values: { lines: file.lines }, producer: 'disk', producerVersion: '1' })), removals: [] });
+      });
+    };
+    // One file stands before the run, so both producers' assertion of it changes a standing entity rather than creating it.
+    await createRun(counted, { runId: 'prior', product: 'shop', at });
+    await advanceRun(counted, { runId: 'prior', event: { type: 'plan', at: at + 1, configuration: 'fixture' } });
+    await advanceRun(counted, { runId: 'prior', event: { type: 'start', at: at + 2, stages: 1 } });
+    await createUnit(counted, { unitId: 'plugin-turns/disk:code.file', product: 'shop', runId: 'prior', stageId: 'plugin-turns', scopeKey: 'first', inputsDigest: 'fixture', retries: 0, at: at + 3 });
+    await write('plugin-turns/disk:code.file', [{ path: 'docs/domains/one.md', lines: 1 }]);
+    // The counted run holds one unit of each of two plugins, and each writes both files: one it creates and one it changes.
+    await createRun(counted, { runId: 'shared', product: 'shop', at });
+    await advanceRun(counted, { runId: 'shared', event: { type: 'plan', at: at + 1, configuration: 'fixture' } });
+    await advanceRun(counted, { runId: 'shared', event: { type: 'start', at: at + 2, stages: 1 } });
+    for (const plugin of ['disk', 'git']) {
+      const unitId = `plugin-turns/${plugin}:code.file@both`;
+      await createUnit(counted, { unitId, product: 'shop', runId: 'shared', stageId: 'plugin-turns', scopeKey: plugin, inputsDigest: 'fixture', retries: 0, at: at + 3 });
+      await writeOrchestration(counted, (tx) => recordUnitPlanIn(tx, { runId: 'shared', unitId, generation: 1, stageId: 'plugin-turns', stageUnitId: `${plugin}:code.file`, scope: plugin, stagePosition: 0, planPosition: 0, at: at + 3 }));
+    }
+    const files = [{ path: 'docs/domains/one.md', lines: 3 }, { path: 'docs/domains/two.md', lines: 2 }];
+    await write('plugin-turns/disk:code.file@both', files);
+    await write('plugin-turns/git:code.file@both', files);
+    // Both producers name both files; the run wrote exactly two entities, one it created and one it changed.
+    expect(await readRunEntityCounts(counted, 'shared')).toEqual({
+      producers: [{ plugin: 'disk', kind: 'code.file', created: 1, updated: 1 }, { plugin: 'git', kind: 'code.file', created: 1, updated: 1 }],
+      totals: [{ kind: 'code.file', created: 1, updated: 1 }],
+    });
   } finally { await counted.close(); }
 });

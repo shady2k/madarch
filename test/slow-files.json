@@ -2,7 +2,7 @@
   "version": 1,
   "measuredOn": "2026-11-26",
   "criterion": "Quarantine files with a measured single-file run over 30 s, plus measured-red files whose assertions or waiting failures require repair before returning to the blocking suite.",
-  "source": "The twelve green-slow entries the integration candidate added were measured at that candidate's HEAD on 2026-11-26. Ten were re-measured on box madarch-0039-fix2 (agent-linux-02, 4 vCPU, 8 GiB, image madarch-3), one file at a time inside scripts/plugin-sandbox-cgroup.sh's delegated cgroup; those seconds are that machine's whole-file runs and are roughly three times a runner's. The eleventh, test/agent-fill-e2e.test.ts, carries its GitHub Actions runner measurement from run 45809866011 (ubuntu-24.04): 31.283 s alone and 38.304 s inside shard 1, and the twelfth, test/catalogue-kind-relations.test.ts, carries its GitHub Actions runner measurement from run 45910624124 (ubuntu-24.04): 31.426 s alone and 30.484 s inside shard 1, so their seconds are the runner's own. The runner measurements of run 45758277151 (ubuntu-24.04, ede4936b1) stay in each entry's defect text. Entries older than this measurement keep the note their own source names.",
+  "source": "The twelve green-slow entries the integration candidate added were measured at that candidate's HEAD on 2026-11-26. Ten were re-measured on box madarch-0039-fix2 (agent-linux-02, 4 vCPU, 8 GiB, image madarch-3), one file at a time inside scripts/plugin-sandbox-cgroup.sh's delegated cgroup; those seconds are that machine's whole-file runs and are roughly three times a runner's. The eleventh, test/agent-fill-e2e.test.ts, carries its GitHub Actions runner measurement from run 45809866011 (ubuntu-24.04): 31.283 s alone and 38.304 s inside shard 1, and the twelfth, test/catalogue-kind-relations.test.ts, carries its GitHub Actions runner measurement from run 45910624124 (ubuntu-24.04): 31.426 s alone and 30.484 s inside shard 1, so their seconds are the runner's own. The runner measurements of run 45758277151 (ubuntu-24.04, ede4936b1) stay in each entry's defect text. Entries older than this measurement keep the note their own source names. test/fill-trace.test.ts carries its GitHub Actions runner measurement from run 46072517676 (ubuntu-24.04) on 2026-11-27: 33.686 s alone and 30.011 s inside shard 2.",
   "note": "The twelve integration entries record the candidate's own measurement: on one box the fixture fill costs 8.1 times main's (155.6 s against main's median 19.3 s for the unchanged fixture of test/status-work.test.ts), so what these files measure is the fill, not the setup around it. Where a file stopped at a bound it names, its seconds are that run's wall time and therefore a floor. test/db-schema-path.test.ts was re-run with its two 300 s bounds raised to 900 s and finished 5 of 5 cases in 507 s, so the PARENT_DELETE_RESTRICTED refill failure reported from an earlier box does not reproduce at this candidate.",
   "files": [
     {
@@ -44,16 +44,6 @@
       "defect": "The one case passes on a runner and serves a product from an api role, reading its first page out of the store the fill wrote; on box madarch-0039-fix2 the file stops at the 120 s bound its own setup names. Runner-alone measurement in run 45758277151: 51.417 s.",
       "replacement": "The cost is the 0039 fill's implementation, not this fixture's setup: on box madarch-0039-fix2 the unchanged fixture of test/status-work.test.ts fills in 155.6 s against main's median 19.3 s (8.1x; 14 824 against 1 522 db.statement spans, 98.8 s against 4.6 s inside PostgreSQL), and its trace puts 12 438 of 14 824 statements and 53.1 s in the engine's own bookkeeping (the run vertex read 774 times, units 598 times, write rights rebound 154 times in 10.9 s), 20.5 s in a deferred graph check wider than decision 0039 item 28 asks, and 37.1 s in the plugins' own facts (76.1 s of plugin.unit wall time double-counts 49.3 s of host operation apply; plugins' own work is roughly 20 s). No change of the 0039 model is needed; speed-up stream madarch-64o5.176 removes these implementation defects after the merge, and this entry stays until the exit below holds.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/api-role-first-page.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
-    },
-    {
-      "path": "test/authored-http.test.ts",
-      "seconds": 52.1,
-      "reason": "red-defect",
-      "result": "red",
-      "owner": "madarch-x9a7",
-      "defect": "The authored create/update/delete case expects error.field to name title, but invalid numeric title input returns SCHEMA_INVALID with path /values/title instead.",
-      "replacement": "Assert the structured SCHEMA_INVALID title-path refusal before exercising creation, conditional update, deletion and GraphQL reads with valid authored values.",
-      "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/catalog-check.test.ts",
@@ -244,6 +234,16 @@
       "defect": "The idle-to-running case expects a fill press to return HTTP 202 but receives 409, and the missing-repository case throws during pin resolution instead of returning the asserted diagnostic state.",
       "replacement": "Use a valid deterministic fixture for idle/running/completed counts and trace assertions, then isolate a missing checkout and assert a failed run with the full repository path and line.",
       "exit": "Rewrite test/fill-states.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/fill-trace.test.ts",
+      "seconds": 33.686,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-stm0.14",
+      "defect": "Both cases pass. The first runs one real fill whose trace is written beside the store and folds the progress and report read from it, and that fill is the file's cost; the second folds a synthetic two-span trace and costs milliseconds. The required job of run 46072517676 measured 33.686 s alone and 30.011 s inside shard 2 (job 140754512660, ubuntu-24.04); the full-fill case alone took 31.252 s in the independent #380 shard of run 46069935373, and the same file took 18.214 s on main in an earlier run, so under runner load the file has no repeatable margin under the 30 s shard budget. madarch-stm0.14 is the ongoing follow-up.",
+      "replacement": "Give the fixture a repeatable margin under the shard budget without weakening what the two cases assert: the trace lines and their fields, the span names, the progress fold and the report stay, and the complete file returns to the required shards once a fresh single-file confirmation at or below 15 seconds holds.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/fill-trace.test.ts at or below 15 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage. madarch-stm0.14 is the ongoing follow-up."
     },
     {
       "path": "test/fill-updates-before-fill.test.ts",

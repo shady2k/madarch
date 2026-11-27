@@ -111,6 +111,7 @@ function entityFields(): FieldDef[] {
     { name: 'kind', type: 'String!' },
     { name: 'label', type: 'String!' },
     { name: 'template', type: 'String!' },
+    { name: 'revision', type: 'String' },
     { name: 'contested', type: '[String!]!' },
     // The page's own field values, every declared field with the opinions that hold it: what a reader's «Details»
     // block shows for a kind no template has described yet (decision 0036, section 6).
@@ -267,6 +268,7 @@ class Builder {
       { name: 'many', type: 'String!' },
       { name: 'definition', type: 'String' },
       { name: 'taken', type: 'Boolean!' },
+      { name: 'authored', type: 'Boolean!' },
       { name: 'group', type: 'String' },
       { name: 'nav', type: 'String' },
       { name: 'count', type: 'Int!' },

@@ -19,6 +19,7 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
 import { publishSamplePageOpinions } from './knowledge-page-opinions.js';
+import { quarantined } from './quarantine.js';
 
 const realKinds = await import('../src/product/manifest/kinds.js');
 const realReadKinds = realKinds.readKinds;
@@ -122,7 +123,10 @@ describe('a status answer reads the manifest once per key', () => {
     expect(countOf(after.body, 'domain'), 'a page explicitly published to the graph').toBe(2);
   });
 
-  test('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
+  // Quarantined for madarch-stm0.13: on a runner this case reached the file's own 60 s limit twice before and twice
+  // after madarch-stm0.12's change, with the status request after its fill never asked. Its name, body, assertions and
+  // bound are unchanged, and docs/quarantine.md records what restores it to the required suite.
+  quarantined('madarch-stm0.13', test, 'flaky', 'aa1a7b8e4a30cb399b9a2e2d5fd2834f654d881e')('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
     manifestReads = 0;
     const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));

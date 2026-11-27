@@ -1,6 +1,6 @@
 /** A named run's durable projection; trace usage never supplies lifecycle or identity. */
 import { type FillStateSnapshotDatabase, readRun, readRunUnitHistory } from '../graph/fill-state.js';
-import { readProgress, readRunEntityCounts, readRunPlans, readRunPublicationCount, readRunPublicationFacts, type RunEntityCount } from '../graph/fill-orchestration.js';
+import { readProgress, readRunEntityCounts, readRunPlans, readRunPublicationCount, readRunPublicationFacts, type RunEntityCounts } from '../graph/fill-orchestration.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import type { ProducerRunOutcome } from '../fill/producer-outcomes.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
@@ -22,10 +22,10 @@ export interface FillRunDetailOptions {
 export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId: string, options: FillRunDetailOptions) {
   const run = await readRun(owner, runId);
   if (run === null) return null;
-  const [units, events, plans, publishedUnits, records, outcomes, entities] = await Promise.all([
+  const [units, events, plans, publishedUnits, records, outcomes, counts] = await Promise.all([
     readRunUnitHistory(owner, runId), readProgress(owner, runId), readRunPlans(owner, runId, { history: true }), readRunPublicationCount(owner, runId), readRunPublicationFacts(owner, runId),
     options.detail === true ? readProducerOutcomes(owner, { runId }) : Promise.resolve([] as readonly ProducerRunOutcome[]),
-    options.detail === true ? readRunEntityCounts(owner, runId) : Promise.resolve([] as readonly RunEntityCount[]),
+    options.detail === true ? readRunEntityCounts(owner, runId) : Promise.resolve<RunEntityCounts>({ producers: [], totals: [] }),
   ]);
   const phase = runPhaseOf(run.state);
   const finished = isFinalRunPhase(phase);
@@ -57,7 +57,8 @@ export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId:
     records, publishedUnits, agentUsage: options.summary?.agentUsage ?? options.agentUsage ?? null,
     ...(options.detail === true ? {
       outcomes: outcomes.map((outcome) => ({ unitId: outcome.unitId, generation: outcome.generation, kind: outcome.kind, plugin: outcome.plugin, outcome: outcome.outcome, produced: outcome.produced, ...(outcome.reason === undefined ? {} : { reason: outcome.reason }) })),
-      entities,
+      entities: counts.producers,
+      entityTotals: counts.totals,
     } : {}),
   };
 }
