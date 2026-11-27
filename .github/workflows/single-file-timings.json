@@ -504,6 +504,7 @@
     "test/assertion-current-values.test.ts": 14196,
     "test/graph-dirty-statement.test.ts": 10439,
     "test/graph-read-batching.test.ts": 11910,
-    "test/problems-without-documents.test.ts": 20210
+    "test/problems-without-documents.test.ts": 20210,
+    "test/entity-cli-daemon.test.ts": 8495
   }
 }
