@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { startupEnabled, startupIdentifiers } from '../obs/startup-context.js';
 import { startupOperation, startupBegin, withStartupContext } from '../obs/log.js';
 /** Owner-only schema service. API and fill processes request preparation over an authenticated loopback channel. */
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { withSpanSync, withSpan } from '../obs/trace.js';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
@@ -46,6 +46,17 @@ export async function withDaemonStorePreparation<T>(home: string, work: () => Pr
     if (previousUrl === undefined) delete process.env[ADDRESS]; else process.env[ADDRESS] = previousUrl;
     if (previousToken === undefined) delete process.env[TOKEN]; else process.env[TOKEN] = previousToken;
   }
+}
+/**
+ * Run a command's store work with a prepared store: a command beside a running daemon borrows the service that daemon
+ * published in the products home, and a command run alone owns the preparation itself. One reading of the products home
+ * decides between them, so a command never has to be told an address and a token by hand (madarch-64o5.193: the entity
+ * command reached neither and refused every store it met while a wiki was running).
+ */
+export async function withStorePreparation<T>(home: string, work: () => Promise<T>): Promise<T> {
+  return existsSync(join(home, '.madarch-store-owner.json'))
+    ? await withDaemonStorePreparation(home, work)
+    : await withStorePreparationOwner(work);
 }
 export function publishStoreOwner(home: string): () => void {
   const path = join(home, '.madarch-store-owner.json');

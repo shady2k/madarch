@@ -4,6 +4,7 @@ import { KnowledgeProduct } from '../knowledge/product.js';
 import { productsHome, type DraftEnv } from './home.js';
 import { knowledgeRootOf } from './store.js';
 import { whereAmI } from './lifecycle.js';
+import { withStorePreparation } from './store-preparation.js';
 
 const HELP = [
   'usage: madarch entity <create|show|update|delete|list|schema> <kind> [uid] [options]',
@@ -106,24 +107,29 @@ export async function entityCommand(args: readonly string[], options: {
     if (ifRevision !== undefined && action !== 'update' && action !== 'delete') throw new Error(`${action} takes no --if-revision`);
     const env = options.env ?? process.env;
     const productFolder = entityProductFolder(folder, options.cwd ?? process.cwd());
-    product = new KnowledgeProduct({ productFolder, storeRoot: knowledgeRootOf(productsHome(env, home)), env });
-    const values: Record<string, unknown> = {};
-    if (action === 'create' || action === 'update') {
-      const schema = await product.authored('schema', kind!);
-      for (const [name, raw] of Object.entries(rawValues)) {
-        const field = schema.fields.find((held) => held.name === name);
-        if (field === undefined) throw new Error(`field ${JSON.stringify(name)}: not declared by this kind`);
-        if (field.type !== 'text' && field.nullable === true && raw === 'null') values[name] = null;
-        else if (['text', 'timestamp', 'bigint'].includes(field.type)) values[name] = raw;
-        else {
-          try { values[name] = JSON.parse(raw); }
-          catch { throw new Error(`field ${JSON.stringify(name)}: expected ${field.type}`); }
+    const homeFolder = productsHome(env, home);
+    // The store's schema is prepared by its owning process: borrow a running daemon's service, or own the preparation.
+    const run = async (): Promise<number> => {
+      product = new KnowledgeProduct({ productFolder, storeRoot: knowledgeRootOf(homeFolder), env });
+      const values: Record<string, unknown> = {};
+      if (action === 'create' || action === 'update') {
+        const schema = await product.authored('schema', kind!);
+        for (const [name, raw] of Object.entries(rawValues)) {
+          const field = schema.fields.find((held) => held.name === name);
+          if (field === undefined) throw new Error(`field ${JSON.stringify(name)}: not declared by this kind`);
+          if (field.type !== 'text' && field.nullable === true && raw === 'null') values[name] = null;
+          else if (['text', 'timestamp', 'bigint'].includes(field.type)) values[name] = raw;
+          else {
+            try { values[name] = JSON.parse(raw); }
+            catch { throw new Error(`field ${JSON.stringify(name)}: expected ${field.type}`); }
+          }
         }
       }
-    }
-    const answer = action === 'import' ? await product.importAuthored() : await product.authored(action, kind!, { ...(uid === undefined ? {} : { uid }), ...(words === undefined ? {} : { words }), ...(ifRevision === undefined ? {} : { ifRevision }), values });
-    stdout.write(`${JSON.stringify({ ...answer, guidance: await entityGuidance(product) }, null, json ? undefined : 2)}\n`);
-    return 'errors' in answer && answer.errors.length > 0 ? 2 : 0;
+      const answer = action === 'import' ? await product.importAuthored() : await product.authored(action, kind!, { ...(uid === undefined ? {} : { uid }), ...(words === undefined ? {} : { words }), ...(ifRevision === undefined ? {} : { ifRevision }), values });
+      stdout.write(`${JSON.stringify({ ...answer, guidance: await entityGuidance(product) }, null, json ? undefined : 2)}\n`);
+      return 'errors' in answer && answer.errors.length > 0 ? 2 : 0;
+    };
+    return await withStorePreparation(homeFolder, run);
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
     const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
