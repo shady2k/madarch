@@ -401,8 +401,8 @@ export class GraphReader {
     const parameters = [...typed.parameters];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
     const kind = param(decl.kind);
-    const key = decl.key.length === 0 || (decl.keyEdges?.length ?? 0) > 0 ? 'n.uid::text' : decl.key.map(field => `n.key->>${param(field)}`).join(" || '/' || ");
-    const fallback = decl.key.length === 0 ? 'n.uid::text' : `n.key->>${param(decl.key.at(-1)!)}`;
+    const key = decl.key.length === 0 || (decl.keyEdges?.length ?? 0) > 0 ? 'n.uid::text' : decl.key.map(field => `(n.key->>${param(field)}::text)`).join(" || '/' || ");
+    const fallback = decl.key.length === 0 ? 'n.uid::text' : `(n.key->>${param(decl.key.at(-1)!)}::text)`;
     const text = param(options.q?.trim().toLowerCase() ?? '');
     const after = param(options.after ?? null);
     const limit = param(options.limit + 1);

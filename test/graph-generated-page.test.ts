@@ -246,3 +246,47 @@ test('generated pages hydrate several attributes, provenance and repository scop
     });
   } finally { await owner.close(); }
 });
+
+const findingsTable = generatedTableName('fixture.finding', 'vertex');
+const findingsContract: GraphContract = {
+  vertex: [{ name: 'fixture.finding', table: findingsTable, capability: 'fixture', key: ['path', 'line'], fields: [
+    { name: 'path', type: 'text' }, { name: 'line', type: 'text' }, { name: 'note', type: 'text' },
+  ] }],
+  edge: [], dictionary: [],
+};
+const findingsGenerated = new Map([['fixture.finding', {
+  kind: 'fixture.finding', table: findingsTable, key: ['path', 'line'], columns: ['note'],
+  types: { note: 'text' as const },
+}]]);
+
+test('a generated page reads a key of two fields: its order, its cursor and its search (ALX-1856)', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: findingsContract });
+  try {
+    const binding = await testHostBinding(owner, findingsContract, 'fixture');
+    await owner.transaction('write', async tx => {
+      await activateGraphProducer(tx, findingsContract, binding);
+      await publishGraphDrafts(tx, findingsContract, { vertices: [
+        { kind: 'fixture.finding', key: { path: 'a.md', line: '2' }, values: { note: 'second a' }, producer: 'fixture', producerVersion: '1' },
+        { kind: 'fixture.finding', key: { path: 'a.md', line: '10' }, values: { note: 'tenth a' }, producer: 'fixture', producerVersion: '1' },
+        { kind: 'fixture.finding', key: { path: 'b.md', line: '1' }, values: { note: 'first b' }, producer: 'fixture', producerVersion: '1' },
+      ], removals: [] });
+    });
+    await owner.transaction('snapshot', async tx => {
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, tx, undefined, findingsGenerated, undefined, findingsContract);
+      // The key is the ordered pair of its fields, compared by code point: "10" stands before "2" in a text column.
+      const first = await reader.list('fixture.finding', { limit: 2 });
+      expect(first.rows.map((entity) => entity.key)).toEqual(['fixture.finding:a.md/10', 'fixture.finding:a.md/2']);
+      expect(first.rows.map((entity) => entity.properties['note'])).toEqual(['tenth a', 'second a']);
+      expect(first.total).toBe(3);
+      expect(first.next).toBe('fixture.finding:a.md/2');
+      const rest = await reader.list('fixture.finding', { limit: 5, after: first.next! });
+      expect(rest.rows.map((entity) => entity.key)).toEqual(['fixture.finding:b.md/1']);
+      expect(rest.total).toBe(3);
+      expect(rest.next).toBeNull();
+      const searched = await reader.list('fixture.finding', { limit: 5, q: 'a.md/2' });
+      expect(searched.rows.map((entity) => entity.key)).toEqual(['fixture.finding:a.md/2']);
+      expect(searched.total).toBe(1);
+      expect((await reader.list('fixture.finding', { limit: 5, q: 'b.md' })).rows.map((entity) => entity.key)).toEqual(['fixture.finding:b.md/1']);
+    });
+  } finally { await owner.close(); }
+});
