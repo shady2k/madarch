@@ -7,10 +7,14 @@ required dependency of the stable `test` status.
 Mark a case with `quarantined('madarch-<id>', test, 'slow', '<introducing commit hash>')(literalName, body, timeout)`
 using the helper from `test/quarantine.ts`. A `describe` can be marked in the same
 way when its shared setup fails. The task must be a literal tracker id; dotted
-ids such as `madarch-64o5.14` are valid. The current three markers use that repair
+ids such as `madarch-64o5.14` are valid, and each marker names its own repair
 task. The reason is one of `slow`, `flaky`, or `broken`; `since` is the full
-commit hash that introduced the quarantine, not the latest fill revision. The
-three existing cases name their original quarantine commit from madarch-64o5.15.
+commit hash that introduced the case the marker holds back — the commit whose
+test is quarantined, not the commit that added the marker and not the latest fill
+revision. The markers that exist name such a case-introducing commit:
+`aa1a7b8e4a30cb399b9a2e2d5fd2834f654d881e` for the `test/status-work.test.ts`
+case and `105a9f5973a225cf5767dafe45899fef92bc21bb` for the diagram budget case,
+which that commit still ran unconditionally.
 The `test-quarantine` plugin reads these literal facts from graph-hosted test
 files into `code.test-quarantine`; it does not inspect the checkout directly.
 The knowledge-documents marker covers the whole describe because its
@@ -72,9 +76,10 @@ recorded here, because that is the fact a reader of the marker needs and the mar
   job runs the two cases that remain. Restoring it means removing the wrapper and its import, and setting the
   `test/status-work.test.ts` row of the `slow-files` matrix in `.github/workflows/ci.yml` back to three cases.
 - `test/diagram-budget.test.ts`, *the fold and layout of a folder of 1 324 children fit the 5 ms and 400 ms budget* —
-  `flaky`, repair `madarch-h9x5`. Restored when the fold and the warm layout of the 1 324-child fixture stay inside
-  5 ms and 400 ms on the required runner. Neither bound has a stated source — both arrived in `105a9f597` with none —
-  and the hosted ubuntu-24.04 runner measured 403.56 ms against the 400 ms bound in run 46076856429 with the fixture
-  and the layout code unchanged; the case therefore runs in the allowed-to-fail `quarantine` job, and what the same
-  fixture folds to stays required in `test/diagram-budget.test.ts` beside it. Restoring it means removing the wrapper
-  and its import.
+  `flaky`, repair `madarch-h9x5`. Restored when both bounds have a stated source and the case passes them on the
+  required runner: the fold of the 1 324-child fixture under 5 ms, and that fold plus the warm layout under 400 ms,
+  over the same intervals and with the same strict comparisons the case asserts. Neither bound has a source today —
+  both arrived in `105a9f597` with none — and the hosted ubuntu-24.04 runner measured 403.56 ms against the 400 ms
+  bound in run 46076856429 with the fixture and the layout code unchanged; the case therefore runs in the
+  allowed-to-fail `quarantine` job, and what the same fixture folds to stays required in
+  `test/diagram-budget.test.ts` beside it. Restoring it means removing the wrapper and its import.

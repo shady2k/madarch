@@ -72,9 +72,11 @@ None.
 
 GitHub CI on the branch is the merge check: the required shards must pass with the fold case and the quarantined case
 skipped, and the `quarantine` job must report the timing case's own result. In the box `alx1713-a` the two cases were
-run alone — the fold case passes and the marked case skips in the ordinary run, both pass under
-`MADARCH_QUARANTINE=1` (fold 0.1 ms, layout 91 ms, 348.89 ms for the case) — and `bun run check` exits 0 with
-`check:quarantine` listing `test/diagram-budget.test.ts:47 madarch-h9x5 …`.
+run alone on the corrected case `a80a6b712`, where the fixture is built before the fold's clock starts: the ordinary
+run gives one pass and one skip, and `MADARCH_QUARANTINE=1` gives two passes with the warm layout at 99 ms. The
+earlier 91 ms figure came from `a9da748d8`, where the fold clock still covered `folderHood()` and therefore timed a
+different interval. `bun run check` exits 0 with `check:quarantine` listing
+`test/diagram-budget.test.ts:47 madarch-h9x5 …`.
 
 ## DONE WHEN
 
