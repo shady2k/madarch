@@ -1467,6 +1467,7 @@
       "unstated": "Ни одно мнение его не называет",
       "key": "ключ",
       "stated": "Сказано {{producer}}",
+      "statedFor": "Сказано {{producer}} от имени {{author}}",
       "place": "в {{place}}",
       "opinions": "мнений: {{count}}"
     },
