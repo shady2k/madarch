@@ -39,11 +39,13 @@ test('random authored identities preserve opinions, exact words and withdrawal h
   await expect(call('read', { uid: made.uid })).rejects.toThrow('entity not found');
   const wordsHistory = await owner.run(tx => loadAssertions(tx, 'vertex', 'system.operation', ['words']));
   expect(wordsHistory.map(row => row.value)).toEqual([words, 'edit precisely', 'withdraw precisely']);
-  const history = await owner.run(tx => loadAssertions(tx, 'vertex', 'note', ['title']));
+  const history = await owner.run(tx => loadAssertions(tx, 'vertex', 'note', ['$exists', 'title']));
   const source = producerIdentityOf(person);
-  expect(history.filter(row => row.subject.type === 'vertex' && row.subject.uid === made.uid).map(row => ({ source: row.source, value: row.value }))).toEqual([
+  expect(history.filter(row => row.property === 'title' && row.subject.type === 'vertex' && row.subject.uid === made.uid).map(row => ({ source: row.source, value: row.value }))).toEqual([
     { source: source.sourceUid, value: 'A note' }, { source: source.sourceUid, value: 'Changed' }, { source: source.sourceUid, value: null },
   ]);
+  expect(history.find(row => row.property === '$exists' && row.operation === 'retract' && row.subject.type === 'vertex' && row.subject.uid === made.uid))
+    .toMatchObject({ author: source.principalUid, source: source.sourceUid });
 });
 
 test('fields reject missing, undeclared and incorrectly typed values without publishing', async () => {

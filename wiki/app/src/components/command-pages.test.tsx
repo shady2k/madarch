@@ -32,9 +32,9 @@ const NAVIGATION = {
     { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
   ],
   kinds: [
-    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
-    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
-    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, authored: false, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, authored: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, authored: false, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
   ],
   purposes: [],
 };
@@ -259,6 +259,7 @@ test('a run that wrote entities counts them in the reader\'s words, per kind and
       { unitId: 'disk:demo.gamma', stage: 'disk:demo.gamma', scope: 'demo.gamma', status: 'published', phase: 'done', generation: 1, attempts: 1 },
     ],
     entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 3, updated: 1 }, { plugin: 'disk', kind: 'demo.gamma', created: 2, updated: 0 }],
+    entityTotals: [{ kind: 'demo.alpha', created: 3, updated: 1 }, { kind: 'demo.gamma', created: 2, updated: 0 }],
     outcomes: [{ unitId: 'disk:demo.alpha', generation: 1, kind: 'demo.alpha', plugin: 'disk', outcome: 'completed', produced: 12 }],
   };
   const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
@@ -274,6 +275,37 @@ test('a run that wrote entities counts them in the reader\'s words, per kind and
   } finally { await page.close(); }
 });
 
+/**
+ * A vertex two producers both asserted is one entity of the run (madarch-stm0.12): a files plugin and a Git plugin name
+ * the same files, so their rows add to twice what the run wrote. The title counts each entity once and each producer's
+ * own line keeps naming what it asserted.
+ */
+test('a run whose two producers asserted the same entities counts each one once in its title', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 2, records: 9,
+    selected: ['demo.alpha'], order: ['demo.alpha'],
+    groups: [
+      { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+      { kind: 'demo.alpha', group: 'code', plugin: 'git', done: 1, total: 1, state: 'published', phase: 'done' },
+    ],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'tree', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'git:demo.alpha', stage: 'git:demo.alpha', scope: 'tree', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    ],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 2, updated: 0 }, { plugin: 'git', kind: 'demo.alpha', created: 2, updated: 0 }],
+    entityTotals: [{ kind: 'demo.alpha', created: 2, updated: 0 }],
+    outcomes: [],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    // The two plugins asserted the same two files: the run wrote two entities, not the four its producer rows add to.
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Файлы: создано 2');
+    const lines = [...page.container.querySelectorAll('[data-testid="fill-run-group-result"]')].map((one) => one.textContent ?? '');
+    expect(lines[0]).toContain('Файлы: создано 2');
+    expect(lines[1]).toContain('Файлы: создано 2');
+  } finally { await page.close(); }
+});
+
 test('several kinds state the entities they wrote, with the Russian plural forms', async () => {
   const cases: readonly [number, string][] = [[1, 'Создано 1 сущность'], [2, 'Создано 2 сущности'], [5, 'Создано 5 сущностей'], [21, 'Создано 21 сущность']];
   for (const [created, words] of cases) {
@@ -286,6 +318,7 @@ test('several kinds state the entities they wrote, with the Russian plural forms
       ],
       units: [{ unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'demo.alpha', status: 'published', phase: 'done', generation: 1, attempts: 1 }],
       entities: [{ plugin: 'disk', kind: 'demo.alpha', created, updated: 0 }, { plugin: 'disk', kind: 'demo.gamma', created: 0, updated: 1 }],
+      entityTotals: [{ kind: 'demo.alpha', created, updated: 0 }, { kind: 'demo.gamma', created: 0, updated: 1 }],
       outcomes: [],
     };
     const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
@@ -344,7 +377,7 @@ test('a skipped group states its skip, never that its producer found nothing', a
       { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
       { unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'skipped', phase: 'skipped', skippedBecause: 'run ended', generation: 1, attempts: 1 },
     ],
-    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 3, updated: 0 }], outcomes: [], agentExchanges: [EMPTY_EXCHANGE],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 3, updated: 0 }], entityTotals: [{ kind: 'demo.alpha', created: 3, updated: 0 }], outcomes: [], agentExchanges: [EMPTY_EXCHANGE],
   };
   const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
   try {
@@ -410,7 +443,8 @@ test('a run that only changed entities starts its title with a capital', async (
       { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
       { unitId: 'disk:demo.gamma', stage: 'disk:demo.gamma', scope: 'scenario', status: 'published', phase: 'done', generation: 1, attempts: 1 },
     ],
-    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 0, updated: 2 }, { plugin: 'disk', kind: 'demo.gamma', created: 0, updated: 1 }], outcomes: [],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 0, updated: 2 }, { plugin: 'disk', kind: 'demo.gamma', created: 0, updated: 1 }],
+    entityTotals: [{ kind: 'demo.alpha', created: 0, updated: 2 }, { kind: 'demo.gamma', created: 0, updated: 1 }], outcomes: [],
   };
   const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
   try {

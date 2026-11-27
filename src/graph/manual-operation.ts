@@ -79,7 +79,18 @@ async function dispatch(tx: OuterTransaction, data: AdmittedRequest, resolver?: 
 }
 
 function operationRequest(operation: ManualRequest): OperationRequest {
-  return { key: 'request', request: operation, preconditions: operation.preconditions, completion: { output: {}, enqueue: [] } };
+  const { preconditions, contractVersion, ...request } = operation;
+  return {
+    key: 'request',
+    // A replay is compared before the queue serializes away omitted options.
+    request: {
+      ...request,
+      ...(preconditions === undefined ? {} : { preconditions }),
+      ...(contractVersion === undefined ? {} : { contractVersion }),
+    },
+    preconditions,
+    completion: { output: {}, enqueue: [] },
+  };
 }
 
 async function admit(owner: DatabaseOwner, data: AdmittedRequest) {

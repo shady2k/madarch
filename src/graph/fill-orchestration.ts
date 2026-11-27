@@ -145,6 +145,24 @@ export interface RunEntityCount {
   readonly updated: number;
 }
 
+/**
+ * What the run itself wrote of one kind, in distinct entities (madarch-stm0.12): a vertex that two producers both asserted
+ * is one entity of the run, so the total counts it once, where the producer breakdown names it under each producer.
+ */
+export interface RunEntityKindTotal {
+  readonly kind: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
+/** A run's entity counts: what each producer wrote, and the distinct total of each kind (madarch-stm0.12). */
+export interface RunEntityCounts {
+  readonly producers: readonly RunEntityCount[];
+  readonly totals: readonly RunEntityKindTotal[];
+}
+
+const NO_ENTITY_COUNTS: RunEntityCounts = { producers: [], totals: [] };
+
 export interface FillEnd {
   readonly runId: string;
   readonly state: string;
@@ -436,12 +454,17 @@ function stageUnitPartsOf(values:Readonly<Record<string,unknown>>):{readonly plu
  return kind===''?undefined:{plugin:stageUnitId.slice(0,colon),kind};
 }
 /**
- * What a run wrote, entity by entity, per producer group (madarch-64o5.106). The graph links every assertion a unit's
- * operation wrote to that unit (`system.assertion-unit`, the lineage the plugin host binds), so a vertex of the kind the
- * unit fills is the run's own work: one whose first existence assertion comes at or after the run's own first assertion is
- * created, and one that stood before it and that the run asserted anew is updated. A repeat of values that already stand
- * is neither: the writer reuses the standing assertion, which was recorded before the run's line, and the lineage the
- * unit binds then names that older assertion rather than the run's own work.
+ * What a run wrote, entity by entity, per producer group and in each kind's distinct total (madarch-64o5.106,
+ * madarch-stm0.12). The graph links every assertion a unit's operation wrote to that unit (`system.assertion-unit`, the
+ * lineage the plugin host binds), so a vertex of the kind the unit fills is the run's own work: one whose first existence
+ * assertion comes at or after the run's own first assertion is created, and one that stood before it and that the run
+ * asserted anew is updated. A repeat of values that already stand is neither: the writer reuses the standing assertion,
+ * which was recorded before the run's line, and the lineage the unit binds then names that older assertion rather than the
+ * run's own work.
+ *
+ * The producer rows name an entity under each producer that wrote it, because a files plugin and a Git plugin both assert
+ * the same file: their rows add to more than the run wrote, and the kind's total counts the entity once. Each kind's
+ * total is therefore a count of the distinct vertices, never the sum of the producer rows.
  *
  * The boundary is the run's own line in the store, the database's `recorded_sequence`, never a window of the host's
  * clock: a live run reads the groups that have finished already, and no rounding of milliseconds or step of the clock
@@ -450,16 +473,16 @@ function stageUnitPartsOf(values:Readonly<Record<string,unknown>>):{readonly plu
  * One statement reads the whole run: its cost is the assertions the run's units wrote, never the size of the store, and
  * no query is spent per entity.
  */
-export async function readRunEntityCounts(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunEntityCount[]>{
+export async function readRunEntityCounts(database:FillStateSnapshotDatabase,runId:string):Promise<RunEntityCounts>{
  return await snapshotTransaction(database,async tx=>{
   const run=await readRunGraphUidIn(tx,runId);
-  if(run===undefined)return [];
+  if(run===undefined)return NO_ENTITY_COUNTS;
   const units=(await runUnits(tx,runId,run)).flatMap(record=>{
    const parts=stageUnitPartsOf(record.values);
    return parts===undefined?[]:[{uid:record.uid,plugin:parts.plugin,kind:parts.kind}];
   });
-  if(units.length===0)return [];
-  const rows=await withSpan('graph.orchestration.entity-counts',{'db.system':'postgres'},async()=>await tx.query<{plugin:string;kind:string;created:string;updated:string}>(`WITH held AS (
+  if(units.length===0)return NO_ENTITY_COUNTS;
+  const rows=await withSpan('graph.orchestration.entity-counts',{'db.system':'postgres'},async()=>await tx.query<{kind:string;plugin:string|null;created:string;updated:string}>(`WITH held AS (
      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(unit_uid uuid,plugin text,kind text)
     ), run_line AS (
      SELECT min(line.recorded_sequence) AS seq
@@ -483,17 +506,22 @@ export async function readRunEntityCounts(database:FillStateSnapshotDatabase,run
       AND a.recorded_sequence>=(SELECT seq FROM run_line)
      GROUP BY held.plugin,held.kind,subject.to_node
     ), started AS (
-     SELECT touched.plugin,touched.kind,min(a.recorded_sequence) AS began
+     SELECT touched.plugin,touched.kind,touched.entity,min(a.recorded_sequence) AS began
      FROM touched
      JOIN edge subject ON subject.to_node=touched.entity
      JOIN assertion_vertex_subject attachment ON attachment.subject_edge_id=subject.id
      JOIN assertion a ON a.assertion_id=attachment.assertion_id AND a.property='$exists' AND a.operation='assert'
      GROUP BY touched.plugin,touched.kind,touched.entity
     )
-    SELECT plugin,kind,count(*) FILTER (WHERE began>=(SELECT seq FROM run_line))::text AS created,
-      count(*) FILTER (WHERE began<(SELECT seq FROM run_line))::text AS updated
-    FROM started GROUP BY plugin,kind ORDER BY plugin COLLATE "C",kind COLLATE "C"`,[JSON.stringify(units.map(unit=>({unit_uid:unit.uid,plugin:unit.plugin,kind:unit.kind}))),run]));
-  return rows.rows.map(row=>({plugin:row.plugin,kind:row.kind,created:Number(row.created),updated:Number(row.updated)}));
+    SELECT kind,plugin,count(DISTINCT entity) FILTER (WHERE began>=(SELECT seq FROM run_line))::text AS created,
+      count(DISTINCT entity) FILTER (WHERE began<(SELECT seq FROM run_line))::text AS updated
+    FROM started GROUP BY GROUPING SETS ((kind,plugin),(kind)) ORDER BY kind COLLATE "C",plugin COLLATE "C"`,[JSON.stringify(units.map(unit=>({unit_uid:unit.uid,plugin:unit.plugin,kind:unit.kind}))),run]));
+  const producers:RunEntityCount[]=[],totals:RunEntityKindTotal[]=[];
+  for(const row of rows.rows){
+   const counted={created:Number(row.created),updated:Number(row.updated)};
+   if(row.plugin===null)totals.push({kind:row.kind,...counted});else producers.push({plugin:row.plugin,kind:row.kind,...counted});
+  }
+  return {producers,totals};
  });
 }
 export async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitPlanRecord|null>{

@@ -27,7 +27,8 @@
     "test/assertion-selection-plan.test.ts": 4348,
     "test/assertion-selection.test.ts": 1372,
     "test/assertion-write-batch.test.ts": 4150,
-    "test/authored-http.test.ts": 52100,
+    "test/authored-http.test.ts": 4791,
+    "test/authored-identity.test.ts": 4493,
     "test/authored-import.test.ts": 10407,
     "test/authored.test.ts": 22400,
     "test/bulk-file-opinions.test.ts": 11800,
@@ -135,7 +136,7 @@
     "test/fill-states.test.ts": 34000,
     "test/fill-static-heap.test.ts": 6300,
     "test/fill-target-selection.test.ts": 5600,
-    "test/fill-trace.test.ts": 25900,
+    "test/fill-trace.test.ts": 33686,
     "test/fill-updates-before-fill.test.ts": 73200,
     "test/fill-updates-run.test.ts": 255400,
     "test/fill-updates.test.ts": 9900,
@@ -504,6 +505,7 @@
     "test/assertion-current-values.test.ts": 14196,
     "test/graph-dirty-statement.test.ts": 10439,
     "test/graph-read-batching.test.ts": 11910,
-    "test/problems-without-documents.test.ts": 20210
+    "test/problems-without-documents.test.ts": 20210,
+    "test/entity-cli-daemon.test.ts": 8495
   }
 }

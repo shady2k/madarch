@@ -1,7 +1,7 @@
 /** Explicit semantic role projections. No role or field is inferred from catalogue names. */
 import type { KindsManifest, SemanticBinding } from '../product/manifest/kinds.js';
 import type { GraphEntity, GraphReader } from './graph-read.js';
-import { checkRoleProperties } from '../model/semantic-role-protocol.js';
+import { checkRoleProperties, semanticRoleOptionalFields } from '../model/semantic-role-protocol.js';
 
 export type SemanticGraph = Pick<GraphReader, 'list'> & Partial<Pick<GraphReader, 'relationEdges'>>;
 
@@ -42,16 +42,25 @@ export async function semanticEntities(graph: SemanticGraph, manifest: Pick<Kind
     if (found.total !== found.rows.length) throw new Error(`${manifest.file}:${edge.line}: semantic role "${role}" reads ${found.rows.length} of ${found.total} ${edge.kind} edges; refusing a partial projection`);
     edges.set(edge.kind, found.rows);
   }
+  const optionalFields = semanticRoleOptionalFields(role);
   return rows.map((entity) => {
     const properties: Record<string, unknown> = {};
     for (const [property, field] of Object.entries(binding.fields)) {
-      if (!Object.hasOwn(entity.properties, field)) throw new Error(`${manifest.file}:${binding.line}: ${entity.key}: semantic role "${role}" field "${field}" is absent`);
+      const optional = optionalFields.get(property);
+      if (!Object.hasOwn(entity.properties, field)) {
+        if (optional !== undefined) continue;
+        throw new Error(`${manifest.file}:${binding.line}: ${entity.key}: semantic role "${role}" field "${field}" is absent`);
+      }
       const value = entity.properties[field];
+      if (value === null && optional === 'non-nullable') continue;
       const values = binding.values?.[property];
       if (values === undefined || value === null) properties[property] = value;
       else {
         const match = Object.entries(values).find(([, declared]) => declared === value);
-        if (match === undefined) throw new Error(`${manifest.file}:${binding.line}: ${entity.key}: semantic role "${role}" field "${field}" has no declared semantic value for ${JSON.stringify(value)}`);
+        if (match === undefined) {
+          if (optional !== undefined) continue;
+          throw new Error(`${manifest.file}:${binding.line}: ${entity.key}: semantic role "${role}" field "${field}" has no declared semantic value for ${JSON.stringify(value)}`);
+        }
         properties[property] = match[0];
       }
     }

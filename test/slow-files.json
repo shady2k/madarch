@@ -2,7 +2,7 @@
   "version": 1,
   "measuredOn": "2026-11-27",
   "criterion": "Quarantine files with a measured single-file run over 30 s, plus measured-red files whose assertions or waiting failures require repair before returning to the blocking suite.",
-  "source": "These nine entries are the dedicated files of the twelve-file study the stream inherited: one of the twelve was already back in the blocking shards before this change, one returns to them with this change, one more returns in the follow-up commit that carries the pull request's first run, and these nine stay listed. They were measured on GitHub Actions' ubuntu-24.04 runners after the speed-up stream madarch-64o5.176 landed (F1+F2, F3, F5-catalogue, F5-fill and F4). Each file ran alone in three independent runs of the F4 tree: 46044618928 (the pull request head 7b9499138, tree 83e9ef8f), 46045922097 (the merge 46be90c4a, the same tree) and 46046625374 (9b0b16da3, after the merge that followed). The seconds each entry records are the median of those three green complete-file measurements, and .github/workflows/single-file-timings.json carries the same number as that file's committed single-file evidence, which the slow-list check compares within 100 ms. test/catalogue-kind-relations.test.ts returned to the blocking shards: 29.18 s, 27.86 s and 27.81 s in the same three runs, and it is no longer listed. Entries of other tasks keep the note their own source names.",
+  "source": "These nine entries are the dedicated files of the twelve-file study the stream inherited: one of the twelve was already back in the blocking shards before this change, one returns to them with this change, one more returns in the follow-up commit that carries the pull request's first run, and these nine stay listed. They were measured on GitHub Actions' ubuntu-24.04 runners after the speed-up stream madarch-64o5.176 landed (F1+F2, F3, F5-catalogue, F5-fill and F4). Each file ran alone in three independent runs of the F4 tree: 46044618928 (the pull request head 7b9499138, tree 83e9ef8f), 46045922097 (the merge 46be90c4a, the same tree) and 46046625374 (9b0b16da3, after the merge that followed). The seconds each entry records are the median of those three green complete-file measurements, and .github/workflows/single-file-timings.json carries the same number as that file's committed single-file evidence, which the slow-list check compares within 100 ms. test/catalogue-kind-relations.test.ts returned to the blocking shards: 29.18 s, 27.86 s and 27.81 s in the same three runs, and it is no longer listed. Entries of other tasks keep the note their own source names. test/fill-trace.test.ts carries its GitHub Actions runner measurement from run 46072517676 (ubuntu-24.04) on 2026-11-27: 33.686 s alone and 30.011 s inside shard 2.",
   "note": "A real fill pass of a small, already trimmed fixture costs 18.6-19.5 s on a runner (sample B's two status-work case fills; main's median for that fixture was 19.3 s before 0039), so a file that needs two passes cannot reach the 30 s bound whatever its data. The three samples of one tree also vary by up to 40% (owner-fill-path 66.10 s against 108.39 s), which is why a file at 32.72 s is not treated as an exit candidate. Each staying entry names the passes it pays and why they are its subject. The box numbers these entries carried before measured the 0039 candidate, where one fill cost 155.6 s against main's 19.3 s; those numbers are superseded by the runner samples above.",
   "files": [
     {
@@ -34,16 +34,6 @@
       "defect": "The no-model-call kind usage case expects no runs and zero token totals, but receives fill-1 and fill-2 usage rows from another fixture after its request times out.",
       "replacement": "Give the empty-kind request its own store and assert empty runs, zero totals and a named refusal for a missing kind; separately seed two runs and assert their ordered usage totals.",
       "exit": "Rewrite test/agent-usage-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
-      "path": "test/authored-http.test.ts",
-      "seconds": 52.1,
-      "reason": "red-defect",
-      "result": "red",
-      "owner": "madarch-x9a7",
-      "defect": "The authored create/update/delete case expects error.field to name title, but invalid numeric title input returns SCHEMA_INVALID with path /values/title instead.",
-      "replacement": "Assert the structured SCHEMA_INVALID title-path refusal before exercising creation, conditional update, deletion and GraphQL reads with valid authored values.",
-      "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
       "path": "test/catalog-check.test.ts",
@@ -224,6 +214,16 @@
       "defect": "The idle-to-running case expects a fill press to return HTTP 202 but receives 409, and the missing-repository case throws during pin resolution instead of returning the asserted diagnostic state.",
       "replacement": "Use a valid deterministic fixture for idle/running/completed counts and trace assertions, then isolate a missing checkout and assert a failed run with the full repository path and line.",
       "exit": "Rewrite test/fill-states.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+    },
+    {
+      "path": "test/fill-trace.test.ts",
+      "seconds": 33.686,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-stm0.14",
+      "defect": "Both cases pass. The first runs one real fill whose trace is written beside the store and folds the progress and report read from it, and that fill is the file's cost; the second folds a synthetic two-span trace and costs milliseconds. The required job of run 46072517676 measured 33.686 s alone and 30.011 s inside shard 2 (job 140754512660, ubuntu-24.04); the full-fill case alone took 31.252 s in the independent #380 shard of run 46069935373, and the same file took 18.214 s on main in an earlier run, so under runner load the file has no repeatable margin under the 30 s shard budget. madarch-stm0.14 is the ongoing follow-up.",
+      "replacement": "Give the fixture a repeatable margin under the shard budget without weakening what the two cases assert: the trace lines and their fields, the span names, the progress fold and the report stay, and the complete file returns to the required shards once a fresh single-file confirmation at or below 15 seconds holds.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/fill-trace.test.ts at or below 15 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage. madarch-stm0.14 is the ongoing follow-up."
     },
     {
       "path": "test/fill-updates-before-fill.test.ts",
@@ -611,7 +611,7 @@
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The three cases pass on a runner and read the published page steps a fill moves, so the file pays the startup fill plus two fills inside its cases (18.6 s and 19.5 s of its 39.0 s of case time in sample B). After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 69.62 s, 69.38 s and 69.74 s (runs 46044618928, 46045922097 and 46046625374), median 69.62 s, which is the number this entry records. Its earlier runner measurement was 125.498 s (run 45758277151).",
+      "defect": "The file's cases read the published page steps a fill moves, so the file pays the startup fill plus two fills inside its cases (18.6 s and 19.5 s of its 39.0 s of case time in sample B). Its third case is in the repository's case-level quarantine (madarch-stm0.13, docs/quarantine.md) and the required job runs the two that remain, so the seconds here are the three-case file's own. After the speed-up stream the whole file was green on the runner in three samples of the F4 tree: 69.62 s, 69.38 s and 69.74 s (runs 46044618928, 46045922097 and 46046625374), median 69.62 s, which is the number this entry records; the two active cases' own time is the next required run's to measure. Its earlier runner measurement was 125.498 s (run 45758277151).",
       "replacement": "Each fill moves the graph revision the case reads, so every pass is the case; three passes at 18.6-19.5 s cannot fit the bound. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/status-work.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },

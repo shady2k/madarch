@@ -5,12 +5,11 @@
  *
  *     madarch mcp [--product <folder>] [--home <folder>]
  */
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { serveProductMcp } from './authored.js';
 import { entityProductFolder } from '../product/entity-cli.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { withDaemonStorePreparation, withStorePreparationOwner } from '../product/store-preparation.js';
+import { withStorePreparation } from '../product/store-preparation.js';
 import { whereAmI } from '../product/lifecycle.js';
 
 interface McpArguments {
@@ -73,9 +72,7 @@ export async function mcpCommand(args: readonly string[], options: { readonly in
       ...(options.input === undefined ? {} : { input: options.input }), output: stdout,
     });
     // A store's schema is prepared by its owning process: borrow a running daemon's service, or own the preparation.
-    return existsSync(join(home, '.madarch-store-owner.json'))
-      ? await withDaemonStorePreparation(home, serve)
-      : await withStorePreparationOwner(serve);
+    return await withStorePreparation(home, serve);
   } catch (error) {
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;

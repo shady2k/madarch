@@ -58,7 +58,7 @@ const ID = '00000000-0000-0000-0000-00000000dead';
 const navigation = {
   product: 'Madarch',
   groups: [],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, authored: false, group: null, nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
   purposes: [],
 };
 

@@ -32,6 +32,7 @@ import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
 import { LogsSection } from './components/logs.js';
 import { FillKindSection } from './components/fill-kind.js';
+import { AuthoredSection } from './components/authored.js';
 import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
@@ -172,6 +173,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'runs': return <RunsSection context={context} />;
     case 'first-run': return <FirstRunSection context={context} />;
     case 'fill-kind': return <FillKindSection context={context} />;
+    case 'authored': return <AuthoredSection context={context} />;
     case 'run': return <RunSection context={context} />;
     case 'problem-actions': return <ProblemsSection context={context} />;
     case 'settings-form': return <SettingsSection context={context} />;

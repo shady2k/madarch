@@ -281,11 +281,6 @@
   },
   {
     "rule": "extraction-boundary",
-    "file": "src/mcp/cli.ts",
-    "symbol": "node:fs"
-  },
-  {
-    "rule": "extraction-boundary",
     "file": "src/obs/log.ts",
     "symbol": "node:fs"
   },

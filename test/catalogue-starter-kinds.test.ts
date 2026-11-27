@@ -80,6 +80,20 @@ test('a starter product publishes its catalogue and distinguishes starter eviden
     const permission = await executeGraphql(owner, { manifest, folder }, { query: '{ catalogueEntity(name: "permission", lang: "ru") { label } }' });
     expect((permission.body as MessageBody).data).toMatchObject({ catalogueEntity: { label: 'Право' } });
 
+    // The page of a kind extends the base entity page (decision 0036, section 6), so it asks `details` and `trail` of
+    // the entry: the entry states the fields its declaration names, holding no value of its own, and sits in no
+    // container. A null answer to either is a non-null field the whole page operation fails on.
+    const page = await executeGraphql(owner, { manifest, folder }, { query: '{ catalogueEntity(name: "task") { details { name type key value contested assertions { id } } trail { id } } }' });
+    const pageBody = page.body as MessageBody;
+    if (pageBody.errors !== undefined) throw new Error(`${folder}: GraphQL HTTP ${String(page.status)}: ${JSON.stringify(pageBody.errors)}`);
+    const entry = (pageBody.data as { catalogueEntity: { details: Record<string, unknown>[]; trail: unknown[] } }).catalogueEntity;
+    const taskKind = manifest.kinds.get('task');
+    if (taskKind === undefined) throw new Error(`${folder}:1: the starter catalogue declares no kind "task"`);
+    expect(entry.details.map((one) => one['name'])).toEqual((taskKind.fields ?? []).map((field) => field.name).sort(byCodePoint));
+    expect(entry.details.every((one) => one['value'] === null && one['contested'] === false && (one['assertions'] as unknown[]).length === 0)).toBe(true);
+    expect(entry.details.filter((one) => one['key'] === true).map((one) => one['name'])).toEqual([...(taskKind.key ?? [])].sort(byCodePoint));
+    expect(entry.trail).toEqual([]);
+
     const repository = { kind: 'code.repository', key: { name: 'example' } };
     const file = { kind: 'code.file', key: { path: 'example.txt' }, keyEdges: { 'code.file-repository': repository } };
     const blob = (content: string) => ({ kind: 'code.blob', key: { digest: sha256Hex(Buffer.from(content)) }, values: { content } });

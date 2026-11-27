@@ -223,19 +223,24 @@ jobs:
             exit 1
           fi
 
-  # The nine files test/slow-files.json records for the speed-up stream as
-  # green-slow, each measured over 30 seconds alone on a runner in three samples
-  # of the F4 tree (runs 46044618928, 46045922097 and 46046625374; every entry
-  # also names its earlier run), run here one job each. Eight of the nine were
-  # above the bound in all three samples; the median of agent-fill-e2e was above
-  # it while one of its samples was inside, so it needs a fresh confirmation
-  # before it can return to the shards (it was green alone in run 46063935769, at
-  # 27.30 s). The shards leave out every file the list names (the shard step here
-  # and scripts/run-tests.ts), so this required matrix is the blocking coverage of
-  # these nine. Four fixtures of the list run in partition-bootstrap, not in
-  # `checks`: git-partition-bootstrap, h3-real-reconciliation,
-  # disk-support-ownership and agent-fill-graph-mcp. Every other green-slow entry
-  # runs only in the nightly slow-tests.yml, as do main's own entries in the list.
+  # The ten files test/slow-files.json records as green-slow that this matrix
+  # runs, measured over 30 seconds alone on a runner, run here one job each. Nine
+  # are the speed-up stream's, each measured alone in three samples of the F4 tree
+  # (runs 46044618928, 46045922097 and 46046625374; every entry also names its
+  # earlier run); the tenth, test/fill-trace.test.ts, is the status-work
+  # quarantine work's (33.686 s alone and 30.011 s in shard 2, run 46072517676).
+  # Eight of the nine stream files were above the bound in all three samples; the
+  # median of agent-fill-e2e was above it while one of its samples was inside, so
+  # it needs a fresh confirmation before it can return to the shards (it was green
+  # alone in run 46063935769, at 27.30 s). test/status-work.test.ts runs its two
+  # active cases here, the third being in the repository's case-level quarantine
+  # (madarch-stm0.13, docs/quarantine.md). The shards leave out every file the
+  # list names (the shard step here and scripts/run-tests.ts), so this required
+  # matrix is the blocking coverage of these ten. Four fixtures of the list run in
+  # partition-bootstrap, not in `checks`: git-partition-bootstrap,
+  # h3-real-reconciliation, disk-support-ownership and agent-fill-graph-mcp. Every
+  # other green-slow entry runs only in the nightly slow-tests.yml, as do main's
+  # own entries in the list.
   # A job fails when its run selected no file, did not name it once as the run's
   # own header, reported fewer passing cases than the file holds, or reported a
   # failure: a green job that cannot show the file ran is not coverage.
@@ -254,8 +259,9 @@ jobs:
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
           - { file: test/imports-path.test.ts, cases: 5 }
           - { file: test/roles-two-and-two.test.ts, cases: 1 }
-          - { file: test/status-work.test.ts, cases: 3 }
+          - { file: test/status-work.test.ts, cases: 2 }
           - { file: test/source-follows-fill.test.ts, cases: 3 }
+          - { file: test/fill-trace.test.ts, cases: 2 }
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

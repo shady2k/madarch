@@ -14,8 +14,10 @@ never reads.
 ## Out of scope
 - The assertion model of decision 0039, the single graph writer, the deferred graph check and the
   database schema: none of them changes here.
-- The 30 s threshold and the required-check aggregate; the only case count that moves is
-  `source-follows-fill`'s, from 2 to 3, to match the three cases the file holds.
+- The 30 s threshold and the required-check aggregate; the case counts that move are
+  `source-follows-fill`'s, from 2 to 3, to match the three cases the file holds, and
+  `status-work`'s, from 3 to 2, which `main`'s own quarantine of its third case (madarch-stm0.13)
+  settles, not this change.
 - A reduction of any fixture whose volume is the case's own subject.
 
 ## Rationale
@@ -27,6 +29,9 @@ bound in all three, so the slow list cannot keep it: a listed entry must carry m
 the shard suite is where a file that fits belongs. Nine stay listed, each with one named required
 job: eight are above the bound in every sample (31.62–108.39 s), and `test/agent-fill-e2e.test.ts`
 (median 35.76 s) is above it at the median but not in every sample, so it does not return yet. The
+integration with `main` adds a tenth listed file and row from the status-work quarantine work,
+`test/fill-trace.test.ts`, and settles `test/status-work.test.ts` at the two cases that remain after
+its third case's quarantine; both are recorded under "Integration with main" below. The
 first runner run then returned `test/api-role-first-page.test.ts` as well, on three alone samples of
 one run (9.32 s, 6.877 s and 6.900 s). The reason the rest stay is not a fixture that could be
 smaller:
@@ -62,11 +67,15 @@ Reason: the project's slow-test inventory and one test's setup, with no visible 
 
 1. Read `test/slow-files.json`: nine entries of the stream; `test/catalogue-kind-relations.test.ts`
    and `test/api-role-first-page.test.ts` are not among them, and each remaining entry records the
-   median of its three runner samples.
-2. Read the `slow-files` matrix of `.github/workflows/ci.yml`: nine lines, eight `cases` values
-   unchanged and `source-follows-fill` raised from 2 to 3, a comment naming the nine files and the
-   three sample runs their medians come from, and the same comment saying that eight of the nine were
-   above the bound in every sample while `agent-fill-e2e` is above it at the median only.
+   median of its three runner samples. The list also carries `test/fill-trace.test.ts`, which `main`'s
+   status-work quarantine work added, and `test/authored-http.test.ts` is no longer listed because
+   `main` moved that coverage into the blocking suite.
+2. Read the `slow-files` matrix of `.github/workflows/ci.yml`: ten lines, eight `cases` values
+   unchanged, `source-follows-fill` raised from 2 to 3, `status-work` at its two active cases, and
+   `fill-trace` at 2; a comment naming the ten files and the three sample runs the stream's medians
+   come from, together with `fill-trace`'s own run, and the same comment saying that eight of the
+   nine stream files were above the bound in every sample while `agent-fill-e2e` is above it at the
+   median only.
 3. Run `bun run check:slow-tests`: no finding; every listed entry is over 30 s and agrees with its
    committed evidence within 100 ms.
 4. Run `bun run test --slow --only test/api-role-first-page.test.ts`: one case passes with both
@@ -111,9 +120,9 @@ change. These measurements matter here.
   [140724610884](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724610884)),
   named exactly once across the five artifacts. That is above the 30 s bound the shard jobs are held
   to, on a first sample, while its three standalone samples of the F4 tree were 27.81–29.18 s. So
-  this change records the weight as measured and does **not** claim the file meets the 30 s shard
-  bound: its placement is the next required run's to decide, as the follow-up in `measurement.md`
-  states, and the three standalone samples stay as historical evidence.
+  this change records the weight as measured and does **not** claim the shard bound passed on that
+  sample; the next required run of the reviewed head measured it at 25 315 ms in shard 1 (see
+  "The reviewed head's required run"), and the three standalone samples stay as historical evidence.
 - **`test/plugin-fill-scenarios.test.ts` measured 16 561 ms in shard 4** (`test-files-4/shard-4.json`):
   still a shard file, and its `MISSING_ENDPOINT` flakiness stays a separate investigation.
 - **`test/source-follows-fill.test.ts` ran all three of its cases green in 62.73 s** (job
@@ -141,8 +150,28 @@ change. These measurements matter here.
   whose third case was 21.09 s. The growth gate's second finding is that same file alone: 2 pass,
   1 fail, its third case reaching its own 60 s timeout (job
   [140726623318](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140726623318), case 3
-  60 000.17 ms, case 2 at 27.914 s). That timeout is a separate production question owned elsewhere,
-  is not part of this diff, and stays open; it is why this pull request cannot go green yet.
+  60 000.17 ms, case 2 at 27.914 s). That timeout is a separate production question owned elsewhere
+  and is not part of this diff; `main` now answers it with the case-level quarantine of that case
+  (madarch-stm0.13, `docs/quarantine.md`), so the merged tree runs the file's two active cases and
+  the aggregate no longer fails on it.
+
+### The reviewed head's required run
+
+The reviewed head's own required run
+([46069935373](https://github.com/shady2k/madarch/actions/runs/46069935373), `7aafaa899`) passed all
+five shard jobs on `ubuntu-24.04` and named both returned files once each in shard 1
+(`test-files-1/shard-1.json`):
+
+- **`test/api-role-first-page.test.ts` at 4 795 ms** — the reduced setup, in the shards as required
+  coverage, far below the bound; this is the shard confirmation the follow-up owes.
+- **`test/catalogue-kind-relations.test.ts` at 25 315 ms** — inside the 30 s shard bound on a
+  required run, where the first run's single sample was 33 641 ms. The weight in
+  `.github/workflows/test-timings.json` stays 33 641 ms, the measured worst case of the two, so the
+  five shards stay balanced against the file as it is, and both shard samples are recorded here.
+
+The run's aggregate `test` job failed only on the third `status-work` case, which is the case `main`
+now quarantines; nothing in that finding belongs to this change, and the integration below carries
+the quarantine into this tree.
 
 - `bun run check` on a 4 vCPU / 8 GiB box on agent-linux-02, on the delivered tree, with
   `MADARCH_SKIP_PERF=1`: exit 0
@@ -159,3 +188,30 @@ change. These measurements matter here.
   stops at the 120 s setup bound, 130.34 s, 0 pass, 1 fail.
 - `measurement.md` in this change carries the three-sample table, the per-file reasoning, the
   catalogue publication pair and the follow-ups owed to the runners.
+
+## Integration with main
+
+`main` at `6d176f981` (PR #386) was merged into the reviewed head `7aafaa899` with one ordinary merge
+commit whose first parent is the reviewed head, so this pull request carries both histories. Two
+files conflicted; both were resolved by keeping each side's intent, not by preferring one side:
+
+- **`.github/workflows/ci.yml`.** The `slow-files` matrix keeps this change's nine stream rows
+  (`status-work` at its two active cases, `source-follows-fill` at 3) and takes `main`'s tenth row,
+  `fill-trace` at 2; the comment says ten files, and it names `fill-trace`'s own measurement.
+- **`test/slow-files.json`.** The list keeps this change's nine stream entries with their three-sample
+  medians, takes `main`'s `fill-trace` entry, and drops the `authored-http` entry, whose coverage
+  `main` moved into the blocking suite. `status-work`'s entry records the quarantine of its third
+  case beside the three-case measurements it already carried.
+
+The two timing files merged without conflict and were checked against both parents: the single-file
+evidence keeps every stream median this change records plus 9 320 ms for `api-role-first-page`, and
+carries `main`'s `authored-http` 4 791 ms, `fill-trace` 33 686 ms and its other new files; the shard
+weights keep the catalogue's 33 641 ms and take `main`'s `authored-http` 4 791 ms. Nothing of one
+side is dropped by the automatic merge, and no test implementation, requirement or threshold moved.
+
+On the merged tree, on a 4 vCPU / 8 GiB box on agent-linux-02: `git diff --check` clean,
+`check:workflows` 4 workflows, `check:slow-tests` "63 listed, 506 measured files, no finding",
+`check:quarantine` exit 0 and `check:tests` 0 violations, all exit 0. A replay of Bun's own `--shard`
+selection with the committed shard weights over the 451 files the shards carry names
+`test/api-role-first-page.test.ts` and `test/catalogue-kind-relations.test.ts` once each, both in
+shard 1 (`measurement.md`, "Shard selection after the integration").

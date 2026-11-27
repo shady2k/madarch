@@ -19,16 +19,16 @@ import { z } from 'zod';
 import { fits, GraphRefusal } from './validation.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { entityKindNames, assertionValueTableName, type FieldType } from '../graph/contract.js';
-import { activeExistenceSql, loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
+import { activeExistenceSql, assertionRevision, loadAssertions, loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './dispute-read.js';
 import { contextLayers } from './context.js';
 import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
-import { withAssertionContract, vertexKindPresentSql } from './system-contract.js';
+import { identityDisplayFields, PERSON_DISPLAY_LABEL_VERSION, withAssertionContract, vertexKindPresentSql } from './system-contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
-import { fileTextKind, homeKind, type KindsManifest } from '../product/manifest/kinds.js';
+import { fileTextKind, homeKind, isPersonAuthored, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, kindTypeNameOf, typeNameOf } from '../graphql/names.js';
 import { publishedRelationWords, type PublishedEdge, type PublishedField, type PublishedKind, type PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
@@ -392,6 +392,7 @@ export class ReadContext {
     if (name === 'kind') return entity.kind;
     if (name === 'label') return this.labelOf(entity);
     if (name === 'template') return this.templateOf(entity, entity.kind);
+    if (name === 'revision') return this.revisionOf(entity);
     if (name === 'contested') return this.contestedOf(entity);
     if (name === 'details') return this.detailsOf(entity);
     if (name === 'trail') return this.trailOf(entity);
@@ -411,6 +412,16 @@ export class ReadContext {
     const relation = this.relationByType.get(entity.typeName)?.get(name);
     if (relation !== undefined) return this.relation(entity, relation.edge, relation.side, args);
     return null;
+  }
+
+  private async revisionOf(entity: EntityValue): Promise<string | null> {
+    if (!isPersonAuthored(this.manifest.kinds.get(entity.kind))) return null;
+    const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
+    const vertex = contract.vertex.find(({ name }) => name === entity.kind);
+    if (vertex === undefined) return null;
+    const properties = ['$exists', ...vertex.fields.map(({ name }) => name)];
+    // Use the command's full recorded history, independent of the view's selectors.
+    return assertionRevision(await loadAssertions(this.tx, 'vertex', entity.kind, properties, [Number(entity.nodeId)]));
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
@@ -435,6 +446,16 @@ export class ReadContext {
       if (keyField?.type !== 'text') continue;
       const read = await this.fieldRead(entity, keyField);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
+    }
+    const identity = identityDisplayFields(entity.kind);
+    if (identity !== undefined) {
+      const [label, version] = await Promise.all([
+        this.fieldRead(entity, identity.label),
+        identity.version === undefined ? undefined : this.fieldRead(entity, identity.version),
+      ]);
+      if ((version === undefined || version.value === PERSON_DISPLAY_LABEL_VERSION) && typeof label.value === 'string' && label.value !== '') return label.value;
+      const labels = this.manifest.kinds.get(entity.kind)?.labels;
+      return labels?.[entity.lang ?? this.lang]?.one ?? labels?.[this.fallbackLang]?.one ?? entity.kind;
     }
     return entity.uid;
   }
@@ -1495,6 +1516,7 @@ export class ReadContext {
         many: kind.labels?.[language]?.many ?? kind.labels?.[this.fallbackLang]?.many ?? kind.name,
         definition: kind.descriptions?.[language] ?? kind.descriptions?.[this.fallbackLang] ?? null,
         taken: catalogue.byName.has(kind.name),
+        authored: isPersonAuthored(kind),
         group: kind.group ?? null,
         nav: kind.nav ?? null,
         count: counts.get(kind.name) ?? 0,
@@ -1896,6 +1918,10 @@ export class ReadContext {
     if (name === 'taken') return value.taken;
     if (name === 'plugins') return value.plugins;
     if (name === 'fields') return value.fields;
+    if (name === 'details') return this.catalogueDetails(value);
+    // A kind's entry declares a kind: it is the root of its records, not a record of another kind, so it sits in no
+    // container and its breadcrumb is empty.
+    if (name === 'trail') return [];
     if (name === 'instances') return this.catalogueInstances(value, args, lang);
     if (name === 'instancesAggregate') {
       const kind = this.published.kinds.find((one) => one.name === value.name);
@@ -1907,6 +1933,17 @@ export class ReadContext {
     const relation = this.relationByType.get('CatalogueEntity')?.get(name);
     if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
     return null;
+  }
+
+  /**
+   * The details a catalogue entry states: the fields its declaration names, in code-point order. A declaration holds no
+   * value of its own, so the entry states none and contests none; the key mark is the one its published kind gives.
+   */
+  private catalogueDetails(value: CatalogueValue): unknown[] {
+    const key = this.published.kinds.find((one) => one.name === value.name)?.key ?? [];
+    return [...value.fields].sort((a, b) => byCodePoint(a.name, b.name)).map((field) => ({
+      name: field.name, type: field.type, key: key.includes(field.name), value: null, contested: false, assertions: [],
+    }));
   }
 
   /** The entity a catalogue entry completes as. */

@@ -14,7 +14,7 @@
     "test/architecture-gates.test.ts": 7200,
     "test/architecture-repository.test.ts": 91800,
     "test/architecture-schema-preparation.test.ts": 6900,
-    "test/authored-http.test.ts": 52100,
+    "test/authored-http.test.ts": 4791,
     "test/authored-import.test.ts": 54900,
     "test/authored.test.ts": 22400,
     "test/bulk-file-opinions.test.ts": 11800,
