@@ -37,6 +37,23 @@ const git = (cwd: string, args: string[]): string => execFileSync('git', args, {
 const SHOP = 'stamp-shop';
 const CODE = 'stamp-code';
 
+// THROWAWAY PROBE for the 60 s deadline investigation (ALX-1714), never for merging: monotonic phase markers, so a run
+// killed at the file's own deadline names the awaited step it died in, and a heartbeat names a step that never returns.
+const probeStart = performance.now();
+const probe = (phase: string): void => {
+  console.log(`PROBE status-work +${(performance.now() - probeStart).toFixed(0)}ms ${phase}`);
+};
+async function step<T>(phase: string, work: () => Promise<T>): Promise<T> {
+  probe(`${phase} begin`);
+  const beat = setInterval(() => { probe(`${phase} still running`); }, 5_000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(beat);
+    probe(`${phase} end`);
+  }
+}
+
 let work: string;
 let home: string;
 let folder: string;
@@ -67,14 +84,18 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  await fill();
+  await fill('setup');
   await publishSamplePageOpinions(folder, join(work, 'store'));
 }, 180_000);
 
 /** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
-async function fill(): Promise<void> {
-  await fillInProcess(folder, home, join(work, 'store'));
-  await get('/api/status');
+async function fill(label = 'fill'): Promise<void> {
+  await step(`${label}: fillInProcess`, async () => {
+    await fillInProcess(folder, home, join(work, 'store'));
+  });
+  await step(`${label}: post-fill status`, async () => {
+    await get('/api/status');
+  });
 }
 
 afterAll(async () => {
@@ -105,6 +126,7 @@ describe('a status answer reads the manifest once per key', () => {
   });
 
   test('an explicitly published page updates the graph revision after its source is committed', async () => {
+    probe('case2 begin');
     const before = await get('/api/status');
     expect(countOf(before.body, 'domain')).toBe(1);
     const refund = SAMPLE_DOMAIN.replace('id: domain:payment', 'id: domain:refund').replace('title: Payment', 'title: Refund');
@@ -112,7 +134,7 @@ describe('a status answer reads the manifest once per key', () => {
     // File bytes are not graph opinions: neither an uncommitted write nor a fill imports a page.
     expect(countOf((await get('/api/status')).body, 'domain')).toBe(1);
     commitProduct(folder, 'Write the refund domain');
-    await fill();
+    await fill('case2');
     await publishSamplePageOpinions(folder, join(work, 'store'), [{
       kind: 'domain', slug: 'refund', title: 'Refund', file: 'docs/domains/refund.md',
       body: 'Refunds return captured payments.', relates: [], sources: ['docs/requirements.md'],
@@ -123,18 +145,26 @@ describe('a status answer reads the manifest once per key', () => {
   });
 
   test('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
+    probe('case3 begin');
     manifestReads = 0;
     const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'stamp-probe'], { en: 'Stamp probe', ru: 'Проба чекана', short: { en: 'Stamp probe', ru: 'Проба чекана' } });
     manifest.addIn(['roles', 'developer', 'lead'], 'stamp-probe');
     writeFileSync(file, manifest.toString());
-    expect((await get('/api/status')).body.groups.map((group: { group: string }) => group.group)).not.toContain('stamp-probe');
+    probe('case3: status before the commit begin');
+    const stale = await get('/api/status');
+    probe('case3: status before the commit end');
+    expect(stale.body.groups.map((group: { group: string }) => group.group)).not.toContain('stamp-probe');
+    probe('case3: commitProduct begin');
     commitProduct(folder, 'Declare a probe group');
-    await fill();
+    probe('case3: commitProduct end');
+    await fill('case3');
     // Starting a fill is a write path and reads the working tree once; a reader of a page reads the graph alone.
     manifestReads = 0;
+    probe('case3: status after the fill begin');
     const answer = await get('/api/status');
+    probe('case3: status after the fill end');
     expect(answer.status).toBe(200);
     expect((answer.body.groups as { group: string }[]).map((group) => group.group)).toContain('stamp-probe');
     expect(manifestReads, "the working tree's manifest, read by a reader of a page").toBe(0);
