@@ -25,7 +25,7 @@ for adjacent independent retirements under the existing graph write lock.
 
 ## Preserved contracts
 
-- graph-queries/as-of: retirement appends assertions for the bound source and context; the earlier valid-time and recorded-time views and their evidence remain available.
+- graph-queries/as-of: retirement appends assertions for the bound source and context. The earlier valid-time and recorded-time views and their evidence remain available.
 
 ## Coverage
 
