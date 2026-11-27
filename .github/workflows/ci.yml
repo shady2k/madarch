@@ -223,14 +223,16 @@ jobs:
             exit 1
           fi
 
-  # The twelve files test/slow-files.json records as green-slow, measured over 30
-  # seconds alone on a runner in runs 45758277151, 45809866011 and 45910624124, run here one
-  # job each. The shards leave out every file the list names (the shard step here
-  # and scripts/run-tests.ts), so this required matrix is the blocking coverage of
-  # these twelve. Four fixtures of the list run in partition-bootstrap, not in
-  # `checks`: git-partition-bootstrap, h3-real-reconciliation,
-  # disk-support-ownership and agent-fill-graph-mcp. Every other green-slow entry
-  # runs only in the nightly slow-tests.yml, as do main's own entries in the list.
+  # The twelve files test/slow-files.json records as green-slow that this matrix
+  # runs, measured over 30 seconds alone on a runner in runs 45758277151,
+  # 45809866011, 45910624124 and 46072517676 (test/fill-trace.test.ts: 33.686 s
+  # alone and 30.011 s in shard 2), run here one job each. The shards leave out
+  # every file the list names (the shard step here and scripts/run-tests.ts), so
+  # this required matrix is the blocking coverage of these twelve. Four fixtures of
+  # the list run in partition-bootstrap, not in `checks`: git-partition-bootstrap,
+  # h3-real-reconciliation, disk-support-ownership and agent-fill-graph-mcp. Every
+  # other green-slow entry runs only in the nightly slow-tests.yml, as do main's own
+  # entries in the list.
   # A job fails when its run selected no file, did not name it once as the run's
   # own header, reported fewer passing cases than the file holds, or reported a
   # failure: a green job that cannot show the file ran is not coverage.
@@ -253,6 +255,7 @@ jobs:
           - { file: test/roles-two-and-two.test.ts, cases: 1 }
           - { file: test/status-work.test.ts, cases: 2 }
           - { file: test/source-follows-fill.test.ts, cases: 2 }
+          - { file: test/fill-trace.test.ts, cases: 2 }
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

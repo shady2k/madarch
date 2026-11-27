@@ -135,7 +135,7 @@
     "test/fill-states.test.ts": 34000,
     "test/fill-static-heap.test.ts": 6300,
     "test/fill-target-selection.test.ts": 5600,
-    "test/fill-trace.test.ts": 25900,
+    "test/fill-trace.test.ts": 33686,
     "test/fill-updates-before-fill.test.ts": 73200,
     "test/fill-updates-run.test.ts": 255400,
     "test/fill-updates.test.ts": 9900,
