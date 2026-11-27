@@ -6,7 +6,7 @@ import { openFillRunQueue } from '../src/fill/run-jobs.js';
 import { declareFileTextQueue, serveFileTexts } from '../src/knowledge/file-texts.js';
 
 /** Serves file reads until stopped: one claim a pass, and a quiet gap between passes. */
-export async function startFileTextServer(owner: DatabaseOwner): Promise<{ stop(): Promise<void>; served: () => number }> {
+export async function startFileTextServer(owner: DatabaseOwner, options: { readonly env?: Readonly<Record<string, string | undefined>> } = {}): Promise<{ stop(): Promise<void>; served: () => number }> {
   const queue: QueueService = await openFillRunQueue(owner);
   await declareFileTextQueue(queue);
   let running = true;
@@ -14,7 +14,7 @@ export async function startFileTextServer(owner: DatabaseOwner): Promise<{ stop(
   const loop = (async () => {
     while (running) {
       try {
-        served += await serveFileTexts(queue, { env: process.env });
+        served += await serveFileTexts(queue, { env: options.env ?? process.env });
       } catch {
         // A claim that fails is the next pass's to take: the store may be closing under the loop.
       }
