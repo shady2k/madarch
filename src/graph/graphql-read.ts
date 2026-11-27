@@ -1896,6 +1896,10 @@ export class ReadContext {
     if (name === 'taken') return value.taken;
     if (name === 'plugins') return value.plugins;
     if (name === 'fields') return value.fields;
+    if (name === 'details') return this.catalogueDetails(value);
+    // A kind's entry declares a kind: it is the root of its records, not a record of another kind, so it sits in no
+    // container and its breadcrumb is empty.
+    if (name === 'trail') return [];
     if (name === 'instances') return this.catalogueInstances(value, args, lang);
     if (name === 'instancesAggregate') {
       const kind = this.published.kinds.find((one) => one.name === value.name);
@@ -1907,6 +1911,17 @@ export class ReadContext {
     const relation = this.relationByType.get('CatalogueEntity')?.get(name);
     if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
     return null;
+  }
+
+  /**
+   * The details a catalogue entry states: the fields its declaration names, in code-point order. A declaration holds no
+   * value of its own, so the entry states none and contests none; the key mark is the one its published kind gives.
+   */
+  private catalogueDetails(value: CatalogueValue): unknown[] {
+    const key = this.published.kinds.find((one) => one.name === value.name)?.key ?? [];
+    return [...value.fields].sort((a, b) => byCodePoint(a.name, b.name)).map((field) => ({
+      name: field.name, type: field.type, key: key.includes(field.name), value: null, contested: false, assertions: [],
+    }));
   }
 
   /** The entity a catalogue entry completes as. */
