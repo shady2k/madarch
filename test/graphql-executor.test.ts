@@ -1243,7 +1243,7 @@ test('search shares one active vertex selector across kinds and text fields', as
 });
 
 test('kind aggregates and instances count entities once across producers and translations', async () => {
-  const names = ['aggregate-one', 'aggregate-two', 'aggregate-three'];
+  const names = ['aggregate-one', 'aggregate-two', 'aggregate-three'] as const;
   const old = '2000-01-02T12:00:00Z';
   const future = '2099-01-02T12:00:00Z';
   const draft = (name: string, values: VertexDraft['values'], producer: string, lang?: string): VertexDraft => ({
@@ -1252,16 +1252,16 @@ test('kind aggregates and instances count entities once across producers and tra
   await owner.transaction('write', async tx => {
     await bindTestWriteCapability(tx, contract, '019a0000-0000-7000-8000-000000000052');
     await publishGraphDrafts(tx, contract, { vertices: [
-      draft(names[0]!, { description: 'Shared', size: 20, last_change: old }, 'first', 'en'),
-      draft(names[1]!, { description: 'Shared', size: 10, last_change: future }, 'first', 'en'),
-      draft(names[2]!, { description: 'Other' }, 'first', 'en'),
+      draft(names[0], { description: 'Shared', size: 20, last_change: old }, 'first', 'en'),
+      draft(names[1], { description: 'Shared', size: 10, last_change: future }, 'first', 'en'),
+      draft(names[2], { description: 'Other' }, 'first', 'en'),
     ], removals: [] });
     await bindTestWriteCapability(tx, contract, '019a0000-0000-7000-8000-000000000053');
     await publishGraphDrafts(tx, contract, { vertices: [
-      draft(names[0]!, { description: 'First translation' }, 'second', 'ru'),
-      draft(names[1]!, { description: 'Second translation' }, 'second', 'ru'),
-      draft(names[0]!, { description: 'Shared', size: 20, last_change: old }, 'second', 'en'),
-      draft(names[1]!, { description: 'Shared', size: 10, last_change: future }, 'second', 'en'),
+      draft(names[0], { description: 'First translation' }, 'second', 'ru'),
+      draft(names[1], { description: 'Second translation' }, 'second', 'ru'),
+      draft(names[0], { description: 'Shared', size: 20, last_change: old }, 'second', 'en'),
+      draft(names[1], { description: 'Shared', size: 10, last_change: future }, 'second', 'en'),
     ], removals: [] });
   });
   const data = await graphql(`query ($names: [String!]!) {
@@ -1398,7 +1398,7 @@ sections:
   expect(reads).toHaveLength(3);
   expect(reads[1]).toBe('committed write');
   expect([reads[0], reads[2]].sort()).toEqual(['count', 'records']);
-  const during = splitResponse(page, answer.body.data);
+  const during = splitResponse(page, answer.body.data as Record<string, unknown>);
   expect(during['count']).toEqual({ count: 2 });
   expect(during['records']).toMatchObject({ totalCount: 2, edges: [{ node: { label: names[1] } }], pageInfo: { hasNextPage: false } });
 
