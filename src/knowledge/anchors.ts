@@ -25,6 +25,9 @@ export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, 
 export function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'source'): Promise<SourceOpinion[]>;
 export async function documentOpinions(graph: SemanticGraph, manifest: KindsManifest, role: 'document' | 'source' = 'document'): Promise<SourceOpinion[]> {
   const entities = await semanticEntities(graph, manifest, role);
+  // No document is no endpoint to name: the roles a document points at are read for the documents that exist, and a
+  // product the agent has written no document in pays nothing for them (madarch-64o5.180).
+  if (entities.length === 0) return [];
   if (role === 'source' && manifest.semanticBindings?.get(role)?.fields['blob'] !== undefined) {
     const blobs = [...manifest.kinds.values()].filter(kind => kind.evidence?.immutable && kind.evidence.digestField !== undefined && kind.evidence.contentField !== undefined);
     if (blobs.length !== 1) throw new Error(`${manifest.file}:1: source blobs require exactly one immutable content kind`);
@@ -45,8 +48,11 @@ export async function documentOpinions(graph: SemanticGraph, manifest: KindsMani
       entity.properties['content'] = typeof blob === 'string' ? content.get(blob) ?? null : null;
     }
   }
-  const repositories = await semanticEntities(graph, manifest, 'repository');
-  const commits = manifest.semanticBindings?.get(role)?.edges?.['commit'] === undefined ? [] : await semanticEntities(graph, manifest, 'commit');
+  // The endpoints are named by the identity the document's own slot holds, so only the endpoints' display values are
+  // projected here: their edge slots are other pages' reads, and a whole edge kind read for nothing is the cost this
+  // listing must not pay (madarch-64o5.180).
+  const repositories = await semanticEntities(graph, manifest, 'repository', { edges: false });
+  const commits = manifest.semanticBindings?.get(role)?.edges?.['commit'] === undefined ? [] : await semanticEntities(graph, manifest, 'commit', { edges: false });
   const endpoint = (entity: GraphEntity, slot: string, targets: GraphEntity[], field: string): string | null => {
     const uids = entity.properties[slot] as string[] | undefined;
     if (uids === undefined || uids.length === 0) return null;

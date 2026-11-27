@@ -61,6 +61,70 @@ describe('structured document anchors', () => {
     await expect(documentOpinions(graph, manifest, 'source')).rejects.toThrow('requires at most one repository endpoint');
   });
 
+  test('a product with no document reads no edge kind and no endpoint kind (madarch-64o5.180)', async () => {
+    // The cost a page pays for the documents is the edge kinds: every edge kind the roles declare is read whole, so a
+    // listing whose document role holds nothing must read none of them and no repository kind either.
+    const read: string[] = [];
+    const graph = {
+      list: async (kind: string) => {
+        read.push(kind);
+        return { rows: [], next: null };
+      },
+      relationEdges: async (kind: string) => {
+        read.push(kind);
+        return { rows: [], total: 0 };
+      },
+    } as unknown as GraphReader;
+    const manifest = { file: '/product/catalog.yaml', semanticBindings: new Map([
+      ['document', { kind: 'guide', fields: { path: 'location', content: 'body', anchors: 'sections' }, edges: { repository: { kind: 'belongs', direction: 'from', line: 1 } }, line: 1 }],
+      ['repository', { kind: 'vault', fields: { name: 'alias' }, edges: { contains: { kind: 'holds', direction: 'from', line: 1 } }, line: 1 }],
+    ]) } as unknown as import('../src/product/manifest/kinds.js').KindsManifest;
+    expect(await documentOpinions(graph, manifest)).toEqual([]);
+    expect(read).toEqual(['guide']);
+  });
+
+  test("a document endpoint keeps its own values without reading the endpoint role's edges (madarch-64o5.180)", async () => {
+    const edges: string[] = [];
+    const graph = {
+      list: async (kind: string) => {
+        if (kind === 'vault') return { rows: [{ uid: 'repo-uid', key: 'r', label: 'r', kind: 'vault', nodeIds: [], scope: '', properties: { alias: 'code' } }], next: null };
+        return { rows: [{ uid: 'doc-uid', key: 'doc', label: 'doc', kind: 'guide', nodeIds: [], scope: '', properties: { location: 'guide.md', body: 'text', sections: { chosen: section } } }], next: null };
+      },
+      relationEdges: async (kind: string) => {
+        edges.push(kind);
+        return { rows: [{ from: { uid: 'doc-uid' }, to: { uid: 'repo-uid' } }], total: 1 };
+      },
+    } as unknown as GraphReader;
+    const manifest = { file: '/product/catalog.yaml', semanticBindings: new Map([
+      ['document', { kind: 'guide', fields: { path: 'location', content: 'body', anchors: 'sections' }, edges: { repository: { kind: 'belongs', direction: 'from', line: 1 } }, line: 1 }],
+      ['repository', { kind: 'vault', fields: { name: 'alias' }, edges: { contains: { kind: 'holds', direction: 'from', line: 1 } }, line: 1 }],
+    ]) } as unknown as import('../src/product/manifest/kinds.js').KindsManifest;
+    const documents = await documentOpinions(graph, manifest);
+    expect(graphDocument(documents, 'code', 'guide.md')?.uid).toBe('doc-uid');
+    expect(edges).toEqual(['belongs']);
+  });
+
+  test('the documents of a product that has none cost no edge read at all (madarch-64o5.180)', async () => {
+    // A slow edge read stands for the seconds a whole edge kind costs: the empty document role must not wait for one.
+    let slowReads = 0;
+    const graph = {
+      list: async () => ({ rows: [], next: null }),
+      relationEdges: async () => {
+        slowReads += 1;
+        await Bun.sleep(200);
+        return { rows: [], total: 0 };
+      },
+    } as unknown as GraphReader;
+    const manifest = { file: '/product/catalog.yaml', semanticBindings: new Map([
+      ['document', { kind: 'guide', fields: { path: 'location', content: 'body', anchors: 'sections' }, edges: { repository: { kind: 'belongs', direction: 'from', line: 1 } }, line: 1 }],
+      ['repository', { kind: 'vault', fields: { name: 'alias' }, edges: { contains: { kind: 'holds', direction: 'from', line: 1 }, asIs: { kind: 'kept', direction: 'from', line: 1 } }, line: 1 }],
+      ['commit', { kind: 'revision', fields: { hash: 'digest' }, edges: { touched: { kind: 'touches', direction: 'from', line: 1 } }, line: 1 }],
+    ]) } as unknown as import('../src/product/manifest/kinds.js').KindsManifest;
+    const at = Date.now();
+    expect(await documentOpinions(graph, manifest)).toEqual([]);
+    expect({ slowReads, under: Date.now() - at < 200 }).toEqual({ slowReads: 0, under: true });
+  });
+
   test('ranges, titles and excerpts come only from the structured opinion', () => {
     expect(documentSections(document())).toEqual([{ anchor: 'chosen', ...section }]);
   });

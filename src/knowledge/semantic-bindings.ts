@@ -11,9 +11,20 @@ export function semanticBinding(manifest: Pick<KindsManifest, 'file' | 'semantic
   return binding;
 }
 
+/**
+ * What a caller projects of a role: the role's fields alone (`edges: false`) when it reads no edge slot. A page that
+ * lists entities reads every edge kind the role declares, and a whole edge kind is the costliest read of the graph, so
+ * a caller that needs the endpoints' own values alone asks for them alone (madarch-64o5.180).
+ */
+export interface SemanticProjection {
+  /** Whether the role's edge slots are projected: the default, and no edge kind is read when it is false. */
+  readonly edges?: boolean;
+}
+
 /** Project explicit field and edge bindings into engine role properties, keeping stable graph identity. */
-export async function semanticEntities(graph: SemanticGraph, manifest: Pick<KindsManifest, 'file' | 'semanticBindings'>, role: string): Promise<GraphEntity[]> {
+export async function semanticEntities(graph: SemanticGraph, manifest: Pick<KindsManifest, 'file' | 'semanticBindings'>, role: string, projection: SemanticProjection = {}): Promise<GraphEntity[]> {
   const binding = semanticBinding(manifest, role);
+  const withEdges = projection.edges !== false;
   const rows: GraphEntity[] = [];
   let after: string | undefined;
   do {
@@ -22,7 +33,9 @@ export async function semanticEntities(graph: SemanticGraph, manifest: Pick<Kind
     after = page.next ?? undefined;
   } while (after !== undefined);
   const edges = new Map<string, Awaited<ReturnType<GraphReader['relationEdges']>>['rows']>();
-  for (const edge of Object.values(binding.edges ?? {})) {
+  // No row is no edge slot to fill: a whole edge kind is the costliest read of the graph, and a projection that names
+  // nothing pays for none of them (madarch-64o5.180).
+  for (const edge of withEdges && rows.length > 0 ? Object.values(binding.edges ?? {}) : []) {
     if (edges.has(edge.kind)) continue;
     if (graph.relationEdges === undefined) throw new Error(`${manifest.file}:${edge.line}: semantic role "${role}" requires graph edge reads`);
     const found = await graph.relationEdges(edge.kind, 200_000);
@@ -42,7 +55,7 @@ export async function semanticEntities(graph: SemanticGraph, manifest: Pick<Kind
         properties[property] = match[0];
       }
     }
-    for (const [property, edge] of Object.entries(binding.edges ?? {})) {
+    for (const [property, edge] of Object.entries(withEdges ? binding.edges ?? {} : {})) {
       const opposite = edge.direction === 'from' ? 'to' : 'from';
       if (entity.uid === undefined) throw new Error(`${manifest.file}:${edge.line}: ${entity.key}: semantic role "${role}" requires a stable graph UID`);
       properties[property] = edges.get(edge.kind)!.filter((row) => {
