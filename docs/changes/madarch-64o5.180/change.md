@@ -37,7 +37,8 @@ and 31.
 
 The listing evaluates evidence applicability when the catalogue enables the rule or a saved dismissal names it.
 It shares the published catalogue with the evidence check and the product file index. Evidence and code rules
-run concurrently, as do the file index, dismissals, Markdown opinions, and document endpoints.
+run concurrently, as do the file index, dismissals, Markdown opinions, and document endpoints. Assertion batches
+without graph identities finish before looking up dispute lineage.
 
 ## Out of scope
 

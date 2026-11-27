@@ -4,8 +4,27 @@ import {bindTestWriteCapability} from './write-capability-fixture.js';
 import {bindWriteCapability,bootstrapWriteIdentity,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
 import {pinContext} from '../src/graph/context.js';
 import {assertionSelectionSql,loadAssertions,loadAssertionsBatch} from '../src/graph/assertion-read.js';
+import {readKindsAssertions} from '../src/graph/records.js';
 import {generatedTableName,type GraphContract} from '../src/graph/contract.js';
 const graph:GraphContract={vertex:[{name:'typed',table:generatedTableName('typed','vertex'),key:['name'],fields:[{name:'name',type:'text'},{name:'amount',type:'bigint'},{name:'when',type:'timestamp'},{name:'enabled',type:'boolean'},{name:'details',type:'json',schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false}}],capability:'fixture'}],edge:[],dictionary:[]};
+
+test('a record batch with no identities stops before reading dispute lineage', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: graph, authenticated: false });
+  try {
+    await owner.run(async tx => {
+      const statements: string[] = [];
+      const executor = {
+        query: <Row extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]) => {
+          statements.push(sql);
+          return tx.query<Row>(sql, parameters);
+        },
+      };
+      expect(await readKindsAssertions(executor, [{ sort: 'vertex', kind: 'typed', fields: ['amount'] }], { contract: graph })).toEqual([[]]);
+      expect(statements).toHaveLength(2);
+    });
+  } finally { await owner.close(); }
+});
+
 test('assertion SQL keeps its text when temporal, context, unit and resolution values change',async()=>{
  const { assertionReadSql }=await import('../src/graph/assertion-read.js');
  const request=[{sort:'vertex' as const,kind:'typed',properties:['amount'],subjectIds:[1]}];

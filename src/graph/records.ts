@@ -74,6 +74,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
     const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));
     if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:72: product assertion reads require an explicit graph contract for dispute resolution`);
+    if (identities.every(rows => rows.length === 0)) return requests.map(() => []);
     let snapshot: { now: string | Date; anchored: boolean } | undefined;
     // Pages and fill lookups already supplied identities. Probe for persisted questions
     // in their assertion statement; only an anchored dispute needs the full lineage read.
