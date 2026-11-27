@@ -269,6 +269,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       inputs: (ref) => wiring.inputs(ref),
       operations:wiring.operations,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
+      ...(options.sink === undefined ? {} : { sink: options.sink }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
       limits,

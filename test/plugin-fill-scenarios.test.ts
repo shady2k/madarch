@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
+import type { ProgressSink } from '../src/fill/orchestrator.js';
 import { readProgress } from '../src/graph/fill-orchestration.js';
 import { fixture, open } from './plugin-fill-scenario-fixture.js';
 
@@ -21,12 +22,13 @@ test('one multi-output process reads X for A and Y for B without selecting the o
   } finally { await owner.close(); }
 }, 300_000);
 
-test.each(['unselected-write', 'undeclared-read'] as const)('real plugin %s fails without publishing forbidden or selected output', async mode => {
+test.each(['unselected-write', 'undeclared-read'] as const)('real plugin %s fails without publishing forbidden or selected output, and its sink hears the durable record', async mode => {
   const f = fixture(mode); const { owner, run, rows } = await open(f);
   const target = mode === 'unselected-write' ? 'Files' : 'A';
+  const heard: Parameters<ProgressSink>[0][] = [];
   try {
     // Keep the retry attempts for these deterministic violations and skip the backoff between them.
-    const result = await run(target, mode, { retryDelayMs: 0 });
+    const result = await run(target, mode, { limits: { retryDelayMs: 0 }, sink: event => { heard.push(event); } });
     expect(result.ok && result.state === 'succeeded').toBe(false);
     expect(await rows(target)).toEqual([]);
     if (mode === 'unselected-write') expect(await rows('Summary')).toEqual([]);
@@ -37,6 +39,11 @@ test.each(['unselected-write', 'undeclared-read'] as const)('real plugin %s fail
       ? 'the plugin declares no vertex kind "Summary"; it declares Files'
       : 'undeclared catalogue read of Y; declare this input in produces[].reads');
     expect(await readProducerOutcomes(owner, { runId: mode })).toEqual(outcomes);
+    // The sink hears the run's durable record whole: every event, in its order, the failed unit's included.
+    const durable = await readProgress(owner, mode);
+    expect(heard).toEqual([...durable]);
+    expect(heard.filter(event => event.kind === 'unit-failed')).toEqual(durable.filter(event => event.kind === 'unit-failed'));
+    expect(durable.some(event => event.kind === 'unit-failed')).toBe(true);
   } finally { await owner.close(); }
 }, 300_000);
 
