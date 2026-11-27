@@ -12,10 +12,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closureOf } from '../src/plugin/closure.js';
 import { PluginHost } from '../src/plugin/host.js';
+import { closeFileTextSessions, readBlobThroughPlugin } from '../src/plugin/file-reads.js';
 import type { FactsOperation } from '../src/plugin-sdk.js';
 
 const roots: string[] = [];
-afterAll(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterAll(async () => { await closeFileTextSessions(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const REPO = join(import.meta.dir, '..');
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const git = (root: string, ...args: string[]): string => execFileSync('git', args, { cwd: root, env: { ...process.env, ...IDENTITY }, encoding: 'utf8' });
@@ -131,14 +132,34 @@ test('an unconfined host reads a blob through its core reader where nothing conf
     console.log(answer);
     console.log('process ' + String(process.env.MADARCH_PLUGIN_SANDBOX));
   `;
+  // The child starts without a choice of its own, whatever the run that started it holds: a run already set to
+  // MADARCH_PLUGIN_SANDBOX=off would make the same answer mean nothing about the host's own `unconfined`.
+  const inherited: Record<string, string | undefined> = { ...process.env };
+  delete inherited['MADARCH_PLUGIN_SANDBOX'];
   const child = Bun.spawn([process.execPath, '--eval', source], {
     cwd: REPO,
-    env: { ...process.env, MADARCH_PLUGIN_CGROUP: join(work, 'no-cgroup') },
+    env: { ...inherited, MADARCH_PLUGIN_CGROUP: join(work, 'no-cgroup') },
     stdout: 'pipe', stderr: 'pipe',
   });
   const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   expect(code, stderr).toBe(0);
-  expect(stdout.trim().split('\n')).toEqual(['complete', `process ${String(process.env['MADARCH_PLUGIN_SANDBOX'])}`]);
+  expect(stdout.trim().split('\n')).toEqual(['complete', 'process undefined']);
+}, 60_000);
+
+test('a reader is opened for the environment of its call, never reused by a call that runs differently', async () => {
+  const fixture = product();
+  // One repository, one process, two environments: the core plugin finds git through the PATH its host was given, so an
+  // empty PATH is refused by name and a full one answers. The second read of the file must not hand the first
+  // environment's reader to the third call (madarch-64o5.178).
+  const read = { product: fixture.folder, plugin: join('plugins', 'git'), repository: 'sample', root: join(fixture.folder, 'repos', 'sample'), blob: fixture.blob };
+  const noGit = { ...process.env, PATH: '' };
+  const before = process.env['MADARCH_PLUGIN_SANDBOX'];
+  await expect(readBlobThroughPlugin(read, { env: noGit, unconfined: true })).rejects.toThrow('no git executable on PATH');
+  const answered = await readBlobThroughPlugin(read, { env: { ...process.env }, unconfined: true });
+  expect(answered.text.startsWith('x')).toBe(true);
+  await expect(readBlobThroughPlugin(read, { env: noGit, unconfined: true })).rejects.toThrow('no git executable on PATH');
+  // The reads answer the settings their call names and never write the process's own.
+  expect(process.env['MADARCH_PLUGIN_SANDBOX']).toBe(before);
 }, 60_000);
 
 test('the same confinement refuses a repository that links out of the product, naming it', async () => {

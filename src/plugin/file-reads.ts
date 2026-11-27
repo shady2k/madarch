@@ -4,10 +4,12 @@
  * lines asked for. The module is the plugin host's own — it opens a sandbox and reads the product's folders — and the
  * queue's side of a read lives in src/knowledge/file-texts.ts.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startSpan } from '../obs/trace.js';
+import { byCodePoint } from '../model/order.js';
 import { PluginHost } from './host.js';
 import { closureOf } from './closure.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from './lock.js';
@@ -144,12 +146,24 @@ export async function closeFileTextSessions(): Promise<void> {
   }
 }
 
+/** The settings a reader's process runs with, digested: two calls whose environments differ never share a reader (madarch-64o5.178). */
+function environmentKey(env: Readonly<Record<string, string | undefined>>): string {
+  const hasher = createHash('sha256');
+  for (const name of Object.keys(env).sort(byCodePoint)) {
+    const value = env[name];
+    if (value !== undefined) hasher.update(`${name}=${value}\u0000`);
+  }
+  return hasher.digest('hex');
+}
+
 /** The reader for one (plugin, repository), opened on first use and reused while it stands. */
 async function readerFor(verified: { pluginFolder: string; repositoryRoot: string }, options: BlobReadOptions): Promise<Reader> {
   // The way the reader runs is part of its key: an unconfined reader never answers a caller that asked for a confined
-  // one, and the other way round (madarch-64o5.178).
-  const mode = (options.env ?? process.env)['MADARCH_PLUGIN_SANDBOX'] === 'off' || options.unconfined === true ? 'unconfined' : 'confined';
-  const key = `${verified.pluginFolder}\u0000${verified.repositoryRoot}\u0000${mode}`;
+  // one, and the other way round, and a reader opened with one environment never answers a call that names another
+  // (madarch-64o5.178) — the plugin finds git on the PATH it was opened with and reads `MADARCH_*` through it.
+  const env = options.env ?? process.env;
+  const mode = env['MADARCH_PLUGIN_SANDBOX'] === 'off' || options.unconfined === true ? 'unconfined' : 'confined';
+  const key = `${verified.pluginFolder}\u0000${verified.repositoryRoot}\u0000${mode}\u0000${environmentKey(env)}`;
   const held = READERS.get(key);
   if (held !== undefined && Date.now() - held.lastUsed < READER_IDLE_MS) { held.lastUsed = Date.now(); return held; }
   if (held !== undefined) {

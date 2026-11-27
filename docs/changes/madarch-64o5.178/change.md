@@ -29,7 +29,10 @@ path. Deriving `MADARCH_PLUGIN_SANDBOX=off` in the copy for an unconfined read k
 both: the child runs as a plain child, and the path it is given is the one a plain child can open.
 
 The readers this process keeps (`READERS`) are now keyed by the way a reader runs as well as by its plugin and
-repository: an unconfined reader must never answer a caller that asked for a confined one.
+repository: an unconfined reader must never answer a caller that asked for a confined one, and a reader opened
+with one environment must never answer a call that names another. The core plugin finds git on the `PATH` it was
+opened with and reads `MADARCH_*` through the same environment, so the settings the call names are part of the
+reader's identity — a digest of their sorted names and values, never the process's own.
 
 ## Out of scope
 - `restrictToSlice` and the `document` kind in the foundation walk: that is the separate task for the walk's
@@ -63,9 +66,14 @@ derives its own environment for an unconfined read — `{ ...(options.env ?? pro
 The caller's object and `process.env` are never written.
 
 The regression case is a child process (`test/plugin-file-read.test.ts`): it names a `MADARCH_PLUGIN_CGROUP` that
-is not a cgroup, so the confined path can only refuse on any machine, and its own environment carries no
-`MADARCH_PLUGIN_SANDBOX`. It asserts the read answers `complete` and that the child's variable is still what the
-run gave it. The child closes its readers with `closeFileTextSessions()` before it exits.
+is not a cgroup, so the confined path can only refuse on any machine, and its environment is the run's own
+without `MADARCH_PLUGIN_SANDBOX`, whatever the run holds — an inherited `off` would make the same answer mean
+nothing about the host's choice. It asserts the read answers `complete` and that the child's variable is still
+`undefined` afterwards. The child closes its readers with `closeFileTextSessions()` before it exits.
+
+A second case names one repository, one process and two environments: with an empty `PATH` the core plugin's own
+check refuses by name (`no git executable on PATH`), with the run's `PATH` the read answers, and the empty `PATH`
+is refused again rather than served from the reader the full one opened.
 
 ## Acceptance evidence
 Static: `bun run check` passed on the box (tsc, architecture with its 499 listed violations and no new one, UI
@@ -79,7 +87,19 @@ cases; the two failures, both in `test/file-text-bound.test.ts`, are the same on
 walk's own graph case passed (`343 179 ms`) with the `MADARCH_PLUGIN_SANDBOX` workaround deleted and only
 `unconfined: true` handed to `runFill`.
 
-Review: pending; this record is for the review.
+Review round (a reader keyed by its environment, and a child that starts without `MADARCH_PLUGIN_SANDBOX`):
+`bun run check` passed on the box over the fix (exit 0; 499 listed architecture violations, no new entry).
+`bun test --timeout=60000 test/plugin-file-read.test.ts` → `3 pass, 1 fail` before the reader key carried the
+environment (the third call with an empty `PATH` resolved from the reader the full `PATH` opened: `expected
+promise that rejects, received promise that resolved`), `4 pass, 0 fail` (17.8 s) after it, and the same file
+passes when the run itself holds `MADARCH_PLUGIN_SANDBOX=off` (20.4 s). The seven affected plugin and file-read
+files pass 31 of 31 cases (80.3 s).
+
+The foundation walk still passes its declaration, fill, graph, value and agent cases (`326 702 ms` for the
+graph case with the fix). Its wiki browser case times out on this box on the base commit as well (one failure of
+six there, `75 095 ms`), and the catalogue case, which passed on the base commit in 20.9 s, timed out once at
+71.1 s under load and passed at 42.9 s in a second run with the fix. Both waits are the page walk's known cost
+on a shared 3-vCPU box, not the reader's.
 
 ## Blocking questions
 None.
