@@ -13,18 +13,13 @@ import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { FactChart } from './ui/fact-chart.js';
 import { DefinitionList, DefinitionTerm, DefinitionValue, Paragraph, Stack, TextLink } from './ui/typography.js';
 import { at, formatValue } from './format.js';
-import { bucketRows, countedRows, type AggregateRow } from './aggregate.js';
+import { bucketRows, countedRows, rankedValue, type AggregateRow } from './aggregate.js';
 import { entityAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
-/** What the aggregate was asked: a count alone, or one field grouped, bucketed or ranked. */
-type Measure = 'count' | 'groupBy' | 'histogram' | 'topN';
-
-interface RowsAnswer {
-  readonly rows: readonly AggregateRow[];
-  readonly partition: boolean;
-  readonly measure: Measure;
-}
+type RowsAnswer =
+  | { readonly measure: 'groupBy' | 'histogram'; readonly rows: readonly AggregateRow[] }
+  | { readonly measure: 'topN'; readonly rows: readonly { label: string; value: number | string }[] };
 
 /** The rows of the answer under the section's own data: a group-by's groups, a histogram's buckets or a top-n's ranking. */
 function rowsOf(answer: unknown, language: string, t: TFunction): RowsAnswer | undefined {
@@ -34,18 +29,17 @@ function rowsOf(answer: unknown, language: string, t: TFunction): RowsAnswer | u
       const text = formatValue(at(group, 'key'), 'text', language);
       return { label: text === '' ? '—' : text, value: Number(at(group, 'count') ?? 0) };
     }).filter((row) => Number.isFinite(row.value));
-    return { rows: countedRows(rows), partition: true, measure: 'groupBy' };
+    return { rows: countedRows(rows), measure: 'groupBy' };
   }
   const buckets = at(answer, 'histogram');
-  if (Array.isArray(buckets)) return { rows: bucketRows(buckets as Record<string, unknown>[], t), partition: true, measure: 'histogram' };
+  if (Array.isArray(buckets)) return { rows: bucketRows(buckets as Record<string, unknown>[], t), measure: 'histogram' };
   const ranked = at(answer, 'topN');
   if (Array.isArray(ranked)) {
     return {
       rows: ranked.map((one) => {
         const text = formatValue(at(at(one, 'node'), 'label'), 'text', language);
-        return { label: text === '' ? '—' : text, value: Number(at(one, 'value') ?? 0) };
+        return { label: text === '' ? '—' : text, value: rankedValue(at(one, 'value'), language) };
       }),
-      partition: false,
       measure: 'topN',
     };
   }
@@ -68,9 +62,9 @@ export function FactSection({ context }: { readonly context: SectionContext }): 
     : answer === undefined || answer.rows.length === 0
       ? <Paragraph data-testid="fact-none">{t('facts.noValues')}</Paragraph>
       : <FactChart display={display === 'treemap' || display === 'timeline' ? display : 'bar'} rows={answer.rows} labelTitle={t('facts.label')} valueTitle={t('facts.value')} note={t('facts.noValues')} />;
-  const shown = answer?.rows.reduce((sum, row) => sum + row.value, 0) ?? 0;
-  // A ranking names the first rows by a field and claims no partition; a count covers its whole population.
-  const unaccounted = answer !== undefined && answer.partition && total !== undefined ? Math.max(0, total - shown) : undefined;
+  const unaccounted = answer !== undefined && answer.measure !== 'topN' && total !== undefined
+    ? Math.max(0, total - answer.rows.reduce((sum, row) => sum + row.value, 0))
+    : undefined;
   const href = declared === undefined || declared.entryId === null ? undefined : entityAddress(CATALOGUE_KIND, declared.entryId);
   return (
     <Card data-testid="home-fact" data-kind={kind} data-display={String(display)}>

@@ -8,7 +8,7 @@ import { titleIn } from '../../../../src/page-contract/index.js';
 import { FactChart } from './ui/fact-chart.js';
 import { Paragraph } from './ui/typography.js';
 import { at, formatValue } from './format.js';
-import { bucketRows, countedRows } from './aggregate.js';
+import { bucketRows, countedRows, rankedValue } from './aggregate.js';
 import { edgesOf } from './connection.js';
 import type { SectionContext } from './types.js';
 
@@ -18,20 +18,22 @@ export function BarsSection({ context }: { readonly context: SectionContext }): 
   const labelPath = typeof context.section.params['labelPath'] === 'string' ? context.section.params['labelPath'] : 'key';
   const valuePath = typeof context.section.params['valuePath'] === 'string' ? context.section.params['valuePath'] : undefined;
   const buckets = context.section.params['buckets'] === true;
+  const records = edgesOf(connection);
+  const ranking = Array.isArray(connection) && valuePath === 'value' && records.every((row) => 'node' in row);
+  const labelOf = (row: Record<string, unknown>): string =>
+    formatValue(at(row, labelPath), 'text', context.language) || t('common.emptyValue');
   const rows = buckets
-    ? bucketRows(edgesOf(connection), t)
-    : edgesOf(connection).map((row) => {
-        const raw = at(row, labelPath);
-        const label = raw === null || raw === undefined ? t('common.emptyValue') : formatValue(raw, 'text', context.language);
+    ? bucketRows(records, t)
+    : ranking ? records.map((row) => ({ label: labelOf(row), value: rankedValue(at(row, valuePath), context.language) }))
+    : countedRows(records.map((row) => {
         const value = valuePath === undefined ? 1 : Number(at(row, valuePath));
-        return { label: label === '' ? t('common.emptyValue') : label, value: Number.isFinite(value) ? value : 1 };
-      });
-  const sorted = buckets ? rows : countedRows(rows);
-  if (sorted.length === 0) return <Paragraph data-testid="bars-empty">{t('common.emptyValue')}</Paragraph>;
+        return { label: labelOf(row), value: Number.isFinite(value) ? value : 1 };
+      }));
+  if (rows.length === 0) return <Paragraph data-testid="bars-empty">{t('common.emptyValue')}</Paragraph>;
   return (
     <FactChart
       display={typeof context.section.params['display'] === 'string' ? (context.section.params['display'] as 'bar' | 'treemap' | 'timeline') : 'bar'}
-      rows={sorted}
+      rows={rows}
       labelTitle={titleIn(context.section.title, context.language) ?? ''}
       valueTitle=""
       note={t('facts.noValues')}

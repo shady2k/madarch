@@ -11,6 +11,8 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { i18n } = await import('../i18n.js');
 const { FactSection } = await import('./fact.js');
+const { FactsSection } = await import('./facts.js');
+const { BarsSection } = await import('./bars.js');
 await i18n.changeLanguage('en');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -39,11 +41,11 @@ function context(params: Record<string, unknown>, data: unknown): unknown {
   };
 }
 
-async function render(params: Record<string, unknown>, data: unknown): Promise<{ host: HTMLElement; close: () => Promise<void> }> {
+async function render(params: Record<string, unknown>, data: unknown, Component = FactSection): Promise<{ host: HTMLElement; close: () => Promise<void> }> {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => { root.render(createElement(FactSection, { context: context(params, data) as never })); });
+  await act(async () => { root.render(createElement(Component, { context: context(params, data) as never })); });
   return { host, close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
 }
 
@@ -102,5 +104,63 @@ test('an answer with no values says so rather than drawing an empty chart', asyn
   const page = await render({ kind: 'demo.file', display: 'bar', by: 'language' }, { count: 0, groupBy: [] });
   try {
     expect(page.host.querySelector('[data-testid="fact-none"]')?.textContent).toBe('No values in the graph.');
+  } finally { await page.close(); }
+});
+
+test('timestamp rankings render both PostgreSQL value representations as dates', async () => {
+  const recent = '2024-02-29T15:30:00+00:00';
+  const older = new Date('1969-10-29T15:30:00Z');
+  const topN = [
+    { node: { label: 'recent' }, value: recent },
+    { node: { label: 'older' }, value: older },
+  ];
+  const facts = await render({ kind: 'demo.file', display: 'bar', by: 'lastChange' }, { count: 2, topN });
+  const bars = await render({ path: 'topN', labelPath: 'node.label', valuePath: 'value' }, { topN }, BarsSection);
+  try {
+    const dateFormat = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
+    const expected = [['recent', dateFormat.format(new Date(recent))], ['older', dateFormat.format(older)]];
+    for (const page of [facts, bars]) {
+      const rows = [...page.host.querySelectorAll('tbody tr')].map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
+      expect(rows).toEqual(expected);
+    }
+  } finally {
+    await bars.close();
+    await facts.close();
+  }
+});
+
+test('grouped and labelled facts retain timestamp values', async () => {
+  const time = new Date('2024-02-29T15:30:00Z');
+  const iso = '2024-02-29T16:30:00+00:00';
+  const grouped = await render({ kind: 'demo.file', display: 'bar', by: 'lastChange' }, {
+    count: 2, groupBy: [{ key: time, count: 1 }, { key: iso, count: 1 }],
+  });
+  const labelled = await render({
+    rows: [{ label: { en: 'First' }, path: 'first', format: 'date' }, { label: { en: 'Second' }, path: 'second', format: 'date' }],
+  }, { first: time, second: iso }, FactsSection);
+  try {
+    const labels = [...grouped.host.querySelectorAll('tbody tr td:first-child')].map(cell => cell.textContent);
+    expect(labels.sort()).toEqual([time.toISOString(), iso].sort());
+    expect(grouped.host.querySelector('[data-testid="fact-unaccounted"]')?.textContent).toBe('0');
+    const dates = [...labelled.host.querySelectorAll('[data-testid="fact-value"]')].map(cell => cell.textContent);
+    const dateFormat = new Intl.DateTimeFormat('en', { dateStyle: 'medium' });
+    expect(dates).toEqual([dateFormat.format(time), dateFormat.format(new Date(iso))]);
+  } finally {
+    await labelled.close();
+    await grouped.close();
+  }
+});
+
+test('kind-page bars keep ranked entities with the same label as separate rows', async () => {
+  const page = await render({ path: 'largest', labelPath: 'node.label', valuePath: 'value' }, {
+    largest: [
+      { node: { id: 'first', label: 'index.ts' }, value: 40 },
+      { node: { id: 'second', label: 'index.ts' }, value: 20 },
+    ],
+  }, BarsSection);
+  try {
+    const rows = [...page.host.querySelectorAll('tbody tr')].map(row => row.textContent);
+    expect(rows).toEqual(['index.ts40', 'index.ts20']);
+    expect(page.host.querySelectorAll('svg g[data-part="mark"]')).toHaveLength(2);
   } finally { await page.close(); }
 });

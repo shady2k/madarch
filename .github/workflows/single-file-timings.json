@@ -203,6 +203,7 @@
     "test/graph-writer-validation.test.ts": 2163,
     "test/graphql-admission.test.ts": 6500,
     "test/graphql-executor.test.ts": 124200,
+    "test/graphql-kind-facts.test.ts": 9104,
     "test/graphql-manifest-check.test.ts": 8300,
     "test/graphql-schema-route.test.ts": 70700,
     "test/graphql-schema.test.ts": 8300,
