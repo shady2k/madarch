@@ -28,8 +28,11 @@ Two changes, both in the projection itself, so every reader of a semantic role g
 Measured on the acceptance walk's product (`test/foundation-slice-e2e.test.ts`, scripted agent, no documents): the
 documents phase of one listing fell from 27 368 ms to 24–40 ms on a loaded box.
 
-The current evidence check seeks by assertion UUID and link UUID with the existing node and edge indexes.
-The external cursor keeps its existing assertion-UID and edge-UID spelling.
+The current evidence check seeks within the evidence kind using the existing edge index. It orders attachments by
+origin node ID, target node ID, discriminator, and context ID. This replaces assertion UUID and edge UUID order.
+The external cursor remains `assertion-uid:edge-uid`. A stored attachment, including one whose assertion has
+ended, resolves to its position in the new order. A cursor that names no stored attachment is rejected. Start a
+fresh walk after upgrading to read every page in the new order.
 It batches assertion reads for the subjects and fields named by each batch and uses the existing selection rules to
 check current existence and source activity. A page counts current attachments, including those whose retained evidence
 is sound. The historical proof and current applicability are evaluated independently, as in decision 0039 items 19

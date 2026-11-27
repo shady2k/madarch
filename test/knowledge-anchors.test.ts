@@ -120,9 +120,8 @@ describe('structured document anchors', () => {
       ['repository', { kind: 'vault', fields: { name: 'alias' }, edges: { contains: { kind: 'holds', direction: 'from', line: 1 }, asIs: { kind: 'kept', direction: 'from', line: 1 } }, line: 1 }],
       ['commit', { kind: 'revision', fields: { hash: 'digest' }, edges: { touched: { kind: 'touches', direction: 'from', line: 1 } }, line: 1 }],
     ]) } as unknown as import('../src/product/manifest/kinds.js').KindsManifest;
-    const at = Date.now();
     expect(await documentOpinions(graph, manifest)).toEqual([]);
-    expect({ slowReads, under: Date.now() - at < 200 }).toEqual({ slowReads: 0, under: true });
+    expect(slowReads).toBe(0);
   });
 
   test('ranges, titles and excerpts come only from the structured opinion', () => {

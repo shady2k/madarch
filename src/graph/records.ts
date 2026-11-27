@@ -4,6 +4,7 @@ import type { GraphContract, KeyValueDraft } from './contract.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
+import { raise } from '../model/raise.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
 import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots } from './dispute-read.js';
@@ -259,7 +260,14 @@ export interface StaleEvidence {
   readonly state: import('./evidence-read.js').EvidenceState;
 }
 
-type CurrentEvidenceLink = {
+type EvidencePosition = {
+  readonly from_node: number;
+  readonly to_node: number;
+  readonly discriminator: string;
+  readonly context_id: number;
+};
+
+type CurrentEvidenceLink = EvidencePosition & {
   readonly cursor: string;
   readonly assertion_uid: string;
   readonly property: string;
@@ -269,49 +277,58 @@ type CurrentEvidenceLink = {
   readonly target: string;
   readonly target_kind: string;
   readonly target_key: Record<string, KeyValueDraft>;
-  readonly discriminator: string;
 };
 
-async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
-  const firstUid = '00000000-0000-0000-0000-000000000000';
-  const [assertionUid, linkUid] = after === '' ? [firstUid, null] : after.split(':');
+async function evidencePosition(tx: SqlExecutor, cursor: string): Promise<EvidencePosition> {
+  const [assertionUid, linkUid, ...rest] = cursor.split(':');
+  const message = `evidence cursor ${cursor} names no stored attachment`;
+  if (!assertionUid || !linkUid || rest.length !== 0) raise(message);
+  return await withSpan('graph.currentEvidence.cursor', {}, async () => {
+    const { rows } = await tx.query<EvidencePosition>(`
+      SELECT e.from_node,e.to_node,e.discriminator,e.context_id
+      FROM edge e JOIN node origin ON origin.id=e.from_node
+      WHERE e.uid=CASE WHEN pg_input_is_valid($1::text,'uuid') THEN $1::uuid END
+        AND origin.uid=CASE WHEN pg_input_is_valid($2::text,'uuid') THEN $2::uuid END
+        AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')`, [linkUid, assertionUid]);
+    return rows[0] ?? raise(message);
+  });
+}
+
+async function currentEvidenceLinks(tx: SqlExecutor, after: EvidencePosition | undefined, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
+  const seek = after === undefined ? '' : `
+        AND (e.from_node,e.to_node,e.discriminator,e.context_id)>($3::bigint,$4::bigint,$5::text,$6::bigint)`;
+  const params = after === undefined ? [now, limit] : [now, limit, after.from_node, after.to_node, after.discriminator, after.context_id];
   return await withSpan('graph.currentEvidence.links', {}, async span => {
     const { rows } = await tx.query<CurrentEvidenceLink>(`
     WITH links AS MATERIALIZED (
-      SELECT a.assertion_id,a.property,origin.uid::text AS assertion_uid,e.to_node,e.discriminator,
-        (origin.uid::text || ':' || e.uid::text) COLLATE "C" AS cursor
-      FROM node origin
-      JOIN LATERAL (
-        SELECT assertion_id,property FROM assertion
-        WHERE assertion_id=origin.id AND operation='assert' AND recorded_at<=$4::timestamptz
-          AND valid_from<=$4::timestamptz AND (valid_to IS NULL OR valid_to>$4::timestamptz)
+      SELECT e.uid,e.from_node,e.to_node,e.discriminator,e.context_id,a.property
+      FROM edge e
+      CROSS JOIN LATERAL (
+        SELECT property FROM assertion
+        WHERE assertion_id=e.from_node AND operation='assert' AND recorded_at<=$1::timestamptz
+          AND valid_from<=$1::timestamptz AND (valid_to IS NULL OR valid_to>$1::timestamptz)
         OFFSET 0
-      ) a ON TRUE
-      JOIN LATERAL (
-        SELECT uid,to_node,discriminator FROM edge
-        WHERE entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence') AND from_node=origin.id
-          AND uid>=CASE WHEN origin.uid=$1::uuid THEN coalesce($2::uuid,'${firstUid}') ELSE '${firstUid}'::uuid END
-          AND uid IS DISTINCT FROM CASE WHEN origin.uid=$1::uuid THEN $2::uuid END
-        ORDER BY uid LIMIT $3
-      ) e ON TRUE
-      WHERE origin.uid>=$1::uuid AND ${edgeKindPresentSql('system.assertion-evidence')}
-      ORDER BY origin.uid,e.uid LIMIT $3
+      ) a
+      WHERE e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')${seek}
+      ORDER BY e.from_node,e.to_node,e.discriminator,e.context_id LIMIT $2
     )
-    SELECT links.cursor,links.assertion_uid,links.property,links.discriminator,
+    SELECT origin.uid::text || ':' || links.uid::text AS cursor,origin.uid::text AS assertion_uid,
+      links.from_node,links.to_node,links.discriminator,links.context_id,links.property,
       CASE WHEN vertex.id IS NULL THEN 'edge' ELSE 'vertex' END AS sort,kind.name AS kind,
       CASE WHEN vertex.id IS NOT NULL AND ${vertexKindPresentSql('system.merge')}
-        THEN graph_assertion_target(vertex.id,links.assertion_id,1,$4::timestamptz,$4::timestamptz)
+        THEN graph_assertion_target(vertex.id,links.from_node,1,$1::timestamptz,$1::timestamptz)
         ELSE coalesce(vertex.id,relation.id) END AS subject_id,
       target.uid::text AS target,target_kind.name AS target_kind,target.key AS target_key
     FROM links
-    LEFT JOIN assertion_vertex_subject av ON av.assertion_id=links.assertion_id
+    JOIN node origin ON origin.id=links.from_node
+    LEFT JOIN assertion_vertex_subject av ON av.assertion_id=links.from_node
     LEFT JOIN edge subject ON subject.id=av.subject_edge_id
     LEFT JOIN node vertex ON vertex.id=subject.to_node
-    LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=links.assertion_id
+    LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=links.from_node
     LEFT JOIN edge relation ON relation.id=ae.edge_id
     JOIN entity kind ON kind.id=coalesce(vertex.entity_id,relation.entity_id)
     JOIN node target ON target.id=links.to_node JOIN entity target_kind ON target_kind.id=target.entity_id
-    ORDER BY links.cursor`, [assertionUid, linkUid, limit, now]);
+    ORDER BY links.from_node,links.to_node,links.discriminator,links.context_id`, params);
     span.setAttribute('graph.evidence.links', rows.length);
     return rows;
   });
@@ -333,8 +350,8 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
     };
     const candidates: { link: CurrentEvidenceLink; key: Record<string, unknown>; assertion: StoredAssertion }[] = [];
     const batchSize = limit + 1;
-    let after = query.after ?? '';
-    // A page counts current attachments, including sound ones. Historical links do not consume cursor positions.
+    let after = query.after ? await evidencePosition(tx, query.after) : undefined;
+    // A page counts current attachments, including sound ones, and skips historical links.
     while (candidates.length <= limit) {
       const links = await currentEvidenceLinks(tx, after, batchSize, now);
       const requested = new Map<string, { sort: CurrentEvidenceLink['sort']; kind: string; fields: Set<string>; subjectIds: Set<number> }>();
@@ -365,7 +382,7 @@ export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: Gr
         if (candidates.length > limit) break;
       }
       if (links.length < batchSize) break;
-      after = links.at(-1)!.cursor;
+      after = links.at(-1);
     }
     if (candidates.length === 0) return { rows: [] };
     const manifest = query.manifest ?? await readPublishedManifest(tx);

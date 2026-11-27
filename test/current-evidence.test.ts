@@ -88,7 +88,10 @@ test('current evidence reports unavailable retained bytes without rewriting hist
         { kind: 'retained', key: { digest }, values: { body: 'retained bytes' }, producer: 'fixture', producerVersion: '1' },
         { kind: 'retained', key: { digest: missing }, producer: 'fixture', producerVersion: '1' },
         { ...fact('available', digest), evidence: [...evidence(digest), { ...evidence(digest)[0]!, locator: { start: 0, end: 4 } }] },
-        fact('unavailable', missing), fact('ended', missing),
+      ] });
+      await publishGraphDrafts(tx, owner.graphContract, { removals: [], vertices: [fact('ended', missing)] });
+      await publishGraphDrafts(tx, owner.graphContract, { removals: [], vertices: [
+        fact('unavailable', missing),
         { kind: 'code.file', key: { path: 'unrelated.txt' }, producer: 'fixture', producerVersion: '1' },
       ] });
       await publishGraphDrafts(tx, owner.graphContract, { vertices: [], removals: [{ kind: 'probe.fact', key: { id: 'ended' }, producer: 'fixture' }] });
@@ -99,17 +102,42 @@ test('current evidence reports unavailable retained bytes without rewriting hist
     expect(page.rows.some(row => row.key['id'] === 'ended')).toBe(false);
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').length).toBeGreaterThan(0);
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').every(row => row.applicability === 'unavailable')).toBe(true);
-    const activeLinks = await owner.run(async tx => (await tx.query<{ cursor: string; opinion: string; fact: string }>(`
-      SELECT (origin.uid::text || ':' || evidence.uid::text) COLLATE "C" AS cursor,
+    const storedLinks = await owner.run(async tx => (await tx.query<{ cursor: string; opinion: string; fact: string }>(`
+      SELECT origin.uid::text || ':' || evidence.uid::text AS cursor,
         origin.uid::text AS opinion, fact.key->>'id' AS fact
       FROM edge evidence JOIN entity kind ON kind.id=evidence.entity_id
       JOIN node origin ON origin.id=evidence.from_node JOIN assertion a ON a.assertion_id=origin.id
       JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
       JOIN edge subject ON subject.id=attachment.subject_edge_id JOIN node fact ON fact.id=subject.to_node
       WHERE kind.name='system.assertion-evidence' AND a.property IN ('$exists','title')
-        AND fact.key->>'id' IN ('available','unavailable')
-      ORDER BY cursor`)).rows);
+        AND fact.key->>'id' IN ('available','ended','unavailable')
+      ORDER BY evidence.from_node,evidence.to_node,evidence.discriminator,evidence.context_id`)).rows);
+    expect(storedLinks.map(link => link.fact)).toEqual(['available', 'available', 'available', 'available', 'ended', 'ended', 'unavailable', 'unavailable']);
+    const activeLinks = storedLinks.filter(link => link.fact !== 'ended');
     expect(activeLinks).toHaveLength(6);
+    const first = await vanishedCurrentEvidence(owner, contract, { limit: 1 });
+    expect(await vanishedCurrentEvidence(owner, contract, { limit: 1, after: '' })).toEqual(first);
+    expect(first.next).toBe(activeLinks[0]!.cursor);
+    expect(activeLinks[1]!.opinion).toBe(activeLinks[0]!.opinion);
+    const second = await vanishedCurrentEvidence(owner, contract, { limit: 1, after: first.next! });
+    expect(second.next).toBe(activeLinks[1]!.cursor);
+    const lastSound = activeLinks[3]!;
+    const firstMissing = activeLinks[4]!;
+    const afterSound = await vanishedCurrentEvidence(owner, contract, { limit: 1, after: lastSound.cursor });
+    expect(afterSound.rows.map(row => row.opinion)).toEqual([firstMissing.opinion]);
+    expect(afterSound.next).toBe(firstMissing.cursor);
+    for (const ended of storedLinks.filter(link => link.fact === 'ended')) {
+      expect(await vanishedCurrentEvidence(owner, contract, { limit: 1, after: ended.cursor })).toEqual(afterSound);
+    }
+    expect(await vanishedCurrentEvidence(owner, contract, { after: activeLinks.at(-1)!.cursor })).toEqual({ rows: [] });
+    for (const after of [
+      `${lastSound.opinion}:00000000-0000-0000-0000-000000000000`,
+      `${lastSound.opinion}:${firstMissing.cursor.split(':')[1]}`,
+      `${lastSound.opinion}:invalid-link-uid`,
+      'invalid-cursor',
+    ]) {
+      await expect(vanishedCurrentEvidence(owner, contract, { after })).rejects.toThrow(/records\.ts:\d+:\d+: evidence cursor .* names no stored attachment/);
+    }
     const seen: string[] = [];
     const cursors: string[] = [];
     const scans: string[] = [];
