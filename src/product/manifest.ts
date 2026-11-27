@@ -529,38 +529,41 @@ export function readProduct(productFolder: string): ProductRead {
     const code = (error as { code?: string }).code;
     if (code === 'ENOENT')
       return refusal(manifestFile, 1, `the folder ${folder} holds no ${MANIFEST_FILE}: a product is recognised by its manifest`);
-    return refusal(manifestFile, 1, `the manifest ${manifestFile} could not be read: ${(error as Error).message}`);
+    // The reason says what the machine answered, never where on it the product stands: a diagnostic prints that path
+    // beside the reason once, and it is the product-relative one (madarch-64o5.197).
+    return refusal(manifestFile, 1, `the manifest ${MANIFEST_FILE} could not be read: ${code ?? (error as Error).message}`);
   }
 
-  const parsed = parseManifest(text, manifestFile);
-  if (!parsed.ok) return parsed;
+  // The manifest names itself by its place in the product folder; the refusal's file stays the machine's path.
+  const parsed = parseManifest(text, MANIFEST_FILE);
+  if (!parsed.ok) return { ...parsed, file: manifestFile };
   const record = parsed.value;
   if (record === null || typeof record !== 'object' || Array.isArray(record))
-    return refusal(manifestFile, 1, `the manifest ${manifestFile} holds ${shown(record)}: a manifest is a mapping of fields, and this is not one`);
+    return refusal(manifestFile, 1, `the manifest ${MANIFEST_FILE} holds ${shown(record)}: a manifest is a mapping of fields, and this is not one`);
   const fields = record as Record<string, unknown>;
 
   if (!('schemaVersion' in fields))
-    return refusal(manifestFile, 1, `the manifest ${manifestFile} names no "schemaVersion": a product knows version ${PRODUCT_SCHEMA_VERSION}`);
+    return refusal(manifestFile, 1, `the manifest ${MANIFEST_FILE} names no "schemaVersion": a product knows version ${PRODUCT_SCHEMA_VERSION}`);
   if (typeof fields.schemaVersion !== 'number' || fields.schemaVersion !== PRODUCT_SCHEMA_VERSION)
-    return refusal(manifestFile, lineOf(fields, 'schemaVersion'), `the manifest ${manifestFile} holds ${shown(fields.schemaVersion)} at "schemaVersion": not a schema version this program knows; it writes ${PRODUCT_SCHEMA_VERSION}`);
+    return refusal(manifestFile, lineOf(fields, 'schemaVersion'), `the manifest ${MANIFEST_FILE} holds ${shown(fields.schemaVersion)} at "schemaVersion": not a schema version this program knows; it writes ${PRODUCT_SCHEMA_VERSION}`);
 
   if (!('id' in fields))
-    return refusal(manifestFile, 1, `the manifest ${manifestFile} names no "id": a product is identified by the id it was given at creation`);
+    return refusal(manifestFile, 1, `the manifest ${MANIFEST_FILE} names no "id": a product is identified by the id it was given at creation`);
   if (typeof fields.id !== 'string' || fields.id.trim() === '')
-    return refusal(manifestFile, lineOf(fields, 'id'), `the manifest ${manifestFile} holds ${shown(fields.id)} at "id": a product is identified by the id it was given at creation, and it is a word`);
+    return refusal(manifestFile, lineOf(fields, 'id'), `the manifest ${MANIFEST_FILE} holds ${shown(fields.id)} at "id": a product is identified by the id it was given at creation, and it is a word`);
 
   let name: string;
   if (fields.name === undefined || fields.name === '') name = basename(folder.replace(/[/\\]+$/, ''));
   else if (typeof fields.name === 'string') name = fields.name;
-  else return refusal(manifestFile, lineOf(fields, 'name'), `the manifest ${manifestFile} holds ${shown(fields.name)} at "name": not a name, which is a word`);
+  else return refusal(manifestFile, lineOf(fields, 'name'), `the manifest ${MANIFEST_FILE} holds ${shown(fields.name)} at "name": not a name, which is a word`);
 
   const skills = fields.skills;
   if (skills !== undefined && skills !== null) {
     if (typeof skills !== 'object' || Array.isArray(skills))
-      return refusal(manifestFile, lineOf(fields, 'skills'), `the manifest ${manifestFile} holds ${shown(skills)} at "skills": the set pinned here is written as "shady2k: <version>", one line per set`);
+      return refusal(manifestFile, lineOf(fields, 'skills'), `the manifest ${MANIFEST_FILE} holds ${shown(skills)} at "skills": the set pinned here is written as "shady2k: <version>", one line per set`);
     for (const [set, version] of Object.entries(skills as Record<string, unknown>)) {
       if (typeof version !== 'string' || version.trim() === '')
-        return refusal(manifestFile, lineOf(skills, set), `the manifest ${manifestFile} holds ${shown(version)} at "skills", beside "${set}": the version of the set pinned here, as a word`);
+        return refusal(manifestFile, lineOf(skills, set), `the manifest ${MANIFEST_FILE} holds ${shown(version)} at "skills", beside "${set}": the version of the set pinned here, as a word`);
     }
   }
 
@@ -568,13 +571,13 @@ export function readProduct(productFolder: string): ProductRead {
   const declared = fields.repos;
   if (declared !== undefined && declared !== null) {
     if (!Array.isArray(declared))
-      return refusal(manifestFile, lineOf(fields, 'repos'), `the manifest ${manifestFile} holds ${shown(declared)} at "repos": the code repositories are a list, each item "name:", "url:" and an optional "branch:"`);
+      return refusal(manifestFile, lineOf(fields, 'repos'), `the manifest ${MANIFEST_FILE} holds ${shown(declared)} at "repos": the code repositories are a list, each item "name:", "url:" and an optional "branch:"`);
     const taken = new Set<string>();
     for (let i = 0; i < declared.length; i++) {
       const entry = declared[i] as unknown;
       const at = lineOfIndex(declared, i);
       if (entry === null || typeof entry !== 'object' || Array.isArray(entry))
-        return refusal(manifestFile, at, `the manifest ${manifestFile} holds ${shown(entry)} at "repos", on line ${at}: a code repository is written as "name:", "url:" and an optional "branch:"`);
+        return refusal(manifestFile, at, `the manifest ${MANIFEST_FILE} holds ${shown(entry)} at "repos", on line ${at}: a code repository is written as "name:", "url:" and an optional "branch:"`);
       const item = entry as Record<string, unknown>;
       // A field an item leaves out is reported on the item's own line: the
       // line the reader knows is the one the item starts on.
@@ -582,17 +585,17 @@ export function readProduct(productFolder: string): ProductRead {
       const atUrl = item.url === undefined ? at : lineOf(item, 'url');
       const atBranch = item.branch === undefined ? at : lineOf(item, 'branch');
       if (!isFolderName(item.name))
-        return refusal(manifestFile, atName, `the manifest ${manifestFile} holds ${shown(item.name)} at "repos", beside "name": a code repository is named by the folder it is cloned into, and that name is one path segment`);
+        return refusal(manifestFile, atName, `the manifest ${MANIFEST_FILE} holds ${shown(item.name)} at "repos", beside "name": a code repository is named by the folder it is cloned into, and that name is one path segment`);
       const repoName = item.name as string;
       if (taken.has(repoName))
-        return refusal(manifestFile, atName, `the manifest ${manifestFile} names the code repository "${repoName}" twice, on line ${atName}: each repository is declared once, and clones into its own folder`);
+        return refusal(manifestFile, atName, `the manifest ${MANIFEST_FILE} names the code repository "${repoName}" twice, on line ${atName}: each repository is declared once, and clones into its own folder`);
       taken.add(repoName);
       if (item.url === undefined && item.linked !== true)
-        return refusal(manifestFile, atUrl, `the manifest ${manifestFile} holds nothing at \"repos\", beside \"url\": a code repository is cloned from the url it declares`);
+        return refusal(manifestFile, atUrl, `the manifest ${MANIFEST_FILE} holds nothing at \"repos\", beside \"url\": a code repository is cloned from the url it declares`);
       if (item.url !== undefined && (typeof item.url !== 'string' || item.url.trim() === ''))
-        return refusal(manifestFile, atUrl, `the manifest ${manifestFile} holds ${shown(item.url)} at "repos", beside "url": a code repository url is either absent or non-empty`);
+        return refusal(manifestFile, atUrl, `the manifest ${MANIFEST_FILE} holds ${shown(item.url)} at "repos", beside "url": a code repository url is either absent or non-empty`);
       if (item.branch !== undefined && item.branch !== null && (typeof item.branch !== 'string' || item.branch.trim() === ''))
-        return refusal(manifestFile, atBranch, `the manifest ${manifestFile} holds ${shown(item.branch)} at "repos", beside "branch": the branch a clone is taken from, as a word`);
+        return refusal(manifestFile, atBranch, `the manifest ${MANIFEST_FILE} holds ${shown(item.branch)} at "repos", beside "branch": the branch a clone is taken from, as a word`);
       repos.push({ name: repoName, ...(typeof item.url === 'string' ? { url: item.url } : {}), ...(item.linked === true ? { linked: true } : {}), ...(item.moved === true ? { moved: true } : {}), branch: typeof item.branch === 'string' ? item.branch : undefined });
     }
   }

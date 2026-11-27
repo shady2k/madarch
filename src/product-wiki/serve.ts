@@ -24,7 +24,7 @@
  */
 import { withSpanSync } from '../obs/trace.js';
 import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import type { StartedServer } from '../server/http.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { readProduct } from '../product/manifest.js';
@@ -173,7 +173,9 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const read = readProduct(folder);
   const noManifest = !read.ok && isExistingDirectoryWithoutManifest(folder);
   if (!read.ok && !noManifest) {
-    return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message} (${read.file}, line ${read.line})` };
+    // The product's own manifest is named by its place in the product folder, with its line, as every other diagnostic
+    // of a product that cannot be served: no machine path of this one (madarch-64o5.197).
+    return { outcome: 'refused', message: `${relative(folder, read.file)}:${read.line}: ${read.message}` };
   }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { outcome: 'refused', message: built.message };

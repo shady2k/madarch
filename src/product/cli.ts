@@ -639,6 +639,13 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
             const refused = portRefusal(parsedOwnerCommand.port ?? DEFAULT_PORT, parsedOwnerCommand.host ?? DEFAULT_HOST);
             if (refused !== undefined) { console.error(refused.message); return refused.outcome === 'refused' ? 2 : 1; }
           }
+          // A workspace manifest that stands in the folder but cannot be used is this command's own refusal, as the
+          // manifests below are (madarch-64o5.197): its place in the product folder, its line and the reason, and exit 2
+          // before any store work. A folder that holds no manifest at all keeps the manifestless start.
+          if (!read.ok && !isExistingDirectoryWithoutManifest(folder)) {
+            console.error(`${relative(folder, read.file)}:${read.line}: ${read.message}`);
+            return 2;
+          }
           // A manifestless folder has no graph-backed product to activate.
           if (read.ok) {
             const { readPinnedGraphContract, readPinnedPluginInstallations } = await import('./preparation-contract.js');

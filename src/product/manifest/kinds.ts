@@ -75,6 +75,15 @@ export function declarationContent(files: ProductFileRead, productFolder: string
   return content;
 }
 
+/**
+ * The declaration's text when the source holds it, and nothing when it does not: a reader that reports a file it cannot
+ * read as its own finding takes this one, where `declarationContent` would throw for the missing evidence
+ * (madarch-64o5.197).
+ */
+export function declarationText(files: ProductFileRead, path: string): string | undefined {
+  return files.text(path);
+}
+
 /** One problem in a product file the wiki reads: where it is and what it is. */
 /** What kind of problem a finding is, for the Problems page: a file that cannot be read. */
 export type FindingKind = 'unreadable-file';

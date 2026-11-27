@@ -15,7 +15,7 @@ import { sha256Hex } from './digest.js';
 import { byCodePoint } from '../model/order.js';
 import { canonicalJson } from '../model/canonical.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, declarationContent, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
+import { KINDS_FILE, readKindsFrom, declarationContent, declarationText, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
@@ -231,9 +231,16 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
-  const templateSources = files.filesBelow('templates').filter(path => ['.yaml', '.yml'].includes(extname(path))).map(path => ({
-    name: path.slice('templates/'.length, -extname(path).length), body: declarationContent(files, folder, path, 1), path,
-  })).sort((left, right) => byCodePoint(left.name, right.name));
+  // A template the tree lists but cannot be read is a finding of its own at its first line, beside the findings already
+  // collected: reading the evidence would otherwise end the run with the runtime's report instead of this answer
+  // (madarch-64o5.197).
+  const templateSources: { name: string; body: string; path: string }[] = [];
+  for (const path of files.filesBelow('templates').filter(path => ['.yaml', '.yml'].includes(extname(path)))) {
+    const body = declarationText(files, path);
+    if (body === undefined) { findings.push({ file: path, line: 1, message: 'the template file cannot be read' }); continue; }
+    templateSources.push({ name: path.slice('templates/'.length, -extname(path).length), body, path });
+  }
+  templateSources.sort((left, right) => byCodePoint(left.name, right.name));
   const templatePaths = templateSources.map(template => template.path);
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));

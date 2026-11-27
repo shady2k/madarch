@@ -8,7 +8,9 @@ import { planManifestFill } from './fill-declarations.js';
 
 export function pluginDeclarationFindings(files: ProductFileRead, folder: string, manifest: KindsManifest | undefined): Finding[] {
   const findings: Finding[] = [];
-  const lock = parsePluginLock(files.text(PLUGINS_LOCK_FILE), join(folder, PLUGINS_LOCK_FILE));
+  // The lock names itself by its place in the product folder, never by the machine's path: the kind reader reports the
+  // same finding from the same reader, and a reader prints the location once beside the reason (madarch-64o5.197).
+  const lock = parsePluginLock(files.text(PLUGINS_LOCK_FILE));
   if (!lock.ok && !findings.some((one) => one.message === lock.message)) findings.push(lock);
   for (const plugin of manifest?.plugins?.values() ?? []) {
     if (plugin.path === undefined) continue;
