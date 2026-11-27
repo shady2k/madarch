@@ -43,6 +43,7 @@ import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fi
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { startPreparedServer } from './prepared-server.js';
+import { stopServersUnder } from './run-postgres.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = join(import.meta.dir, '..');
@@ -652,6 +653,9 @@ run('the foundation slice on a product the test builds itself', () => {
     await session?.close();
     await browser?.close();
     await server?.stop();
+    // The store the fixture made runs its own PostgreSQL server; the owners are closed, and this waits for any server
+    // whose data directory stands under the fixture's folder before the folder goes: a finished walk leaves nothing.
+    if (root !== '') await stopServersUnder(root);
     if (root !== '') rmSync(root, { recursive: true, force: true });
   });
 
