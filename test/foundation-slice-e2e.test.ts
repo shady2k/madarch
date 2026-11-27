@@ -607,8 +607,8 @@ run('the foundation slice on a product the test builds itself', () => {
     writeFileSync(join(folder, 'workspace.yaml'), manifestWithRepo(readFileSync(join(folder, 'workspace.yaml'), 'utf8'), { name: REPOSITORY, linked: true }));
     symlinkSync(repository, join(folder, 'repos', REPOSITORY));
     // A fixture product declares the slice it is walked on, its four plugins and no model.
-    // The document kind stays declared, though nothing fills it: the wiki's frame reads the catalogue's `document`
-    // semantic role on every page, and a manifest without that kind makes /api/problems refuse (a Doubt of the report).
+    // The document kind stays declared though nothing fills it: this walk keeps the kinds the catalogue's own roles
+    // name, and the Problems page no longer needs it to answer (madarch-64o5.181).
     restrictToSlice(folder, [...WANTED, 'document']);
     commitProduct(folder, 'A product the foundation slice is walked on');
     const declarations = readKinds(folder);
