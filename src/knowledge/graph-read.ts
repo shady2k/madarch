@@ -187,6 +187,7 @@ export class GraphReader {
     /** The edge kinds the manifest's `edges:` declarations build, by graph kind. */
     private readonly generatedEdges?: ReadonlyMap<string, GeneratedEdgeRead>,
     private readonly contract?: import('../graph/contract.js').GraphContract,
+    private readonly manifest?: import('../product/manifest/kinds.js').KindsManifest,
   ) {}
 
   /** One page's repository facts: every block of a page asks for the same repository, and it is read once. */
@@ -288,7 +289,7 @@ export class GraphReader {
 
   /** Every file of a repository's current tree, in code point order: the product repository read whole once per revision. */
   async productFileIndex(repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
-    return await productFileIndex(this.storeOwner(), repository);
+    return await productFileIndex(this.storeOwner(), repository, this.manifest);
   }
 
   /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */

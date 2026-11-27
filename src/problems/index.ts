@@ -61,8 +61,11 @@ async function readEvidenceProblems(input: CollectInput): Promise<{ drafts: Prob
   const drafts: ProblemDraft[] = [];
   const notes: ProblemNote[] = [];
   // Decision 0039 items 19/31: current applicability is independent of historical validity.
-  const evidenceRule = input.settings.rules['evidence-applicability'];
-  if (evidenceRule === undefined || evidenceRule.enabled === false) return { drafts, notes };
+  const rule = 'evidence-applicability';
+  const evidenceRule = input.settings.rules[rule];
+  const dismissalPrefix = problemId(rule, '');
+  const hasDismissal = [...input.dismissed ?? []].some(id => id.startsWith(dismissalPrefix));
+  if ((evidenceRule === undefined || evidenceRule.enabled === false) && !hasDismissal) return { drafts, notes };
   try {
     const contract = graphContractOf(input.manifest);
     let after: string | undefined;
@@ -74,7 +77,7 @@ async function readEvidenceProblems(input: CollectInput): Promise<{ drafts: Prob
         const target = finding.evidence.target.kind;
         const identity = `${finding.kind}:${JSON.stringify(finding.key)}:opinion:${finding.opinion}:${JSON.stringify(finding.evidence)}`;
         drafts.push({
-          identity, section: 'code', rule: 'evidence-applicability', kind: 'bug', sonar: 'bug', severity: 'major',
+          identity, section: 'code', rule, kind: 'bug', sonar: 'bug', severity: 'major',
           closed: false, text: { code: 'consistencyFinding', args: { cause: `${target}/${path}:${String(line)}: ${finding.reason}` } },
           file: path, line, page: null, pageTitle: null, statement: null, sentence: null, target: null,
           place: { label: path || finding.kind, href: null, key: null },

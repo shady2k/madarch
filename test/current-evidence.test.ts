@@ -7,6 +7,11 @@ import { vanishedCurrentEvidence } from '../src/graph/index.js';
 import { sha256Hex } from '../src/graph/digest.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
+import { collectProblems } from '../src/problems/index.js';
+import { defaultSettings } from '../src/problems/types.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
+import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 
 const factKind: VertexContract = {
   name: 'probe.fact', table: generatedTableName('probe.fact', 'vertex'), key: ['id'], capability: 'fixture',
@@ -36,6 +41,41 @@ const evidenceContract: GraphContract = {
 };
 const storeContract = withManifestContract(evidenceContract);
 
+test('the Problems collector counts a current evidence dismissal after the rule is disabled or removed', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: storeContract });
+  const producer = { producer: 'fixture', producerVersion: '1' };
+  const retained = { kind: 'retained', key: { digest: sha256Hex(Buffer.from('unavailable bytes')) }, ...producer };
+  const fact = { kind: factKind.name, key: { id: 'sample' }, values: { title: 'Sample' }, evidence: [{ target: retained }], ...producer };
+  const manifest: KindsManifest = {
+    file: '/fixture/madarch/catalog.yaml', roles: new Map(), properties: new Map(), groups: new Map(),
+    kinds: new Map(contract.vertex.map(kind => [kind.name, { ...kind, source: 'graph' as const }])),
+    excludeDocuments: [], ignoreBlocks: [], findings: [], declaredTemplates: [],
+    semanticBindings: new Map([['problem-task', {
+      kind: 'fixture.task', line: 1, fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' },
+      edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } },
+    }]]),
+  };
+  const settings = defaultSettings();
+  const { id, ...rule } = STARTER_PROBLEM_RULES.find(rule => rule.id === 'evidence-applicability')!;
+  const read = async (rules: typeof settings.rules, dismissed?: ReadonlySet<string>) => await collectProblems({
+    productFolder: '/fixture', owner, manifest, graph: new GraphReader(owner, () => new Date().toISOString()),
+    files: workingTreeFiles('/fixture'), settings: { ...settings, rules }, findings: [],
+    resolve: async () => { throw new Error('the fixture has no grounds'); },
+    ...(dismissed === undefined ? {} : { dismissed }),
+  });
+  try {
+    await owner.transaction('write', tx => publishGraphDrafts(tx, owner.graphContract, { vertices: [retained, fact], removals: [] }));
+    const shown = await read({ [id]: rule });
+    expect(shown.open).toBe(2);
+    const dismissed = new Set([shown.problems[0]!.id]);
+    for (const rules of [{ [id]: { ...rule, enabled: false } }, {}]) {
+      expect(await read(rules, dismissed)).toMatchObject({ open: 0, dismissed: 1, problems: [] });
+    }
+    await owner.transaction('write', tx => publishGraphDrafts(tx, owner.graphContract, { vertices: [], removals: [fact] }));
+    expect(await read({}, dismissed)).toMatchObject({ open: 0, dismissed: 0, problems: [] });
+  } finally { await owner.close(); }
+});
+
 test('current evidence reports unavailable retained bytes without rewriting history or reporting ended assertions', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: storeContract });
   const digest = sha256Hex(Buffer.from('retained bytes'));
@@ -47,7 +87,8 @@ test('current evidence reports unavailable retained bytes without rewriting hist
       await publishGraphDrafts(tx, owner.graphContract, { removals: [], vertices: [
         { kind: 'retained', key: { digest }, values: { body: 'retained bytes' }, producer: 'fixture', producerVersion: '1' },
         { kind: 'retained', key: { digest: missing }, producer: 'fixture', producerVersion: '1' },
-        fact('available', digest), fact('unavailable', missing), fact('ended', missing),
+        { ...fact('available', digest), evidence: [...evidence(digest), { ...evidence(digest)[0]!, locator: { start: 0, end: 4 } }] },
+        fact('unavailable', missing), fact('ended', missing),
         { kind: 'code.file', key: { path: 'unrelated.txt' }, producer: 'fixture', producerVersion: '1' },
       ] });
       await publishGraphDrafts(tx, owner.graphContract, { vertices: [], removals: [{ kind: 'probe.fact', key: { id: 'ended' }, producer: 'fixture' }] });
@@ -68,7 +109,7 @@ test('current evidence reports unavailable retained bytes without rewriting hist
       WHERE kind.name='system.assertion-evidence' AND a.property IN ('$exists','title')
         AND fact.key->>'id' IN ('available','unavailable')
       ORDER BY cursor`)).rows);
-    expect(activeLinks).toHaveLength(4);
+    expect(activeLinks).toHaveLength(6);
     const seen: string[] = [];
     const cursors: string[] = [];
     const scans: string[] = [];

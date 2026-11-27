@@ -571,21 +571,13 @@ export class KnowledgeProduct {
    * files beside it, the Markdown entities, the templates and the files of the loop are read here. A reader of a page
    * never opens the checkout: the files producer read it into the graph, and this is the graph's answer (stage C).
    */
-  private async productFiles(): Promise<StoredProductFiles> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    const repository = productRepositoryId(product);
-    const owner: DatabaseOwner = await this.open();
-    const manifest = await this.manifestRead(product.folder);
-    const kinds = manifest.present ? graphKindsOf(manifest.manifest) : undefined;
-    const reader = new GraphReader(owner, this.validAt, undefined, undefined,
-      kinds?.declared ?? new Set<string>(), kinds?.generated, kinds?.edges, manifest.present ? graphContractOf(manifest.manifest) : undefined);
+  private async productFiles(reader: GraphReader, repository: string, folder: string): Promise<StoredProductFiles> {
     const seq = this.reader?.seq ?? 0;
     const held = this.filesMemo;
     if (held !== undefined && held.seq === seq && held.repository === repository) return held.files;
     // A document's text is read by the blob id the graph names, through the host's queue (decision 0037): the same read
     // a file's page makes, async and bounded, and no stored copy.
-    const files = await StoredProductFiles.load(reader, repository, product.folder, async (path) => (await this.fileText(repository, path))?.text ?? null);
+    const files = await StoredProductFiles.load(reader, repository, folder, async (path) => (await this.fileText(repository, path))?.text ?? null);
     this.filesMemo = { seq, repository, files };
     return files;
   }
@@ -2728,10 +2720,10 @@ export class KnowledgeProduct {
     if (!read.present) throw new WikiReadError(`the product has no ${join(product.folder, KINDS_FILE)}: the wiki shows the kinds that file declares`);
     const manifest = read.manifest;
     const kinds = graphKindsOf(manifest);
-    const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
+    const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest), manifest);
     const repository = this.singleRepository();
     const [files, dismissals, markdownRead, documents] = await Promise.all([
-      this.productFiles(),
+      this.productFiles(graph, productRepositoryId(product), product.folder),
       graphProblemDismissals(graph),
       graphMarkdownEntities(graph, pageOpinionKinds(manifest, kinds.generated)),
       documentOpinions(graph, manifest),

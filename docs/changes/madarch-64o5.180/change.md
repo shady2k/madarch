@@ -28,15 +28,16 @@ Two changes, both in the projection itself, so every reader of a semantic role g
 Measured on the acceptance walk's product (`test/foundation-slice-e2e.test.ts`, scripted agent, no documents): the
 documents phase of one listing fell from 27 368 ms to 24–40 ms on a loaded box.
 
-The current evidence check pages `system.assertion-evidence` in the existing assertion-UID and edge-UID order. It
-batches assertion reads for the subjects and fields named by each batch and uses the existing selection rules to
+The current evidence check seeks by assertion UUID and link UUID, using the stored node UUID index and an index on
+edge kind, origin, and link UUID. The external cursor keeps its existing assertion-UID and edge-UID spelling.
+It batches assertion reads for the subjects and fields named by each batch and uses the existing selection rules to
 check current existence and source activity. A page counts current attachments, including those whose retained evidence
 is sound. The historical proof and current applicability are evaluated independently, as in decision 0039 items 19
 and 31.
 
-The listing only evaluates evidence applicability when the published catalogue enables that rule. It passes the
-catalogue it already read to the evidence check. Evidence and code rules run concurrently, as do the file index,
-dismissals, Markdown opinions, and document endpoints.
+The listing evaluates evidence applicability when the catalogue enables the rule or a saved dismissal names it.
+It shares the published catalogue with the evidence check and the product file index. Evidence and code rules
+run concurrently, as do the file index, dismissals, Markdown opinions, and document endpoints.
 
 ## Out of scope
 
@@ -59,5 +60,6 @@ Place: `bun test test/knowledge-anchors.test.ts test/current-evidence.test.ts te
 2. A document keeps its repository's name without reading the repository role's edge kinds.
 3. A slow edge read is never waited for when the document role holds nothing.
 4. Evidence pagination skips unrelated kinds and reports the same current vertex and edge evidence in cursor order.
-5. The cold Problems listing and count each answer in under one second on a populated fixture.
+5. The cold Problems listing and count each read four evidence links and only the assertion kind and subject those links name.
 6. A catalogue without the evidence applicability rule still shows its configured findings and does not run that check.
+7. A dismissal for an active evidence problem still counts after the rule is disabled or removed. It stops counting when the assertion ends.

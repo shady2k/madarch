@@ -23,6 +23,8 @@ import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/p
 import { setManifestPublicationState } from '../src/product/manifest-publication-state.js';
 import { startServer } from '../src/server/http.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { traceFiles } from '../src/obs/trace.js';
+import { TraceSpanReader } from '../src/obs/trace-report.js';
 
 test('a starter product publishes its catalogue and distinguishes starter evidence from stale source evidence', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-catalogue-kinds-'));
@@ -165,11 +167,18 @@ test('the Problems API reads a cold listing and count on the populated starter c
           if (path === '/api/problems') expect(body.problems?.some(row => row.rule === 'evidence-applicability')).toBe(true);
           else expect(body.problems).toBeUndefined();
         } finally { await server.stop(); }
+        const spans = new TraceSpanReader().read(traceFiles(knowledgeRoot)[0]!.file);
+        const evidence = spans.filter(span => span.name === 'graph.vanishedCurrentEvidence');
+        expect(evidence).toHaveLength(1);
+        const reads = spans.filter(span => span.parentSpanId === evidence[0]!.spanId);
+        expect(reads.filter(span => span.name === 'graph.currentEvidence.links').map(span => span.attributes['graph.evidence.links'])).toEqual([4]);
+        const batches = new Set(reads.filter(span => span.name === 'graph.records.batch').map(span => span.spanId));
+        expect(spans.filter(span => span.parentSpanId !== undefined && batches.has(span.parentSpanId) && span.name === 'graph.assertions.read')
+          .map(span => [span.attributes['graph.kinds'], span.attributes['graph.subject.counts']])).toEqual([['["idea"]', '[1]']]);
       }
       expect(readings[0]!.open).toBeGreaterThan(0);
       expect(readings[1]!.open).toBe(readings[0]!.open);
       console.info(JSON.stringify(readings));
-      for (const reading of readings) expect(reading.milliseconds, JSON.stringify(readings)).toBeLessThan(1_000);
     } finally { await owner.close(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);

@@ -126,10 +126,10 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
 type SemanticRecord = Omit<AssertionRecord, 'key'>;
 
 interface SemanticRequest { readonly role: string; readonly fields: readonly string[]; readonly edgeRole?: string }
-async function semanticRecordBatch(tx: SqlExecutor, requests: readonly SemanticRequest[]): Promise<SemanticRecord[][]> {
+async function semanticRecordBatch(tx: SqlExecutor, requests: readonly SemanticRequest[], published?: KindsManifest): Promise<SemanticRecord[][]> {
   const { readPublishedManifest } = await import('./manifest-publication.js');
   const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
-  const manifest = await readPublishedManifest(tx);
+  const manifest = published ?? await readPublishedManifest(tx);
   if (manifest === undefined) throw new Error(`${import.meta.path}:113: semantic graph reads require the published manifest`);
   const contract = graphContractOf(manifest);
   const plans = requests.map(({ role, fields, edgeRole }) => {
@@ -196,11 +196,23 @@ function contained(root: number, edges: readonly SemanticRecord[]): Set<number> 
 }
 function file(row:SemanticRecord):FileRecord { const v=row.values; return {path:String(v['path']),mode:text(v['mode']),blob:text(v['blob']),bytes:number(v['bytes']),form:v['form']==='text'||v['form']==='binary'?v['form']:null,lines:number(v['lines']),language:text(v['language']),candidates:Array.isArray(v['languages'])?v['languages'] as string[]:[]}; }
 
-async function files(tx:SqlExecutor,name:string) { const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const repo=repositories.find(r=>r.values['name']===name);if(repo===undefined)return [];const [contains=[],allFiles=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:fileFields}]);const ids=contained(Number(repo.id),contains!);return allFiles!.filter(f=>ids.has(Number(f.id))).sort((a,b)=>String(a.values['path'])<String(b.values['path'])?-1:1); }
-export async function listFiles(owner:DatabaseOwner,input:{readonly repository:string;readonly prefix?:string;readonly language?:string;readonly after?:string;readonly limit:number;readonly projection?:'map'}):Promise<{readonly rows:readonly FileRecord[];readonly next:string|null}> {
- return await withSpan('records.listFiles',{},async()=>await owner.transaction('snapshot',async tx=>{const all=(await files(tx,input.repository)).map(file).filter(f=>(input.prefix===undefined||f.path.startsWith(input.prefix))&&(input.language===undefined||f.language===input.language)&&(input.after===undefined||f.path>input.after));const rows=all.slice(0,input.limit);return {rows,next:all.length>input.limit?rows.at(-1)!.path:null};}));
+async function files(tx: SqlExecutor, name: string, manifest?: KindsManifest) {
+  const [repositories = []] = await semanticRecordBatch(tx, [{ role: 'repository', fields: repoFields }], manifest);
+  const repository = repositories.find(row => row.values['name'] === name);
+  if (repository === undefined) return [];
+  const [contains = [], allFiles = []] = await semanticRecordBatch(tx, [
+    { role: 'repository', fields: [], edgeRole: 'contains' },
+    { role: 'file', fields: fileFields },
+  ], manifest);
+  const ids = contained(repository.id, contains);
+  return allFiles.filter(row => ids.has(row.id)).sort((a, b) => String(a.values['path']) < String(b.values['path']) ? -1 : 1);
 }
-export async function productFileIndex(owner:DatabaseOwner,repository:string) { return (await listFiles(owner,{repository,limit:Number.MAX_SAFE_INTEGER})).rows; }
+export async function listFiles(owner:DatabaseOwner,input:{readonly repository:string;readonly prefix?:string;readonly language?:string;readonly after?:string;readonly limit:number;readonly projection?:'map'}, manifest?: KindsManifest):Promise<{readonly rows:readonly FileRecord[];readonly next:string|null}> {
+ return await withSpan('records.listFiles',{},async()=>await owner.transaction('snapshot',async tx=>{const all=(await files(tx,input.repository,manifest)).map(file).filter(f=>(input.prefix===undefined||f.path.startsWith(input.prefix))&&(input.language===undefined||f.language===input.language)&&(input.after===undefined||f.path>input.after));const rows=all.slice(0,input.limit);return {rows,next:all.length>input.limit?rows.at(-1)!.path:null};}));
+}
+export async function productFileIndex(owner: DatabaseOwner, repository: string, manifest?: KindsManifest) {
+  return (await listFiles(owner, { repository, limit: Number.MAX_SAFE_INTEGER }, manifest)).rows;
+}
 export async function listRepositories(owner:DatabaseOwner,_declared?:ReadonlySet<string>):Promise<readonly {name:string;url:string;defaultBranch:string|null;asIsCommit:string|null}[]> { return await withSpan('records.repositories',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repos=[],edges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);return repos.map(r=>({name:String(r.values['name']),url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===edges.find(e=>e.from===r.id)?.to),'hash'))})).sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);})); }
 export async function repositoryFacts(owner:DatabaseOwner,name:string,_declared?:ReadonlySet<string>):Promise<RepositoryFacts|null> { return await withSpan('records.repositoryFacts',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const r=repositories.find(r=>r.values['name']===name);if(r===undefined)return null;const [contains=[],fs=[],dirs=[],history=[],asIsEdges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:[]},{role:'directory',fields:[]},{role:'repository',fields:[],edgeRole:'history'},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);const ids=contained(Number(r.id),contains);const asIs=asIsEdges.find(e=>e.from===r.id);return {nodeId:String(r.id),name,url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===asIs?.to),'hash')),hasTree:typeof r.values['tree_snapshot'] === 'string' && r.values['tree_snapshot'].length > 0,fileCount:fs.filter(f=>ids.has(f.id)).length,directoryCount:dirs.filter(d=>ids.has(d.id)).length,commitCount:history.filter(e=>e.from===r.id).length,historyShallow:typeof r.values['history_shallow']==='boolean'?r.values['history_shallow']:null};})); }
 function gitClock(value:unknown,offset:number):string { if(value==null)return '';const local=new Date(new Date(String(value)).getTime()+offset*60000).toISOString().slice(0,19);return `${local}${offset<0?'-':'+'}${String(Math.floor(Math.abs(offset)/60)).padStart(2,'0')}:${String(Math.abs(offset)%60).padStart(2,'0')}`; }
@@ -260,21 +272,34 @@ type CurrentEvidenceLink = {
 };
 
 async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
-  return await withSpan('graph.currentEvidence.links', {}, async () => (await tx.query<CurrentEvidenceLink>(`
+  const firstUid = '00000000-0000-0000-0000-000000000000';
+  const [assertionUid, linkUid] = after === '' ? [firstUid, null] : after.split(':');
+  return await withSpan('graph.currentEvidence.links', {}, async span => {
+    const { rows } = await tx.query<CurrentEvidenceLink>(`
     WITH links AS MATERIALIZED (
       SELECT a.assertion_id,a.property,origin.uid::text AS assertion_uid,e.to_node,e.discriminator,
         (origin.uid::text || ':' || e.uid::text) COLLATE "C" AS cursor
-      FROM edge e JOIN assertion a ON a.assertion_id=e.from_node JOIN node origin ON origin.id=e.from_node
-      WHERE e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')
-        AND (origin.uid::text || ':' || e.uid::text) COLLATE "C">$1
-        AND a.operation='assert' AND a.recorded_at<=$3::timestamptz
-        AND a.valid_from<=$3::timestamptz AND (a.valid_to IS NULL OR a.valid_to>$3::timestamptz)
-      ORDER BY cursor LIMIT $2
+      FROM node origin
+      JOIN LATERAL (
+        SELECT assertion_id,property FROM assertion
+        WHERE assertion_id=origin.id AND operation='assert' AND recorded_at<=$4::timestamptz
+          AND valid_from<=$4::timestamptz AND (valid_to IS NULL OR valid_to>$4::timestamptz)
+        OFFSET 0
+      ) a ON TRUE
+      JOIN LATERAL (
+        SELECT uid,to_node,discriminator FROM edge
+        WHERE entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence') AND from_node=origin.id
+          AND uid>=CASE WHEN origin.uid=$1::uuid THEN coalesce($2::uuid,'${firstUid}') ELSE '${firstUid}'::uuid END
+          AND uid IS DISTINCT FROM CASE WHEN origin.uid=$1::uuid THEN $2::uuid END
+        ORDER BY uid LIMIT $3
+      ) e ON TRUE
+      WHERE origin.uid>=$1::uuid
+      ORDER BY origin.uid,e.uid LIMIT $3
     )
     SELECT links.cursor,links.assertion_uid,links.property,links.discriminator,
       CASE WHEN vertex.id IS NULL THEN 'edge' ELSE 'vertex' END AS sort,kind.name AS kind,
       CASE WHEN vertex.id IS NOT NULL AND ${vertexKindPresentSql('system.merge')}
-        THEN graph_assertion_target(vertex.id,links.assertion_id,1,$3::timestamptz,$3::timestamptz)
+        THEN graph_assertion_target(vertex.id,links.assertion_id,1,$4::timestamptz,$4::timestamptz)
         ELSE coalesce(vertex.id,relation.id) END AS subject_id,
       target.uid::text AS target,target_kind.name AS target_kind,target.key AS target_key
     FROM links
@@ -285,7 +310,10 @@ async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: numbe
     LEFT JOIN edge relation ON relation.id=ae.edge_id
     JOIN entity kind ON kind.id=coalesce(vertex.entity_id,relation.entity_id)
     JOIN node target ON target.id=links.to_node JOIN entity target_kind ON target_kind.id=target.entity_id
-    ORDER BY links.cursor`, [after, limit, now])).rows);
+    ORDER BY links.cursor`, [assertionUid, linkUid, limit, now]);
+    span.setAttribute('graph.evidence.links', rows.length);
+    return rows;
+  });
 }
 
 /** Evaluate current assertion support without rewriting its independent historical validity. */
