@@ -34,3 +34,38 @@ export async function storeMemoryIn<Value>(tx: SqlExecutor, memories: WeakMap<Da
   memories.set(owner, { token, value });
   return value;
 }
+
+/**
+ * What one transaction remembers of a store: it reads what the process holds and its own writes, and
+ * nothing it stages reaches the process until the owner commits. A rollback publishes nothing, so a
+ * transaction that failed before COMMIT leaves no vertex remembered as standing (madarch-64o5.176).
+ */
+export class TransactionMemory<Key, Value> {
+  private readonly staged = new Map<Key, Value | null>();
+  constructor(private readonly committed: Map<Key, Value>) {}
+  get(key: Key): Value | undefined {
+    const held = this.staged.get(key);
+    if (held !== undefined) return held ?? undefined;
+    return this.committed.get(key);
+  }
+  set(key: Key, value: Value): void { this.staged.set(key, value); }
+  /** Forgets the key when the transaction commits: a read after it looks the name up again. */
+  forget(key: Key): void { this.staged.set(key, null); }
+  /** Applies what the transaction staged; the owner calls it after COMMIT and never after a rollback. */
+  publish(): void {
+    for (const [key, value] of this.staged) if (value === null) this.committed.delete(key); else this.committed.set(key, value);
+  }
+}
+
+/**
+ * `memories` as this transaction sees it: `TransactionMemory` stages into the transaction and
+ * publishes through `afterCommit`. A transaction that rolls back keeps its staged writes to itself,
+ * so what a rolled-back transaction made is not answered as standing by the next one.
+ */
+export async function transactionMemoryIn<Key, Value>(tx: SqlExecutor, memories: WeakMap<DatabaseOwner, { readonly token: string; readonly value: Map<Key, Value> }>, create: () => Map<Key, Value>): Promise<TransactionMemory<Key, Value> | undefined> {
+  const committed = await storeMemoryIn(tx, memories, create);
+  if (committed === undefined) return undefined;
+  const memory = new TransactionMemory(committed);
+  tx.afterCommit?.(() => memory.publish());
+  return memory;
+}

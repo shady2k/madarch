@@ -23,7 +23,7 @@ own writes at the statement's own start instead of paying a `clock_timestamp()` 
   make.
 
 ## Rationale
-The fill's trace (ALX-1785) put 12 438 of 14 824 statements and 53.1 s in the engine reading itself:
+The fill's trace put 12 438 of 14 824 statements and 53.1 s in the engine reading itself:
 `system.run` 774 times, `system.unit` 598 times, the write rights rebuilt 154 times in 10.9 s. Those
 are defects of how the engine reads itself, not of the model, so they are fixed in the reading.
 
@@ -62,12 +62,22 @@ generation's own record carries no replacement and stands in no state a run give
 generation, or one a run may retry), which is the only way a replacement is opened. Publication
 remembers a producer's installation per contract revision and granted permissions, and reads the
 product and the plugin's metadata as one batch before it binds from it, so a changed installation
-(another version, a lost identity, another store) is discovered and repaired as before. Reads that
-must see a transaction's own writes ask for `currentStatement` instead of reading a clock first, and
-the fill's service reads do so.
+(another version, a lost identity, another store) is discovered and repaired as before. What one
+transaction finds or makes about a store is remembered only when that transaction commits
+(`TransactionMemory`, published through the owner's `afterCommit`), so a planning transaction that
+rolled back leaves no generation to be answered as standing by the next one. Reads that must see a
+transaction's own writes ask for `currentStatement` instead of reading a clock first, and the
+fill's service reads do so.
 
 Measured on box alx1788-perf, one in-process fill of the status-work fixture: 15 103 statements to
 11 958 (-21 %), clock round-trips 1 989 to 272, installation discoveries 154 to 15, installation
-locks 400 to 261, the fill 146.3 s to 137.3 s. A scheduler pass resolves no service vertex by name
-after the first, whatever the run holds (test/scheduler-snapshot.test.ts), and repeated transactions
-at an unchanged revision read no installation identity (test/startup-binding-cache.test.ts).
+locks 400 to 261, the fill 146.3 s to 137.3 s. The same trace counts the engine's reads of its own
+vertices before the change: 463 name lookups of `system.run` and 372 of `system.unit` — each a walk
+from the name's value table to the vertex — beside 284 and 117 record reads by id. After it, neither
+name lookup stands among the fill's 20 most frequent statements (the least of those ran 134 times),
+and the reads that answer the same question by id rose from 402 to 703 statements. The reads
+therefore still happen once per transaction, by identity, which is what F1.3 leaves to F5. A
+scheduler pass resolves no service vertex by name after the first, whatever the run holds
+(test/scheduler-snapshot.test.ts), repeated transactions at an unchanged revision read no
+installation identity (test/startup-binding-cache.test.ts), and a planning transaction that rolled
+back leaves no generation behind (test/fill-state-identity-cache.test.ts).
