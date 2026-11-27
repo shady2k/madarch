@@ -182,13 +182,14 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     lastKinds.current = '';
     sync(new Set(), false);
   };
+  const updateSelection = (next: Set<string>): void => {
+    setSelected(next);
+    sync(next, true);
+  };
   const toggle = (ids: readonly string[], add: boolean): void => {
-    setSelected((held) => {
-      const next = new Set(held);
-      for (const id of ids) { if (add) next.add(id); else next.delete(id); }
-      sync(next, true);
-      return next;
-    });
+    const next = new Set(selected);
+    for (const id of ids) { if (add) next.add(id); else next.delete(id); }
+    updateSelection(next);
   };
 
   const needle = lower(search.trim(), language);
@@ -207,8 +208,14 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
   };
   const areas = areasOf(navigation, matches, language);
   const kindsOf = (area: Area): NavigationKind[] => [...area.direct, ...area.subgroups.flatMap((subgroup) => subgroup.kinds)];
-  const shownCount = areas.reduce((sum, one) => sum + kindsOf(one).length, 0);
-  const shownRecords = areas.reduce((sum, one) => sum + kindsOf(one).reduce((inner, kind) => inner + kind.count, 0), 0);
+  const shownKinds = allPlan === undefined ? [] : areas.flatMap(kindsOf);
+  const shownRecords = shownKinds.reduce((sum, kind) => sum + kind.count, 0);
+  const selectionActions = (
+    <>
+      <Button variant="ghost" size="default" onClick={() => updateSelection(new Set())} data-testid="catalogue-clear-selection">{t('catalogue.clearSelection')}</Button>
+      <Button variant="ghost" size="default" onClick={() => toggle(shownKinds.map((kind) => kind.kind), true)} data-testid="catalogue-select-all">{t('catalogue.selectAll')}</Button>
+    </>
+  );
   /** The header's and each area's line: how many kinds stand here and how many records the graph holds of them. */
   const totalsOf = (kinds: readonly NavigationKind[]): string =>
     `${t('knowledge.catalogueKinds', { count: kinds.length })}, ${t('knowledge.catalogueEntities', { count: kinds.reduce((sum, kind) => sum + kind.count, 0) })}`;
@@ -319,8 +326,13 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
               <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId="catalogue-fill-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
             </Stack>
             <Stack className="flex flex-wrap items-center gap-3">
-              <Text className="text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: shownCount })}{', '}{t('knowledge.catalogueEntities', { count: shownRecords })}</Text>
-              {selecting ? <Button size="default" variant={onlySelected ? 'default' : 'ghost'} onClick={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Button> : null}
+              <Text className="text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: shownKinds.length })}{', '}{t('knowledge.catalogueEntities', { count: shownRecords })}</Text>
+              {selecting ? (
+                <>
+                  <Button size="default" variant={onlySelected ? 'default' : 'ghost'} onClick={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Button>
+                  {selectionActions}
+                </>
+              ) : null}
             </Stack>
             {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
             {areas.map((top) => (
@@ -349,6 +361,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
           <Stack className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-page px-4 py-2 shadow-sm" data-testid="catalogue-bottom">
             <Text className="text-small" data-testid="catalogue-selected-count">{t('catalogue.selectedCount', { count: selected.size })}{' · '}{t('catalogue.dependencyCount', { count: added.size })}</Text>
             <InlineGroup className="mb-0 gap-2">
+              {selectionActions}
               <Button variant="default" size="default" disabled={selection.length === 0} disabledReason={t('catalogue.chooseKind')} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
             </InlineGroup>
           </Stack>
