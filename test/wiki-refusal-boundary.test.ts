@@ -81,6 +81,7 @@ test('publication 503s keep their status and retry headers with client-safe mess
     for (const [location, shown] of [
       [`${join(import.meta.dir, '..', 'src', 'graph', 'manifest-publication.ts')}:22`, detail],
       ['/$bunfs/root/madarch-linux-x64:123:4', detail],
+      ['Error: /$bunfs/root/madarch-linux-x64:123:4', detail],
       [productLocation, `${productLocation}: ${detail}`],
     ]) {
       const full = `${location}: ${detail}`;
