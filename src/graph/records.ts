@@ -260,7 +260,7 @@ type CurrentEvidenceLink = {
 };
 
 async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
-  return (await tx.query<CurrentEvidenceLink>(`
+  return await withSpan('graph.currentEvidence.links', {}, async () => (await tx.query<CurrentEvidenceLink>(`
     WITH links AS MATERIALIZED (
       SELECT a.assertion_id,a.property,origin.uid::text AS assertion_uid,e.to_node,e.discriminator,
         (origin.uid::text || ':' || e.uid::text) COLLATE "C" AS cursor
@@ -285,7 +285,7 @@ async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: numbe
     LEFT JOIN edge relation ON relation.id=ae.edge_id
     JOIN entity kind ON kind.id=coalesce(vertex.entity_id,relation.entity_id)
     JOIN node target ON target.id=links.to_node JOIN entity target_kind ON target_kind.id=target.entity_id
-    ORDER BY links.cursor`, [after, limit, now])).rows;
+    ORDER BY links.cursor`, [after, limit, now])).rows);
 }
 
 /** Evaluate current assertion support without rewriting its independent historical validity. */
