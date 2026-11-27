@@ -19,7 +19,7 @@ afterAll(() => { GlobalRegistrator.unregister(); });
 const entry = (kind: string): string => `e-${kind}`;
 
 function kind(name: string, over: Partial<NavigationKind> = {}): NavigationKind {
-  return { kind: name, one: name, many: `${name} rows`, definition: null, taken: true, group: 'code', nav: null, count: 1, entryId: entry(name), purpose: null, audience: null, ...over };
+  return { kind: name, one: name, many: `${name} rows`, definition: null, taken: true, authored: false, group: 'code', nav: null, count: 1, entryId: entry(name), purpose: null, audience: null, ...over };
 }
 
 type Navigation = Parameters<typeof FrameNavigation>[0]['navigation'];

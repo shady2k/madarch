@@ -174,6 +174,7 @@ type CatalogueEntity implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2150,6 +2151,7 @@ interface Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2407,6 +2409,7 @@ type KindAccounting implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2447,6 +2450,7 @@ type KindActivity implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2489,6 +2493,7 @@ type KindActivityNode implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2536,6 +2541,7 @@ type KindAgent implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2580,6 +2586,7 @@ type KindAgentSession implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2624,6 +2631,7 @@ type KindAgentUsage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2662,6 +2670,7 @@ type KindBusinessProcess implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2708,6 +2717,7 @@ type KindC4Component implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2752,6 +2762,7 @@ type KindChaosExperiment implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2796,6 +2807,7 @@ type KindClassDiagram implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2838,6 +2850,7 @@ type KindCodeAuthor implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2879,6 +2892,7 @@ type KindCodeBlob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2920,6 +2934,7 @@ type KindCodeBroker implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -2963,6 +2978,7 @@ type KindCodeChannel implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3007,6 +3023,7 @@ type KindCodeCiJob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3052,6 +3069,7 @@ type KindCodeCiWorkflow implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3096,6 +3114,7 @@ type KindCodeColumn implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3151,6 +3170,7 @@ type KindCodeCommit implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3213,6 +3233,7 @@ type KindCodeComposeService implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3262,6 +3283,7 @@ type KindCodeContract implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3311,6 +3333,7 @@ type KindCodeConvention implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3357,6 +3380,7 @@ type KindCodeCycle implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3398,6 +3422,7 @@ type KindCodeDatabase implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3441,6 +3466,7 @@ type KindCodeDebt implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3486,6 +3512,7 @@ type KindCodeDirectory implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3532,6 +3559,7 @@ type KindCodeDockerfile implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3575,6 +3603,7 @@ type KindCodeDocumentSection implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3624,6 +3653,7 @@ type KindCodeEntryPoint implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3666,6 +3696,7 @@ type KindCodeEnvDefinition implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3709,6 +3740,7 @@ type KindCodeEnvVar implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3753,6 +3785,7 @@ type KindCodeField implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3802,6 +3835,7 @@ type KindCodeFile implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3886,6 +3920,7 @@ type KindCodeGitlink implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3929,6 +3964,7 @@ type KindCodeHealthEndpoint implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -3974,6 +4010,7 @@ type KindCodeImage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4018,6 +4055,7 @@ type KindCodeIndex implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4063,6 +4101,7 @@ type KindCodeInput implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4104,6 +4143,7 @@ type KindCodeK8sDeployment implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4154,6 +4194,7 @@ type KindCodeK8sService implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4198,6 +4239,7 @@ type KindCodeLockfile implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4244,6 +4286,7 @@ type KindCodeLogger implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4288,6 +4331,7 @@ type KindCodeMakeTarget implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4331,6 +4375,7 @@ type KindCodeManifest implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4379,6 +4424,7 @@ type KindCodeMessage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4421,6 +4467,7 @@ type KindCodeMetric implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4468,6 +4515,7 @@ type KindCodeMetricsEndpoint implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4515,6 +4563,7 @@ type KindCodeMigration implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4556,6 +4605,7 @@ type KindCodeModule implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4605,6 +4655,7 @@ type KindCodeNewcomerCommand implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4648,6 +4699,7 @@ type KindCodeOperation implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4698,6 +4750,7 @@ type KindCodePackage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4742,6 +4795,7 @@ type KindCodePort implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4783,6 +4837,7 @@ type KindCodeProcess implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4828,6 +4883,7 @@ type KindCodeRepository implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4898,6 +4954,7 @@ type KindCodeRoute implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -4945,6 +5002,7 @@ type KindCodeService implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5010,6 +5068,7 @@ type KindCodeSnapshot implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5048,6 +5107,7 @@ type KindCodeSqlBuild implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5089,6 +5149,7 @@ type KindCodeSqlSink implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5130,6 +5191,7 @@ type KindCodeSymbol implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5194,6 +5256,7 @@ type KindCodeTable implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5242,6 +5305,7 @@ type KindCodeTestCase implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5298,6 +5362,7 @@ type KindCodeTestQuarantine implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5347,6 +5412,7 @@ type KindComment implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5390,6 +5456,7 @@ type KindConstitution implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5433,6 +5500,7 @@ type KindContainerHealthCheck implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5487,6 +5555,7 @@ type KindCorrection implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5542,6 +5611,7 @@ type KindDataJob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5585,6 +5655,7 @@ type KindDataJobRun implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5628,6 +5699,7 @@ type KindDataset implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5670,6 +5742,7 @@ type KindDefect implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5724,6 +5797,7 @@ type KindDocDecision implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5781,6 +5855,7 @@ type KindDocRequirement implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5827,6 +5902,7 @@ type KindDocRule implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5869,6 +5945,7 @@ type KindDocTerm implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5921,6 +5998,7 @@ type KindDocUseCase implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -5969,6 +6047,7 @@ type KindDocument implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6019,6 +6098,7 @@ type KindDomain implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6069,6 +6149,7 @@ type KindDomainEntity implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6110,6 +6191,7 @@ type KindDrill implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6154,6 +6236,7 @@ type KindEpic implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6206,6 +6289,7 @@ type KindEvent implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6244,6 +6328,7 @@ type KindEvidence implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6288,6 +6373,7 @@ type KindFeature implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6340,6 +6426,7 @@ type KindFieldSet implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6380,6 +6467,7 @@ type KindGuide implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6422,6 +6510,7 @@ type KindHandoff implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6468,6 +6557,7 @@ type KindIamRole implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6510,6 +6600,7 @@ type KindIdea implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6556,6 +6647,7 @@ type KindIncident implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6608,6 +6700,7 @@ type KindJobRun implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6655,6 +6748,7 @@ type KindK8sAutoscaler implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6691,6 +6785,7 @@ type KindK8sConfigmap implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6727,6 +6822,7 @@ type KindK8sCronjob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6763,6 +6859,7 @@ type KindK8sDaemonset implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6799,6 +6896,7 @@ type KindK8sIngress implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6835,6 +6933,7 @@ type KindK8sJob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6871,6 +6970,7 @@ type KindK8sNamespace implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6907,6 +7007,7 @@ type KindK8sPod implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6943,6 +7044,7 @@ type KindK8sSecret implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -6979,6 +7081,7 @@ type KindK8sStatefulset implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7015,6 +7118,7 @@ type KindKind implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7062,6 +7166,7 @@ type KindKnownIssue implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7106,6 +7211,7 @@ type KindKubernetesCluster implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7142,6 +7248,7 @@ type KindKubernetesNode implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7178,6 +7285,7 @@ type KindLinkBehaviour implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7222,6 +7330,7 @@ type KindLinkType implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7268,6 +7377,7 @@ type KindLogicalDataModel implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7309,6 +7419,7 @@ type KindManifestCatalogue implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7351,6 +7462,7 @@ type KindManifestDependency implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7391,6 +7503,7 @@ type KindManifestField implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7431,6 +7544,7 @@ type KindManifestRelation implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7471,6 +7585,7 @@ type KindManifestWorkflow implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7511,6 +7626,7 @@ type KindManifestWorkflowStage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7553,6 +7669,7 @@ type KindMerge implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7599,6 +7716,7 @@ type KindMilestone implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7645,6 +7763,7 @@ type KindMlModel implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7681,6 +7800,7 @@ type KindNodePool implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7717,6 +7837,7 @@ type KindOperation implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7755,6 +7876,7 @@ type KindPageTemplate implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7795,6 +7917,7 @@ type KindPermission implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7837,6 +7960,7 @@ type KindPerson implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7892,6 +8016,7 @@ type KindPlugin implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7936,6 +8061,7 @@ type KindPractice implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -7982,6 +8108,7 @@ type KindPrinciple implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8028,6 +8155,7 @@ type KindProblem implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8066,6 +8194,7 @@ type KindProcessEvent implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8111,6 +8240,7 @@ type KindProcessGateway implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8156,6 +8286,7 @@ type KindProcessStep implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8201,6 +8332,7 @@ type KindProduct implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8248,6 +8380,7 @@ type KindProductProfile implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8301,6 +8434,7 @@ type KindProposedKind implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8353,6 +8487,7 @@ type KindQuestion implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8413,6 +8548,7 @@ type KindQuestionSide implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8454,6 +8590,7 @@ type KindResponsibility implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8494,6 +8631,7 @@ type KindReviewFinding implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8539,6 +8677,7 @@ type KindRole implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8589,6 +8728,7 @@ type KindRun implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8627,6 +8767,7 @@ type KindRuntimeScenario implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8670,6 +8811,7 @@ type KindScenarioStep implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8717,6 +8859,7 @@ type KindScheduledJob implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8762,6 +8905,7 @@ type KindScreen implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8798,6 +8942,7 @@ type KindSetting implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8836,6 +8981,7 @@ type KindSkill implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8882,6 +9028,7 @@ type KindSource implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8926,6 +9073,7 @@ type KindStage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -8972,6 +9120,7 @@ type KindState implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9019,6 +9168,7 @@ type KindStateEvent implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9060,6 +9210,7 @@ type KindStateMachine implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9106,6 +9257,7 @@ type KindSuppression implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9153,6 +9305,7 @@ type KindSystemAssertion implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9189,6 +9342,7 @@ type KindSystemAuthoredImport implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9229,6 +9383,7 @@ type KindSystemChain implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9271,6 +9426,7 @@ type KindSystemContentSnapshot implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9311,6 +9467,7 @@ type KindSystemDisputePin implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9355,6 +9512,7 @@ type KindSystemDisputeQuestion implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9401,6 +9559,7 @@ type KindSystemDisputeResolution implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9443,6 +9602,7 @@ type KindSystemFillTransition implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9497,6 +9657,7 @@ type KindSystemKindApplicability implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9537,6 +9698,7 @@ type KindSystemMerge implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9565,6 +9727,7 @@ type KindSystemMergeAllocation implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9615,6 +9778,7 @@ type KindSystemMergeQuestion implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9655,6 +9819,7 @@ type KindSystemOperation implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9701,6 +9866,7 @@ type KindSystemProblem implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9746,6 +9912,7 @@ type KindSystemProduct implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9783,6 +9950,7 @@ type KindSystemProgress implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9833,6 +10001,7 @@ type KindSystemRun implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9913,6 +10082,7 @@ type KindSystemRunSelection implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -9961,6 +10131,7 @@ type KindSystemRunStage implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10005,6 +10176,7 @@ type KindSystemRunTarget implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10047,6 +10219,7 @@ type KindSystemTrackedRead implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10095,6 +10268,7 @@ type KindSystemUnit implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10179,6 +10353,7 @@ type KindSystemUnitCacheVersion implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10231,6 +10406,7 @@ type KindSystemUnread implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10273,6 +10449,7 @@ type KindTask implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10336,6 +10513,7 @@ type KindTechnicalDebt implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10376,6 +10554,7 @@ type KindTechnology implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10418,6 +10597,7 @@ type KindTestResult implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10462,6 +10642,7 @@ type KindTransition implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10504,6 +10685,7 @@ type KindUnit implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10542,6 +10724,7 @@ type KindUseCaseStep implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10587,6 +10770,7 @@ type KindValueSet implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10636,6 +10820,7 @@ type KindValueSetEntry implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10683,6 +10868,7 @@ type KindWorkSpan implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10736,6 +10922,7 @@ type KindWorkflow implements Entity {
   kind: String!
   label: String!
   template: String!
+  revision: String
   contested: [String!]!
   details: [Detail!]!
   trail: [Entity!]!
@@ -10944,6 +11131,7 @@ type NavigationKind {
   many: String!
   definition: String
   taken: Boolean!
+  authored: Boolean!
   group: String
   nav: String
   count: Int!

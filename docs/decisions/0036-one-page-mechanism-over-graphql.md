@@ -86,16 +86,17 @@ parallel; a change to it is a change to this record.
 - **Scalars**: text → `String`, integer → `Int`, bigint → `BigInt` (decimal string), boolean →
   `Boolean`, timestamp → `DateTime` (ISO 8601 with offset), json → `JSON`. A nullable contract
   field is nullable; every value is nullable on read (see 2).
-- **Interface** `Entity { id: ID!  kind: String!  label: String!  template: String!  contested:
+- **Interface** `Entity { id: ID!  kind: String!  label: String!  template: String!  revision: String  contested:
   [String!]!  backlinks(first: Int, after: String): BacklinkConnection! }`. `id` is the stable
-  uid of 0034 item 2.
+  uid of 0034 item 2. For an authored entity, `revision` is the latest recorded sequence for its existence and fields.
+  Authored edits and deletes use it as the `If-Match` precondition.
 - **Roots**: `entity(id: ID!): Entity`, one list root per type, `catalogueEntity(name: String!):
   CatalogueEntity`, `home: Entity` (the product entity), `search(text: String!, kinds: [String!],
   first: Int, after: String): EntityConnection!` (labels and text fields), `bootstrap: Bootstrap!`,
   `revision: Revision!`, and `navigation: Navigation!` — the frame's one read, added with the portal frame's
   return: `{ product: String  groups: [{ name  labels  short  open  parent }]  kinds: [{ kind  one  many
-  group  count  entryId }] }`, the manifest's groups and every kind it declares with its names in the reader's
-  language, the entities the graph holds of it and the id of its catalogue entry. The sidebar draws itself from
+  group  count  entryId  authored }] }`, the manifest's groups and every kind it declares with its names in the reader's
+  language, the entities the graph holds of it, the id of its catalogue entry and whether a person can author its entities. The sidebar draws itself from
   that answer alone, so the app still names no kind; a page is still one operation. Every root takes `lang: String`
   (default the reader's language).
 - **Bootstrap** `{ structureRevision: String!  home: { id: ID!  kind: String!  template: String! }
@@ -253,7 +254,8 @@ sections:
   nothing out. Command components: `catalogue` (the catalogue's reading and explicit selection
   mode), `prepare` (the one preparation panel a press starts from), `runs` (the history of fills),
   `fill-kind` (a kind page's press into that panel), `run` (a fill run's progress), `settings-form`,
-  `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
+  `problem-actions`, `authored` (create, edit and delete through the guarded authored command),
+  `sources` (the Sources page's documents and repositories); they call the command
   API and read what they show from the graph or the retained command reads. The app names no kind.
   The top bar's «Заполнить…» entry opens the catalogue in selection mode while no run is live; a live
   run replaces it with its progress. The old `/p/fill` address opens the same selection mode. The first
@@ -268,7 +270,7 @@ sections:
   `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
   `catalogue`, `prepare`, `runs`, `first-run` and `sources` (no parameters); `fill-kind { kindPath* }`;
-  `run { runVariable* }`; `settings-form { group* }`; `problem-actions { path* }`. A template naming an unknown
+  `run { runVariable* }`; `authored { mode*: create|edit }`; `settings-form { group* }`; `problem-actions { path* }`. A template naming an unknown
   component, parameter or undeclared query field produces a finding on the affected page and in Problems, with the file
   and line. It does not refuse the product or prevent other pages from serving (owner clarification,
   2026-11-14, madarch-64o5.71).

@@ -53,16 +53,16 @@ const graphql = async (query: string, variables: Record<string, unknown> = {}): 
 };
 
 /** The one authored entity the product's kind holds, by uid, as the graph states it. */
-const readNote = async (uid: string): Promise<{ id: string; title: string; count: number | null } | null> => {
-  const answer = await graphql(`query ($id: ID!) { entity(id: $id) { ... on KindNote { id title count } } }`, { id: uid });
+const readNote = async (uid: string): Promise<{ id: string; revision: string; title: string; count: number | null } | null> => {
+  const answer = await graphql(`query ($id: ID!) { entity(id: $id) { id revision ... on KindNote { title count } } }`, { id: uid });
   expect(answer.errors, JSON.stringify(answer.errors)).toBeUndefined();
-  return answer.data!['entity'] as { id: string; title: string; count: number | null } | null;
+  return answer.data!['entity'] as { id: string; revision: string; title: string; count: number | null } | null;
 };
 
 test('the authored entity is created, updated and deleted through the command API, and read through GraphQL', async () => {
   const invalid = await send('POST', { values: { title: 3 } });
   expect(invalid.status, JSON.stringify({ body: await invalid.clone().text(), errors })).toBe(400);
-  expect(await invalid.json()).toMatchObject({ error: { field: 'title' } });
+  expect(await invalid.json()).toMatchObject({ error: { code: 'SCHEMA_INVALID', path: '/values/title' } });
   const created = await send('POST', { values: { title: 'A person said this', count: 1 }, words: '  exact words\r\n' });
   expect(created.status).toBe(201);
   const made = await created.json() as { entity: { uid: string; id: string; revision: string } };
@@ -71,13 +71,21 @@ test('the authored entity is created, updated and deleted through the command AP
   // The read moved to the one read API: the write route answers no GET (the path exists, the method is not offered), and
   // the entity is a graph entity.
   expect((await fetch(`${base}&uid=${made.entity.uid}`)).status).toBe(405);
-  expect(await readNote(made.entity.uid)).toMatchObject({ id: made.entity.uid, title: 'A person said this', count: 1 });
+  expect(await readNote(made.entity.uid)).toMatchObject({ id: made.entity.uid, revision: made.entity.revision, title: 'A person said this', count: 1 });
+  expect(await graphql('{ navigation { kinds { kind authored } } catalogueEntity(name: "note") { revision fields { name type nullable } } }')).toMatchObject({
+    data: {
+      navigation: { kinds: expect.arrayContaining([{ kind: 'note', authored: true }]) },
+      catalogueEntity: { revision: null, fields: expect.arrayContaining([{ name: 'title', type: 'text', nullable: false }, { name: 'count', type: 'integer', nullable: true }]) },
+    },
+  });
   expect((await fetch(`${server.url}/products/authored/api/status`)).status).toBe(200);
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env: authoredEnv });
   try { expect(await product.reset()).toMatchObject({ ok: false, message: expect.stringContaining('person-authored history') }); } finally { await product.close(); }
   const changed = await send('PATCH', { values: { count: 2 } }, made.entity.uid);
   expect(changed.status).toBe(200);
-  expect(await changed.json()).toMatchObject({ entity: { values: { title: 'A person said this', count: 2 } } });
+  const updated = await changed.json() as { entity: { revision: string; values: unknown } };
+  expect(updated).toMatchObject({ entity: { values: { title: 'A person said this', count: 2 } } });
+  expect(await readNote(made.entity.uid)).toMatchObject({ revision: updated.entity.revision });
   const foreign = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: '{"values":{"title":"No"}}' });
   expect(foreign.status).toBe(403);
   expect((await send('DELETE', {}, made.entity.uid)).status).toBe(200);
@@ -111,7 +119,7 @@ test('conditional HTTP edits preserve intervening fields and report conflicts wi
   expect(await unrelated.json()).toMatchObject({ entity: { values: { title: 'Bob title', count: 2 } } });
   const conflict = await patch({ title: 'Alice stale title' });
   expect(conflict.status).toBe(412);
-  expect(await conflict.json()).toMatchObject({ error: { field: 'title', conflict: { field: 'title', current: 'Bob title', author: authenticatedPersonUid } } });
+  expect(await conflict.json()).toMatchObject({ error: { field: 'title', message: expect.stringMatching(/^field "title": changed since revision/u), conflict: { field: 'title', current: 'Bob title', author: authenticatedPersonUid } } });
   await send('DELETE', {}, made.entity.uid);
 }, 30_000);
 

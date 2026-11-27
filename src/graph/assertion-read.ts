@@ -133,6 +133,10 @@ function assertionJSON(this: StoredAssertion): Omit<StoredAssertion, 'recordedSe
   return { ...this, recordedSequence: this.recordedSequence.toString() };
 }
 
+export function assertionRevision(rows: readonly StoredAssertion[]): string {
+  return String(rows.reduce((latest, row) => row.recordedSequence > latest ? row.recordedSequence : latest, 0n));
+}
+
 /** Numeric ids are internal joins only; all exposed identities are graph uids. */
 export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'edge', kind: string, properties: readonly string[], subjectIds?: readonly number[], selector?: AssertionSqlSelector): Promise<StoredAssertion[]> {
   return (await loadAssertionsBatch(executor, [{ sort, kind, properties, ...(subjectIds === undefined ? {} : { subjectIds }) }], selector))[0]!;

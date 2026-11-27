@@ -183,7 +183,7 @@ export function createKnowledgePart(
     } catch (error) {
       if (error instanceof GraphRefusal) return { response: json(400, { error: error.toJSON() }) };
       if (error instanceof AuthoredRefusal && error.refusal !== undefined) return { response: json(error.status, { error: error.refusal }) };
-      if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...('conflict' in error && error.conflict !== undefined ? { conflict: error.conflict as { field: string; current: unknown; author: string } } : {}) });
+      if (error instanceof AuthoredRefusal) return refused(error.status, { message: stripEngineLocation(error.message), logMessage: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...(error.conflict === undefined ? {} : { conflict: error.conflict }) });
       if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
         errorLog(`the knowledge wiki could not ${what}: ${error.message}`);
