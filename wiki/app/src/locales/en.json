@@ -1467,6 +1467,7 @@
       "unstated": "No opinion holds it",
       "key": "key",
       "stated": "Stated by {{producer}}",
+      "statedFor": "Stated by {{producer}} for {{author}}",
       "place": "at {{place}}",
       "opinions": "{{count}} opinions"
     },

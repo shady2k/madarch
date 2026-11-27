@@ -17,7 +17,8 @@ import { withSpanSync } from '../obs/trace.js';
  */
 import { here } from '../model/raise.js';
 import { executeManualOperation } from '../graph/manual-operation.js';
-import type { ProducerBinding } from '../graph/producer-binding.js';
+import { producerIdentityOf, type ProducerBinding } from '../graph/producer-binding.js';
+import { whoIsTheUser } from '../identity/identity.js';
 type ResolveDisputeInput = Extract<Parameters<typeof executeManualOperation>[2], { kind: 'resolve-dispute' }>['input'];
 import { setProductOperationRunState } from '../graph/operation-host.js';
 import { failRequestedFill } from './fill-run.js';
@@ -392,7 +393,7 @@ export class KnowledgeProduct {
       const writing = action === 'create' || action === 'update' || action === 'delete';
       const by = writing ? await localIdentity(this.folder, { ...process.env, ...this.options.env }) : undefined;
 
-      const binding = writing ? await personBinding(owner, graphContractOf(read.manifest), by) : undefined;
+      const binding = by === undefined ? undefined : await personBinding(owner, graphContractOf(read.manifest), by.name);
       const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => {
         const result = await authoredEntity(tx, read.manifest, identity.name, binding, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args);
         if (writing) {
@@ -408,7 +409,8 @@ export class KnowledgeProduct {
         this.kindCountsCache.clear();
         this.notify();
       }
-      return answer;
+      if (binding === undefined || by === undefined) return answer;
+      return { ...answer, author: { id: producerIdentityOf(binding).principalUid, label: by.name } };
     });
   }
 
@@ -422,7 +424,8 @@ export class KnowledgeProduct {
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
       if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner, identity.name))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
-      const result = await importAuthored(this.folder, authoredImportHost(owner, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'authored-import')), read.manifest, identity.name, `person:${by.name} <${by.email}>`);
+      const binding = await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'authored-import', by.name);
+      const result = await importAuthored(this.folder, authoredImportHost(owner, binding), read.manifest, identity.name, `person:${by.name} <${by.email}>`);
       this.generation += 1;
       if (this.reader !== undefined) this.reader.seq = this.generation;
       this.filesMemo = undefined;
@@ -717,7 +720,8 @@ export class KnowledgeProduct {
     const owner: DatabaseOwner = await this.open();
     const manifest = await owner.transaction('snapshot', tx => readPublishedManifest(tx));
     if (!manifest) throw new WriteRefusal('the graph holds no published manifest');
-    return await agentBinding(owner, withAssertionContract(writeContractOf(manifest)), session);
+    const who = whoIsTheUser(this.folder, undefined, { ...process.env, ...this.options.env });
+    return await agentBinding(owner, withAssertionContract(writeContractOf(manifest)), session, who.ok ? who.identity.name : undefined);
   }
 
   /** An authenticated person's value-pinned decision uses the same durable fence and receipt as writes. */
@@ -2814,7 +2818,7 @@ export class KnowledgeProduct {
         rule: problem.rule, fingerprint, reason: record.statement,
         title: record.title, description: record.body,
         ...(target?.uid === undefined ? {} : { about: { kind: target.kind, key: {}, uid: target.uid } }),
-      } }, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'problem-task'));
+      } }, await personOperationBinding(owner, withAssertionContract(writeContractOf(read.manifest)), 'problem-task', by.name));
     } catch (error) {
       // The graph's own refusal is said in the reader's language, and their reason is kept in the server's log; every other
       // failure is a defect of this process and is not dressed up as the reader's.

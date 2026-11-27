@@ -24,7 +24,7 @@ import { listDisputeSlots, loadResolutionAssertion, type DisputeSlot } from './d
 import { contextLayers } from './context.js';
 import { evidenceSupportRoles } from './evidence-support.js';
 import { readEvidenceStates, type EvidenceState } from './evidence-read.js';
-import { withAssertionContract, vertexKindPresentSql } from './system-contract.js';
+import { identityDisplayFields, PERSON_DISPLAY_LABEL_VERSION, withAssertionContract, vertexKindPresentSql } from './system-contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
@@ -435,6 +435,16 @@ export class ReadContext {
       if (keyField?.type !== 'text') continue;
       const read = await this.fieldRead(entity, keyField);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
+    }
+    const identity = identityDisplayFields(entity.kind);
+    if (identity !== undefined) {
+      const [label, version] = await Promise.all([
+        this.fieldRead(entity, identity.label),
+        identity.version === undefined ? undefined : this.fieldRead(entity, identity.version),
+      ]);
+      if ((version === undefined || version.value === PERSON_DISPLAY_LABEL_VERSION) && typeof label.value === 'string' && label.value !== '') return label.value;
+      const labels = this.manifest.kinds.get(entity.kind)?.labels;
+      return labels?.[entity.lang ?? this.lang]?.one ?? labels?.[this.fallbackLang]?.one ?? entity.kind;
     }
     return entity.uid;
   }
