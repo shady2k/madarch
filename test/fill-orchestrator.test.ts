@@ -139,6 +139,8 @@ async function openWorld(options: {
   /** The clock the run reads; a test that reopens a world over one owner moves one clock across both. */
   clock?: ReturnType<typeof testClock>;
   sink?: import('../src/fill/orchestrator.js').ProgressSink;
+  /** Where the orchestrator's own lines go, as the host would hear them. */
+  readonly log?: (line: string) => void;
   queueFactory?: (queue: QueueService) => QueueService;
 }): Promise<World> {
   const lent = options.owner !== undefined;
@@ -176,6 +178,7 @@ async function openWorld(options: {
     operations: fixtureOperations(owner),
     clock: clock.now,
     ...(options.sink === undefined ? {} : { sink: options.sink }),
+    ...(options.log === undefined ? {} : { log: options.log }),
     limits,
     ...(options.guard === undefined ? {} : { guard: options.guard }),
     ...(options.control === undefined ? {} : { control: options.control }),
@@ -2158,8 +2161,7 @@ describe('immediate operation transactions (decision 0039)', () => {
     expect(heartbeats).toBe(finished);
   }, 15_000);
 
-  test.each(['refused', 'rejected'] as const)('heartbeat %s aborts the attempt and stops touching', async mode => {
-    const failure = new Error('heartbeat storage failure');
+  test('heartbeat false aborts the attempt and stops touching', async () => {
     let heartbeats = 0;
     let aborted = false;
     const stage = fakeStage('snapshot', {
@@ -2179,7 +2181,6 @@ describe('immediate operation transactions (decision 0039)', () => {
           if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => {
             heartbeats++;
             if (heartbeats === 1) return await target.heartbeat(...args);
-            if (mode === 'rejected') throw failure;
             await opened.owner.run(tx => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = NULL WHERE id = $1`, [args[1].id]));
             return false;
           };
@@ -2189,39 +2190,104 @@ describe('immediate operation transactions (decision 0039)', () => {
       }),
     });
     await admitUnits(opened.orchestrator, { runId });
-    const work = workOnce(opened.orchestrator, { worker: 'worker-1' });
-    if (mode === 'rejected') await expect(work).rejects.toBe(failure);
-    else expect(await work).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
     expect(aborted).toBe(true);
     const finished = heartbeats;
     await Bun.sleep(400);
     expect(heartbeats).toBe(finished);
   }, 15_000);
 
-  test.each([new Error('stage failed while heartbeat failed'), 'stage failed while heartbeat failed'])('heartbeat failure retains the original stage throw: %s', async stageFailure => {
-    const failure = new Error('heartbeat storage failure');
-    let calls = 0;
-    const stage = fakeStage('snapshot', {
-      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: async (_unit, context) => {
-        await new Promise<void>(resolve => { if (context.signal.aborted) resolve(); else context.signal.addEventListener('abort', () => resolve(), { once: true }); });
-        throw stageFailure;
-      },
-    });
-    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 }, queueFactory: queue => new Proxy(queue, {
+  /**
+   * The queue a transient touch failure is made from: the first touch is answered for real, the second rejects
+   * with `failure`, and the third marks `touched` — so a stage that waits for the mark continues only after the
+   * rejection has been handled, whatever order the runtime runs the microtasks in.
+   */
+  function touchingQueue(failure: Error, touched: () => void, fenceLapsed?: () => boolean): (queue: QueueService) => QueueService {
+    let heartbeats = 0;
+    return queue => new Proxy(queue, {
       get: (target, key) => {
-        if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => { if (++calls === 1) return await target.heartbeat(...args); throw failure; };
+        if (key === 'heartbeat') return async (...args: Parameters<QueueService['heartbeat']>) => {
+          if (++heartbeats === 2) throw failure;
+          if (heartbeats === 3) touched();
+          return await target.heartbeat(...args);
+        };
+        if (key === 'fence' && fenceLapsed !== undefined) return async (...args: Parameters<QueueService['fence']>) => fenceLapsed() ? false : await target.fence(...args);
         const value = Reflect.get(target, key, target);
         return typeof value === 'function' ? value.bind(target) : value;
       },
-    }) });
+    });
+  }
+
+  test('a transient heartbeat rejection keeps the finished stage result and is recorded', async () => {
+    const failure = new Error('heartbeat storage failure');
+    const logged: string[] = [];
+    let aborted = false;
+    let touched!: () => void;
+    const touches = new Promise<void>(resolve => { touched = resolve; });
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context) => {
+        context.signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+        await touches;
+        return { outcome: 'draft' };
+      },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 },
+      log: line => logged.push(line),
+      queueFactory: touchingQueue(failure, () => touched()),
+    });
     await admitUnits(opened.orchestrator, { runId });
-    let caught: unknown;
-    try { await workOnce(opened.orchestrator, { worker: 'worker-1' }); } catch (error) { caught = error; }
-    expect(caught).toBeInstanceOf(AggregateError);
-    expect((caught as AggregateError).errors[0]).toBe(stageFailure);
-    expect((caught as AggregateError).message).toBe('the stage raised: stage failed while heartbeat failed; heartbeat failed');
-    expect((caught as AggregateError).errors[1]).toBe(failure);
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'published', job: 'completed' });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+    expect(aborted).toBe(false);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain('snapshot/src');
+    expect(logged[0]).toContain('heartbeat storage failure');
+  }, 15_000);
+
+  test('a lapsed claim after a heartbeat rejection is refused, not published', async () => {
+    const failure = new Error('heartbeat storage failure');
+    const logged: string[] = [];
+    let lapsed = false;
+    let touched!: () => void;
+    const touches = new Promise<void>(resolve => { touched = resolve; });
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async () => { await touches; lapsed = true; return { outcome: 'draft' }; },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6 },
+      log: line => logged.push(line),
+      queueFactory: touchingQueue(failure, () => touched(), () => lapsed),
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'refused', refusal: { code: 'fill-orchestrator/claim-lapsed' }, job: 'none' });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).not.toBe('published');
+    const events = await readProgress(opened.owner, runId);
+    expect(events.filter(event => event.kind === 'unit-published')).toHaveLength(0);
+    expect(logged.some(line => line.includes('heartbeat storage failure'))).toBe(true);
+  }, 15_000);
+
+  test('a stage raise keeps its own reason when a touch failed', async () => {
+    const failure = new Error('heartbeat storage failure');
+    const stageFailure = new Error('stage failed while heartbeat failed');
+    const logged: string[] = [];
+    let touched!: () => void;
+    const touches = new Promise<void>(resolve => { touched = resolve; });
+    const stage = fakeStage('snapshot', {
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async () => { await touches; throw stageFailure; },
+    });
+    const { world: opened, runId } = await plannedWorld({
+      registry: new StageRegistry().register(stage), limits: { heartbeatSeconds: 0.6, retries: 0 },
+      log: line => logged.push(line),
+      queueFactory: touchingQueue(failure, () => touched()),
+    });
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-1' })).toMatchObject({ result: 'failed', summary: 'the stage raised: stage failed while heartbeat failed' });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
+    expect(logged.some(line => line.includes('heartbeat storage failure'))).toBe(true);
   }, 15_000);
 
   test.each(['complete', 'bound', 'blocked', 'split'] as const)('attempt cleanup traces a deferred heartbeat rejection after %s commits', async path => {
