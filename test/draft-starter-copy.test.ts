@@ -14,7 +14,8 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { closureOf } from '../src/plugin/closure.js';
-import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
+import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
+import { closureOptionsFor } from '../src/plugin/dependency-store.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
 import { probeUnit } from '../src/plugin/conformance.js';
 import type { PluginContractDeclaration } from '../src/plugin/protocol.js';
@@ -72,8 +73,10 @@ describe('the starter set a draft copies', () => {
     if (!lock.ok) throw new Error(lock.message);
     for (const plugin of BUNDLED_PLUGINS) {
       const installed = join(folder, plugin.folder);
-      const closure = closureOf(installed);
-      expect(closure.hash).toBe(bundledClosureHash(plugin));
+      // The draft carries the plugin's sources; the packages its closure declares the release restores into the machine
+      // store, here the test's own folder (madarch-64o5.72).
+      const closure = closureOf(installed, closureOptionsFor(installed, join(root, 'store')));
+      expect(closure.hash).toBe(plugin.hash);
       expect(closure.hash).toBe(closureOf(join(import.meta.dir, '..', plugin.folder)).hash);
       expect(lock.entries.find((entry) => entry.id === plugin.id)?.closure).toBe(closure.hash);
       const output = execFileSync(process.execPath, ['scripts/madarch.ts', 'plugin', 'check', installed, ...probeArgs(installed)], {

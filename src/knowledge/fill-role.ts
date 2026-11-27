@@ -227,7 +227,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         }
         // A file's text waits on this process, not on a fill (madarch-u3vw.16): the pages' requests are answered between
         // fills, through the same plugin read the agent's file reads use.
-        await serveFileTexts(held.queue).catch((error: unknown) => {
+        await serveFileTexts(held.queue, { store: held.storeFolder }).catch((error: unknown) => {
           log(`madarch fill: the store ${storeFolder} could not answer a file read: ${error instanceof Error ? error.message : String(error)}`);
         });
         const job = await claimFillRun(held.queue).catch((error: unknown) => {

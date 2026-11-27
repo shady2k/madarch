@@ -168,11 +168,15 @@ export async function pluginCommand(args: readonly string[]): Promise<number> {
     work = parsed.work ?? mkdtempSync(join(os.tmpdir(), 'madarch-plugin-'));
     trace = openTrace({ store: work, runId: `plugin-${parsed.verb}-${String(process.pid)}` });
     const workRoot = work;
+    // A product's plugin folder carries its sources and its lock, not its packages (madarch-64o5.72): the release restores
+    // them into the command's own scratch folder, so a product's plugin is checked exactly as its fill would run it.
+    const store = workRoot;
     return await runInTrace(trace, async () => {
       console.log(`work: ${workRoot}`);
       if (parsed.verb === 'check') {
         const report = await checkConformance({
           pluginFolder: parsed.folder,
+          store,
           ...(parsed.repository === undefined ? {} : { repository: parsed.repository }),
           workRoot,
           ...(parsed.units.length === 0 ? {} : { units: parsed.units }),
@@ -183,6 +187,7 @@ export async function pluginCommand(args: readonly string[]): Promise<number> {
       const work: RunnerUnit[] = parsed.units.map((unit) => ({ pluginFolder: parsed.folder, unit }));
       const results = await runUnits({
         repository: parsed.repository!,
+        store,
         workRoot,
         trust: 'production',
         settings: { pluginsAtOnce: parsed.plugins, unitsPerPlugin: parsed.unitsPerPlugin },

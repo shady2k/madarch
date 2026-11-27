@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
+import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
 import { closureOf, readPluginManifest } from '../src/plugin/closure.js';
 
 describe('the bundled general agent producer', () => {
@@ -81,7 +81,7 @@ plugins:
       if (bundled === undefined) throw new Error('The release carries no general agent producer');
       expect(files).toContain('plugins/agent-fill/prompt.md');
       const folder = join(root, bundled.folder);
-      expect(closureOf(folder).hash).toBe(bundledClosureHash(bundled));
+      expect(closureOf(folder).hash).toBe(bundled.hash);
       const manifest = readPluginManifest(folder);
       expect(manifest.agent).toEqual({ prompt: 'prompt.md', roots: ['.'], catalogue: true });
       expect(readFileSync(join(folder, manifest.agent!.prompt), 'utf8').length).toBeGreaterThan(0);

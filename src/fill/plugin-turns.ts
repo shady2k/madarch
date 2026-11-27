@@ -31,7 +31,8 @@ import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from
 import { generatedTableName, graphContractVersion } from '../graph/contract.js';
 import { applyPluginFacts } from '../graph/graph-writes.js';
 import { producerFacts, reconciliationEndpoint } from '../graph/producer-facts.js';
-import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
+import { pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
+import { lockedClosureOf } from '../plugin/dependency-store.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { pluginLogFolder, recordFileName } from './run-records.js';
@@ -84,6 +85,12 @@ export interface PluginTurnWiring {
    * plugin's log stays only as long as the unit's scratch folder.
    */
   readonly traces?: string;
+  /**
+   * The product's machine store, where a plugin's dependency closure is restored from the release when the product's
+   * repository does not carry it (`src/plugin/dependency-store.ts`, madarch-64o5.72). Left out, a plugin whose folder holds
+   * no `node_modules` cannot resolve the packages it declares.
+   */
+  readonly store?: string;
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
   /** This machine and its person chose to run plugins without isolation (decision 0038): the turn's own choice. */
@@ -452,10 +459,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
   const meter = pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
-  const closure = withSpanSync('plugin.closure.verify', {}, () => closureOf(pluginFolder));
-  if (closure.hash !== unit.lock.closure) {
-    throw new Error(`${import.meta.path}:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
-  }
+  const closure = withSpanSync('plugin.closure.verify', {}, () => lockedClosureOf(pluginFolder, unit.lock, wiring.store, import.meta.path));
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
   let agentReport: PluginAgentReport | undefined;
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
@@ -592,6 +596,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
     ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, evidenceContracts: wiring.contract.vertex, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
+    // A read this turn's plugin makes through the core plugin (git) restores that plugin's packages here too
+    // (madarch-64o5.72): the product's repository carries none of them.
+    ...(wiring.store === undefined ? {} : { store: wiring.store }),
     repository: wiring.productFolder,
     graph: access.graph,
     operations: { apply: async (unitId, key, operation, preconditions, contractVersion) => {

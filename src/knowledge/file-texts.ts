@@ -94,7 +94,7 @@ function failureOf(error: unknown): string {
 }
 
 /** Answers the reads waiting on the queue: the api role's pages wait on these jobs. Answers how many were served. */
-export async function serveFileTexts(queue: QueueService, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void } = {}): Promise<number> {
+export async function serveFileTexts(queue: QueueService, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>>; readonly store?: string; readonly log?: (line: string) => void } = {}): Promise<number> {
   const jobs = await claimFileTexts(queue);
   for (const job of jobs) {
     try {

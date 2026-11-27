@@ -46,6 +46,11 @@ export interface ConformanceOptions {
   readonly platform?: string;
   readonly releaseHashes?: readonly string[];
   /**
+   * The machine store the release's dependencies are restored into when the folder carries no `node_modules`
+   * (madarch-64o5.72): the kit reads a product's plugin folder after `madarch init`, whose packages live there.
+   */
+  readonly store?: string;
+  /**
    * The graph a graph-reading plugin asks (decision 0035, item 15). The kit's own holds nothing: a plugin that reads
    * the graph is held to the protocol and its contract, and it answers an empty graph — it publishes nothing either
    * way. A caller that validates against real vertices passes its own.
@@ -127,6 +132,7 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
         lines.push({ ok: true, text: `agent: unit ${report.unitId}, session ${report.sessionId}, ${String(report.usage.turns)} turns` });
       } } }),
       pluginFolder: options.pluginFolder,
+      ...(options.store === undefined ? {} : { store: options.store }),
       repository: options.repository ?? options.pluginFolder,
       workRoot: join(options.workRoot, 'conformance'),
       trust: 'validation',
@@ -208,6 +214,7 @@ export async function checkReconciliationConformance(options: ConformanceOptions
   try {
     session = await new PluginHost({
       pluginFolder: options.pluginFolder, repository: options.repository ?? options.pluginFolder,
+      ...(options.store === undefined ? {} : { store: options.store }),
       workRoot: join(options.workRoot, 'reconciliation'), trust: 'validation', graph,
       ...(options.readBlob === undefined ? {} : { readBlob: options.readBlob }),
       operations: { apply: async (_unitId, _key, operation) => {

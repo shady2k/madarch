@@ -10,6 +10,14 @@ function closurePath(root: string, file: string): string {
   return relative(root, file).split(sep).join('/');
 }
 
+/**
+ * Whether a closure path is one a declared dependency makes: every file of a package the plugin's `package.json` names
+ * stands under the plugin's `node_modules`, and the plugin's own files never do.
+ */
+export function isDependencyPath(path: string): boolean {
+  return path.startsWith('node_modules/');
+}
+
 /** Every file under a folder, in code point order of their closure paths; a symlink is refused by name. */
 export function walk(folder: string, root = folder): { path: string; file: string }[] {
   const found: { path: string; file: string }[] = [];

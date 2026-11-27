@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { builtinModules } from 'node:module';
 import { ClosureRefusal } from './closure-refusal.js';
 export { ClosureRefusal } from './closure-refusal.js';
@@ -112,6 +112,11 @@ export interface ClosureFile {
   readonly mode: number;
   /** The bytes of a file madarch hands the plugin rather than one its folder holds: the SDK. */
   readonly content?: Uint8Array;
+  /**
+   * The file the bytes are read from: a closure's own file under its folder, and a dependency the machine store restored
+   * under the store (madarch-64o5.72). A snapshot copies from here, and a dependency tampered with after the hash fails it.
+   */
+  readonly source?: string;
 }
 
 /** One plugin's closure: its folder, its manifest, its files and their one hash. */
@@ -120,6 +125,11 @@ export interface Closure {
   readonly manifest: PluginManifest;
   readonly files: readonly ClosureFile[];
   readonly hash: string;
+  /**
+   * The folder the declared dependencies were read from, when it is not the plugin's own: the machine store's restored copy
+   * of the release's closure. Left out, the plugin's folder carries the packages itself, and the product chose them.
+   */
+  readonly dependencies?: string;
 }
 
 /** Locate a runtime import's literal, ignoring comments and unrelated string values. */
@@ -144,12 +154,13 @@ function importLine(text: string, name: string): number {
 }
 
 /** Resolve every statically named runtime import against precisely the files the snapshot will carry. */
-function validateImports(folder: string, files: readonly { path: string; file: string }[], entryPath: string): void {
+function validateImports(folder: string, files: readonly { path: string; file: string }[], entryPath: string, dependencies: string = folder): void {
   const held = new Map<string, (typeof files)[number]>();
   for (const file of files) {
     const path = resolve(file.file);
     if (!held.has(path)) held.set(path, file);
   }
+  const inDependencies = (file: string): boolean => resolve(file).startsWith(`${dependencies}${sep}`);
   const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`), 'bun', 'bun:ffi', 'bun:jsc', 'bun:sqlite', 'bun:test']);
   const pending = [files.find((file) => file.path === entryPath)!];
   const scanners = new Map<string, Bun.Transpiler>();
@@ -172,8 +183,13 @@ function validateImports(folder: string, files: readonly { path: string; file: s
       catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
       for (const imported of imports) {
         if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
+        // A package is resolved where a plugin of this closure would find it: the plugin's own folder when the product
+        // carries the packages, and the machine store's restored copy otherwise (madarch-64o5.72). A file of that copy
+        // resolves its own packages the way its folder stands, exactly as `node_modules` inside the plugin's folder did.
+        const bare = !imported.path.startsWith('.') && !isAbsolute(imported.path);
+        const from = bare && !inDependencies(entry.file) ? dependencies : dirname(entry.file);
         let target: string;
-        try { target = Bun.resolveSync(imported.path, dirname(entry.file)); } catch (error) {
+        try { target = Bun.resolveSync(imported.path, from); } catch (error) {
           const line = importLine(text, imported.path);
           throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
         }
@@ -324,14 +340,26 @@ export function sdkClosureFiles(): ClosureFile[] {
  * through declared dependencies, in code point order. Imports are resolved before
  * the hash is returned; nothing outside those files may satisfy an import.
  */
-export function closureOf(folder: string): Closure {
+export interface ClosureOptions {
+  /**
+   * The folder the plugin's declared dependencies resolve from when its own folder carries no `node_modules`: the machine
+   * store's restored copy of the release's closure (`src/plugin/dependency-store.ts`, madarch-64o5.72). A folder that holds
+   * its own packages decides for itself — a product that vendors its libraries keeps them — and this is not read.
+   */
+  readonly dependencies?: string;
+}
+
+export function closureOf(folder: string, options: ClosureOptions = {}): Closure {
   folder = resolve(folder);
   const manifest = readPluginManifest(folder);
   const missing: ClosureRefusal[] = [];
-  const entries = withSpanSync('plugin.closure.files', {}, () => [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))]);
+  // The product's own packages win (the file class of madarch-64o5.66): a closure whose folder carries `node_modules` runs
+  // those bytes, and only a folder that carries none is given the store's copy of the release's closure.
+  const dependencies = existsSync(join(folder, 'node_modules')) || options.dependencies === undefined ? folder : resolve(options.dependencies);
+  const entries = withSpanSync('plugin.closure.files', {}, () => [...walk(folder), ...dependencyFiles(dependencies, (error) => missing.push(error))]);
   const own = withSpanSync('plugin.closure.hash', { 'madarch.plugin.files': entries.length }, () => entries.map((entry) => {
     const stat = lstatSync(entry.file);
-    return { path: entry.path, sha256: digestOf(readFileSync(entry.file)), bytes: stat.size, mode: stat.mode & 0o777 };
+    return { path: entry.path, sha256: digestOf(readFileSync(entry.file)), bytes: stat.size, mode: stat.mode & 0o777, source: resolve(entry.file) };
   }));
   if (!own.some((file) => file.path === manifest.entry)) {
     throw new ClosureRefusal('plugin-entry', `${WHERE}:1: ${join(folder, manifest.entry)} is the entry ${PLUGIN_MANIFEST_FILE} names, and the plugin folder holds no such file`, join(folder, manifest.entry));
@@ -340,10 +368,10 @@ export function closureOf(folder: string): Closure {
   if (ownSdk !== undefined) {
     throw new ClosureRefusal('plugin-sdk-conflict', `${WHERE}:1: ${join(folder, ownSdk.path)} stands in the plugin's folder, and madarch hands every plugin its own SDK at that name: remove the copy, and import ${SDK_PACKAGE} from the closure madarch builds`, join(folder, ownSdk.path));
   }
-  validateImports(folder, entries, manifest.entry);
+  validateImports(folder, entries, manifest.entry, dependencies);
   if (missing[0] !== undefined) throw missing[0];
   const files = [...own, ...sdkClosureFiles()].sort((left, right) => byCodePoint(left.path, right.path));
-  return { folder, manifest, files, hash: closureHashOf(files) };
+  return { folder, manifest, files, hash: closureHashOf(files), ...(dependencies === folder ? {} : { dependencies }) };
 }
 
 /** The runtime pin this host runs plugins with: the Bun it is built on, by its own version. */
