@@ -7,7 +7,7 @@
  * deterministic part only and says which fields stay unfilled. The page is separate and full width on a phone; a wide
  * screen keeps it in a reading column.
  */
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
@@ -22,7 +22,6 @@ import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, STACK_LAYOUT, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
-import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
@@ -40,6 +39,7 @@ const PLUGINS_ONLY = 'plugins-only';
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
 export function PrepareSection({ context, inline = false }: { readonly context: SectionContext; readonly inline?: boolean }): ReactElement {
   const { t, i18n } = useTranslation();
+  const descriptionId = useId();
   const connection = useConnection();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
@@ -74,7 +74,6 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const requiresAgent = needsAgent.length > 0;
   const errors = plan?.errors ?? [];
   const skipped = plan?.skipped ?? [];
-  const emptyFields = needsAgent.reduce((total, need) => total + need.fields.length, 0);
   const runnable = (plan?.order.length ?? 0) > 0;
   // The product's default cap fills the field until the person types another (madarch-64o5.90): an empty field is the
   // default, never a refusal, and a typed cap is this run's alone.
@@ -105,6 +104,22 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const sendsAgent = !pluginsOnly && requiresAgent;
   const agentReady = !sendsAgent || (agent !== null && usableAgent && agentChoices !== null);
   const settingsReady = !sendsAgent || settings.data !== null;
+  const offlineReason = connection.offline ? t('connection.actionsDisabled') : null;
+  const settingsReason = !settingsReady ? settings.error ?? t('prepare.loadingSettings') : null;
+  const agentReason = !agentReady
+    ? !usableAgent ? t('prepare.chooseAvailableAgent') : choices.error ?? t('prepare.loadingAgentChoices')
+    : null;
+  const isolationReason = offlineReason ?? (isolationSaving ? t('common.saving') : null);
+  const defaultsReason = offlineReason ?? (savedDefaults === 'saving' ? t('common.saving') : agentReason ?? settingsReason);
+  const runDisabledReason = offlineReason
+    ?? (busy ? t('prepare.starting') : null)
+    ?? (planRead.busy ? t('prepare.loadingPlan') : null)
+    ?? (errors.length > 0 ? t('prepare.fixPlanErrors') : null)
+    ?? (isolationBlocked ? t('prepare.isolationRequired') : null)
+    ?? (!runnable ? t('prepare.nothingToRun') : null)
+    ?? (!validCap ? t('prepare.invalidCap') : null)
+    ?? agentReason
+    ?? settingsReason;
 
   // A link with another selection or mode, or the back button, starts the panel from that address again.
   useEffect(() => {
@@ -146,7 +161,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
     saveReaderIsolation(base, choice).then(() => { setIsolationSaving(false); context.machine?.reload(); }, (error: unknown) => { setIsolationSaving(false); setFailure(isOffline(error) ? null : error instanceof Error ? error.message : String(error)); });
   };
   const run = (): void => {
-    if (connection.offline || plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady || isolationBlocked) return;
+    if (plan === undefined || runDisabledReason !== null) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -170,6 +185,11 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   if (planRead.error !== null) return <Alert variant="problem" data-testid="prepare-error"><AlertDescription>{planRead.error}</AlertDescription></Alert>;
   if (plan === undefined) return <Skeleton className="h-10 w-80" data-testid="prepare-loading" />;
 
+  const deferredKinds = pluginsOnly ? skipped.filter((entry) => entry.applicability === undefined && planKindOf(plan, entry.kind)?.agentOnly) : [];
+  const unfilled = new Map([...needsAgent, ...deferredKinds].map((entry) => [entry.kind, entry]));
+  const wholeKinds = [...unfilled.keys()].filter((kind) => planKindOf(plan, kind)?.agentOnly).length;
+  const emptyFields = [...unfilled.values()].reduce((total, need) => total + need.fields.length, 0);
+  const otherSkips = skipped.filter((entry) => !deferredKinds.includes(entry));
   const added = new Map(plan.added.map((entry) => [entry.kind, entry.neededBy]));
   // The estimate beside the press: time, and the most the run may spend when it runs an agent.
   const minutes = fillEstimate(plan.units.length, requiresAgent && !pluginsOnly ? needsAgent.length : 0);
@@ -186,8 +206,8 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
             <AlertDescription>
               {t('prepare.isolationQuestion', { reason: isolation.reason })}
               <InlineGroup className="mt-2 flex flex-wrap gap-2">
-                <Button variant="default" size="default" disabled={connection.offline || isolationSaving} onClick={() => saveIsolation(true)} data-testid="prepare-isolation-run">{t('prepare.isolationRun')}</Button>
-                <Button variant="outline" size="default" disabled={connection.offline || isolationSaving} onClick={() => saveIsolation(false)} data-testid="prepare-isolation-no">{t('prepare.isolationNo')}</Button>
+                <Button variant="default" size="default" disabled={isolationReason !== null} disabledReason={isolationReason ?? ''} onClick={() => saveIsolation(true)} data-testid="prepare-isolation-run">{t('prepare.isolationRun')}</Button>
+                <Button variant="outline" size="default" disabled={isolationReason !== null} disabledReason={isolationReason ?? ''} onClick={() => saveIsolation(false)} data-testid="prepare-isolation-no">{t('prepare.isolationNo')}</Button>
               </InlineGroup>
             </AlertDescription>
           </Alert>
@@ -256,11 +276,11 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
               );
             })}
           </PlainList>
-          {skipped.length === 0 ? null : (
+          {otherSkips.length === 0 ? null : (
             <Stack className="mt-3 grid gap-2" data-testid="prepare-skipped">
               <Text className="text-small font-medium">{t('prepare.skippedTitle')}</Text>
               <PlainList className="m-0 list-none p-0">
-                {skipped.map((entry) => (
+                {otherSkips.map((entry) => (
                   <ListItem key={`${entry.kind}:${entry.fields.join(',')}`} className="text-small text-muted">
                     <Text className="font-medium">{labelOf(navigation, entry.kind)}</Text>{t('common.separator')}
                     {entry.applicability === undefined ? (entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason) : (
@@ -270,6 +290,9 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
                         {entry.applicability.ancestor === undefined ? null : <Paragraph className="m-0">{t('applicability.ancestor', { kind: labelOf(navigation, entry.applicability.ancestor) })}</Paragraph>}
                       </>
                     )}
+                    {pluginsOnly && entry.applicability === undefined && entry.fields.length > 0 ? (
+                      <Paragraph className="m-0">{t('prepare.unfilledFields', { fields: entry.fields.map((field) => fieldLabel(plan, entry.kind, field, language)).join(', ') })}</Paragraph>
+                    ) : null}
                   </ListItem>
                 ))}
               </PlainList>
@@ -289,10 +312,10 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
             <RadioGroup value={who} onValueChange={choose} aria-label={t('prepare.who')} className="mb-3" data-testid="prepare-who">
               {agents.data.agents.map((offer) => (
                 <ChoiceCard key={offer.id} data-testid={`prepare-agent-${offer.id}`} data-chosen={agent === offer.id ? 'true' : 'false'} data-available={agentUsable(offer) ? 'true' : 'false'}>
-                  <RadioGroupItem value={offer.id} aria-label={offer.label} disabled={!agentUsable(offer)} />
+                  <RadioGroupItem value={offer.id} aria-label={offer.label} disabled={!agentUsable(offer)} aria-describedby={!agentUsable(offer) ? `${descriptionId}-${offer.id}` : undefined} />
                   <Text className="min-w-0 flex-1 text-small">
                     <Text className="block font-medium">{offer.label}</Text>
-                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>
+                    <Text className="block text-muted" id={`${descriptionId}-${offer.id}`} data-testid={`prepare-agent-state-${offer.id}`}>
                     {!offer.installed ? (
                       <>{t('prepare.agentNotInstalled')} <TextLink href={PAGE_ADDRESSES.settings} onClick={(event) => { event.preventDefault(); context.open(PAGE_ADDRESSES.settings); }} data-testid={`prepare-agent-install-${offer.id}`}>{t('prepare.agentInstall')}</TextLink></>
                     ) : offer.login === 'signed-in' ? t('prepare.agentSignedIn') : offer.login === 'not-signed-in' ? t('prepare.agentNotSignedIn', { agent: offer.label }) : null}
@@ -309,17 +332,23 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
               </ChoiceCard>
             </RadioGroup>
           )}
-          {pluginsOnly && needsAgent.length > 0 ? (
-            <Disclosure className="mb-3" data-testid="prepare-unfilled">
+          {pluginsOnly && unfilled.size > 0 ? (
+            <Disclosure open className="mb-3" data-testid="prepare-unfilled">
               <DisclosureSummary className="cursor-pointer text-small text-muted" data-testid="prepare-unfilled-summary">
-                {t('prepare.unfilledSummary', { fields: t('prepare.fieldsN', { count: emptyFields }), kinds: t('prepare.kindsN', { count: needsAgent.length }) })}
+                {wholeKinds > 0 ? t('prepare.unfilledDetails') : t('prepare.unfilledSummary', { fields: t('prepare.fieldsN', { count: emptyFields }), kinds: t('prepare.kindsN', { count: unfilled.size }) })}
               </DisclosureSummary>
               <PlainList className="m-0 mt-2 list-none p-0">
-                {needsAgent.map((need) => (
-                  <ListItem key={need.kind} className="text-small text-muted" data-testid="prepare-unfilled-kind">
-                    {t('prepare.unfilledKind', { kind: labelOf(navigation, need.kind), fields: need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ') })}
-                  </ListItem>
-                ))}
+                {[...unfilled.values()].map((need) => {
+                  const kind = labelOf(navigation, need.kind);
+                  const fields = need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ');
+                  const wholeKind = planKindOf(plan, need.kind)?.agentOnly === true;
+                  return (
+                    <ListItem key={need.kind} className="text-small text-muted" data-testid="prepare-unfilled-kind">
+                      {wholeKind ? t('prepare.unfilledWholeKind', { kind }) : t('prepare.unfilledKind', { kind, fields })}
+                      {wholeKind && fields !== '' ? <Paragraph className="m-0">{t('prepare.unfilledFields', { fields })}</Paragraph> : null}
+                    </ListItem>
+                  );
+                })}
               </PlainList>
             </Disclosure>
           ) : null}
@@ -339,24 +368,21 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
               {modelChoice === null && reasoningChoice === null ? null : (
-                <OfflineAction offline={connection.offline}>
-                  <Button variant="default" size="default" disabled={connection.offline || savedDefaults === 'saving' || !agentReady || !settingsReady} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
-                </OfflineAction>
+                <InlineGroup className="mb-0 gap-2">
+                  <Button variant="default" size="default" disabled={defaultsReason !== null} disabledReason={defaultsReason ?? ''} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
+                </InlineGroup>
               )}
             </Stack>
           ) : null}
           {!pluginsOnly && requiresAgent ? <Paragraph className="mt-2 text-small text-muted" data-testid="prepare-cap-note">{t('prepare.capNote')}</Paragraph> : null}
           {!pluginsOnly && requiresAgent && capNumber === null && defaultCap !== null ? <Paragraph className="mt-1 text-small text-muted" data-testid="prepare-cap-default">{t('prepare.capDefault', { cap: new Intl.NumberFormat(language).format(defaultCap) })}</Paragraph> : null}
-          {capInvalid ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-invalid-cap">{t('prepare.invalidCap')}</Paragraph> : null}
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <OfflineAction offline={connection.offline}>
-              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady || isolationBlocked} onClick={run} data-testid="prepare-run">
-                {t(busy ? 'prepare.starting' : 'prepare.run')}
-              </Button>
-            </OfflineAction>
-            {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
+            <Button variant="default" size="default" disabled={runDisabledReason !== null} disabledReason={runDisabledReason ?? ''} onClick={run} data-testid="prepare-run">
+              {t(busy ? 'prepare.starting' : 'prepare.run')}
+            </Button>
+            {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : null}
           </Stack>
         </CardContent>
       </Card>

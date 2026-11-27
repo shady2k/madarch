@@ -37,6 +37,7 @@ export interface FillPlanKind {
   readonly fields: readonly FillPlanField[];
   /** The fields an agent fills, alone or beside a producer it refines. */
   readonly agentFields: readonly string[];
+  readonly agentOnly?: true;
 }
 
 /** One unit the plan runs: an output of a plugin for a kind. */

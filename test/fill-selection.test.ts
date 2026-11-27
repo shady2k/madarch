@@ -12,6 +12,9 @@ import { writeOrchestration, readFillEnd } from '../src/graph/fill-orchestration
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { fillPlanView } from '../src/knowledge/fill-plan.js';
+import { fillTargets } from '../src/knowledge/fill-targets.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -71,6 +74,32 @@ describe('fill request settings', () => {
       expect(answer.response.status).toBe(400);
       expect((await answer.response.json()).error).toMatchObject({ field });
     });
+  }
+});
+
+test('a cycle can be planned without a saved agent and plugins-only identifies its agent-only prerequisite', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'madarch-cycle-plan-'));
+  try {
+    const draft = createDraft({ home: scratch, name: 'cycle-plan', gitEnv: gitEnv(IDENTITY) });
+    if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+    const read = readKinds(draft.folder);
+    if (!read.present) throw new Error(`The fixture has no kinds manifest at ${read.file}`);
+    for (const pluginsOnly of [false, true]) {
+      const requested = ['code.commit', 'code.cycle', 'code.file'];
+      const targets = fillTargets(read.manifest, requested, pluginsOnly);
+      if (!targets.ok) throw new Error(targets.message);
+      const { entries, order } = targets.targets;
+      const plan = fillPlanView(read.manifest, draft.folder, order, requested, entries, pluginsOnly);
+      expect(plan.errors).toEqual([]);
+      expect(plan.added).toContainEqual({ kind: 'code.module', neededBy: 'code.cycle' });
+      expect(plan.kinds.find((kind) => kind.kind === 'code.module')?.agentOnly).toBe(true);
+      expect(plan.kinds.find((kind) => kind.kind === 'code.cycle')?.agentOnly).toBe(true);
+      expect(plan.units).toContainEqual({ plugin: 'git', kind: 'code.commit' });
+      expect(plan.units.some((unit) => unit.kind === 'code.cycle')).toBe(!pluginsOnly);
+      if (pluginsOnly) expect(plan.skipped.find((entry) => entry.kind === 'code.module')?.fields).toContain('name');
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 });
 

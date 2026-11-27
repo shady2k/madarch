@@ -130,6 +130,6 @@ export function SourcePageSection({ context }: { readonly context: SectionContex
     <Metadata>{path}</Metadata>
     {moved ? <Metadata>{t('knowledge.source.moved')}</Metadata> : null}
     {answer.binary ? <Paragraph>{t('knowledge.source.binary')}</Paragraph> : <FileSource ref={box} lines={lines} wrap />}
-    {answer.next === null ? null : <Stack><Metadata>{t('knowledge.fileText.cut', { line: answer.next.line, column: answer.next.column })}</Metadata><Button disabled={busy} onClick={() => void more()}>{t('knowledge.source.more')}</Button>{busy ? <Metadata>{t('knowledge.source.loading')}</Metadata> : null}</Stack>}
+    {answer.next === null ? null : <Stack><Metadata>{t('knowledge.fileText.cut', { line: answer.next.line, column: answer.next.column })}</Metadata><Button disabled={busy} disabledReason={t('knowledge.source.loading')} onClick={() => void more()}>{t('knowledge.source.more')}</Button>{busy ? <Metadata>{t('knowledge.source.loading')}</Metadata> : null}</Stack>}
   </Stack>;
 }

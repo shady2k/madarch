@@ -12,7 +12,7 @@ export function FillEntry({ open }: { readonly open: (path: string) => void }): 
   const connection = useConnection();
   return (
     <OfflineAction offline={connection.offline}>
-      <Button variant="default" size="default" data-testid="fill-entry" disabled={connection.offline} onClick={() => open(catalogueSelectionAddress())}>
+      <Button variant="default" size="default" data-testid="fill-entry" disabled={connection.offline} disabledReason={t('connection.actionsDisabled')} onClick={() => open(catalogueSelectionAddress())}>
         {t('knowledge.fillRun.open')}
       </Button>
     </OfflineAction>

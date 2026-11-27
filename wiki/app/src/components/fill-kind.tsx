@@ -16,7 +16,7 @@ export function FillKindSection({ context }: { readonly context: SectionContext 
   const kind = valueAt(context.data, path);
   const name = typeof kind === 'string' && kind !== '' ? kind : null;
   return (
-    <Button variant="default" size="default" disabled={name === null} onClick={() => { if (name !== null) context.open(prepareAddress([name])); }} data-testid="fill-kind">
+    <Button variant="default" size="default" disabled={name === null} disabledReason={t('prepare.noKinds')} onClick={() => { if (name !== null) context.open(prepareAddress([name])); }} data-testid="fill-kind">
       {t('fillKind.button')}
     </Button>
   );

@@ -11,7 +11,7 @@
  * or failed — and a contents list follows the areas as the page scrolls. The state is the graph's count with the newest
  * run's own verdict on top of it.
  */
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
+import { useEffect, useId, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
@@ -117,6 +117,7 @@ function FilterSelect({ label, value, options, onChange, testId }: {
 
 export function CatalogueSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
+  const descriptionId = useId();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
   const base = context.base;
@@ -243,7 +244,8 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     const filled = filledBy(planKind);
     const applicability = planKind?.applicability;
     const needed = added.get(kind.kind);
-    const neededLabel = needed === undefined ? undefined : kindLabel(navigation, needed);
+    const neededLabel = needed === undefined ? undefined : kindLabel(navigation, needed) ?? needed;
+    const neededId = needed === undefined ? undefined : `${descriptionId}-${kind.kind}`;
     const error: FillPlanError | undefined = errors.get(kind.kind);
     const link = linkOf(kind);
     const state = stateOf(kind, failed);
@@ -254,6 +256,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <Checkbox
               checked={active.has(kind.kind)}
               disabled={needed !== undefined}
+              aria-describedby={neededId}
               onCheckedChange={() => toggle([kind.kind], !selected.has(kind.kind))}
               aria-label={kind.many}
               data-testid={`catalogue-kind-check-${kind.kind}`}
@@ -279,9 +282,13 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             )}
             {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
             {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
-            {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}
-            {error === undefined && filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-no-fields">{t('catalogue.noFields')}</Paragraph> : null}
-            {neededLabel === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-needed">{t('catalogue.neededFor', { kind: neededLabel })}</Paragraph>}
+            {planKind?.agentOnly ? (
+              <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentOnly')}</Paragraph>
+            ) : error === undefined && filled.agent.length > 0 ? (
+              <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph>
+            ) : null}
+            {error === undefined && !planKind?.agentOnly && filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-no-fields">{t('catalogue.noFields')}</Paragraph> : null}
+            {neededLabel === undefined ? null : <Paragraph className="m-0 text-small text-muted" id={neededId} data-testid="catalogue-needed">{t('catalogue.neededFor', { kind: neededLabel })}</Paragraph>}
           </Stack>
         </Stack>
       </ListItem>
@@ -341,7 +348,9 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
         {selecting ? (
           <Stack className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-page px-4 py-2 shadow-sm" data-testid="catalogue-bottom">
             <Text className="text-small" data-testid="catalogue-selected-count">{t('catalogue.selectedCount', { count: selected.size })}{' · '}{t('catalogue.dependencyCount', { count: added.size })}</Text>
-            <Button variant="default" size="default" disabled={selection.length === 0 || planRead.busy || (selectionPlan?.errors.length ?? 0) > 0} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
+            <InlineGroup className="mb-0 gap-2">
+              <Button variant="default" size="default" disabled={selection.length === 0} disabledReason={t('catalogue.chooseKind')} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
+            </InlineGroup>
           </Stack>
         ) : null}
       </Stack>

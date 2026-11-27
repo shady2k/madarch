@@ -110,8 +110,8 @@ function ProblemRow({ problem, base, open, refresh, say }: {
           {problem.by === null || problem.at === null ? null : <Text>{t('common.separator')}{t('loop.by', { name: problem.by.name, email: problem.by.email })}</Text>}
         </Paragraph>
         <Stack className="mt-2 flex flex-wrap items-center gap-2">
-          <Button size="default" disabled={working !== null} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>
-          <Button size="default" disabled={working !== null} onClick={task} data-testid="problem-create-task">{problem.task === undefined ? t('loop.problemCreateTask') : t('loop.problemOpenTask')}</Button>
+          <Button size="default" disabled={working !== null} disabledReason={t('common.actionInProgress')} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>
+          <Button size="default" disabled={working !== null} disabledReason={t('common.actionInProgress')} onClick={task} data-testid="problem-create-task">{problem.task === undefined ? t('loop.problemCreateTask') : t('loop.problemOpenTask')}</Button>
           {done === null ? null : <Text className="text-small text-muted" data-testid="problem-done">{done}</Text>}
           {error === null ? null : <Text className="text-small" role="alert" data-testid="problem-action-error">{error}</Text>}
         </Stack>
@@ -121,7 +121,7 @@ function ProblemRow({ problem, base, open, refresh, say }: {
               <Textarea className="mt-1 w-full" rows={2} value={reason} onInput={(event) => setReason(event.currentTarget.value)} data-testid="problem-dismiss-reason" />
             </FieldLabel>
             <Stack className="mt-1 flex gap-2">
-              <Button size="default" data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} onClick={act}>{t('loop.problemDismissConfirm')}</Button>
+              <Button size="default" data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} disabledReason={working !== null ? t('common.actionInProgress') : t('loop.explainDismissal')} onClick={act}>{t('loop.problemDismissConfirm')}</Button>
               <Button size="default" onClick={() => setAsking(false)}>{t('loop.cancel')}</Button>
             </Stack>
           </Stack>

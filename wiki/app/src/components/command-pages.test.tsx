@@ -42,7 +42,7 @@ const NAVIGATION = {
 const applicabilityFor = (kind: string) => ({ kind, state: 'not-searched' as const, reason: '', evidence: [], contested: false });
 
 const ALPHA = { kind: 'demo.alpha', applicability: applicabilityFor('demo.alpha'), fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
-const BETA = { kind: 'demo.beta', applicability: applicabilityFor('demo.beta'), fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
+const BETA = { kind: 'demo.beta', applicability: applicabilityFor('demo.beta'), fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'], agentOnly: true };
 const GAMMA = { kind: 'demo.gamma', applicability: applicabilityFor('demo.gamma'), fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
 
 const ALL_PLAN = {
@@ -287,7 +287,7 @@ async function settle(): Promise<void> {
   for (let at = 0; at < 12; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
-async function render(sections: Section[], variables: Record<string, unknown> = {}): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
+async function render(sections: Section[], variables: Record<string, unknown> = {}, navigation = NAVIGATION): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -297,7 +297,7 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
       runtime: {
-        base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null,
+        base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation, pageName: null,
         open: (path: string) => { opened.push(path); }, reload: () => undefined, role: 'everything',
         // The frame reads this machine's plugin isolation once (`/api/settings`); a page reads it from the runtime.
         machine: {
@@ -310,6 +310,10 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
   });
   await settle();
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
+}
+
+function buttonReason(button: Element | null): string | null | undefined {
+  return document.getElementById(button?.getAttribute('aria-describedby') ?? '')?.textContent;
 }
 
 /** One choice of a kit menu: its trigger is pressed and its item is chosen. */
@@ -367,7 +371,7 @@ test('the preparation plan lists an inapplicable skip with the recorded reason a
     expect(skipped?.textContent).toContain('Причина: В репозитории нет словаря');
     expect(skipped?.textContent).toContain('Унаследовано от: Файлы');
     expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
-    expect(page.container.querySelector('[data-testid="prepare-nothing"]')).not.toBeNull();
+    expect(buttonReason(page.container.querySelector('[data-testid="prepare-run"]'))).toContain('Запускать нечего');
   } finally { await page.close(); }
 });
 
@@ -475,6 +479,48 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
   } finally {
     await page.close();
   }
+});
+
+test('the catalogue lets a dependency cycle selection reach preparation without an agent', async () => {
+  const module = { ...BETA, kind: 'code.module', applicability: applicabilityFor('code.module') };
+  const cycle = { ...BETA, kind: 'code.cycle', applicability: applicabilityFor('code.cycle') };
+  const navigation = { ...NAVIGATION, kinds: [
+    { ...NAVIGATION.kinds[1]!, kind: 'code.module', many: 'Модули' },
+    { ...NAVIGATION.kinds[2]!, kind: 'code.cycle', many: 'Циклы зависимостей' },
+  ] };
+  planAnswer = { plan: { ...ALL_PLAN, kinds: [module, cycle], added: [{ kind: 'code.module', neededBy: 'code.cycle' }],
+    errors: [{ kind: 'code.cycle', fields: [], message: 'An input needs the agent' }] } };
+  const page = await render([section('catalogue', 'catalogue', {})], { select: '1' }, navigation);
+  try {
+    const button = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-prepare"]')!;
+    expect(button.disabled).toBe(true);
+    expect(button.nextElementSibling?.textContent).toBe('Выберите хотя бы один вид.');
+    const check = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-kind-check-code.cycle"]')!;
+    await act(async () => { check.click(); });
+    await settle();
+    expect(page.container.querySelector('[data-kind="code.module"] [data-testid="catalogue-agent-line"]')?.textContent).toBe('Заполнит агент');
+    expect(button.disabled).toBe(false);
+    await act(async () => { button.click(); });
+    expect(page.opened).toContain('/p/prepare?kinds=code.cycle');
+  } finally { await page.close(); }
+});
+
+test('the preparation panel names a whole unfilled kind and lets a newly picked agent run it', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.beta' });
+  try {
+    const button = page.container.querySelector<HTMLButtonElement>('[data-testid="prepare-run"]')!;
+    expect(button.disabled).toBe(true);
+    expect(buttonReason(button)).toContain('Запускать нечего');
+    const unfilled = page.container.querySelector<HTMLDetailsElement>('[data-testid="prepare-unfilled"]');
+    expect(unfilled?.open).toBe(true);
+    expect(unfilled?.textContent).toContain('Термины останутся пустыми целиком');
+    await act(async () => { page.container.querySelector<HTMLButtonElement>('[data-testid="prepare-agent-claude-code"] [role="radio"]')!.click(); });
+    await settle();
+    expect(button.disabled).toBe(false);
+    await act(async () => { button.click(); });
+    expect(requests.find((request) => request.path.endsWith('/api/fill-selected'))?.body).toMatchObject({ selected: ['demo.beta'], agent: 'claude-code' });
+    expect(page.opened).toContain('/p/run?run=fill-run-1');
+  } finally { await page.close(); }
 });
 
 test('the preparation panel shows every installed agent beside plugins-only, picks plugins-only by default, and runs the picked agent', async () => {
@@ -635,7 +681,7 @@ test('a skipped kind is named and nothing is pressed when no unit would run', as
     const text = page.container.textContent ?? '';
     expect(text).toContain('Пропущенные виды');
     expect(text).toContain('Термины');
-    expect(page.container.querySelector('[data-testid="prepare-nothing"]')?.textContent).toContain('Запускать нечего');
+    expect(buttonReason(page.container.querySelector('[data-testid="prepare-run"]'))).toContain('Запускать нечего');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
   } finally {
     await page.close();

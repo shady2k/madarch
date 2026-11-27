@@ -23,6 +23,8 @@ export interface FillPlanKind {
   readonly fields: readonly FillPlanField[];
   /** The fields an agent fills, alone or beside a producer it refines. */
   readonly agentFields: readonly string[];
+  /** This kind has an agent producer and no deterministic producer. */
+  readonly agentOnly?: true;
   readonly applicability: KindApplicability;
 }
 
@@ -73,13 +75,22 @@ export function fillPlanView(
   const plan = planManifestFill(manifest, folder, selectedKinds, true, requestedKinds);
   const run = pluginsOnly ? planManifestFill(manifest, folder, selectedKinds, false, requestedKinds, true) : plan;
   const agent = (plugin: string): boolean => manifest.plugins?.get(plugin)?.declaration?.agent !== undefined;
+  const deterministicKinds = new Set([...plan.outputs]
+    .filter(([plugin]) => !agent(plugin))
+    .flatMap(([, outputs]) => [...outputs.keys()]));
+  const agentKinds = new Set(plan.agentNeeds.map((need) => need.kind));
+  // A prerequisite can have agent fields even when the plan leaves its extraction for a direct request.
+  const deferredAgentKinds = new Set(plan.skipped
+    .filter((entry) => entry.reason === 'the agent fills it, and this fill does not ask for this kind')
+    .map((entry) => entry.kind));
   const kinds = plan.selectedKinds.map((kind) => {
     const declared = manifest.kinds.get(kind)?.fields ?? [];
     const fields = [...plan.fieldProducers(kind)].map(([field, producers]) => {
       const labels = declared.find((one) => one.name === field)?.labels;
       return { field, producers, ...(labels === undefined ? {} : { labels: { ...labels } }) };
     });
-    return { kind, fields, applicability: applicability.find(mark => mark.kind === kind) ?? {kind,state:'not-searched' as const,reason:'No applicability search recorded',evidence:[],contested:false}, agentFields: fields.filter((entry) => entry.producers.some(agent)).map((entry) => entry.field) };
+    const agentOnly = (agentKinds.has(kind) || deferredAgentKinds.has(kind)) && !deterministicKinds.has(kind);
+    return { kind, fields, applicability: applicability.find(mark => mark.kind === kind) ?? {kind,state:'not-searched' as const,reason:'No applicability search recorded',evidence:[],contested:false}, agentFields: fields.filter((entry) => entry.producers.some(agent)).map((entry) => entry.field), ...(agentOnly ? { agentOnly: true as const } : {}) };
   });
   const units = run.order.flatMap((plugin) => run.selectedKinds
     .filter((kind) => run.outputs.get(plugin)?.has(kind) === true && !(agent(plugin) && applicability.some(mark => mark.kind === kind && mark.state === 'inapplicable')))
