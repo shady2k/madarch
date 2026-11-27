@@ -389,6 +389,8 @@ test('the catalogue reads by default, in the catalogue\'s words, with counts, «
     expect(text).toContain('Заполнит агент: Определение');
     expect(page.container.querySelector('[data-testid="catalogue-select"]')).not.toBeNull();
     expect(page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="catalogue-clear-selection"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="catalogue-select-all"]')).toBeNull();
     // Search reads the definition too.
     const search = page.container.querySelector('[data-testid="catalogue-search"]') as HTMLInputElement;
     await act(async () => { type(search, 'Термин продукта'); });
@@ -479,6 +481,84 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
     expect(page.opened).toContain('/p/prepare?kinds=demo.gamma');
   } finally {
     await page.close();
+  }
+});
+
+test('bulk catalogue selection stays in sync with the address when search and show selected hide kinds', async () => {
+  const kinds = 'demo.alpha,demo.beta,demo.gamma';
+  window.history.replaceState({}, '', `/p/catalogue?select=1&kinds=${encodeURIComponent(kinds)}`);
+  const page = await render([section('catalogue', 'catalogue', {})], { select: '1', kinds });
+  try {
+    const bottom = page.container.querySelector('[data-testid="catalogue-bottom"]')!;
+    const showSelected = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-show-selected"]')!;
+    const filters = showSelected.parentElement!;
+    const search = page.container.querySelector<HTMLInputElement>('[data-testid="catalogue-search"]')!;
+    const prepare = bottom.querySelector<HTMLButtonElement>('[data-testid="catalogue-prepare"]')!;
+    const count = bottom.querySelector('[data-testid="catalogue-selected-count"]')!;
+    const clear = (where: Element) => where.querySelector<HTMLButtonElement>('[data-testid="catalogue-clear-selection"]')!;
+    const selectAll = (where: Element) => where.querySelector<HTMLButtonElement>('[data-testid="catalogue-select-all"]')!;
+    const query = () => new URLSearchParams(window.location.search);
+
+    for (const where of [filters, bottom]) {
+      expect(clear(where)?.textContent).toBe('Снять выбор со всего');
+      expect(selectAll(where)?.textContent).toBe('Выбрать всё');
+    }
+    expect(count.textContent).toContain('Выбрано 3 вида');
+    await act(async () => { type(search, 'Файл'); });
+    await act(async () => { showSelected.click(); });
+    expect(page.container.querySelectorAll('[data-kind]')).toHaveLength(1);
+    expect(query().get('kinds')).toBe(kinds);
+
+    await act(async () => { clear(bottom).click(); });
+    expect(count.textContent).toContain('Не выбрано ни одного вида');
+    expect(query().get('select')).toBe('1');
+    expect(query().has('kinds')).toBe(false);
+    expect(prepare.disabled).toBe(true);
+    expect(prepare.nextElementSibling?.textContent).toBe('Выберите хотя бы один вид.');
+    for (const disabled of page.container.querySelectorAll('button:disabled')) {
+      expect(buttonReason(disabled)?.trim().length ?? 0).toBeGreaterThan(0);
+    }
+
+    expect(page.container.querySelectorAll('[data-kind]')).toHaveLength(0);
+    await act(async () => { selectAll(filters).click(); });
+    expect(query().has('kinds')).toBe(false);
+    await act(async () => { showSelected.click(); });
+    await act(async () => { selectAll(filters).click(); });
+    expect(count.textContent).toContain('Выбран 1 вид');
+    expect(query().get('kinds')).toBe('demo.alpha');
+    expect(checkedOf(page.container.querySelector('[data-testid="catalogue-kind-check-demo.alpha"]'))).toBe(true);
+    expect(prepare.disabled).toBe(false);
+
+    await act(async () => { clear(filters).click(); });
+    expect(count.textContent).toContain('Не выбрано ни одного вида');
+    expect(query().has('kinds')).toBe(false);
+    await act(async () => { type(search, ''); });
+    expect(page.container.querySelectorAll('[data-testid^="catalogue-kind-check-"][data-state="checked"]')).toHaveLength(0);
+    await act(async () => { selectAll(bottom).click(); });
+    expect(count.textContent).toContain('Выбрано 3 вида');
+    expect(query().get('kinds')).toBe(kinds);
+  } finally {
+    await page.close();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test.each([
+  ['catalogue-area', 'demo.docs', 'demo.beta,demo.gamma', 'Выбрано 2 вида'],
+  ['catalogue-taken-filter', 'out', 'demo.beta', 'Выбран 1 вид'],
+  ['catalogue-fill-filter', 'plugins', 'demo.alpha,demo.gamma', 'Выбрано 2 вида'],
+])('select all uses the %s filter', async (menu, value, kinds, count) => {
+  const page = await render([section('catalogue', 'catalogue', {})], { select: '1' });
+  try {
+    await choose(page.container, menu, value);
+    const bottom = page.container.querySelector('[data-testid="catalogue-bottom"]')!;
+    const selectAll = bottom.querySelector<HTMLButtonElement>('[data-testid="catalogue-select-all"]')!;
+    await act(async () => { selectAll.click(); });
+    expect(new URLSearchParams(window.location.search).get('kinds')).toBe(kinds);
+    expect(bottom.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain(count);
+  } finally {
+    await page.close();
+    window.history.replaceState({}, '', '/');
   }
 });
 
